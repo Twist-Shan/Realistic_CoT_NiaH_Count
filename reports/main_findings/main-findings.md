@@ -1,0 +1,77 @@
+# Main findings of NIAH
+
+**Paths to key directories**
+
+- Local repo: [`NIAH/`](NIAH/)
+- Run folders: current directory, mostly `run_*/`
+- Instructions: [`gather_run_results.md`](gather_run_results.md)
+- Repo overview and plan: [`NIAH/README.md`](NIAH/README.md), [`NIAH/plan-v3.md`](NIAH/plan-v3.md)
+
+## Auto summary of experiments
+
+[Auto summary of experiments] The repo implements Dynamic NIAH v2, a tokenizer-aware synthetic needle-in-a-haystack benchmark that inserts deterministic city/score facts into Paul Graham essay text, optionally replaces selected needles with same-length control spans, and analyzes how Qwen3-8B solves retrieval-style long-context tasks. The local runs mostly study Qwen/Qwen3-8B on `argmax` examples, with single-example hidden-state comparisons, Q/K-cache outlier analysis, token-level ablations, representation-level ablations, and representation-level restore experiments. There is also one earlier `count_avg` run that evaluates ordinary response accuracy over 20 examples.
+
+Key hypotheses tested by these runs:
+
+- Qwen3-8B solves NIAH mainly by retrieving the needle facts, with the needle/control contrast becoming strongest in middle layers.
+- Outlier-like tokens, including massive activations, attention sinks, and needle-sensitive non-needle tokens, may carry useful signal but are not the main computational bottleneck.
+- Direct needle-token representations are more causal for the answer than compressed summaries stored in outlier or anchor tokens.
+
+## Main conclusions
+
+**Finding 1**: The main mechanism of Qwen3-8B solving these NIAH tasks is retrieval of the needle information. The strongest hidden-state evidence appears in middle layers, especially around layers 20 and 24.
+
+- Hidden-state comparison tables show that the average absolute relative norm difference between original and control prompts rises from early to middle layers, peaking at layer 20 on average. Across 57 `inputs_*_measurements.csv` files, the mean absolute relative norm difference by layer is approximately: layer 4 = 0.047, layer 8 = 0.059, layer 12 = 0.078, layer 16 = 0.094, layer 20 = 0.139, layer 24 = 0.130, layer 28 = 0.111. In per-file peak counts, layer 20 is the peak in 35/57 files and layer 24 in 22/57 files.
+  - Examples: [`run_20260607_212413_Qwen_Qwen3-8B_task-argmax_example-1_prompt-easier_len-1000_needles-3/tables/inputs_1_measurements.csv`](run_20260607_212413_Qwen_Qwen3-8B_task-argmax_example-1_prompt-easier_len-1000_needles-3/tables/inputs_1_measurements.csv), [`run_20260608_163858_Qwen_Qwen3-8B_task-argmax_example-14_prompt-easier_len-1000_needles-3/tables/inputs_14_measurements.csv`](run_20260608_163858_Qwen_Qwen3-8B_task-argmax_example-14_prompt-easier_len-1000_needles-3/tables/inputs_14_measurements.csv), [`run_20260607_210154_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/inputs_0_measurements.csv`](run_20260607_210154_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/inputs_0_measurements.csv).
+- Representation-level corruption of actual needle spans is much more damaging than corruption of outlier-only patterns. Across 7 representation-ablation result files, clean baselines are correct in all 7 files, but needle-span interventions often break the answer: `needle_span_0` mean accuracy is about 0.714, `needle_span_1` about 0.202, and `needle_span_2` about 0.968 across layer sweeps.
+  - Examples: [`run_20260607_210154_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/ablation_representation/ablation_representation_results.csv`](run_20260607_210154_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/ablation_representation/ablation_representation_results.csv), [`run_20260607_214326_Qwen_Qwen3-8B_task-argmax_example-11_prompt-easier_len-1000_needles-3/tables/ablation_representation/ablation_representation_results.csv`](run_20260607_214326_Qwen_Qwen3-8B_task-argmax_example-11_prompt-easier_len-1000_needles-3/tables/ablation_representation/ablation_representation_results.csv), [`run_20260607_221252_Qwen_Qwen3-8B_task-argmax_example-14_prompt-easier_len-1000_needles-3/run_20260607_221252_Qwen_Qwen3-8B_task-argmax_example-14_prompt-easier_len-1000_needles-3/tables/ablation_representation/ablation_representation_results.csv`](run_20260607_221252_Qwen_Qwen3-8B_task-argmax_example-14_prompt-easier_len-1000_needles-3/run_20260607_221252_Qwen_Qwen3-8B_task-argmax_example-14_prompt-easier_len-1000_needles-3/tables/ablation_representation/ablation_representation_results.csv).
+
+**Finding 2**: Outlier tokens, including massive activation tokens, sink tokens, and needle-sensitive tokens, are real and structured, but the current runs do not support them as the primary causal route for solving the NIAH tasks.
+
+- Q/K outlier analysis finds many outlier events per single-example run. A representative run records 350 massive events, 7,168 sink rows, 448 needle-attention rows, and 11,200 joined rows.
+  - See [`run_20260607_212413_Qwen_Qwen3-8B_task-argmax_example-1_prompt-easier_len-1000_needles-3/tables/qk_outlier_analysis_summary.json`](run_20260607_212413_Qwen_Qwen3-8B_task-argmax_example-1_prompt-easier_len-1000_needles-3/tables/qk_outlier_analysis_summary.json).
+- Massive-activation tokens and attention-sink tokens are correlated, but their top-k overlap is small. Across 57 overlap summary files, the average massive-topk/sink-topk overlap fraction is about 0.078, with layer means roughly 0.184 at layer 4, 0.059 at layer 8, 0.049 at layer 12, 0.044 at layer 16, 0.077 at layer 20, 0.075 at layer 24, and 0.057 at layer 28. The norm-vs-attention Pearson correlation is higher, averaging about 0.776 across all rows.
+  - Example table: [`run_20260607_212413_Qwen_Qwen3-8B_task-argmax_example-1_prompt-easier_len-1000_needles-3/tables/outlier_overlap_summary.csv`](run_20260607_212413_Qwen_Qwen3-8B_task-argmax_example-1_prompt-easier_len-1000_needles-3/tables/outlier_overlap_summary.csv).
+- Token-level ablation of outlier or outlier-adjacent non-needle tokens usually leaves accuracy close to baseline. In the 20-example, 1000-token, easier-prompt aggregate run, baseline accuracy is 0.95 and all attention-sink ablations for k=1..10 remain 0.95. In the 20-example, 2000-token, vanilla-prompt aggregate run, baseline accuracy is 0.75 and most pattern accuracies remain in the 0.75 to 0.85 range.
+  - See [`run_20260606_231741_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/run_20260606_231741_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/ablation_results_all.csv`](run_20260606_231741_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/run_20260606_231741_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/ablation_results_all.csv) and [`run_20260607_035043_Qwen_Qwen3-8B_task-argmax_example-0_prompt-vanilla_len-2000_needles-5/ablation_results_all.csv`](run_20260607_035043_Qwen_Qwen3-8B_task-argmax_example-0_prompt-vanilla_len-2000_needles-5/ablation_results_all.csv).
+- Representation-level ablation is even stronger evidence against outlier-only bottlenecks: across 7 result files, `massive_activation`, `massive_activation_all`, `attention_sink`, and `attention_sink_all` all have mean accuracy 1.0 across layer sweeps, while needle-span patterns cause failures.
+  - See the `ablation_representation_results.csv` files under [`run_20260607_210154_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/ablation_representation/`](run_20260607_210154_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/ablation_representation/) and [`run_20260607_215722_Qwen_Qwen3-8B_task-argmax_example-11_prompt-easier_len-1000_needles-3/tables/ablation_representation/`](run_20260607_215722_Qwen_Qwen3-8B_task-argmax_example-11_prompt-easier_len-1000_needles-3/tables/ablation_representation/).
+
+**Finding 3**: Qwen3-8B likely solves these NIAH tasks through direct retrieval rather than compressing the answer into outlier or anchor tokens.
+
+- When all needle tokens are corrupted, no-restore controls fail systematically in representation-restore runs, while the clean baseline is correct. This establishes that the restore task is genuinely removing the needed evidence from the input.
+  - Example rows: `clean_baseline` and `*_no_restore` in [`run_20260608_051801_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/ablation_representation_restore/ablation_representation_restore_results.csv`](run_20260608_051801_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/ablation_representation_restore/ablation_representation_restore_results.csv).
+- Restoring outlier-token states alone does not recover the answer after corrupting all needles. Across 3 restore result files, restore accuracy is 0.0 for `massive_activation`, `massive_activation_all`, `attention_sink`, `attention_sink_all`, `needle_sensitive`, and all `needle_tail_*` patterns.
+  - See [`run_20260608_051801_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/ablation_representation_restore/ablation_representation_restore_summary.json`](run_20260608_051801_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/ablation_representation_restore/ablation_representation_restore_summary.json), [`run_20260608_065552_Qwen_Qwen3-8B_task-argmax_example-14_prompt-easier_len-1000_needles-3/tables/ablation_representation_restore/ablation_representation_restore_summary.json`](run_20260608_065552_Qwen_Qwen3-8B_task-argmax_example-14_prompt-easier_len-1000_needles-3/tables/ablation_representation_restore/ablation_representation_restore_summary.json), and [`run_20260608_163858_Qwen_Qwen3-8B_task-argmax_example-14_prompt-easier_len-1000_needles-3/tables/ablation_representation_restore/ablation_representation_restore_summary.json`](run_20260608_163858_Qwen_Qwen3-8B_task-argmax_example-14_prompt-easier_len-1000_needles-3/tables/ablation_representation_restore/ablation_representation_restore_summary.json).
+- Restoring actual needle-span states can partially recover the answer, especially for some needle spans. Across the same 3 restore files, `needle_span_0` has mean restore accuracy about 0.519, `needle_span_1` about 0.139, and `needle_sensitive_all` about 0.435. This is consistent with useful information residing at or near the original needle representations rather than only at non-needle outliers.
+  - See [`run_20260608_051801_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/ablation_representation_restore/ablation_representation_restore_results.csv`](run_20260608_051801_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/ablation_representation_restore/ablation_representation_restore_results.csv).
+
+## Additional findings
+
+**Finding 4, new**: Prompt/task settings matter for plain response accuracy, and the easiest current argmax setup is much more reliable than the older count-average setup.
+
+- The `count_avg`, 1000-token, vanilla-prompt run has only 3 exact matches out of 20 examples, for exact-match accuracy 0.15, although parsing succeeds for all examples.
+  - See [`run_20260529_201838_Qwen_Qwen3-8B_task-count_avg_prompt-vanilla_len-1000_needles-3/tables/metrics.json`](run_20260529_201838_Qwen_Qwen3-8B_task-count_avg_prompt-vanilla_len-1000_needles-3/tables/metrics.json) and [`run_20260529_201838_Qwen_Qwen3-8B_task-count_avg_prompt-vanilla_len-1000_needles-3/tables/predictions.jsonl`](run_20260529_201838_Qwen_Qwen3-8B_task-count_avg_prompt-vanilla_len-1000_needles-3/tables/predictions.jsonl).
+- In contrast, the 20-example `argmax`, 1000-token, easier-prompt aggregate token-ablation run has baseline accuracy 0.95.
+  - See [`run_20260606_231741_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/run_20260606_231741_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/ablation_results_all.csv`](run_20260606_231741_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/run_20260606_231741_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/ablation_results_all.csv).
+
+**Finding 5, new**: Needle identity and position may matter, not just "needle vs non-needle" status.
+
+- Representation ablation and restore are asymmetric across needle spans. In the representation-ablation aggregate, `needle_span_1` is far more damaging than `needle_span_0` or `needle_span_2`; in restore runs, `needle_span_0` recovers more often than `needle_span_1`, while `needle_span_2` does not recover in the 3 inspected restore files. This suggests that each inserted fact may not contribute equally to the final answer, which is natural for `argmax` because only the highest-scoring city determines the target.
+  - See [`run_20260607_210154_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/ablation_representation/ablation_representation_summary.json`](run_20260607_210154_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/ablation_representation/ablation_representation_summary.json) and [`run_20260608_051801_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/ablation_representation_restore/ablation_representation_restore_results.csv`](run_20260608_051801_Qwen_Qwen3-8B_task-argmax_example-0_prompt-easier_len-1000_needles-3/tables/ablation_representation_restore/ablation_representation_restore_results.csv).
+
+## Objections and limitations
+
+- [Objection 1] Many single-example folders are duplicated as both direct run folders and nested zip-extracted folders, so aggregate counts over the raw file tree can overweight repeated experiments. The qualitative pattern is still consistent across direct and nested examples, but a de-duplicated run registry would make the numerical summaries cleaner.
+- [Objection 2] Representation-ablation and restore experiments are concentrated on a small set of examples, mainly examples 0, 1, 11, and 14. The conclusions about outlier tokens are strong for these runs, but should be checked on a larger set of examples and seeds.
+- [Objection 3] Token-level ablation replaces tokens with random irrelevant tokens, while representation-level ablation samples hidden states from empirical distributions. These are useful interventions, but neither is guaranteed to mimic a natural counterfactual trajectory.
+- [Objection 4] The `count_avg` evidence is limited to an older vanilla-prompt run, so its low accuracy should be treated as a task/prompt warning rather than a final conclusion about aggregation tasks.
+
+## To-do list
+
+- Build a de-duplicated manifest of run folders with fields for task, prompt style, context length, number of needles, example id, and intervention type.
+- Repeat representation ablation and restore over all examples in a dataset, not only the current single-example set.
+- For each `argmax` example, label which needle contains the winning city and compare ablation/restore impact for winning vs non-winning needle spans.
+- Run matched `argmax` and `count_avg` experiments under the same prompt style, context length, and number of needles.
+- Add model-family comparisons, for example another Qwen size and a non-Qwen model, to check whether direct retrieval vs outlier compression is model-specific.
+- Add layer-local restore/corruption summaries that report the earliest layer where restoring needle-span representations recovers the answer.
