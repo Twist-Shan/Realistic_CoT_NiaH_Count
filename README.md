@@ -13,3 +13,11 @@ python -m pip install -r requirements.txt
 ```
 
 Remote: `https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git`
+
+## Attention-head taxonomy
+
+Use `notebooks/attention_head_taxonomy.ipynb` to screen Qwen3 heads for
+targeted retrieval, induction, and successor-candidate behavior from existing
+Q/K caches. Reusable scoring lives in
+`src/dataset_generation/qk_hook_attention/head_taxonomy.py`; see
+`docs/head_taxonomy.md` for metric definitions, CLI usage, and limitations.
