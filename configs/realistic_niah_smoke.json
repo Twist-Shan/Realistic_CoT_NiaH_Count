@@ -1,0 +1,10 @@
+{
+  "schema_version": "realistic_niah_experiment_v1",
+  "model": "Qwen3-8B",
+  "target_passage_tokens": [2000, 10000],
+  "needle_counts": [5, 6, 30],
+  "seeds": [1234],
+  "prompt_modes": ["direct", "enumeration", "native_thinking"],
+  "query_orders": ["query_first", "query_last"],
+  "expected_requests": 36
+}

@@ -41,19 +41,33 @@ class SimpleTokenizer:
 
 
 class TokenizerAdapter:
-    def __init__(self, tokenizer_name: str):
+    def __init__(
+        self,
+        tokenizer_name: str,
+        *,
+        revision: str | None = None,
+        cache_dir: str | None = None,
+    ):
         self.tokenizer_name = tokenizer_name
+        self.revision = revision
         self.backend = "simple"
+        self.load_error: str | None = None
         self._tok: Any = SimpleTokenizer()
 
         if tokenizer_name != "simple":
             try:
                 from transformers import AutoTokenizer
 
-                self._tok = AutoTokenizer.from_pretrained(tokenizer_name, trust_remote_code=True)
+                self._tok = AutoTokenizer.from_pretrained(
+                    tokenizer_name,
+                    revision=revision,
+                    cache_dir=cache_dir,
+                    trust_remote_code=True,
+                )
                 self.backend = "huggingface"
-            except Exception:
+            except Exception as exc:
                 # Keep fallback deterministic behavior.
+                self.load_error = f"{type(exc).__name__}: {exc}"
                 self._tok = SimpleTokenizer()
                 self.backend = "simple"
 
@@ -61,6 +75,38 @@ class TokenizerAdapter:
         if self.backend == "huggingface":
             return list(self._tok.encode(text, add_special_tokens=False))
         return self._tok.encode(text)
+
+    def encode_with_offsets(
+        self, text: str
+    ) -> tuple[list[Any], list[tuple[int, int]]]:
+        """Encode text and return exact character offsets for every token."""
+
+        if self.backend == "huggingface":
+            encoded = self._tok(
+                text,
+                add_special_tokens=False,
+                return_offsets_mapping=True,
+            )
+            if "offset_mapping" not in encoded:
+                raise RuntimeError(
+                    f"Tokenizer {self.tokenizer_name!r} did not return offset mappings"
+                )
+            token_ids = list(encoded["input_ids"])
+            offsets = [
+                (int(start), int(end))
+                for start, end in encoded["offset_mapping"]
+            ]
+            if len(token_ids) != len(offsets):
+                raise RuntimeError(
+                    "Tokenizer returned different input-id and offset-map lengths"
+                )
+            return token_ids, offsets
+
+        matches = list(re.finditer(r"\S+", text))
+        return (
+            [match.group(0) for match in matches],
+            [(match.start(), match.end()) for match in matches],
+        )
 
     def decode(self, tokens: list[Any]) -> str:
         if self.backend == "huggingface":

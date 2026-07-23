@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# Pinned production inference engine. vLLM 0.25.1 supports Qwen3,
+# Gemma 4 / Gemma 4 Unified, Llama 3.x, and OLMo Hybrid.
+vllm==0.25.1
