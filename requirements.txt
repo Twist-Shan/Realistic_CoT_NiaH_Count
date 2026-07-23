@@ -10,9 +10,12 @@ huggingface-hub>=0.22
 # Dataset and notebook/evaluation helpers used by the Colab workflows.
 datasets>=2.18
 tqdm>=4.66
-numpy>=1.26
+numpy>=1.26,<3
+scipy>=1.11,<2
+scikit-learn>=1.4,<2
 pandas>=2.2
 matplotlib>=3.8
+pillow>=10
 ipython>=8.0
 
 # Testing

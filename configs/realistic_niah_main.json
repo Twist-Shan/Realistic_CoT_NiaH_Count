@@ -1,0 +1,18 @@
+{
+  "schema_version": "realistic_niah_experiment_v1",
+  "canonical_tokenizer": "Qwen/Qwen3-8B",
+  "target_passage_tokens": [2000, 5000, 10000],
+  "needle_counts": [1, 2, 3, 4, 5, 6, 8, 10, 20, 30],
+  "seeds": [1234, 1235, 1236, 1237, 1238],
+  "query_orders": ["query_first", "query_last"],
+  "models": [
+    "Qwen3-1.7B",
+    "Qwen3-8B",
+    "Qwen3-32B",
+    "Gemma4-E4B",
+    "Gemma4-12B",
+    "Llama3.1-8B",
+    "Llama3.2-3B",
+    "OLMo-Hybrid-7B"
+  ]
+}

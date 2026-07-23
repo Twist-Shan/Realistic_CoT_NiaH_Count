@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -639,6 +640,31 @@ def test_literal_text_insertion_verification_can_enforce_uid_context_token_lengt
             char_end=9,
             expected_token_length=1,
         )
+
+
+def test_text_span_uses_final_context_offset_mapping() -> None:
+    class OffsetAwareTokenizer:
+        def encode(self, text):
+            # Deliberately makes prefix-length subtraction wrong at whitespace
+            # boundaries, like byte-level BPE tokenizers with leading-space
+            # tokens.
+            return list(text)
+
+        def encode_with_offsets(self, text):
+            offsets = [(match.start(), match.end()) for match in re.finditer(r"\S+", text)]
+            return list(range(len(offsets))), offsets
+
+    metadata = dynamic_niah_v2._verified_text_insertion_metadata(
+        tok=OffsetAwareTokenizer(),
+        text="Alpha Needle Beta",
+        inserted_text="Needle",
+        char_start=6,
+        char_end=12,
+    )
+
+    assert metadata["context_span_start"] == 1
+    assert metadata["context_span_end"] == 2
+    assert metadata["observed_token_length"] == 1
 
 
 def test_text_insertion_modes_are_mutually_exclusive() -> None:

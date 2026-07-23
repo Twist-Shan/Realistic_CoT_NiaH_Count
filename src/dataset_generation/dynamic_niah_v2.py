@@ -800,6 +800,26 @@ def _word_boundary_offsets(text: str) -> list[int]:
 def _token_span_for_text_slice(
     tok: TokenizerAdapter, text: str, start: int, end: int
 ) -> tuple[int, int]:
+    encode_with_offsets = getattr(tok, "encode_with_offsets", None)
+    if callable(encode_with_offsets):
+        _, offsets = encode_with_offsets(text)
+        overlapping = [
+            index
+            for index, (token_start, token_end) in enumerate(offsets)
+            if token_end > token_start
+            and token_start < end
+            and token_end > start
+        ]
+        if not overlapping:
+            raise ValueError(
+                "No tokenizer offset overlaps inserted text at "
+                f"chars {start}:{end}"
+            )
+        return overlapping[0], overlapping[-1] + 1
+
+    # Compatibility fallback for lightweight tokenizer doubles used by callers.
+    # Production Hugging Face and simple adapters always take the exact
+    # offset-mapping path above.
     start_token = len(tok.encode(text[:start]))
     end_token = len(tok.encode(text[:end]))
     if end_token < start_token:
@@ -999,7 +1019,41 @@ def _insert_at_text_offsets(
             raise ValueError(f"Unsupported text insertion mode: {mode}")
         realized.append(insertion_metadata)
         shift += len(text_to_insert)
-    return out, realized
+
+    # Recompute every span against the final passage. This matters when several
+    # needles share a sampled insertion site and a later insertion changes the
+    # local tokenization boundary of an earlier one.
+    refreshed: list[dict[str, Any]] = []
+    for insertion in realized:
+        strict_expected_token_length = (
+            insertion["needle_token_length"]
+            if canonical_task_type(cfg.task_type) == "literal_count"
+            else None
+        )
+        span_metadata = _verified_text_insertion_metadata(
+            tok=tok,
+            text=out,
+            inserted_text=str(insertion["decoded_text"]),
+            char_start=int(insertion["char_start"]),
+            char_end=int(insertion["char_end"]),
+            expected_token_length=strict_expected_token_length,
+        )
+        updated = dict(insertion)
+        updated.update(span_metadata)
+        updated.update(
+            {
+                "requested_position": int(span_metadata["context_span_start"]),
+                "final_position": int(span_metadata["context_span_start"]),
+                "token_length": int(span_metadata["observed_token_length"]),
+                "token_span_alignment": (
+                    "offset_mapping_overlap"
+                    if callable(getattr(tok, "encode_with_offsets", None))
+                    else "prefix_encoding_fallback"
+                ),
+            }
+        )
+        refreshed.append(updated)
+    return out, refreshed
 
 
 def _insert_at_sentence_ends(
@@ -1293,7 +1347,11 @@ def build_prediction_messages(
     )
 
 
-def generate_dynamic_niah_dataset_v2(cfg: DynamicNiahV2Config) -> list[dict[str, Any]]:
+def generate_dynamic_niah_dataset_v2(
+    cfg: DynamicNiahV2Config,
+    *,
+    tokenizer_adapter: TokenizerAdapter | None = None,
+) -> list[dict[str, Any]]:
     if cfg.sentence_level_insertion and cfg.word_level_insertion:
         raise ValueError(
             "sentence_level_insertion and word_level_insertion are mutually exclusive"
@@ -1317,7 +1375,12 @@ def generate_dynamic_niah_dataset_v2(cfg: DynamicNiahV2Config) -> list[dict[str,
             None if cfg.control_switch is None else list(cfg.control_switch),
             len(insertion_position_pattern),
         )
-    tok = TokenizerAdapter(cfg.tokenizer_name)
+    tok = tokenizer_adapter or TokenizerAdapter(cfg.tokenizer_name)
+    if tok.tokenizer_name != cfg.tokenizer_name:
+        raise ValueError(
+            "tokenizer_adapter does not match cfg.tokenizer_name "
+            f"({tok.tokenizer_name!r} != {cfg.tokenizer_name!r})"
+        )
     if cfg.sentence_level_insertion:
         print(
             "SENTENCE_LEVEL_INSERTION=True: needles will be inserted randomly "
@@ -1438,6 +1501,9 @@ def generate_dynamic_niah_dataset_v2(cfg: DynamicNiahV2Config) -> list[dict[str,
                         "context_span_end": insertion["context_span_end"],
                         "token_span_verified": insertion["token_span_verified"],
                         "token_span_source": insertion["token_span_source"],
+                        "token_span_alignment": insertion.get(
+                            "token_span_alignment"
+                        ),
                         "text_level_insertion": insertion.get(
                             "text_level_insertion", False
                         ),
