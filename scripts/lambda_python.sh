@@ -16,7 +16,9 @@ fi
 # PyTorch wheel. Lambda's driver supports both, but the auxiliary runtime
 # directory must be visible to the dynamic loader.
 export LD_LIBRARY_PATH="${SITE_PACKAGES}/nvidia/cu13/lib:${SITE_PACKAGES}/nvidia/cuda_runtime/lib:${LD_LIBRARY_PATH:-}"
+export PATH="${VENV_DIR}/bin:${PATH}"
 export HF_HOME="${PERSIST_ROOT}/hf-cache"
+export HF_TOKEN_PATH="${HF_TOKEN_PATH:-${HOME}/.cache/huggingface/token}"
 export PIP_CACHE_DIR="${PERSIST_ROOT}/pip-cache"
 export TOKENIZERS_PARALLELISM=false
 export PYTHONPATH="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
