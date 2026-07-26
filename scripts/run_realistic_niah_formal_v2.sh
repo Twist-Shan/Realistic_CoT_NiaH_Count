@@ -103,6 +103,12 @@ if [[ ! -e "${status_file}" ]]; then
 fi
 
 for model in "${models[@]}"; do
+  model_prompt_modes="${prompt_modes}"
+  case "${model}" in
+    DeepSeek-R1-0528-Qwen3-8B|GLM-Z1-9B-0414)
+      model_prompt_modes="native_thinking"
+      ;;
+  esac
   revision="$(revision_for "${model}")"
   read -r request_batch_size max_num_seqs < <(
     engine_limits_for "${model}"
@@ -124,7 +130,7 @@ for model in "${models[@]}"; do
         --output-dir "${model_output}" \
         --model "${model}" \
         --revision "${revision}" \
-        --prompt-modes "${prompt_modes}" \
+        --prompt-modes "${model_prompt_modes}" \
         --query-layout cue_before_query_after \
         --cache-dir "${cache}" \
         --repo-root "${repo}" \

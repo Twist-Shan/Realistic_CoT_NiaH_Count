@@ -109,7 +109,8 @@ def test_always_on_reasoning_models_use_their_native_templates_unchanged() -> No
     ):
         tokenizer = RecordingTokenizer()
         model = MODEL_SPECS[label]
-        for mode in EXPECTED_SUFFIXES:
+        assert model.prompt_modes == ("native_thinking",)
+        for mode in model.prompt_modes:
             render_generation_prompt(
                 tokenizer,
                 messages,

@@ -14,6 +14,7 @@ FORMAL_PROMPT_MODES = (
     "native_thinking",
 )
 NONTHINKING_PROMPT_MODES = FORMAL_PROMPT_MODES[:-1]
+REASONING_ONLY_PROMPT_MODES = ("native_thinking",)
 THINKING_PROMPT_MODES = frozenset(("native_thinking",))
 ENUMERATION_PROMPT_MODES = frozenset(
     ("enumeration_index", "enumeration_bullet")
@@ -47,6 +48,8 @@ PRIMARY_MODEL_LABELS = (
     "DeepSeek-R1-0528-Qwen3-8B",
     "GLM-Z1-9B-0414",
 )
+FULL_MODE_MODEL_LABELS = PRIMARY_MODEL_LABELS[:6]
+REASONING_ONLY_MODEL_LABELS = PRIMARY_MODEL_LABELS[6:]
 MATCHED_CONTROL_MODEL_LABELS = ("GLM-4-9B-0414",)
 MATCHED_NONTHINKING_CONTROLS = {
     "DeepSeek-R1-0528-Qwen3-8B": "Qwen3-8B",
@@ -117,7 +120,7 @@ MODEL_SPECS = {
             "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
             "deepseek_r1_qwen3",
             True,
-            FORMAL_PROMPT_MODES,
+            REASONING_ONLY_PROMPT_MODES,
             "always_on",
         ),
         ModelSpec(
@@ -125,7 +128,7 @@ MODEL_SPECS = {
             "zai-org/GLM-Z1-9B-0414",
             "glm_z1",
             True,
-            FORMAL_PROMPT_MODES,
+            REASONING_ONLY_PROMPT_MODES,
             "always_on",
         ),
         ModelSpec(
@@ -153,6 +156,16 @@ def validate_experiment_spec() -> None:
         raise ValueError("The V2 master grid must contain exactly 500 stimuli")
     if len(PRIMARY_MODEL_LABELS) != 8:
         raise ValueError("The V2 primary panel must contain exactly eight models")
+    if (
+        len(FULL_MODE_MODEL_LABELS) != 6
+        or len(REASONING_ONLY_MODEL_LABELS) != 2
+        or set(FULL_MODE_MODEL_LABELS).intersection(REASONING_ONLY_MODEL_LABELS)
+        or set(FULL_MODE_MODEL_LABELS).union(REASONING_ONLY_MODEL_LABELS)
+        != set(PRIMARY_MODEL_LABELS)
+    ):
+        raise ValueError(
+            "The V2 panel must contain six full-mode and two reasoning-only models"
+        )
     if set(PRIMARY_MODEL_LABELS) | set(MATCHED_CONTROL_MODEL_LABELS) != set(
         MODEL_SPECS
     ):

@@ -14,11 +14,14 @@ from realistic_niah.runner import (
 )
 from realistic_niah.spec import (
     FORMAL_PROMPT_MODES,
+    FULL_MODE_MODEL_LABELS,
     MATCHED_NONTHINKING_CONTROLS,
     MODEL_REVISIONS,
     MODEL_SPECS,
     PASSAGE_LENGTHS,
     PRIMARY_MODEL_LABELS,
+    REASONING_ONLY_MODEL_LABELS,
+    REASONING_ONLY_PROMPT_MODES,
     NEEDLE_COUNTS,
     QUERY_LAYOUT,
     SEEDS,
@@ -120,22 +123,24 @@ def test_other_models_preserve_vllm_output_text() -> None:
     assert strategy == "vllm_output_text"
 
 
-def test_always_on_reasoning_models_get_reasoning_budget_in_every_mode() -> None:
+def test_always_on_reasoning_models_run_native_thinking_only() -> None:
     deepseek = MODEL_SPECS["DeepSeek-R1-0528-Qwen3-8B"]
     glm = MODEL_SPECS["GLM-Z1-9B-0414"]
 
-    for mode in FORMAL_PROMPT_MODES:
-        deepseek_decode = decoding_config(deepseek, mode)
-        assert deepseek_decode.max_tokens == 4096
-        assert deepseek_decode.temperature == 0.6
-        assert deepseek_decode.top_p == 0.95
-        assert deepseek_decode.top_k == -1
+    assert deepseek.prompt_modes == REASONING_ONLY_PROMPT_MODES
+    assert glm.prompt_modes == REASONING_ONLY_PROMPT_MODES
 
-        glm_decode = decoding_config(glm, mode)
-        assert glm_decode.max_tokens == 4096
-        assert glm_decode.temperature == 0.6
-        assert glm_decode.top_p == 0.95
-        assert glm_decode.top_k == 40
+    deepseek_decode = decoding_config(deepseek, "native_thinking")
+    assert deepseek_decode.max_tokens == 4096
+    assert deepseek_decode.temperature == 0.6
+    assert deepseek_decode.top_p == 0.95
+    assert deepseek_decode.top_k == -1
+
+    glm_decode = decoding_config(glm, "native_thinking")
+    assert glm_decode.max_tokens == 4096
+    assert glm_decode.temperature == 0.6
+    assert glm_decode.top_p == 0.95
+    assert glm_decode.top_k == 40
 
 
 def test_v2_request_accounting_is_explicit() -> None:
@@ -148,8 +153,11 @@ def test_v2_request_accounting_is_explicit() -> None:
     assert (
         stimuli_per_model
         * len(FORMAL_PROMPT_MODES)
-        * len(PRIMARY_MODEL_LABELS)
-        == 16_000
+        * len(FULL_MODE_MODEL_LABELS)
+        + stimuli_per_model
+        * len(REASONING_ONLY_PROMPT_MODES)
+        * len(REASONING_ONLY_MODEL_LABELS)
+        == 13_000
     )
 
 
@@ -180,14 +188,18 @@ def test_v2_json_configs_match_registered_python_spec() -> None:
         MATCHED_NONTHINKING_CONTROLS
     )
     assert main["expected_stimuli"] == 500
-    assert main["expected_requests_total"] == 16_000
+    assert main["reasoning_only_prompt_modes"] == ["native_thinking"]
+    assert tuple(main["reasoning_only_models"]) == REASONING_ONLY_MODEL_LABELS
+    assert main["expected_requests_per_full_mode_model"] == 2_000
+    assert main["expected_requests_per_reasoning_only_model"] == 500
+    assert main["expected_requests_total"] == 13_000
     assert main["matched_control_prompt_modes"] == [
         "direct",
         "enumeration_index",
         "enumeration_bullet",
     ]
     assert main["expected_glm4_control_requests"] == 1_500
-    assert main["expected_all_planned_requests"] == 17_500
+    assert main["expected_all_planned_requests"] == 14_500
     assert smoke["models"] == [
         "Qwen3-8B",
         "Gemma4-12B",
