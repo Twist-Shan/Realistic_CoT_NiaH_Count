@@ -200,6 +200,27 @@ Stop as soon as you determine the count, then output exactly one line:
 Total: <integer>
 ```
 
+### Smoke-only concise-reasoning candidate
+
+This paired candidate replaces the stronger no-listing instruction with the
+shorter constraint `Reason concisely without repeating or restarting.` It
+tests whether a neutral anti-repetition cue can reduce truncation without
+prescribing a counting procedure or forbidding a useful internal strategy.
+
+```text
+You will need to count all city-score audit records in the passage below.
+A city-score audit record names one city and gives that city's numeric score.
+
+<passage>
+{passage}
+</passage>
+
+How many city-score audit records are in the passage?
+Reason concisely without repeating or restarting.
+Stop as soon as you determine the count, then output exactly one line:
+Total: <integer>
+```
+
 ## Parsing and evaluation
 
 `Total: <integer>` is the registered count parser. Indexed and bullet

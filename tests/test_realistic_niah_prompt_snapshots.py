@@ -89,6 +89,26 @@ def test_smoke_brief_prompt_constrains_trace_without_prescribing_counting() -> N
     assert "one forward scan" not in brief
 
 
+def test_smoke_concise_prompt_matches_requested_wording() -> None:
+    concise = build_messages(
+        "PASSAGE",
+        prompt_mode="native_thinking_concise",
+    )[0]["content"]
+
+    expected_query = (
+        "How many city-score audit records are in the passage?\n"
+        "Reason concisely without repeating or restarting.\n"
+        "Stop as soon as you determine the count, then output "
+        "exactly one line:\n"
+        "Total: <integer>"
+    )
+    assert concise.endswith(expected_query)
+    assert "Reason briefly" not in concise
+    assert "without quoting, listing, or restating" not in concise
+    assert "running count" not in concise
+    assert "one forward scan" not in concise
+
+
 def test_smoke_control_and_treatment_both_enable_template_thinking() -> None:
     class RecordingTokenizer:
         def __init__(self) -> None:
@@ -109,6 +129,7 @@ def test_smoke_control_and_treatment_both_enable_template_thinking() -> None:
     for mode in (
         "direct",
         "native_thinking_control",
+        "native_thinking_concise",
         "native_thinking_brief",
         "native_thinking",
     ):
@@ -121,6 +142,7 @@ def test_smoke_control_and_treatment_both_enable_template_thinking() -> None:
 
     assert [call["enable_thinking"] for call in tokenizer.calls] == [
         False,
+        True,
         True,
         True,
         True,
@@ -150,6 +172,7 @@ def test_always_on_reasoning_models_use_their_native_templates_unchanged() -> No
         for mode in (
             "direct",
             "native_thinking_control",
+            "native_thinking_concise",
             "native_thinking_brief",
             "native_thinking",
         ):

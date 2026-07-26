@@ -16,6 +16,7 @@ FORMAL_PROMPT_MODES = (
 NONTHINKING_PROMPT_MODES = FORMAL_PROMPT_MODES[:-1]
 SMOKE_PROMPT_MODES = (
     "native_thinking_control",
+    "native_thinking_concise",
     "native_thinking_brief",
     "native_thinking",
 )
