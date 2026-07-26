@@ -25,7 +25,7 @@ How many city-score audit records are in the passage?
 List each occurrence once, in passage order.
 Begin the first item with "1. ", the second with "2. ", and continue with ordinary digits.
 After each number, write the actual city name, then ": ", then the actual numeric score.
-Like k. city: score.
+Use only actual values from the passage; do not output placeholders or angle brackets.
 Then report the number listed:
 Total: <integer>
 Do not include any other text."""
@@ -34,7 +34,7 @@ ENUMERATION_BULLET_QUERY_BLOCK = """\
 How many city-score audit records are in the passage?
 List each occurrence once, in passage order.
 Begin each item with "-", then write the actual city name, then ": ", then the actual numeric score.
-Like - city: score.
+Use only actual values from the passage; do not output placeholders or angle brackets.
 Then report the number listed:
 Total: <integer>
 Do not include any other text."""

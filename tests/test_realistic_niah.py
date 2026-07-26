@@ -51,9 +51,13 @@ def test_v2_prompts_share_cue_and_fixed_query_after_layout() -> None:
     assert 'Begin the first item with "1. "' in (
         contents["enumeration_index"]
     )
-    assert "Like k. city: score." in contents["enumeration_index"]
+    assert "do not output placeholders or angle brackets" in (
+        contents["enumeration_index"]
+    )
     assert 'Begin each item with "-"' in contents["enumeration_bullet"]
-    assert "Like - city: score." in contents["enumeration_bullet"]
+    assert "do not output placeholders or angle brackets" in (
+        contents["enumeration_bullet"]
+    )
     assert "Reason concisely without repeating or restarting" in (
         contents["native_thinking"]
     )
