@@ -17,7 +17,7 @@ def _csv_ints(value: str | None) -> tuple[int, ...] | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Freeze the registered Realistic NIAH master dataset."
+        description="Freeze the registered Realistic NIAH V2 master dataset."
     )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--canonical-tokenizer-revision")

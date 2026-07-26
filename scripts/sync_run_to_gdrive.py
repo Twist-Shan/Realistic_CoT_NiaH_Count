@@ -14,7 +14,7 @@ def main() -> None:
     parser.add_argument("--archive-dir", required=True)
     parser.add_argument(
         "--remote-dir",
-        default="gdrive:Realistic_CoT_NiaH_Count/realistic_niah_v1",
+        default="gdrive:Realistic_CoT_NiaH_Count/realistic_niah_v2",
     )
     parser.add_argument("--rclone-binary", default="rclone")
     args = parser.parse_args()

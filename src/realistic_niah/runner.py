@@ -15,10 +15,16 @@ from typing import Any, Iterable
 from .parsing import evaluate_generation
 from .prompts import (
     build_messages,
+    reasoning_expected,
     render_generation_prompt,
     resolve_model_spec,
 )
-from .spec import QUERY_ORDERS, ModelSpec
+from .spec import (
+    ENUMERATION_PROMPT_MODES,
+    QUERY_LAYOUT,
+    THINKING_PROMPT_MODES,
+    ModelSpec,
+)
 from .stimuli import load_stimuli, select_stimuli
 
 
@@ -34,7 +40,7 @@ class DecodingConfig:
 @dataclass(frozen=True)
 class EngineConfig:
     tensor_parallel_size: int = 1
-    max_model_len: int = 16_384
+    max_model_len: int = 32_768
     gpu_memory_utilization: float = 0.90
     max_num_seqs: int | None = None
     dtype: str = "bfloat16"
@@ -44,11 +50,36 @@ class EngineConfig:
 
 
 def decoding_config(model_spec: ModelSpec, prompt_mode: str) -> DecodingConfig:
+    if model_spec.reasoning_policy == "always_on":
+        if prompt_mode not in set(model_spec.prompt_modes) | {
+            "native_thinking_control"
+        }:
+            raise ValueError(
+                f"Unsupported decoding combination: "
+                f"{model_spec.label}/{prompt_mode}"
+            )
+        if model_spec.family == "glm_z1":
+            return DecodingConfig(
+                max_tokens=4096,
+                temperature=0.6,
+                top_p=0.95,
+                top_k=40,
+            )
+        if model_spec.family == "deepseek_r1_qwen3":
+            return DecodingConfig(
+                max_tokens=4096,
+                temperature=0.6,
+                top_p=0.95,
+            )
+        raise ValueError(
+            f"No always-on reasoning decoding is registered for "
+            f"{model_spec.label}"
+        )
     if prompt_mode == "direct":
         return DecodingConfig(max_tokens=64, temperature=0.0)
-    if prompt_mode == "enumeration":
+    if prompt_mode in ENUMERATION_PROMPT_MODES:
         return DecodingConfig(max_tokens=1536, temperature=0.0)
-    if prompt_mode != "native_thinking" or not model_spec.native_thinking:
+    if prompt_mode not in THINKING_PROMPT_MODES or not model_spec.native_thinking:
         raise ValueError(
             f"Unsupported decoding combination: {model_spec.label}/{prompt_mode}"
         )
@@ -71,11 +102,11 @@ def request_id(
     *,
     model_spec: ModelSpec,
     prompt_mode: str,
-    query_order: str,
+    query_layout: str,
     stimulus_id: str,
 ) -> str:
     return "/".join(
-        (model_spec.label, prompt_mode, query_order, stimulus_id)
+        (model_spec.label, prompt_mode, query_layout, stimulus_id)
     )
 
 
@@ -84,45 +115,46 @@ def build_requests(
     *,
     model_spec: ModelSpec,
     prompt_modes: Iterable[str] | None = None,
-    query_orders: Iterable[str] = QUERY_ORDERS,
+    query_layout: str = QUERY_LAYOUT,
 ) -> list[dict[str, Any]]:
     modes = tuple(prompt_modes or model_spec.prompt_modes)
-    orders = tuple(query_orders)
-    unsupported = sorted(set(modes) - set(model_spec.prompt_modes))
+    supported = set(model_spec.prompt_modes)
+    if model_spec.native_thinking:
+        supported.add("native_thinking_control")
+    unsupported = sorted(set(modes) - supported)
     if unsupported:
         raise ValueError(
             f"{model_spec.label} does not support prompt modes: {unsupported}"
         )
-    if not set(orders).issubset(QUERY_ORDERS):
-        raise ValueError(f"Unsupported query orders: {orders}")
+    if query_layout != QUERY_LAYOUT:
+        raise ValueError(f"Unsupported query layout: {query_layout}")
 
     requests: list[dict[str, Any]] = []
     for stimulus in stimuli:
         for prompt_mode in modes:
-            for query_order in orders:
-                messages = build_messages(
-                    stimulus["passage"],
-                    prompt_mode=prompt_mode,
-                    query_order=query_order,
-                )
-                requests.append(
-                    {
-                        "request_id": request_id(
-                            model_spec=model_spec,
-                            prompt_mode=prompt_mode,
-                            query_order=query_order,
-                            stimulus_id=stimulus["stimulus_id"],
-                        ),
-                        "model_label": model_spec.label,
-                        "model_id": model_spec.model_id,
-                        "prompt_mode": prompt_mode,
-                        "query_order": query_order,
-                        "stimulus_id": stimulus["stimulus_id"],
-                        "seed": int(stimulus["seed"]),
-                        "messages": messages,
-                        "stimulus": stimulus,
-                    }
-                )
+            messages = build_messages(
+                stimulus["passage"],
+                prompt_mode=prompt_mode,
+                query_layout=query_layout,
+            )
+            requests.append(
+                {
+                    "request_id": request_id(
+                        model_spec=model_spec,
+                        prompt_mode=prompt_mode,
+                        query_layout=query_layout,
+                        stimulus_id=stimulus["stimulus_id"],
+                    ),
+                    "model_label": model_spec.label,
+                    "model_id": model_spec.model_id,
+                    "prompt_mode": prompt_mode,
+                    "query_layout": query_layout,
+                    "stimulus_id": stimulus["stimulus_id"],
+                    "seed": int(stimulus["seed"]),
+                    "messages": messages,
+                    "stimulus": stimulus,
+                }
+            )
     ids = [item["request_id"] for item in requests]
     if len(ids) != len(set(ids)):
         raise ValueError("Duplicate request IDs detected")
@@ -184,7 +216,9 @@ def _evaluation_summary(
         return {
             "parse_failures": 0,
             "truncations": 0,
+            "overthinking_flags": 0,
             "exact_count_accuracy": None,
+            "registered_accuracy": None,
         }
     return {
         "parse_failures": sum(
@@ -194,8 +228,17 @@ def _evaluation_summary(
         "truncations": sum(
             bool(row["evaluation"]["truncated"]) for row in completed.values()
         ),
+        "overthinking_flags": sum(
+            bool(row["evaluation"].get("overthinking_flag"))
+            for row in completed.values()
+        ),
         "exact_count_accuracy": sum(
             bool(row["evaluation"]["exact_count"])
+            for row in completed.values()
+        )
+        / len(completed),
+        "registered_accuracy": sum(
+            bool(row["evaluation"].get("registered_success"))
             for row in completed.values()
         )
         / len(completed),
@@ -294,7 +337,7 @@ def run_vllm_experiment(
     needle_counts: Iterable[int] | None = None,
     seeds: Iterable[int] | None = None,
     prompt_modes: Iterable[str] | None = None,
-    query_orders: Iterable[str] = QUERY_ORDERS,
+    query_layout: str = QUERY_LAYOUT,
     engine_config: EngineConfig | None = None,
     cache_dir: str | Path | None = None,
     repo_root: str | Path = ".",
@@ -316,7 +359,7 @@ def run_vllm_experiment(
         selected,
         model_spec=model_spec,
         prompt_modes=prompt_modes,
-        query_orders=query_orders,
+        query_layout=query_layout,
     )
     output = Path(output_dir)
     results_path = output / "requests.jsonl"
@@ -350,14 +393,18 @@ def run_vllm_experiment(
         elapsed_before_seconds = 0.0
     else:
         expected_existing = {
+            "schema_version": existing_manifest.get("schema_version"),
             "model_id": existing_manifest.get("model", {}).get("model_id"),
+            "query_layout": existing_manifest.get("query_layout"),
             "stimuli_sha256": existing_manifest.get("stimuli_sha256"),
             "request_ids_sha256": existing_manifest.get("request_ids_sha256"),
             "engine": existing_manifest.get("engine"),
             "git_commit": existing_manifest.get("git", {}).get("commit"),
         }
         current = {
+            "schema_version": "realistic_niah_run_manifest_v2",
             "model_id": model_spec.model_id,
+            "query_layout": query_layout,
             "stimuli_sha256": stimuli_sha256,
             "request_ids_sha256": request_ids_sha256,
             "engine": asdict(engine),
@@ -393,11 +440,16 @@ def run_vllm_experiment(
             )
 
     manifest = {
-        "schema_version": "realistic_niah_run_manifest_v1",
+        "schema_version": "realistic_niah_run_manifest_v2",
+        "protocol_version": "realistic_niah_v2",
         "created_at_utc": created_at_utc,
         "last_updated_at_utc": datetime.now(timezone.utc).isoformat(),
         "model": asdict(model_spec),
         "model_revision": immutable_revision,
+        "query_layout": query_layout,
+        "prompt_modes": list(dict.fromkeys(
+            str(request["prompt_mode"]) for request in requests
+        )),
         "engine": asdict(engine),
         "stimuli_path": str(stimuli_file),
         "stimuli_sha256": stimuli_sha256,
@@ -498,14 +550,22 @@ def run_vllm_experiment(
             for request, generated in zip(batch, outputs):
                 candidate = generated.outputs[0]
                 stimulus = request["stimulus"]
+                expects_reasoning = reasoning_expected(
+                    model_spec,
+                    prompt_mode,
+                )
                 evaluation = evaluate_generation(
                     candidate.text,
                     prompt_mode=prompt_mode,
+                    reasoning_expected=expects_reasoning,
                     gold_pairs=stimulus["gold_pairs"],
                     finish_reason=candidate.finish_reason,
+                    output_tokens=len(candidate.token_ids),
+                    max_output_tokens=decode.max_tokens,
                 )
                 completed[request["request_id"]] = {
-                    "schema_version": "realistic_niah_request_v1",
+                    "schema_version": "realistic_niah_request_v2",
+                    "protocol_version": "realistic_niah_v2",
                     "request_id": request["request_id"],
                     "model_label": model_spec.label,
                     "model_id": model_spec.model_id,
@@ -530,7 +590,9 @@ def run_vllm_experiment(
                     "realized_insertions": stimulus["realized_insertions"],
                     "length_search": stimulus["length_search"],
                     "prompt_mode": prompt_mode,
-                    "query_order": request["query_order"],
+                    "query_layout": request["query_layout"],
+                    "reasoning_policy": model_spec.reasoning_policy,
+                    "reasoning_expected": expects_reasoning,
                     "messages": request["messages"],
                     "rendered_prompt": request["rendered_prompt"],
                     "input_ids": request["input_ids"],

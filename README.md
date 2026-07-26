@@ -14,31 +14,85 @@ python -m pip install -r requirements.txt
 
 Remote: `https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git`
 
-## Registered Realistic NIAH pilot
+## Registered Realistic NIAH V2
 
-The multi-model counting experiment is defined in `plans/outline.md`. Its
-master grid uses post-insertion passage lengths of 2K, 5K, and 10K tokens,
-needle counts `1,2,3,4,5,6,8,10,20,30`, and paired seeds `1234..1238`.
+The current counting protocol is specified in
+`docs/realistic_niah_v2.md` and `configs/realistic_niah_main.json`. It uses
+eight reasoning-capable Qwen, Gemma, DeepSeek, and GLM models and a shared
+500-stimulus grid:
+five post-insertion passage lengths (`2K,3K,5K,10K,20K`), ten true needle
+counts (`1,2,3,4,5,6,8,10,20,30`), and ten seeds (`1234..1243`).
+Each model receives four formal prompt modes, producing 2,000 generations
+per model and 16,000 generations in the complete panel.
 
-Freeze and audit the 150 shared stimuli once:
+Freeze and audit the 500 shared stimuli once:
 
 ```bash
 PYTHONPATH=src python scripts/freeze_realistic_niah.py \
-  --output-dir /path/to/runs/realistic_niah_v1/dataset \
+  --output-dir /path/to/runs/realistic_niah_v2/dataset \
   --cache-dir /path/to/hf-cache
 ```
 
-Run the 36-request Qwen3-8B smoke test with offline vLLM:
+Before the formal run, execute the paired anti-overthinking smoke test on
+Qwen3-4B, Gemma4-12B, DeepSeek-R1-0528-Qwen3-8B, and GLM-Z1-9B-0414.
+The control omits the new concise/no-restart guard; the treatment adds that
+guard. Both variants otherwise use the same prompt layout, stimuli, decoding,
+and seeds. Qwen/Gemma use their switchable thinking templates; DeepSeek/GLM
+are always-on reasoning models, so their native templates are left unchanged
+in both smoke arms.
 
 ```bash
 PYTHONPATH=src python scripts/run_realistic_niah.py \
-  --stimuli /path/to/runs/realistic_niah_v1/dataset/stimuli.jsonl \
-  --output-dir /path/to/runs/realistic_niah_v1/Qwen_Qwen3-8B_smoke \
-  --model Qwen3-8B \
-  --passage-lengths 2000,10000 \
-  --needle-counts 5,6,30 \
-  --seeds 1234 \
+  --stimuli /path/to/runs/realistic_niah_v2/dataset/stimuli.jsonl \
+  --output-dir /path/to/runs/realistic_niah_v2/smoke/Qwen3-4B \
+  --model Qwen3-4B \
+  --passage-lengths 2000,20000 \
+  --needle-counts 6,20,30 \
+  --seeds 1234,1235 \
+  --prompt-modes native_thinking_control,native_thinking \
   --cache-dir /path/to/hf-cache
+
+PYTHONPATH=src python scripts/run_realistic_niah.py \
+  --stimuli /path/to/runs/realistic_niah_v2/dataset/stimuli.jsonl \
+  --output-dir /path/to/runs/realistic_niah_v2/smoke/Gemma4-12B \
+  --model Gemma4-12B \
+  --passage-lengths 2000,20000 \
+  --needle-counts 6,20,30 \
+  --seeds 1234,1235 \
+  --prompt-modes native_thinking_control,native_thinking \
+  --cache-dir /path/to/hf-cache
+
+PYTHONPATH=src python scripts/run_realistic_niah.py \
+  --stimuli /path/to/runs/realistic_niah_v2/dataset/stimuli.jsonl \
+  --output-dir /path/to/runs/realistic_niah_v2/smoke/DeepSeek-R1-0528-Qwen3-8B \
+  --model DeepSeek-R1-0528-Qwen3-8B \
+  --passage-lengths 2000,20000 \
+  --needle-counts 6,20,30 \
+  --seeds 1234,1235 \
+  --prompt-modes native_thinking_control,native_thinking \
+  --cache-dir /path/to/hf-cache
+
+PYTHONPATH=src python scripts/run_realistic_niah.py \
+  --stimuli /path/to/runs/realistic_niah_v2/dataset/stimuli.jsonl \
+  --output-dir /path/to/runs/realistic_niah_v2/smoke/GLM-Z1-9B-0414 \
+  --model GLM-Z1-9B-0414 \
+  --passage-lengths 2000,20000 \
+  --needle-counts 6,20,30 \
+  --seeds 1234,1235 \
+  --prompt-modes native_thinking_control,native_thinking \
+  --cache-dir /path/to/hf-cache
+```
+
+Summarize the 96 paired smoke generations with:
+
+```bash
+PYTHONPATH=src python scripts/summarize_realistic_niah_smoke.py \
+  --requests \
+    /path/to/runs/realistic_niah_v2/smoke/Qwen3-4B/requests.jsonl \
+    /path/to/runs/realistic_niah_v2/smoke/Gemma4-12B/requests.jsonl \
+    /path/to/runs/realistic_niah_v2/smoke/DeepSeek-R1-0528-Qwen3-8B/requests.jsonl \
+    /path/to/runs/realistic_niah_v2/smoke/GLM-Z1-9B-0414/requests.jsonl \
+  --output /path/to/runs/realistic_niah_v2/smoke/summary.json
 ```
 
 Runs are resumable by stable request ID. Archive and verify a completed run

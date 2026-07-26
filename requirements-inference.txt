@@ -1,5 +1,8 @@
 -r requirements.txt
 
-# Pinned production inference engine. vLLM 0.25.1 supports Qwen3,
-# Gemma 4 / Gemma 4 Unified, Llama 3.x, and OLMo Hybrid.
+# GLM-Z1's official template requires Transformers 4.51.3 or newer.
+transformers>=4.51.3
+
+# Pinned production inference engine for Qwen3, Gemma 4 / Gemma 4 Unified,
+# DeepSeek-R1-Qwen3, and GLM-Z1.
 vllm==0.25.1

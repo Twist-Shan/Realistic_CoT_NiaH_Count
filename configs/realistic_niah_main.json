@@ -1,18 +1,33 @@
 {
-  "schema_version": "realistic_niah_experiment_v1",
+  "schema_version": "realistic_niah_experiment_v2",
+  "protocol_version": "realistic_niah_v2",
   "canonical_tokenizer": "Qwen/Qwen3-8B",
-  "target_passage_tokens": [2000, 5000, 10000],
+  "target_passage_tokens": [2000, 3000, 5000, 10000, 20000],
   "needle_counts": [1, 2, 3, 4, 5, 6, 8, 10, 20, 30],
-  "seeds": [1234, 1235, 1236, 1237, 1238],
-  "query_orders": ["query_first", "query_last"],
+  "seeds": [1234, 1235, 1236, 1237, 1238, 1239, 1240, 1241, 1242, 1243],
+  "query_layout": "cue_before_query_after",
+  "prompt_modes": [
+    "direct",
+    "enumeration_index",
+    "enumeration_bullet",
+    "native_thinking"
+  ],
   "models": [
     "Qwen3-1.7B",
+    "Qwen3-4B",
     "Qwen3-8B",
     "Qwen3-32B",
     "Gemma4-E4B",
     "Gemma4-12B",
-    "Llama3.1-8B",
-    "Llama3.2-3B",
-    "OLMo-Hybrid-7B"
-  ]
+    "DeepSeek-R1-0528-Qwen3-8B",
+    "GLM-Z1-9B-0414"
+  ],
+  "matched_nonthinking_controls": {
+    "DeepSeek-R1-0528-Qwen3-8B": "Qwen3-8B",
+    "GLM-Z1-9B-0414": "GLM-4-9B-0414"
+  },
+  "expected_stimuli": 500,
+  "expected_requests_per_model": 2000,
+  "expected_requests_total": 16000,
+  "expected_requests_total_scope": "primary_eight_model_panel_only"
 }

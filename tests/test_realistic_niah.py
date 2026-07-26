@@ -5,10 +5,12 @@ from realistic_niah.parsing import (
     evaluate_generation,
     split_reasoning_and_final,
 )
-from realistic_niah.prompts import build_messages
+from realistic_niah.prompts import COMMON_COUNTING_CUE, build_messages
 from realistic_niah.spec import (
+    FORMAL_PROMPT_MODES,
     NEEDLE_COUNTS,
     PASSAGE_LENGTHS,
+    QUERY_LAYOUT,
     SEEDS,
     SMOKE_NEEDLE_COUNTS,
 )
@@ -20,43 +22,36 @@ from realistic_niah.stimuli import (
 )
 
 
-def test_registered_grid_replaces_zero_with_six() -> None:
+def test_registered_v2_grid_contains_500_shared_stimuli() -> None:
     assert 0 not in NEEDLE_COUNTS
     assert 6 in NEEDLE_COUNTS
     assert NEEDLE_COUNTS == (1, 2, 3, 4, 5, 6, 8, 10, 20, 30)
-    assert len(PASSAGE_LENGTHS) * len(NEEDLE_COUNTS) * len(SEEDS) == 150
-    assert SMOKE_NEEDLE_COUNTS == (5, 6, 30)
+    assert PASSAGE_LENGTHS == (2_000, 3_000, 5_000, 10_000, 20_000)
+    assert SEEDS == tuple(range(1234, 1244))
+    assert len(PASSAGE_LENGTHS) * len(NEEDLE_COUNTS) * len(SEEDS) == 500
+    assert SMOKE_NEEDLE_COUNTS == (6, 20, 30)
 
 
-def test_query_order_only_moves_the_task_block() -> None:
+def test_v2_prompts_share_cue_and_fixed_query_after_layout() -> None:
     passage = "Alpha passage."
-    direct_first = build_messages(
-        passage,
-        prompt_mode="direct",
-        query_order="query_first",
-    )
-    native_first = build_messages(
-        passage,
-        prompt_mode="native_thinking",
-        query_order="query_first",
-    )
-    query_last = build_messages(
-        passage,
-        prompt_mode="direct",
-        query_order="query_last",
-    )
+    contents = {
+        mode: build_messages(passage, prompt_mode=mode)[0]["content"]
+        for mode in FORMAL_PROMPT_MODES
+    }
 
-    assert direct_first == native_first
-    assert direct_first[0]["content"].index("How many") < direct_first[0][
-        "content"
-    ].index("<passage>")
-    assert query_last[0]["content"].index("<passage>") < query_last[0][
-        "content"
-    ].index("How many")
-    assert "city-score" not in query_last[0]["content"].split("<passage>", 1)[0]
+    assert QUERY_LAYOUT == "cue_before_query_after"
+    assert len(set(contents.values())) == 4
+    for content in contents.values():
+        assert content.startswith(COMMON_COUNTING_CUE)
+        assert content.index(COMMON_COUNTING_CUE) < content.index("<passage>")
+        assert content.index("</passage>") < content.index("How many")
+        assert "count all city-score audit records" in content
+    assert "<k>. <city>: <score>" in contents["enumeration_index"]
+    assert "- <city>: <score>" in contents["enumeration_bullet"]
+    assert "Do not restart or repeat" in contents["native_thinking"]
 
 
-def test_enumeration_parser_handles_six_records() -> None:
+def test_indexed_enumeration_parser_handles_six_records() -> None:
     gold = [
         {"city": f"City {index}", "score": 50 + index}
         for index in range(1, 7)
@@ -69,15 +64,88 @@ def test_enumeration_parser_handles_six_records() -> None:
     )
     result = evaluate_generation(
         output,
-        prompt_mode="enumeration",
+        prompt_mode="enumeration_index",
         gold_pairs=gold,
         finish_reason="stop",
     )
 
     assert result["predicted_count"] == 6
     assert result["exact_count"] is True
+    assert result["registered_success"] is True
     assert result["pair_recall"] == 1.0
     assert result["listed_total_matches_length"] is True
+    assert result["enumeration_format_status"] == "ok"
+    assert result["enumeration_format_compliant"] is True
+
+
+def test_bullet_enumeration_has_independent_strict_parser() -> None:
+    gold = [
+        {"city": "Madison", "score": 71},
+        {"city": "Milwaukee", "score": 83},
+    ]
+    result = evaluate_generation(
+        "- Madison: 71\n- Milwaukee: 83\nTotal: 2",
+        prompt_mode="enumeration_bullet",
+        gold_pairs=gold,
+        finish_reason="stop",
+    )
+
+    assert result["exact_count"] is True
+    assert result["registered_success"] is True
+    assert result["pair_recall"] == 1.0
+    assert result["enumeration_format_status"] == "ok"
+    assert result["enumeration_format_compliant"] is True
+
+
+def test_wrong_enumeration_marker_preserves_semantic_pair_audit() -> None:
+    gold = [
+        {"city": "Madison", "score": 71},
+        {"city": "Milwaukee", "score": 83},
+    ]
+    result = evaluate_generation(
+        "1. Madison: 71\n2. Milwaukee: 83\nTotal: 2",
+        prompt_mode="enumeration_bullet",
+        gold_pairs=gold,
+        finish_reason="stop",
+    )
+
+    assert result["exact_count"] is True
+    assert result["registered_success"] is False
+    assert result["pair_recall"] == 1.0
+    assert result["enumeration_format_status"] == "wrong_marker"
+    assert result["enumeration_format_compliant"] is False
+    assert result["response_format_compliant"] is False
+    assert result["strict_listed_records"] == []
+
+
+def test_native_thinking_restarts_are_audited() -> None:
+    output = """\
+<think>
+1. Madison: 71
+2. Milwaukee: 83
+1. Madison: 71
+2. Milwaukee: 83
+</think>
+Total: 2"""
+    result = evaluate_generation(
+        output,
+        prompt_mode="native_thinking",
+        gold_pairs=[
+            {"city": "Madison", "score": 71},
+            {"city": "Milwaukee", "score": 83},
+        ],
+        finish_reason="stop",
+        output_tokens=120,
+        max_output_tokens=4096,
+    )
+
+    assert result["exact_count"] is True
+    assert result["registered_success"] is True
+    assert result["reasoning_enumeration_restart_count"] == 1
+    assert result["reasoning_duplicate_record_mentions"] == 2
+    assert result["overthinking_flag"] is True
+    assert "enumeration_restart" in result["overthinking_signals"]
+    assert result["output_budget_fraction"] == 120 / 4096
 
 
 def test_qwen_reasoning_and_final_are_separated() -> None:
@@ -98,6 +166,37 @@ def test_qwen_prompt_supplied_opening_think_token_is_supported() -> None:
 
     assert reasoning == "I found six records."
     assert final == "Total: 6"
+
+
+def test_always_on_reasoning_is_split_in_a_direct_prompt_mode() -> None:
+    reasoning, final = split_reasoning_and_final(
+        "I found six records.\n</think>\n\nTotal: 6",
+        prompt_mode="direct",
+        reasoning_expected=True,
+    )
+
+    assert reasoning == "I found six records."
+    assert final == "Total: 6"
+
+
+def test_deepseek_and_glm_end_tokens_are_accepted_after_total() -> None:
+    gold = [
+        {"city": "Madison", "score": 71},
+        {"city": "Milwaukee", "score": 83},
+    ]
+    for raw_text in (
+        "Total: 2<｜end▁of▁sentence｜>",
+        "Total: 2<|endoftext|>",
+    ):
+        result = evaluate_generation(
+            raw_text,
+            prompt_mode="direct",
+            gold_pairs=gold,
+            finish_reason="stop",
+        )
+
+        assert result["predicted_count"] == 2
+        assert result["registered_success"] is True
 
 
 def test_gemma_reasoning_and_final_are_separated() -> None:

@@ -4,6 +4,7 @@ import argparse
 import json
 
 from realistic_niah.runner import EngineConfig, run_vllm_experiment
+from realistic_niah.spec import QUERY_LAYOUT
 
 
 def _csv_ints(value: str | None) -> tuple[int, ...] | None:
@@ -20,7 +21,7 @@ def _csv_strings(value: str | None) -> tuple[str, ...] | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run registered Realistic NIAH requests with offline vLLM."
+        description="Run registered Realistic NIAH V2 requests with offline vLLM."
     )
     parser.add_argument("--stimuli", required=True)
     parser.add_argument("--output-dir", required=True)
@@ -30,11 +31,11 @@ def main() -> None:
     parser.add_argument("--needle-counts")
     parser.add_argument("--seeds")
     parser.add_argument("--prompt-modes")
-    parser.add_argument("--query-orders")
+    parser.add_argument("--query-layout", default=QUERY_LAYOUT)
     parser.add_argument("--cache-dir")
     parser.add_argument("--repo-root", default=".")
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
-    parser.add_argument("--max-model-len", type=int, default=16_384)
+    parser.add_argument("--max-model-len", type=int, default=32_768)
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.90)
     parser.add_argument("--max-num-seqs", type=int)
     parser.add_argument("--request-batch-size", type=int, default=32)
@@ -50,8 +51,7 @@ def main() -> None:
         needle_counts=_csv_ints(args.needle_counts),
         seeds=_csv_ints(args.seeds),
         prompt_modes=_csv_strings(args.prompt_modes),
-        query_orders=_csv_strings(args.query_orders)
-        or ("query_first", "query_last"),
+        query_layout=args.query_layout,
         engine_config=EngineConfig(
             tensor_parallel_size=args.tensor_parallel_size,
             max_model_len=args.max_model_len,

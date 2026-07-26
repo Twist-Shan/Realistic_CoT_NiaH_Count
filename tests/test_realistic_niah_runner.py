@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from realistic_niah.drive_sync import build_run_archive
 from realistic_niah.runner import (
+    EngineConfig,
     _batched,
     _sampling_params_kwargs,
     build_requests,
     decoding_config,
 )
-from realistic_niah.spec import MODEL_SPECS
+from realistic_niah.spec import (
+    FORMAL_PROMPT_MODES,
+    MATCHED_NONTHINKING_CONTROLS,
+    MODEL_SPECS,
+    PASSAGE_LENGTHS,
+    PRIMARY_MODEL_LABELS,
+    NEEDLE_COUNTS,
+    QUERY_LAYOUT,
+    SEEDS,
+)
 
 
 def _stimulus(index: int) -> dict:
@@ -20,26 +31,51 @@ def _stimulus(index: int) -> dict:
     }
 
 
-def test_qwen_smoke_builds_36_unique_requests() -> None:
+def test_qwen_builds_four_formal_requests_per_stimulus() -> None:
     requests = build_requests(
         [_stimulus(index) for index in range(6)],
         model_spec=MODEL_SPECS["Qwen3-8B"],
     )
 
-    assert len(requests) == 36
-    assert len({request["request_id"] for request in requests}) == 36
+    assert len(requests) == 24
+    assert len({request["request_id"] for request in requests}) == 24
+    assert {request["prompt_mode"] for request in requests} == set(
+        FORMAL_PROMPT_MODES
+    )
+    assert all(QUERY_LAYOUT in request["request_id"] for request in requests)
 
 
-def test_llama_uses_only_four_conditions_per_stimulus() -> None:
+def test_v2_panel_contains_eight_primary_models_and_one_matched_control() -> None:
+    assert set(PRIMARY_MODEL_LABELS) == {
+        "Qwen3-1.7B",
+        "Qwen3-4B",
+        "Qwen3-8B",
+        "Qwen3-32B",
+        "Gemma4-E4B",
+        "Gemma4-12B",
+        "DeepSeek-R1-0528-Qwen3-8B",
+        "GLM-Z1-9B-0414",
+    }
+    assert set(MODEL_SPECS) == set(PRIMARY_MODEL_LABELS) | {
+        "GLM-4-9B-0414"
+    }
+    assert MATCHED_NONTHINKING_CONTROLS == {
+        "DeepSeek-R1-0528-Qwen3-8B": "Qwen3-8B",
+        "GLM-Z1-9B-0414": "GLM-4-9B-0414",
+    }
+
+
+def test_smoke_control_is_explicit_and_not_a_formal_default() -> None:
     requests = build_requests(
         [_stimulus(1234)],
-        model_spec=MODEL_SPECS["Llama3.1-8B"],
+        model_spec=MODEL_SPECS["Qwen3-4B"],
+        prompt_modes=("native_thinking_control", "native_thinking"),
     )
 
-    assert len(requests) == 4
+    assert len(requests) == 2
     assert {request["prompt_mode"] for request in requests} == {
-        "direct",
-        "enumeration",
+        "native_thinking_control",
+        "native_thinking",
     }
 
 
@@ -47,13 +83,83 @@ def test_registered_decoding_budgets() -> None:
     qwen = MODEL_SPECS["Qwen3-8B"]
 
     assert decoding_config(qwen, "direct").max_tokens == 64
-    assert decoding_config(qwen, "enumeration").max_tokens == 1536
+    assert decoding_config(qwen, "enumeration_index").max_tokens == 1536
+    assert decoding_config(qwen, "enumeration_bullet").max_tokens == 1536
     thinking = decoding_config(qwen, "native_thinking")
+    control = decoding_config(qwen, "native_thinking_control")
     assert thinking.max_tokens == 4096
     assert thinking.temperature == 0.6
+    assert control == thinking
+    assert EngineConfig().max_model_len == 32_768
     assert _sampling_params_kwargs(thinking, seed=1234)[
         "skip_special_tokens"
     ] is False
+
+
+def test_always_on_reasoning_models_get_reasoning_budget_in_every_mode() -> None:
+    deepseek = MODEL_SPECS["DeepSeek-R1-0528-Qwen3-8B"]
+    glm = MODEL_SPECS["GLM-Z1-9B-0414"]
+
+    for mode in (*FORMAL_PROMPT_MODES, "native_thinking_control"):
+        deepseek_decode = decoding_config(deepseek, mode)
+        assert deepseek_decode.max_tokens == 4096
+        assert deepseek_decode.temperature == 0.6
+        assert deepseek_decode.top_p == 0.95
+        assert deepseek_decode.top_k == -1
+
+        glm_decode = decoding_config(glm, mode)
+        assert glm_decode.max_tokens == 4096
+        assert glm_decode.temperature == 0.6
+        assert glm_decode.top_p == 0.95
+        assert glm_decode.top_k == 40
+
+
+def test_v2_request_accounting_is_explicit() -> None:
+    stimuli_per_model = (
+        len(PASSAGE_LENGTHS) * len(NEEDLE_COUNTS) * len(SEEDS)
+    )
+
+    assert stimuli_per_model == 500
+    assert stimuli_per_model * len(FORMAL_PROMPT_MODES) == 2_000
+    assert (
+        stimuli_per_model
+        * len(FORMAL_PROMPT_MODES)
+        * len(PRIMARY_MODEL_LABELS)
+        == 16_000
+    )
+
+
+def test_v2_json_configs_match_registered_python_spec() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    main = json.loads(
+        (repo_root / "configs" / "realistic_niah_main.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    smoke = json.loads(
+        (repo_root / "configs" / "realistic_niah_smoke.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert tuple(main["target_passage_tokens"]) == PASSAGE_LENGTHS
+    assert tuple(main["needle_counts"]) == NEEDLE_COUNTS
+    assert tuple(main["seeds"]) == SEEDS
+    assert tuple(main["prompt_modes"]) == FORMAL_PROMPT_MODES
+    assert tuple(main["models"]) == PRIMARY_MODEL_LABELS
+    assert main["matched_nonthinking_controls"] == (
+        MATCHED_NONTHINKING_CONTROLS
+    )
+    assert main["expected_stimuli"] == 500
+    assert main["expected_requests_total"] == 16_000
+    assert smoke["models"] == [
+        "Qwen3-8B",
+        "Gemma4-12B",
+        "DeepSeek-R1-0528-Qwen3-8B",
+        "GLM-Z1-9B-0414",
+    ]
+    assert smoke["prompt_modes"] == ["native_thinking"]
+    assert smoke["expected_requests_total"] == 48
 
 
 def test_request_batches_checkpoint_at_bounded_size() -> None:

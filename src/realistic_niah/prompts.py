@@ -2,34 +2,66 @@ from __future__ import annotations
 
 from typing import Any
 
-from .spec import MODEL_SPECS, ModelSpec, QUERY_ORDERS
+from .spec import (
+    FORMAL_PROMPT_MODES,
+    MODEL_SPECS,
+    QUERY_LAYOUT,
+    SMOKE_PROMPT_MODES,
+    THINKING_PROMPT_MODES,
+    ModelSpec,
+)
 
-DIRECT_TASK_BLOCK = """\
-The passage contains one or more city-score audit records. A city-score
-audit record names one city and gives that city's numeric score.
+COMMON_COUNTING_CUE = """\
+You will need to count all city-score audit records in the passage below.
+A city-score audit record names one city and gives that city's numeric score."""
 
+DIRECT_QUERY_BLOCK = """\
 How many city-score audit records are in the passage?
-In the final answer, output exactly one line in this form:
+In the final answer, output exactly one line:
 Total: <integer>"""
 
-ENUMERATION_TASK_BLOCK = """\
-The passage contains one or more city-score audit records. A city-score
-audit record names one city and gives that city's numeric score.
-
-Find every city-score audit record in the passage. In passage order, output
-one record per line as:
+ENUMERATION_INDEX_QUERY_BLOCK = """\
+How many city-score audit records are in the passage?
+List each occurrence once, in passage order, as:
 <k>. <city>: <score>
-where k starts at 1 and increases by 1.
-Then output one final line:
+Then report the number listed:
 Total: <integer>
 Do not include any other text."""
 
+ENUMERATION_BULLET_QUERY_BLOCK = """\
+How many city-score audit records are in the passage?
+List each occurrence once, in passage order, as:
+- <city>: <score>
+Then report the number listed:
+Total: <integer>
+Do not include any other text."""
 
-def task_block(prompt_mode: str) -> str:
-    if prompt_mode in {"direct", "native_thinking"}:
-        return DIRECT_TASK_BLOCK
-    if prompt_mode == "enumeration":
-        return ENUMERATION_TASK_BLOCK
+NATIVE_THINKING_QUERY_BLOCK = """\
+How many city-score audit records are in the passage?
+Reason concisely. Do not restart or repeat a completed enumeration.
+Once you determine the count, output exactly one final line:
+Total: <integer>"""
+
+# This smoke-only control has the same cue and layout as V2, but omits the
+# anti-repetition instruction. It therefore isolates the guard's effect.
+NATIVE_THINKING_CONTROL_QUERY_BLOCK = DIRECT_QUERY_BLOCK
+
+SUPPORTED_PROMPT_MODES = frozenset(
+    (*FORMAL_PROMPT_MODES, *SMOKE_PROMPT_MODES)
+)
+
+
+def query_block(prompt_mode: str) -> str:
+    if prompt_mode == "direct":
+        return DIRECT_QUERY_BLOCK
+    if prompt_mode == "enumeration_index":
+        return ENUMERATION_INDEX_QUERY_BLOCK
+    if prompt_mode == "enumeration_bullet":
+        return ENUMERATION_BULLET_QUERY_BLOCK
+    if prompt_mode == "native_thinking":
+        return NATIVE_THINKING_QUERY_BLOCK
+    if prompt_mode == "native_thinking_control":
+        return NATIVE_THINKING_CONTROL_QUERY_BLOCK
     raise ValueError(f"Unsupported prompt_mode: {prompt_mode}")
 
 
@@ -37,22 +69,33 @@ def build_messages(
     passage: str,
     *,
     prompt_mode: str,
-    query_order: str,
+    query_layout: str = QUERY_LAYOUT,
 ) -> list[dict[str, str]]:
-    if query_order not in QUERY_ORDERS:
-        raise ValueError(f"Unsupported query_order: {query_order}")
-    task = task_block(prompt_mode)
+    if query_layout != QUERY_LAYOUT:
+        raise ValueError(f"Unsupported query_layout: {query_layout}")
+    task = query_block(prompt_mode)
     passage_block = f"<passage>\n{passage}\n</passage>"
-    content = (
-        f"{task}\n\n{passage_block}"
-        if query_order == "query_first"
-        else f"{passage_block}\n\n{task}"
-    )
+    content = f"{COMMON_COUNTING_CUE}\n\n{passage_block}\n\n{task}"
     return [{"role": "user", "content": content}]
 
 
 def thinking_enabled(prompt_mode: str) -> bool:
-    return prompt_mode == "native_thinking"
+    return prompt_mode in THINKING_PROMPT_MODES
+
+
+def reasoning_expected(
+    model_spec: ModelSpec,
+    prompt_mode: str,
+) -> bool:
+    if model_spec.reasoning_policy == "always_on":
+        return True
+    if model_spec.reasoning_policy == "switchable":
+        return thinking_enabled(prompt_mode)
+    if model_spec.reasoning_policy == "off_only":
+        return False
+    raise ValueError(
+        f"Unsupported reasoning policy: {model_spec.reasoning_policy!r}"
+    )
 
 
 def resolve_model_spec(model: str) -> ModelSpec:
@@ -71,7 +114,11 @@ def render_generation_prompt(
     model_spec: ModelSpec,
     prompt_mode: str,
 ) -> str:
-    if prompt_mode not in model_spec.prompt_modes:
+    supported = prompt_mode in model_spec.prompt_modes or (
+        prompt_mode == "native_thinking_control"
+        and model_spec.native_thinking
+    )
+    if not supported:
         raise ValueError(
             f"{model_spec.label} does not support prompt mode {prompt_mode!r}"
         )
@@ -79,6 +126,10 @@ def render_generation_prompt(
         "tokenize": False,
         "add_generation_prompt": True,
     }
-    if model_spec.family in {"qwen3", "gemma4"}:
+    if model_spec.reasoning_policy == "switchable":
         kwargs["enable_thinking"] = thinking_enabled(prompt_mode)
+    elif model_spec.reasoning_policy not in {"always_on", "off_only"}:
+        raise ValueError(
+            f"Unsupported reasoning policy: {model_spec.reasoning_policy!r}"
+        )
     return tokenizer.apply_chat_template(messages, **kwargs)
