@@ -20,19 +20,23 @@ PASSAGE
 EXPECTED_SUFFIXES = {
     "direct": """\
 How many city-score audit records are in the passage?
-In the final answer, output exactly one line:
+Do not explain, reason aloud, quote, or list any records.
+Your entire response must be exactly one line:
 Total: <integer>""",
     "enumeration_index": """\
 How many city-score audit records are in the passage?
-List each occurrence once, in passage order, as:
-<k>. <city>: <score>
+List each occurrence once, in passage order.
+Begin the first item with "1. ", the second with "2. ", and continue with ordinary digits.
+After each number, write the actual city name, then ": ", then the actual numeric score.
+Like k. city: score.
 Then report the number listed:
 Total: <integer>
 Do not include any other text.""",
     "enumeration_bullet": """\
 How many city-score audit records are in the passage?
-List each occurrence once, in passage order, as:
-- <city>: <score>
+List each occurrence once, in passage order.
+Begin each item with "-", then write the actual city name, then ": ", then the actual numeric score.
+Like - city: score.
 Then report the number listed:
 Total: <integer>
 Do not include any other text.""",
