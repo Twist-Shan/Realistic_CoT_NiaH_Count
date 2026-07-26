@@ -18,7 +18,20 @@ artifacts/**
 *.zip
 *.tar
 *.tar.gz
+*.zst
 *.7z
+
+# Local Realistic NiaH exports and release bundles. Keep these in local/Drive
+# archives; do not commit raw responses or duplicated packaged results.
+exports/
+versions/
+
+# Generated V1 analysis/report trees. Reusable analysis code should be curated
+# into src/ or scripts/ before it is intentionally committed.
+reports/niah_eight_model_report_*/
+reports/qwen_query_last_mode_specific_empirical_law_*/
+reports/generated/
+
 .DS_Store
 Thumbs.db
 .vscode/
