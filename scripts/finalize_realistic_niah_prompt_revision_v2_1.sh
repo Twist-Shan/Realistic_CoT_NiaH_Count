@@ -21,6 +21,8 @@ case "${run_root}" in
     ;;
 esac
 
+mkdir -p "${state_root}/completed" "${state_root}/failed"
+
 printf "checked_at_utc\tcompleted\tfailed\tstatus\n" > "${status_file}"
 while true; do
   completed="$(
