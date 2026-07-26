@@ -146,3 +146,31 @@ def test_always_on_reasoning_models_use_their_native_templates_unchanged() -> No
             "enable_thinking" not in call
             for call in tokenizer.calls
         )
+
+
+def test_glm4_matched_control_uses_off_only_native_template() -> None:
+    class RecordingTokenizer:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def apply_chat_template(
+            self,
+            messages: list[dict],
+            **kwargs: object,
+        ) -> str:
+            self.calls.append(kwargs)
+            return "rendered"
+
+    tokenizer = RecordingTokenizer()
+    model = MODEL_SPECS["GLM-4-9B-0414"]
+    messages = [{"role": "user", "content": "test"}]
+
+    render_generation_prompt(
+        tokenizer,
+        messages,
+        model_spec=model,
+        prompt_mode="direct",
+    )
+
+    assert reasoning_expected(model, "direct") is False
+    assert "enable_thinking" not in tokenizer.calls[0]

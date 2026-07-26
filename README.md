@@ -25,6 +25,12 @@ counts (`1,2,3,4,5,6,8,10,20,30`), and ten seeds (`1234..1243`).
 Each model receives four formal prompt modes, producing 2,000 generations
 per model and 16,000 generations in the complete panel.
 
+`GLM-4-9B-0414` is registered separately as the matched non-thinking
+control for `GLM-Z1-9B-0414`; it is not counted among the eight primary
+models or the 16,000 primary-panel generations. `Qwen3-8B` provides the
+architecture-matched non-thinking comparison for
+`DeepSeek-R1-0528-Qwen3-8B`.
+
 Freeze and audit the 500 shared stimuli once:
 
 ```bash
@@ -33,23 +39,22 @@ PYTHONPATH=src python scripts/freeze_realistic_niah.py \
   --cache-dir /path/to/hf-cache
 ```
 
-Before the formal run, execute the paired anti-overthinking smoke test on
-Qwen3-4B, Gemma4-12B, DeepSeek-R1-0528-Qwen3-8B, and GLM-Z1-9B-0414.
-The control omits the new concise/no-restart guard; the treatment adds that
-guard. Both variants otherwise use the same prompt layout, stimuli, decoding,
-and seeds. Qwen/Gemma use their switchable thinking templates; DeepSeek/GLM
-are always-on reasoning models, so their native templates are left unchanged
-in both smoke arms.
+Before the formal run, execute the guarded-CoT truncation smoke test on
+Qwen3-8B, Gemma4-12B, DeepSeek-R1-0528-Qwen3-8B, and GLM-Z1-9B-0414.
+Each model receives only the registered guarded `native_thinking` prompt on
+the same 12 hard-case stimuli. The primary gate is exactly zero truncations;
+accuracy, parsing, format compliance, output length, restarts, and duplicate
+reasoning are retained as diagnostics.
 
 ```bash
 PYTHONPATH=src python scripts/run_realistic_niah.py \
   --stimuli /path/to/runs/realistic_niah_v2/dataset/stimuli.jsonl \
-  --output-dir /path/to/runs/realistic_niah_v2/smoke/Qwen3-4B \
-  --model Qwen3-4B \
+  --output-dir /path/to/runs/realistic_niah_v2/smoke/Qwen3-8B \
+  --model Qwen3-8B \
   --passage-lengths 2000,20000 \
   --needle-counts 6,20,30 \
   --seeds 1234,1235 \
-  --prompt-modes native_thinking_control,native_thinking \
+  --prompt-modes native_thinking \
   --cache-dir /path/to/hf-cache
 
 PYTHONPATH=src python scripts/run_realistic_niah.py \
@@ -59,7 +64,7 @@ PYTHONPATH=src python scripts/run_realistic_niah.py \
   --passage-lengths 2000,20000 \
   --needle-counts 6,20,30 \
   --seeds 1234,1235 \
-  --prompt-modes native_thinking_control,native_thinking \
+  --prompt-modes native_thinking \
   --cache-dir /path/to/hf-cache
 
 PYTHONPATH=src python scripts/run_realistic_niah.py \
@@ -69,7 +74,7 @@ PYTHONPATH=src python scripts/run_realistic_niah.py \
   --passage-lengths 2000,20000 \
   --needle-counts 6,20,30 \
   --seeds 1234,1235 \
-  --prompt-modes native_thinking_control,native_thinking \
+  --prompt-modes native_thinking \
   --cache-dir /path/to/hf-cache
 
 PYTHONPATH=src python scripts/run_realistic_niah.py \
@@ -79,19 +84,22 @@ PYTHONPATH=src python scripts/run_realistic_niah.py \
   --passage-lengths 2000,20000 \
   --needle-counts 6,20,30 \
   --seeds 1234,1235 \
-  --prompt-modes native_thinking_control,native_thinking \
+  --prompt-modes native_thinking \
   --cache-dir /path/to/hf-cache
 ```
 
-Summarize the 96 paired smoke generations with:
+Summarize and enforce the zero-truncation gate across the 48 smoke
+generations with:
 
 ```bash
 PYTHONPATH=src python scripts/summarize_realistic_niah_smoke.py \
   --requests \
-    /path/to/runs/realistic_niah_v2/smoke/Qwen3-4B/requests.jsonl \
+    /path/to/runs/realistic_niah_v2/smoke/Qwen3-8B/requests.jsonl \
     /path/to/runs/realistic_niah_v2/smoke/Gemma4-12B/requests.jsonl \
     /path/to/runs/realistic_niah_v2/smoke/DeepSeek-R1-0528-Qwen3-8B/requests.jsonl \
     /path/to/runs/realistic_niah_v2/smoke/GLM-Z1-9B-0414/requests.jsonl \
+  --config configs/realistic_niah_smoke.json \
+  --analysis guarded \
   --output /path/to/runs/realistic_niah_v2/smoke/summary.json
 ```
 

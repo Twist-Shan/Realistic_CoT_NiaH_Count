@@ -9,9 +9,10 @@ format, and generation must not truncate. Parse failures, format failures,
 and truncations therefore remain failures; no response is removed after
 generation. Raw exact-count accuracy is retained as a secondary diagnostic.
 
-V2 also tests whether a concise anti-repetition instruction reduces native
-thinking overrun without lowering exact accuracy. This test is a paired
-smoke A/B on identical stimuli.
+Before the formal panel, V2 uses a small guarded-CoT smoke run to verify that
+the concise anti-repetition instruction does not exhaust the registered
+4,096-token generation budget. The smoke gate is zero truncations; accuracy
+and overthinking indicators remain diagnostics rather than launch gates.
 
 ## Registered model panel
 
@@ -25,6 +26,14 @@ smoke A/B on identical stimuli.
 | Gemma4-12B | `google/gemma-4-12B-it` | switchable |
 | DeepSeek-R1-0528-Qwen3-8B | `deepseek-ai/DeepSeek-R1-0528-Qwen3-8B` | always on |
 | GLM-Z1-9B-0414 | `zai-org/GLM-Z1-9B-0414` | always on |
+
+These are the eight primary models. `GLM-4-9B-0414`
+(`zai-org/GLM-4-9B-0414`) is additionally registered as an off-only matched
+control for GLM-Z1; it is outside the primary-panel request count.
+`Qwen3-8B` is the architecture-matched non-thinking comparison for the
+DeepSeek checkpoint. These comparisons isolate post-training more closely
+than unrelated-model comparisons, but they are not claimed to be pure
+single-variable causal interventions.
 
 All eight models are reasoning-capable. Qwen and Gemma expose a template
 switch, so V2 disables template thinking for direct/index/bullet modes and
@@ -154,50 +163,35 @@ The primary per-response fields are:
 - city-score pair precision, recall, F1, duplicates, hallucinations, and
   omissions.
 
-## Paired anti-overthinking smoke test
+## Guarded-CoT truncation smoke test
 
 The smoke grid is:
 
-- Models: Qwen3-4B, Gemma4-12B, DeepSeek-R1-0528-Qwen3-8B,
+- Models: Qwen3-8B, Gemma4-12B, DeepSeek-R1-0528-Qwen3-8B,
   and GLM-Z1-9B-0414.
 - Passage lengths: `2K,20K`.
 - Needle counts: `6,20,30`.
 - Seeds: `1234,1235`.
-- Twelve paired stimuli per model.
-- Two native-thinking variants per stimulus, or 24 requests per model and
-  96 total.
+- Twelve stimuli and twelve guarded `native_thinking` requests per model,
+  for 48 total.
 
-`native_thinking_control` uses the same V2 cue, layout, reasoning state,
-decoding, and final-answer instruction, but omits:
+The only primary launch requirement is zero truncations over all 48 requests.
+Per-model registered accuracy, raw exact-count accuracy, parse and format
+failures, output-token count, numbered-enumeration restarts, duplicate
+city-score mentions, duplicate reasoning lines, and the operational
+overthinking flag are reported for diagnosis. No smoke response is removed.
 
-```text
-Reason concisely. Do not restart or repeat a completed enumeration.
-Once you determine the count, output exactly one final line:
-```
-
-The paired comparison reports registered accuracy as the primary metric and
-raw exact-count accuracy as a secondary diagnostic. The registered
-overthinking diagnostics are truncation, output-token count,
-numbered-enumeration restarts, duplicate city-score mentions, duplicate
-reasoning lines, and a composite signal flag. The flag is operational, not
-a psychological claim: it is true when at least one registered observable
-signal occurs.
-
-For Qwen/Gemma, both arms explicitly enable template thinking. For
-DeepSeek/GLM, both arms retain the model's always-on reasoning template.
-Thus, within every model, the only smoke-arm difference is the visible
-anti-repetition instruction.
-
-A beneficial guard should improve or preserve paired registered accuracy while
-reducing truncation, output length, restarts, and duplication. The formal
-four-mode run should start only after inspecting the smoke summary and raw
+For Qwen and Gemma, the official template thinking switch is enabled.
+DeepSeek and GLM-Z1 retain their official always-on reasoning templates.
+The formal run should start only after the 48-row completeness check, the
+zero-truncation gate, and inspection of any parse, formatting, or repetition
 failure examples.
 
 ## Decoding controls
 
 - Switchable-model direct: greedy, 64 output tokens.
 - Switchable-model indexed/bullet enumeration: greedy, 1,536 output tokens.
-- Native thinking (control and guarded): 4,096 output tokens.
+- Native thinking (including the guarded smoke): 4,096 output tokens.
 - Qwen thinking: temperature `0.6`, top-p `0.95`, top-k `20`.
 - Gemma thinking: temperature `1.0`, top-p `0.95`, top-k `64`.
 - DeepSeek-R1-0528-Qwen3-8B: always-on reasoning in all four modes,
