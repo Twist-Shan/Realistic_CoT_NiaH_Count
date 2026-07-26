@@ -50,10 +50,10 @@ def test_v2_prompts_share_cue_and_fixed_query_after_layout() -> None:
         assert "count all city-score audit records" in content
     assert "<k>. <city>: <score>" in contents["enumeration_index"]
     assert "- <city>: <score>" in contents["enumeration_bullet"]
-    assert "running integer tally" in contents["native_thinking"]
-    assert "Do not output city names" in contents["native_thinking"]
-    assert "checking, or a second scan" in contents["native_thinking"]
-    assert "under 100 words" in contents["native_thinking"]
+    assert "Use one forward scan" in contents["native_thinking"]
+    assert "Do not list the records or repeat the scan" in (
+        contents["native_thinking"]
+    )
 
 
 def test_indexed_enumeration_parser_handles_six_records() -> None:

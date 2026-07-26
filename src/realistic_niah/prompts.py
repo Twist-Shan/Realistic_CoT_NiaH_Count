@@ -38,10 +38,9 @@ Do not include any other text."""
 
 NATIVE_THINKING_QUERY_BLOCK = """\
 How many city-score audit records are in the passage?
-Count in one left-to-right pass using only a running integer tally.
-Do not output city names, scores, a list, copied passage text, explanations,
-checking, or a second scan. Keep any reasoning under 100 words. Then
-immediately output exactly one final line:
+Use one forward scan and keep a running count.
+Do not list the records or repeat the scan.
+After reaching the end, immediately output exactly one line:
 Total: <integer>"""
 
 # This smoke-only control has the same cue and layout as V2, but omits the
