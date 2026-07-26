@@ -71,12 +71,17 @@ def test_smoke_control_is_explicit_and_not_a_formal_default() -> None:
     requests = build_requests(
         [_stimulus(1234)],
         model_spec=MODEL_SPECS["Qwen3-4B"],
-        prompt_modes=("native_thinking_control", "native_thinking"),
+        prompt_modes=(
+            "native_thinking_control",
+            "native_thinking_brief",
+            "native_thinking",
+        ),
     )
 
-    assert len(requests) == 2
+    assert len(requests) == 3
     assert {request["prompt_mode"] for request in requests} == {
         "native_thinking_control",
+        "native_thinking_brief",
         "native_thinking",
     }
 
@@ -89,9 +94,11 @@ def test_registered_decoding_budgets() -> None:
     assert decoding_config(qwen, "enumeration_bullet").max_tokens == 1536
     thinking = decoding_config(qwen, "native_thinking")
     control = decoding_config(qwen, "native_thinking_control")
+    brief = decoding_config(qwen, "native_thinking_brief")
     assert thinking.max_tokens == 4096
     assert thinking.temperature == 0.6
     assert control == thinking
+    assert brief == thinking
     assert EngineConfig().max_model_len == 32_768
     assert _sampling_params_kwargs(thinking, seed=1234)[
         "skip_special_tokens"
@@ -139,7 +146,11 @@ def test_always_on_reasoning_models_get_reasoning_budget_in_every_mode() -> None
     deepseek = MODEL_SPECS["DeepSeek-R1-0528-Qwen3-8B"]
     glm = MODEL_SPECS["GLM-Z1-9B-0414"]
 
-    for mode in (*FORMAL_PROMPT_MODES, "native_thinking_control"):
+    for mode in (
+        *FORMAL_PROMPT_MODES,
+        "native_thinking_control",
+        "native_thinking_brief",
+    ):
         deepseek_decode = decoding_config(deepseek, mode)
         assert deepseek_decode.max_tokens == 4096
         assert deepseek_decode.temperature == 0.6

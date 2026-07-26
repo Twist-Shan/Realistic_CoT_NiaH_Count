@@ -179,6 +179,27 @@ After reaching the end, immediately output exactly one line:
 Total: <integer>
 ```
 
+### Smoke-only brief-reasoning candidate
+
+This paired smoke candidate removes the prescribed running-count procedure
+while retaining a direct constraint against verbose enumeration and passage
+reproduction. It is not a formal-mode default unless the paired smoke
+comparison supports adopting it.
+
+```text
+You will need to count all city-score audit records in the passage below.
+A city-score audit record names one city and gives that city's numeric score.
+
+<passage>
+{passage}
+</passage>
+
+How many city-score audit records are in the passage?
+Reason briefly without quoting, listing, or restating any part of the passage.
+Stop as soon as you determine the count, then output exactly one line:
+Total: <integer>
+```
+
 ## Parsing and evaluation
 
 `Total: <integer>` is the registered count parser. Indexed and bullet

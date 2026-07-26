@@ -43,6 +43,12 @@ Do not list the records or repeat the scan.
 After reaching the end, immediately output exactly one line:
 Total: <integer>"""
 
+NATIVE_THINKING_BRIEF_QUERY_BLOCK = """\
+How many city-score audit records are in the passage?
+Reason briefly without quoting, listing, or restating any part of the passage.
+Stop as soon as you determine the count, then output exactly one line:
+Total: <integer>"""
+
 # This smoke-only control has the same cue and layout as V2, but omits the
 # anti-repetition instruction. It therefore isolates the guard's effect.
 NATIVE_THINKING_CONTROL_QUERY_BLOCK = DIRECT_QUERY_BLOCK
@@ -61,6 +67,8 @@ def query_block(prompt_mode: str) -> str:
         return ENUMERATION_BULLET_QUERY_BLOCK
     if prompt_mode == "native_thinking":
         return NATIVE_THINKING_QUERY_BLOCK
+    if prompt_mode == "native_thinking_brief":
+        return NATIVE_THINKING_BRIEF_QUERY_BLOCK
     if prompt_mode == "native_thinking_control":
         return NATIVE_THINKING_CONTROL_QUERY_BLOCK
     raise ValueError(f"Unsupported prompt_mode: {prompt_mode}")
@@ -116,8 +124,7 @@ def render_generation_prompt(
     prompt_mode: str,
 ) -> str:
     supported = prompt_mode in model_spec.prompt_modes or (
-        prompt_mode == "native_thinking_control"
-        and model_spec.native_thinking
+        prompt_mode in SMOKE_PROMPT_MODES and model_spec.native_thinking
     )
     if not supported:
         raise ValueError(

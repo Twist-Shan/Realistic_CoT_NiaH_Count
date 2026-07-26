@@ -76,6 +76,19 @@ def test_smoke_control_only_removes_the_native_thinking_guard() -> None:
     assert "Do not list the records or repeat the scan" in treatment
 
 
+def test_smoke_brief_prompt_constrains_trace_without_prescribing_counting() -> None:
+    brief = build_messages(
+        "PASSAGE",
+        prompt_mode="native_thinking_brief",
+    )[0]["content"]
+
+    assert "Reason briefly" in brief
+    assert "without quoting, listing, or restating" in brief
+    assert "Stop as soon as you determine the count" in brief
+    assert "running count" not in brief
+    assert "one forward scan" not in brief
+
+
 def test_smoke_control_and_treatment_both_enable_template_thinking() -> None:
     class RecordingTokenizer:
         def __init__(self) -> None:
@@ -96,6 +109,7 @@ def test_smoke_control_and_treatment_both_enable_template_thinking() -> None:
     for mode in (
         "direct",
         "native_thinking_control",
+        "native_thinking_brief",
         "native_thinking",
     ):
         render_generation_prompt(
@@ -107,6 +121,7 @@ def test_smoke_control_and_treatment_both_enable_template_thinking() -> None:
 
     assert [call["enable_thinking"] for call in tokenizer.calls] == [
         False,
+        True,
         True,
         True,
     ]
@@ -135,6 +150,7 @@ def test_always_on_reasoning_models_use_their_native_templates_unchanged() -> No
         for mode in (
             "direct",
             "native_thinking_control",
+            "native_thinking_brief",
             "native_thinking",
         ):
             render_generation_prompt(
