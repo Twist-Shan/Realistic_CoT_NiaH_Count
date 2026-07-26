@@ -38,10 +38,10 @@ Total: <integer>
 Do not include any other text.""",
     "native_thinking": """\
 How many city-score audit records are in the passage?
-Use one forward scan and maintain a running count.
-Do not list or quote the records. Do not restart, recount, verify, or repeat
-any part of the passage. After the first complete scan, stop reasoning
-immediately and output exactly one final line:
+Count in one left-to-right pass using only a running integer tally.
+Do not output city names, scores, a list, copied passage text, explanations,
+checking, or a second scan. Keep any reasoning under 100 words. Then
+immediately output exactly one final line:
 Total: <integer>""",
 }
 
@@ -71,11 +71,11 @@ def test_smoke_control_only_removes_the_native_thinking_guard() -> None:
 
     assert control == direct
     assert control != treatment
-    assert "Use one forward scan" not in control
-    assert "Do not list or quote the records" not in control
-    assert "Use one forward scan" in treatment
-    assert "Do not list or quote the records" in treatment
-    assert "Do not restart, recount, verify, or repeat" in treatment
+    assert "running integer tally" not in control
+    assert "copied passage text" not in control
+    assert "running integer tally" in treatment
+    assert "copied passage text" in treatment
+    assert "under 100 words" in treatment
 
 
 def test_smoke_control_and_treatment_both_enable_template_thinking() -> None:

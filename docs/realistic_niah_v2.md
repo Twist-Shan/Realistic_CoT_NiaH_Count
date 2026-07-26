@@ -173,10 +173,10 @@ A city-score audit record names one city and gives that city's numeric score.
 </passage>
 
 How many city-score audit records are in the passage?
-Use one forward scan and maintain a running count.
-Do not list or quote the records. Do not restart, recount, verify, or repeat
-any part of the passage. After the first complete scan, stop reasoning
-immediately and output exactly one final line:
+Count in one left-to-right pass using only a running integer tally.
+Do not output city names, scores, a list, copied passage text, explanations,
+checking, or a second scan. Keep any reasoning under 100 words. Then
+immediately output exactly one final line:
 Total: <integer>
 ```
 
