@@ -52,6 +52,19 @@ MATCHED_NONTHINKING_CONTROLS = {
     "DeepSeek-R1-0528-Qwen3-8B": "Qwen3-8B",
     "GLM-Z1-9B-0414": "GLM-4-9B-0414",
 }
+MODEL_REVISIONS = {
+    "Qwen3-1.7B": "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+    "Qwen3-4B": "1cfa9a7208912126459214e8b04321603b3df60c",
+    "Qwen3-8B": "b968826d9c46dd6066d109eabc6255188de91218",
+    "Qwen3-32B": "9216db5781bf21249d130ec9da846c4624c16137",
+    "Gemma4-E4B": "ee0ef6023621cff504d758262d4e04895a5af4a2",
+    "Gemma4-12B": "707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7",
+    "DeepSeek-R1-0528-Qwen3-8B": (
+        "6e8885a6ff5c1dc5201574c8fd700323f23c25fa"
+    ),
+    "GLM-Z1-9B-0414": "b221b06fefb23ca320922cf6e68ab5f2fb82de81",
+    "GLM-4-9B-0414": "645b8482494e31b6b752272bf7f7f273ef0f3caf",
+}
 
 
 MODEL_SPECS = {
@@ -144,6 +157,14 @@ def validate_experiment_spec() -> None:
         MODEL_SPECS
     ):
         raise ValueError("Primary and matched-control labels must cover the registry")
+    if set(MODEL_REVISIONS) != set(MODEL_SPECS):
+        raise ValueError("Every registered model must have one immutable revision")
+    if any(
+        len(revision) != 40
+        or any(character not in "0123456789abcdef" for character in revision)
+        for revision in MODEL_REVISIONS.values()
+    ):
+        raise ValueError("Model revisions must be lowercase 40-character Git SHAs")
     if any(
         target not in MODEL_SPECS or control not in MODEL_SPECS
         for target, control in MATCHED_NONTHINKING_CONTROLS.items()

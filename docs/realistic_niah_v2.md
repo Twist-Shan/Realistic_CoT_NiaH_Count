@@ -30,11 +30,14 @@ formal `native_thinking` prompt.
 
 These are the eight primary models. `GLM-4-9B-0414`
 (`zai-org/GLM-4-9B-0414`) is additionally registered as an off-only matched
-control for GLM-Z1; it is outside the primary-panel request count.
+control for GLM-Z1. It runs the three non-thinking visible-instruction modes
+(`direct`, `enumeration_index`, and `enumeration_bullet`) over the same 500
+stimuli: 1,500 additional requests outside the primary-panel request count.
 `Qwen3-8B` is the architecture-matched non-thinking comparison for the
-DeepSeek checkpoint. These comparisons isolate post-training more closely
-than unrelated-model comparisons, but they are not claimed to be pure
-single-variable causal interventions.
+DeepSeek checkpoint; its corresponding three non-thinking modes are already
+part of the primary panel. These comparisons isolate post-training more
+closely than unrelated-model comparisons, but they are not claimed to be
+pure single-variable causal interventions.
 
 All eight models are reasoning-capable. Qwen and Gemma expose a template
 switch, so V2 disables template thinking for direct/index/bullet modes and
@@ -64,6 +67,8 @@ No Llama or OLMo model is part of the V2 panel.
 - Formal prompt modes: 4.
 - Generations per model: `500 × 4 = 2,000`.
 - Complete eight-model panel: `8 × 2,000 = 16,000`.
+- Separate GLM-4 matched control: `500 × 3 = 1,500`.
+- All planned primary and matched-control requests: `17,500`.
 
 Here “500” denotes the shared stimulus matrix. It does not include the
 four prompt-mode expansions.

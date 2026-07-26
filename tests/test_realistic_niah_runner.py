@@ -15,6 +15,7 @@ from realistic_niah.runner import (
 from realistic_niah.spec import (
     FORMAL_PROMPT_MODES,
     MATCHED_NONTHINKING_CONTROLS,
+    MODEL_REVISIONS,
     MODEL_SPECS,
     PASSAGE_LENGTHS,
     PRIMARY_MODEL_LABELS,
@@ -174,11 +175,19 @@ def test_v2_json_configs_match_registered_python_spec() -> None:
     )
     assert tuple(main["prompt_modes"]) == FORMAL_PROMPT_MODES
     assert tuple(main["models"]) == PRIMARY_MODEL_LABELS
+    assert main["model_revisions"] == MODEL_REVISIONS
     assert main["matched_nonthinking_controls"] == (
         MATCHED_NONTHINKING_CONTROLS
     )
     assert main["expected_stimuli"] == 500
     assert main["expected_requests_total"] == 16_000
+    assert main["matched_control_prompt_modes"] == [
+        "direct",
+        "enumeration_index",
+        "enumeration_bullet",
+    ]
+    assert main["expected_glm4_control_requests"] == 1_500
+    assert main["expected_all_planned_requests"] == 17_500
     assert smoke["models"] == [
         "Qwen3-8B",
         "Gemma4-12B",
