@@ -71,6 +71,40 @@ The canonical tokenizer remains `Qwen/Qwen3-8B`. The run records both
 canonical passage length and each model tokenizer's realized passage/input
 length.
 
+## Haystack corpus and length construction
+
+V2 builds its filler from the complete 218-URL Paul Graham source list
+distributed by
+[NVIDIA/RULER](https://github.com/NVIDIA/RULER/tree/main/scripts/data/synthetic/json).
+`scripts/sync_paul_graham_full_corpus.py` downloads the public essay pages
+and repository text files, extracts visible article text, excludes sources
+below 5 KiB, removes exact content duplicates by SHA256, and writes a
+per-URL index, corpus manifest, and file checksums. The frozen-dataset
+manifest records the corpus-manifest SHA256.
+
+For each seed, content-unique essays are deterministically shuffled and
+concatenated once. Passage lengths use nested prefixes of that shuffled
+corpus: a seed's 2K filler is the beginning of its 10K filler, which is the
+beginning of its 20K filler, modulo the small adjustment required to keep
+post-insertion length exact. No essay or composite corpus is repeated. If
+the deduplicated source is too short, generation stops with an error.
+
+This follows the important part of common NIAH practice while tightening
+its auditability. The
+[Greg Kamradt NIAH implementation](https://github.com/gkamradt/LLMTest_NeedleInAHaystack)
+concatenates all text files in `PaulGrahamEssays` before trimming to the
+requested length; it only loops the whole collection if that collection is
+still too short. RULER downloads the GitHub essays plus the Paul Graham
+pages into one large essay corpus and slices the requested prefix; its code
+only repeats after the requested length exceeds that entire corpus. Thus a
+normal 10K condition should not be made by repeating one short essay.
+
+The first V2 smoke artifact predating this rule selected one short essay
+per row and repeated it 6--11 times for every 20K stimulus. That artifact
+remains preserved as a diagnostic of the old prompt but is not valid
+evidence for a clean length effect and is not reused by the revised smoke
+or formal experiment.
+
 ## Prompt layout
 
 The only registered layout is `cue_before_query_after`: an identical
@@ -139,8 +173,10 @@ A city-score audit record names one city and gives that city's numeric score.
 </passage>
 
 How many city-score audit records are in the passage?
-Reason concisely. Do not restart or repeat a completed enumeration.
-Once you determine the count, output exactly one final line:
+Use one forward scan and maintain a running count.
+Do not list or quote the records. Do not restart, recount, verify, or repeat
+any part of the passage. After the first complete scan, stop reasoning
+immediately and output exactly one final line:
 Total: <integer>
 ```
 
@@ -171,7 +207,7 @@ The smoke grid is:
   and GLM-Z1-9B-0414.
 - Passage lengths: `2K,20K`.
 - Needle counts: `6,20,30`.
-- Seeds: `1234,1235`.
+- Seeds: `2234,2235`, disjoint from the formal seeds `1234..1243`.
 - Twelve stimuli and twelve guarded `native_thinking` requests per model,
   for 48 total.
 

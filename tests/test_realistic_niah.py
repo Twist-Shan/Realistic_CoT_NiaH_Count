@@ -13,6 +13,7 @@ from realistic_niah.spec import (
     QUERY_LAYOUT,
     SEEDS,
     SMOKE_NEEDLE_COUNTS,
+    SMOKE_SEEDS,
 )
 from realistic_niah.stimuli import (
     FreezeSpec,
@@ -30,6 +31,7 @@ def test_registered_v2_grid_contains_500_shared_stimuli() -> None:
     assert SEEDS == tuple(range(1234, 1244))
     assert len(PASSAGE_LENGTHS) * len(NEEDLE_COUNTS) * len(SEEDS) == 500
     assert SMOKE_NEEDLE_COUNTS == (6, 20, 30)
+    assert SMOKE_SEEDS == (2234, 2235)
 
 
 def test_v2_prompts_share_cue_and_fixed_query_after_layout() -> None:
@@ -48,7 +50,11 @@ def test_v2_prompts_share_cue_and_fixed_query_after_layout() -> None:
         assert "count all city-score audit records" in content
     assert "<k>. <city>: <score>" in contents["enumeration_index"]
     assert "- <city>: <score>" in contents["enumeration_bullet"]
-    assert "Do not restart or repeat" in contents["native_thinking"]
+    assert "Use one forward scan" in contents["native_thinking"]
+    assert "Do not list or quote the records" in contents["native_thinking"]
+    assert "Do not restart, recount, verify, or repeat" in (
+        contents["native_thinking"]
+    )
 
 
 def test_indexed_enumeration_parser_handles_six_records() -> None:
@@ -253,6 +259,9 @@ def test_fixed_post_insertion_length_with_simple_tokenizer() -> None:
     assert row["gold_count"] == 6
     assert len(row["needles"]) == 6
     assert row["length_search"]["post_insertion_truncation"] is False
+    assert row["haystack"]["source_mode"] == "multi_file_no_repeat"
+    assert row["haystack"]["source_repeated_to_target"] is False
+    assert row["haystack"]["source_repeat_count"] == 1
 
 
 def test_frozen_grid_passes_independent_audit(tmp_path) -> None:

@@ -260,6 +260,58 @@ def test_short_haystack_is_repeated_to_target_length(tmp_path: Path) -> None:
     assert row["haystack"]["expanded_token_count"] >= 1200
 
 
+def test_multi_file_haystack_deduplicates_sources_without_repeating(
+    tmp_path: Path,
+) -> None:
+    haystack_dir = tmp_path / "haystacks"
+    haystack_dir.mkdir()
+    source_texts = {
+        "alpha.txt": "".join(
+            f"Alpha source sentence number {index}. " for index in range(800)
+        ),
+        "beta.txt": "".join(
+            f"Beta source sentence number {index}. " for index in range(800)
+        ),
+        "gamma.txt": "".join(
+            f"Gamma source sentence number {index}. " for index in range(800)
+        ),
+    }
+    for name, text in source_texts.items():
+        (haystack_dir / name).write_text(text, encoding="utf-8")
+    (haystack_dir / "alpha_copy.txt").write_text(
+        source_texts["alpha.txt"],
+        encoding="utf-8",
+    )
+    cfg = DynamicNiahV2Config(
+        task_type="match_count",
+        tokenizer_name="simple",
+        num_examples=1,
+        target_haystack_tokens=9_000,
+        num_needles=1,
+        insertion_positions=(50,),
+        haystack_dir=str(haystack_dir),
+        haystack_source_mode="multi_file_no_repeat",
+        global_random_seed=102,
+    )
+
+    row = generate_dynamic_niah_dataset_v2(cfg)[0]
+    metadata = row["haystack"]
+
+    assert len(metadata["base_tokens"]) == 9_000
+    assert metadata["source_mode"] == "multi_file_no_repeat"
+    assert metadata["window_strategy"] == "seed_shuffled_nested_prefix"
+    assert metadata["window_start"] == 0
+    assert metadata["source_repeated_to_target"] is False
+    assert metadata["source_repeat_count"] == 1
+    assert metadata["source_file_count"] == 3
+    assert not {
+        "alpha.txt",
+        "alpha_copy.txt",
+    }.issubset(set(metadata["source_files"]))
+    assert metadata["original_token_count"] >= 9_000
+    assert metadata["expanded_token_count"] == metadata["original_token_count"]
+
+
 def test_sentence_level_insertion_uses_sentence_boundaries_and_spans(
     tmp_path: Path,
 ) -> None:

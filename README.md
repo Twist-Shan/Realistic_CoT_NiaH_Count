@@ -31,13 +31,28 @@ models or the 16,000 primary-panel generations. `Qwen3-8B` provides the
 architecture-matched non-thinking comparison for
 `DeepSeek-R1-0528-Qwen3-8B`.
 
-Freeze and audit the 500 shared stimuli once:
+Build the full, content-deduplicated Paul Graham source corpus from the 218
+URLs registered by NVIDIA/RULER, then freeze and audit the 500 shared
+stimuli once. Put the corpus inside the run root so its text and provenance
+are preserved with the experiment:
 
 ```bash
+PYTHONPATH=src python scripts/sync_paul_graham_full_corpus.py \
+  --output-dir /path/to/runs/realistic_niah_v2/source_corpus
+
 PYTHONPATH=src python scripts/freeze_realistic_niah.py \
   --output-dir /path/to/runs/realistic_niah_v2/dataset \
+  --haystack-dir /path/to/runs/realistic_niah_v2/source_corpus \
+  --haystack-corpus-manifest \
+    /path/to/runs/realistic_niah_v2/source_corpus/corpus_manifest.json \
+  --haystack-source-mode multi_file_no_repeat \
   --cache-dir /path/to/hf-cache
 ```
+
+The generator never repeats an individual essay. It deterministically
+shuffles content-unique essays per seed and uses nested prefix windows, so
+the 2K, 3K, 5K, 10K, and 20K conditions for one seed share a common filler
+prefix. If the deduplicated corpus is too short, freezing fails explicitly.
 
 Before the formal run, execute the guarded-CoT truncation smoke test on
 Qwen3-8B, Gemma4-12B, DeepSeek-R1-0528-Qwen3-8B, and GLM-Z1-9B-0414.
@@ -53,7 +68,7 @@ PYTHONPATH=src python scripts/run_realistic_niah.py \
   --model Qwen3-8B \
   --passage-lengths 2000,20000 \
   --needle-counts 6,20,30 \
-  --seeds 1234,1235 \
+  --seeds 2234,2235 \
   --prompt-modes native_thinking \
   --cache-dir /path/to/hf-cache
 
@@ -63,7 +78,7 @@ PYTHONPATH=src python scripts/run_realistic_niah.py \
   --model Gemma4-12B \
   --passage-lengths 2000,20000 \
   --needle-counts 6,20,30 \
-  --seeds 1234,1235 \
+  --seeds 2234,2235 \
   --prompt-modes native_thinking \
   --cache-dir /path/to/hf-cache
 
@@ -73,7 +88,7 @@ PYTHONPATH=src python scripts/run_realistic_niah.py \
   --model DeepSeek-R1-0528-Qwen3-8B \
   --passage-lengths 2000,20000 \
   --needle-counts 6,20,30 \
-  --seeds 1234,1235 \
+  --seeds 2234,2235 \
   --prompt-modes native_thinking \
   --cache-dir /path/to/hf-cache
 
@@ -83,7 +98,7 @@ PYTHONPATH=src python scripts/run_realistic_niah.py \
   --model GLM-Z1-9B-0414 \
   --passage-lengths 2000,20000 \
   --needle-counts 6,20,30 \
-  --seeds 1234,1235 \
+  --seeds 2234,2235 \
   --prompt-modes native_thinking \
   --cache-dir /path/to/hf-cache
 ```

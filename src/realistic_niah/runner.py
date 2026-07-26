@@ -298,6 +298,58 @@ def resolve_model_revision(model_id: str, revision: str | None) -> str:
     return str(info.sha)
 
 
+def _load_generated_text_decoder(
+    model_spec: ModelSpec,
+    *,
+    revision: str,
+    cache_dir: str | Path | None,
+) -> Any | None:
+    """Load a tokenizers.json decoder for models with broken auto decoding.
+
+    The DeepSeek R1 Qwen3 tokenizer currently preserves ByteLevel display
+    markers (notably U+0120/U+010A) when loaded through AutoTokenizer under
+    the registered Transformers version. Its tokenizer.json decoder restores
+    the intended spaces and newlines. Generated token IDs remain the
+    authoritative output and the original vLLM text is retained separately.
+    """
+
+    if model_spec.family != "deepseek_r1_qwen3":
+        return None
+    from huggingface_hub import hf_hub_download
+    from transformers import PreTrainedTokenizerFast
+
+    tokenizer_file = hf_hub_download(
+        repo_id=model_spec.model_id,
+        filename="tokenizer.json",
+        revision=revision,
+        cache_dir=str(cache_dir) if cache_dir is not None else None,
+    )
+    return PreTrainedTokenizerFast(tokenizer_file=tokenizer_file)
+
+
+def _decode_generated_text(
+    *,
+    model_spec: ModelSpec,
+    engine_text: str,
+    token_ids: Iterable[int],
+    token_json_decoder: Any | None,
+) -> tuple[str, str]:
+    if model_spec.family != "deepseek_r1_qwen3":
+        return engine_text, "vllm_output_text"
+    if token_json_decoder is None:
+        raise RuntimeError(
+            "DeepSeek R1 Qwen3 requires its tokenizer.json output decoder"
+        )
+    decoded = token_json_decoder.decode(
+        list(token_ids),
+        skip_special_tokens=True,
+        clean_up_tokenization_spaces=False,
+    )
+    if not decoded:
+        raise RuntimeError("DeepSeek tokenizer.json decoded an empty response")
+    return str(decoded), "tokenizer_json_from_output_token_ids"
+
+
 def _sampling_params_kwargs(
     config: DecodingConfig,
     *,
@@ -481,6 +533,11 @@ def run_vllm_experiment(
         trust_remote_code=engine.trust_remote_code,
         cache_dir=str(cache_dir) if cache_dir is not None else None,
     )
+    generated_text_decoder = _load_generated_text_decoder(
+        model_spec,
+        revision=immutable_revision,
+        cache_dir=cache_dir,
+    )
     for request in pending:
         rendered = render_generation_prompt(
             tokenizer,
@@ -550,12 +607,20 @@ def run_vllm_experiment(
             for request, generated in zip(batch, outputs):
                 candidate = generated.outputs[0]
                 stimulus = request["stimulus"]
+                decoded_output_text, output_decode_strategy = (
+                    _decode_generated_text(
+                        model_spec=model_spec,
+                        engine_text=candidate.text,
+                        token_ids=candidate.token_ids,
+                        token_json_decoder=generated_text_decoder,
+                    )
+                )
                 expects_reasoning = reasoning_expected(
                     model_spec,
                     prompt_mode,
                 )
                 evaluation = evaluate_generation(
-                    candidate.text,
+                    decoded_output_text,
                     prompt_mode=prompt_mode,
                     reasoning_expected=expects_reasoning,
                     gold_pairs=stimulus["gold_pairs"],
@@ -601,7 +666,13 @@ def run_vllm_experiment(
                     "model_density_per_1k": stimulus["num_needles"]
                     / (request["model_passage_tokens"] / 1000),
                     "decoding": asdict(decode) | {"seed": generation_seed},
-                    "raw_output_text": candidate.text,
+                    "raw_output_text": decoded_output_text,
+                    "vllm_output_text": (
+                        candidate.text
+                        if candidate.text != decoded_output_text
+                        else None
+                    ),
+                    "output_decode_strategy": output_decode_strategy,
                     "output_token_ids": list(candidate.token_ids),
                     "output_tokens": len(candidate.token_ids),
                     "finish_reason": candidate.finish_reason,

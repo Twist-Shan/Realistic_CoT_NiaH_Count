@@ -2,6 +2,8 @@
   "schema_version": "realistic_niah_experiment_v2",
   "protocol_version": "realistic_niah_v2",
   "canonical_tokenizer": "Qwen/Qwen3-8B",
+  "haystack_source_mode": "multi_file_no_repeat",
+  "haystack_corpus_protocol": "ruler_paul_graham_full_url_list_v1",
   "target_passage_tokens": [2000, 3000, 5000, 10000, 20000],
   "needle_counts": [1, 2, 3, 4, 5, 6, 8, 10, 20, 30],
   "seeds": [1234, 1235, 1236, 1237, 1238, 1239, 1240, 1241, 1242, 1243],

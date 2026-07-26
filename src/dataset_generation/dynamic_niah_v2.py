@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import random
 import re
@@ -53,6 +54,7 @@ class DynamicNiahV2Config:
     run_name: str | None = None
     global_random_seed: int = 42
     haystack_dir: str = "data/haystacks/paul_graham"
+    haystack_source_mode: str = "single_file_repeat"
     entities_path: str = "data/entities/cities.csv"
     fact_templates_path: str = "data/templates/niah_fact_templates.txt"
     counting_needle_kind: str = "city_score"
@@ -184,6 +186,63 @@ def _sample_haystack_window(
         seed = cfg.haystack_seed + ex_idx
     rng = random.Random(seed)
     candidates = _load_haystack_files_filtered(cfg.haystack_dir)
+    if cfg.haystack_source_mode == "multi_file_no_repeat":
+        ordered = list(candidates)
+        rng.shuffle(ordered)
+        source_files: list[str] = []
+        duplicate_source_files_skipped: list[str] = []
+        normalized_parts: list[str] = []
+        seen_content: set[str] = set()
+        tokens: list[Any] = []
+        for source in ordered:
+            normalized = re.sub(
+                r"\s+", " ", source.read_text(encoding="utf-8")
+            ).strip()
+            if not normalized:
+                continue
+            digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+            if digest in seen_content:
+                duplicate_source_files_skipped.append(source.name)
+                continue
+            seen_content.add(digest)
+            source_files.append(source.name)
+            normalized_parts.append(normalized)
+            tokens = tok.encode("\n\n".join(normalized_parts))
+            if len(tokens) >= cfg.target_haystack_tokens:
+                break
+        if not normalized_parts:
+            raise ValueError(
+                "No nonempty, content-unique haystack sources were found"
+            )
+        if len(tokens) < cfg.target_haystack_tokens:
+            raise ValueError(
+                "The deduplicated multi-file haystack is too short: "
+                f"{len(tokens)} < {cfg.target_haystack_tokens}"
+            )
+        # Each seed defines one shuffled composite corpus. Prefix windows make
+        # passage lengths nested within seed, matching the common NIAH/RULER
+        # construction and avoiding a different filler sample at every T.
+        start = 0
+        end = start + cfg.target_haystack_tokens
+        return list(tokens[start:end]), {
+            "source_file": "__multi_file_no_repeat__",
+            "source_files": source_files,
+            "source_file_count": len(source_files),
+            "duplicate_source_files_skipped": duplicate_source_files_skipped,
+            "source_mode": cfg.haystack_source_mode,
+            "window_strategy": "seed_shuffled_nested_prefix",
+            "window_start": start,
+            "window_end": end,
+            "seed": seed,
+            "original_token_count": len(tokens),
+            "expanded_token_count": len(tokens),
+            "source_repeat_count": 1,
+            "source_repeated_to_target": False,
+        }
+    if cfg.haystack_source_mode != "single_file_repeat":
+        raise ValueError(
+            f"Unsupported haystack_source_mode: {cfg.haystack_source_mode}"
+        )
     source = rng.choice(candidates)
     normalized = re.sub(r"\s+", " ", source.read_text(encoding="utf-8")).strip()
     if not normalized:
@@ -201,6 +260,11 @@ def _sample_haystack_window(
     end = start + cfg.target_haystack_tokens
     return list(tokens[start:end]), {
         "source_file": source.name,
+        "source_files": [source.name],
+        "source_file_count": 1,
+        "duplicate_source_files_skipped": [],
+        "source_mode": cfg.haystack_source_mode,
+        "window_strategy": "random_single_source_window",
         "window_start": start,
         "window_end": end,
         "seed": seed,

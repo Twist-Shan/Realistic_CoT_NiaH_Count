@@ -38,6 +38,10 @@ class FreezeSpec:
     max_search_attempts: int = 12
     max_window_retries: int = 4
     minimum_filler_tokens: int = 128
+    haystack_source_mode: str = "multi_file_no_repeat"
+    haystack_dir: str = "data/haystacks/paul_graham"
+    haystack_corpus_manifest: str | None = None
+    haystack_corpus_manifest_sha256: str | None = None
 
 
 def _sha256_text(text: str) -> str:
@@ -151,10 +155,11 @@ def freeze_stimulus(
     seed: int,
     tokenizer: TokenizerAdapter,
     spec: FreezeSpec,
-    haystack_dir: str = "data/haystacks/paul_graham",
+    haystack_dir: str | None = None,
     entities_path: str = "data/entities/cities.csv",
     fact_templates_path: str = "data/templates/niah_fact_single_template.txt",
 ) -> dict[str, Any]:
+    resolved_haystack_dir = haystack_dir or spec.haystack_dir
     initial_budget = max(
         spec.minimum_filler_tokens,
         target_passage_tokens - 18 * num_needles,
@@ -183,8 +188,9 @@ def freeze_stimulus(
                 prompt_style="vanilla_no_cue",
                 global_random_seed=seed,
                 haystack_seed=retry_seed,
+                haystack_source_mode=spec.haystack_source_mode,
                 needle_seed=seed,
-                haystack_dir=haystack_dir,
+                haystack_dir=resolved_haystack_dir,
                 entities_path=entities_path,
                 fact_templates_path=fact_templates_path,
             )
@@ -284,6 +290,37 @@ def freeze_grid(
     overwrite: bool = False,
 ) -> dict[str, Path]:
     resolved_spec = spec or FreezeSpec()
+    if resolved_spec.haystack_corpus_manifest is not None:
+        corpus_manifest = Path(
+            resolved_spec.haystack_corpus_manifest
+        ).resolve()
+        if not corpus_manifest.is_file():
+            raise FileNotFoundError(
+                f"Haystack corpus manifest does not exist: {corpus_manifest}"
+            )
+        observed_corpus_manifest_sha256 = hashlib.sha256(
+            corpus_manifest.read_bytes()
+        ).hexdigest()
+        expected_corpus_manifest_sha256 = (
+            resolved_spec.haystack_corpus_manifest_sha256
+        )
+        if (
+            expected_corpus_manifest_sha256 is not None
+            and expected_corpus_manifest_sha256
+            != observed_corpus_manifest_sha256
+        ):
+            raise ValueError(
+                "Haystack corpus manifest SHA256 mismatch: "
+                f"{observed_corpus_manifest_sha256} != "
+                f"{expected_corpus_manifest_sha256}"
+            )
+        resolved_spec = replace(
+            resolved_spec,
+            haystack_corpus_manifest=str(corpus_manifest),
+            haystack_corpus_manifest_sha256=(
+                observed_corpus_manifest_sha256
+            ),
+        )
     if resolved_spec.canonical_tokenizer_revision is None:
         if resolved_spec.canonical_tokenizer == "simple":
             immutable_revision = None
@@ -332,6 +369,7 @@ def freeze_grid(
                     seed=seed,
                     tokenizer=tokenizer,
                     spec=resolved_spec,
+                    haystack_dir=resolved_spec.haystack_dir,
                 )
                 rows.append(row)
                 print(
@@ -483,6 +521,16 @@ def audit_frozen_grid(
                 )
             if bool(row["length_search"]["post_insertion_truncation"]):
                 raise ValueError("post-insertion truncation is forbidden")
+            if manifest_spec.get("haystack_source_mode") == (
+                "multi_file_no_repeat"
+            ):
+                haystack = row["haystack"]
+                if haystack.get("source_mode") != "multi_file_no_repeat":
+                    raise ValueError("haystack source mode mismatch")
+                if bool(haystack.get("source_repeated_to_target")):
+                    raise ValueError("repeated haystack source is forbidden")
+                if int(haystack.get("source_repeat_count", 0)) != 1:
+                    raise ValueError("haystack source repeat count must be one")
 
             gold = [
                 (str(item["city"]), int(item["score"]))

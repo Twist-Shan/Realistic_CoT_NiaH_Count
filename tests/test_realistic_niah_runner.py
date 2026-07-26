@@ -7,6 +7,7 @@ from realistic_niah.drive_sync import build_run_archive
 from realistic_niah.runner import (
     EngineConfig,
     _batched,
+    _decode_generated_text,
     _sampling_params_kwargs,
     build_requests,
     decoding_config,
@@ -20,6 +21,7 @@ from realistic_niah.spec import (
     NEEDLE_COUNTS,
     QUERY_LAYOUT,
     SEEDS,
+    SMOKE_SEEDS,
 )
 
 
@@ -96,6 +98,43 @@ def test_registered_decoding_budgets() -> None:
     ] is False
 
 
+def test_deepseek_output_uses_tokenizer_json_decoder() -> None:
+    class Decoder:
+        def decode(
+            self,
+            token_ids: list[int],
+            *,
+            skip_special_tokens: bool,
+            clean_up_tokenization_spaces: bool,
+        ) -> str:
+            assert token_ids == [1, 2, 3]
+            assert skip_special_tokens is True
+            assert clean_up_tokenization_spaces is False
+            return "<think>\nDone.\n</think>\nTotal: 6"
+
+    decoded, strategy = _decode_generated_text(
+        model_spec=MODEL_SPECS["DeepSeek-R1-0528-Qwen3-8B"],
+        engine_text="<think>ĊDone.Ċ</think>ĊTotal:Ġ6",
+        token_ids=[1, 2, 3],
+        token_json_decoder=Decoder(),
+    )
+
+    assert decoded == "<think>\nDone.\n</think>\nTotal: 6"
+    assert strategy == "tokenizer_json_from_output_token_ids"
+
+
+def test_other_models_preserve_vllm_output_text() -> None:
+    decoded, strategy = _decode_generated_text(
+        model_spec=MODEL_SPECS["Qwen3-8B"],
+        engine_text="<think>Done.</think>\nTotal: 6",
+        token_ids=[1, 2, 3],
+        token_json_decoder=None,
+    )
+
+    assert decoded == "<think>Done.</think>\nTotal: 6"
+    assert strategy == "vllm_output_text"
+
+
 def test_always_on_reasoning_models_get_reasoning_budget_in_every_mode() -> None:
     deepseek = MODEL_SPECS["DeepSeek-R1-0528-Qwen3-8B"]
     glm = MODEL_SPECS["GLM-Z1-9B-0414"]
@@ -145,6 +184,10 @@ def test_v2_json_configs_match_registered_python_spec() -> None:
     assert tuple(main["target_passage_tokens"]) == PASSAGE_LENGTHS
     assert tuple(main["needle_counts"]) == NEEDLE_COUNTS
     assert tuple(main["seeds"]) == SEEDS
+    assert main["haystack_source_mode"] == "multi_file_no_repeat"
+    assert main["haystack_corpus_protocol"] == (
+        "ruler_paul_graham_full_url_list_v1"
+    )
     assert tuple(main["prompt_modes"]) == FORMAL_PROMPT_MODES
     assert tuple(main["models"]) == PRIMARY_MODEL_LABELS
     assert main["matched_nonthinking_controls"] == (
@@ -159,6 +202,11 @@ def test_v2_json_configs_match_registered_python_spec() -> None:
         "GLM-Z1-9B-0414",
     ]
     assert smoke["prompt_modes"] == ["native_thinking"]
+    assert tuple(smoke["seeds"]) == SMOKE_SEEDS
+    assert smoke["haystack_source_mode"] == "multi_file_no_repeat"
+    assert smoke["haystack_corpus_protocol"] == (
+        "ruler_paul_graham_full_url_list_v1"
+    )
     assert smoke["expected_requests_total"] == 48
 
 

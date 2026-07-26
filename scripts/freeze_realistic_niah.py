@@ -25,6 +25,13 @@ def main() -> None:
     parser.add_argument("--passage-lengths")
     parser.add_argument("--needle-counts")
     parser.add_argument("--seeds")
+    parser.add_argument(
+        "--haystack-source-mode",
+        choices=("multi_file_no_repeat", "single_file_repeat"),
+    )
+    parser.add_argument("--haystack-dir")
+    parser.add_argument("--haystack-corpus-manifest")
+    parser.add_argument("--haystack-corpus-manifest-sha256")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -39,6 +46,18 @@ def main() -> None:
             seeds=_csv_ints(args.seeds) or defaults.seeds,
             canonical_tokenizer_revision=args.canonical_tokenizer_revision,
             tokenizer_cache_dir=args.cache_dir,
+            haystack_source_mode=(
+                args.haystack_source_mode or defaults.haystack_source_mode
+            ),
+            haystack_dir=args.haystack_dir or defaults.haystack_dir,
+            haystack_corpus_manifest=(
+                args.haystack_corpus_manifest
+                or defaults.haystack_corpus_manifest
+            ),
+            haystack_corpus_manifest_sha256=(
+                args.haystack_corpus_manifest_sha256
+                or defaults.haystack_corpus_manifest_sha256
+            ),
         ),
         overwrite=args.overwrite,
     )

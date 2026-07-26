@@ -38,8 +38,10 @@ Total: <integer>
 Do not include any other text.""",
     "native_thinking": """\
 How many city-score audit records are in the passage?
-Reason concisely. Do not restart or repeat a completed enumeration.
-Once you determine the count, output exactly one final line:
+Use one forward scan and maintain a running count.
+Do not list or quote the records. Do not restart, recount, verify, or repeat
+any part of the passage. After the first complete scan, stop reasoning
+immediately and output exactly one final line:
 Total: <integer>""",
 }
 
@@ -69,8 +71,11 @@ def test_smoke_control_only_removes_the_native_thinking_guard() -> None:
 
     assert control == direct
     assert control != treatment
-    assert "Do not restart or repeat" not in control
-    assert "Do not restart or repeat" in treatment
+    assert "Use one forward scan" not in control
+    assert "Do not list or quote the records" not in control
+    assert "Use one forward scan" in treatment
+    assert "Do not list or quote the records" in treatment
+    assert "Do not restart, recount, verify, or repeat" in treatment
 
 
 def test_smoke_control_and_treatment_both_enable_template_thinking() -> None:

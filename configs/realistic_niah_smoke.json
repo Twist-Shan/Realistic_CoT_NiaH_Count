@@ -1,6 +1,8 @@
 {
   "schema_version": "realistic_niah_smoke_v2",
   "protocol_version": "realistic_niah_v2",
+  "haystack_source_mode": "multi_file_no_repeat",
+  "haystack_corpus_protocol": "ruler_paul_graham_full_url_list_v1",
   "models": [
     "Qwen3-8B",
     "Gemma4-12B",
@@ -9,7 +11,7 @@
   ],
   "target_passage_tokens": [2000, 20000],
   "needle_counts": [6, 20, 30],
-  "seeds": [1234, 1235],
+  "seeds": [2234, 2235],
   "prompt_modes": ["native_thinking"],
   "query_layout": "cue_before_query_after",
   "gate": {
