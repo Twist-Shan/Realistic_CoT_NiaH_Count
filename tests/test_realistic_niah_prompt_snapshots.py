@@ -38,9 +38,8 @@ Total: <integer>
 Do not include any other text.""",
     "native_thinking": """\
 How many city-score audit records are in the passage?
-Use one forward scan and keep a running count.
-Do not list the records or repeat the scan.
-After reaching the end, immediately output exactly one line:
+Reason concisely without repeating or restarting.
+Stop as soon as you determine the count, then output exactly one line:
 Total: <integer>""",
 }
 
@@ -57,59 +56,7 @@ def test_all_four_formal_prompts_match_registered_snapshots() -> None:
         ]
 
 
-def test_smoke_control_only_removes_the_native_thinking_guard() -> None:
-    control = build_messages(
-        "PASSAGE",
-        prompt_mode="native_thinking_control",
-    )[0]["content"]
-    direct = build_messages("PASSAGE", prompt_mode="direct")[0]["content"]
-    treatment = build_messages(
-        "PASSAGE",
-        prompt_mode="native_thinking",
-    )[0]["content"]
-
-    assert control == direct
-    assert control != treatment
-    assert "Use one forward scan" not in control
-    assert "Do not list the records" not in control
-    assert "Use one forward scan" in treatment
-    assert "Do not list the records or repeat the scan" in treatment
-
-
-def test_smoke_brief_prompt_constrains_trace_without_prescribing_counting() -> None:
-    brief = build_messages(
-        "PASSAGE",
-        prompt_mode="native_thinking_brief",
-    )[0]["content"]
-
-    assert "Reason briefly" in brief
-    assert "without quoting, listing, or restating" in brief
-    assert "Stop as soon as you determine the count" in brief
-    assert "running count" not in brief
-    assert "one forward scan" not in brief
-
-
-def test_smoke_concise_prompt_matches_requested_wording() -> None:
-    concise = build_messages(
-        "PASSAGE",
-        prompt_mode="native_thinking_concise",
-    )[0]["content"]
-
-    expected_query = (
-        "How many city-score audit records are in the passage?\n"
-        "Reason concisely without repeating or restarting.\n"
-        "Stop as soon as you determine the count, then output "
-        "exactly one line:\n"
-        "Total: <integer>"
-    )
-    assert concise.endswith(expected_query)
-    assert "Reason briefly" not in concise
-    assert "without quoting, listing, or restating" not in concise
-    assert "running count" not in concise
-    assert "one forward scan" not in concise
-
-
-def test_smoke_control_and_treatment_both_enable_template_thinking() -> None:
+def test_switchable_models_enable_thinking_only_for_native_mode() -> None:
     class RecordingTokenizer:
         def __init__(self) -> None:
             self.calls: list[dict] = []
@@ -126,13 +73,7 @@ def test_smoke_control_and_treatment_both_enable_template_thinking() -> None:
     model = MODEL_SPECS["Qwen3-4B"]
     messages = [{"role": "user", "content": "test"}]
 
-    for mode in (
-        "direct",
-        "native_thinking_control",
-        "native_thinking_concise",
-        "native_thinking_brief",
-        "native_thinking",
-    ):
+    for mode in EXPECTED_SUFFIXES:
         render_generation_prompt(
             tokenizer,
             messages,
@@ -142,9 +83,8 @@ def test_smoke_control_and_treatment_both_enable_template_thinking() -> None:
 
     assert [call["enable_thinking"] for call in tokenizer.calls] == [
         False,
-        True,
-        True,
-        True,
+        False,
+        False,
         True,
     ]
 
@@ -169,13 +109,7 @@ def test_always_on_reasoning_models_use_their_native_templates_unchanged() -> No
     ):
         tokenizer = RecordingTokenizer()
         model = MODEL_SPECS[label]
-        for mode in (
-            "direct",
-            "native_thinking_control",
-            "native_thinking_concise",
-            "native_thinking_brief",
-            "native_thinking",
-        ):
+        for mode in EXPECTED_SUFFIXES:
             render_generation_prompt(
                 tokenizer,
                 messages,

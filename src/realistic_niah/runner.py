@@ -22,7 +22,6 @@ from .prompts import (
 from .spec import (
     ENUMERATION_PROMPT_MODES,
     QUERY_LAYOUT,
-    SMOKE_PROMPT_MODES,
     THINKING_PROMPT_MODES,
     ModelSpec,
 )
@@ -52,9 +51,7 @@ class EngineConfig:
 
 def decoding_config(model_spec: ModelSpec, prompt_mode: str) -> DecodingConfig:
     if model_spec.reasoning_policy == "always_on":
-        if prompt_mode not in set(model_spec.prompt_modes) | set(
-            SMOKE_PROMPT_MODES
-        ):
+        if prompt_mode not in model_spec.prompt_modes:
             raise ValueError(
                 f"Unsupported decoding combination: "
                 f"{model_spec.label}/{prompt_mode}"
@@ -120,8 +117,6 @@ def build_requests(
 ) -> list[dict[str, Any]]:
     modes = tuple(prompt_modes or model_spec.prompt_modes)
     supported = set(model_spec.prompt_modes)
-    if model_spec.native_thinking:
-        supported.update(SMOKE_PROMPT_MODES)
     unsupported = sorted(set(modes) - supported)
     if unsupported:
         raise ValueError(

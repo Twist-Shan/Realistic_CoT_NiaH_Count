@@ -14,13 +14,7 @@ FORMAL_PROMPT_MODES = (
     "native_thinking",
 )
 NONTHINKING_PROMPT_MODES = FORMAL_PROMPT_MODES[:-1]
-SMOKE_PROMPT_MODES = (
-    "native_thinking_control",
-    "native_thinking_concise",
-    "native_thinking_brief",
-    "native_thinking",
-)
-THINKING_PROMPT_MODES = frozenset(SMOKE_PROMPT_MODES)
+THINKING_PROMPT_MODES = frozenset(("native_thinking",))
 ENUMERATION_PROMPT_MODES = frozenset(
     ("enumeration_index", "enumeration_bullet")
 )

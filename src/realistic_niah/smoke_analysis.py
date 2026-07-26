@@ -5,19 +5,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable
 
-CONTROL_MODE = "native_thinking_control"
-TREATMENT_MODE = "native_thinking"
-
-METRIC_DIRECTIONS = {
-    "registered_success": "higher_is_better",
-    "exact_count": "higher_is_better",
-    "truncated": "lower_is_better",
-    "output_tokens": "lower_is_better",
-    "reasoning_enumeration_restart_count": "lower_is_better",
-    "reasoning_duplicate_record_mentions": "lower_is_better",
-    "reasoning_duplicate_lines": "lower_is_better",
-    "overthinking_flag": "lower_is_better",
-}
+SMOKE_PROMPT_MODE = "native_thinking"
 
 
 def load_request_rows(paths: Iterable[str | Path]) -> list[dict[str, Any]]:
@@ -37,99 +25,6 @@ def load_request_rows(paths: Iterable[str | Path]) -> list[dict[str, Any]]:
     return rows
 
 
-def _metric_value(row: dict[str, Any], metric: str) -> float:
-    evaluation = row.get("evaluation")
-    if not isinstance(evaluation, dict):
-        raise ValueError(f"Missing evaluation in {row.get('request_id')}")
-    value = (
-        row.get("output_tokens")
-        if metric == "output_tokens"
-        else evaluation.get(metric)
-    )
-    if value is None:
-        raise ValueError(
-            f"Missing metric {metric!r} in {row.get('request_id')}"
-        )
-    return float(value)
-
-
-def summarize_overthinking_smoke(
-    rows: Iterable[dict[str, Any]],
-) -> dict[str, Any]:
-    indexed: dict[tuple[str, str, str], dict[str, Any]] = {}
-    models: set[str] = set()
-    stimuli_by_model: dict[str, set[str]] = defaultdict(set)
-
-    for row in rows:
-        mode = str(row.get("prompt_mode"))
-        if mode not in {CONTROL_MODE, TREATMENT_MODE}:
-            continue
-        model = str(row["model_label"])
-        stimulus = str(row["stimulus_id"])
-        key = (model, stimulus, mode)
-        if key in indexed:
-            raise ValueError(f"Duplicate smoke result for {key}")
-        indexed[key] = row
-        models.add(model)
-        stimuli_by_model[model].add(stimulus)
-
-    if not indexed:
-        raise ValueError("No registered smoke-control rows were found")
-
-    summaries: dict[str, Any] = {}
-    for model in sorted(models):
-        stimuli = sorted(stimuli_by_model[model])
-        pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
-        for stimulus in stimuli:
-            control = indexed.get((model, stimulus, CONTROL_MODE))
-            treatment = indexed.get((model, stimulus, TREATMENT_MODE))
-            if control is None or treatment is None:
-                raise ValueError(
-                    f"Incomplete paired smoke result for {model}/{stimulus}"
-                )
-            pairs.append((control, treatment))
-
-        metric_summaries: dict[str, Any] = {}
-        for metric, direction in METRIC_DIRECTIONS.items():
-            control_values = [
-                _metric_value(control, metric)
-                for control, _ in pairs
-            ]
-            treatment_values = [
-                _metric_value(treatment, metric)
-                for _, treatment in pairs
-            ]
-            deltas = [
-                treatment - control
-                for control, treatment in zip(
-                    control_values,
-                    treatment_values,
-                )
-            ]
-            improvement_multiplier = 1 if direction == "higher_is_better" else -1
-            oriented = [delta * improvement_multiplier for delta in deltas]
-            metric_summaries[metric] = {
-                "direction": direction,
-                "control_mean": sum(control_values) / len(control_values),
-                "treatment_mean": sum(treatment_values) / len(treatment_values),
-                "treatment_minus_control": sum(deltas) / len(deltas),
-                "improved_pairs": sum(value > 0 for value in oriented),
-                "worsened_pairs": sum(value < 0 for value in oriented),
-                "tied_pairs": sum(value == 0 for value in oriented),
-            }
-        summaries[model] = {
-            "paired_stimuli": len(pairs),
-            "metrics": metric_summaries,
-        }
-
-    return {
-        "schema_version": "realistic_niah_overthinking_smoke_summary_v2",
-        "control_mode": CONTROL_MODE,
-        "treatment_mode": TREATMENT_MODE,
-        "models": summaries,
-    }
-
-
 def summarize_guarded_smoke(
     rows: Iterable[dict[str, Any]],
     *,
@@ -140,7 +35,7 @@ def summarize_guarded_smoke(
     by_model: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for row in rows:
-        if str(row.get("prompt_mode")) != TREATMENT_MODE:
+        if str(row.get("prompt_mode")) != SMOKE_PROMPT_MODE:
             continue
         model = str(row["model_label"])
         stimulus = str(row["stimulus_id"])
@@ -212,7 +107,7 @@ def summarize_guarded_smoke(
     )
     return {
         "schema_version": "realistic_niah_guarded_smoke_summary_v2",
-        "prompt_mode": TREATMENT_MODE,
+        "prompt_mode": SMOKE_PROMPT_MODE,
         "gate": {
             "requirement": "zero_truncations",
             "passed": gate_passed,

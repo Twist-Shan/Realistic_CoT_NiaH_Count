@@ -9,10 +9,11 @@ format, and generation must not truncate. Parse failures, format failures,
 and truncations therefore remain failures; no response is removed after
 generation. Raw exact-count accuracy is retained as a secondary diagnostic.
 
-Before the formal panel, V2 uses a small guarded-CoT smoke run to verify that
+Before the formal panel, V2 used a small guarded-CoT smoke run to verify that
 the concise anti-repetition instruction does not exhaust the registered
-4,096-token generation budget. The smoke gate is zero truncations; accuracy
-and overthinking indicators remain diagnostics rather than launch gates.
+4,096-token generation budget. The selected wording produced zero
+truncations in the final 48-request smoke test and is now the registered
+formal `native_thinking` prompt.
 
 ## Registered model panel
 
@@ -162,50 +163,7 @@ Total: <integer>
 Do not include any other text.
 ```
 
-### Native thinking with anti-repetition guard
-
-```text
-You will need to count all city-score audit records in the passage below.
-A city-score audit record names one city and gives that city's numeric score.
-
-<passage>
-{passage}
-</passage>
-
-How many city-score audit records are in the passage?
-Use one forward scan and keep a running count.
-Do not list the records or repeat the scan.
-After reaching the end, immediately output exactly one line:
-Total: <integer>
-```
-
-### Smoke-only brief-reasoning candidate
-
-This paired smoke candidate removes the prescribed running-count procedure
-while retaining a direct constraint against verbose enumeration and passage
-reproduction. It is not a formal-mode default unless the paired smoke
-comparison supports adopting it.
-
-```text
-You will need to count all city-score audit records in the passage below.
-A city-score audit record names one city and gives that city's numeric score.
-
-<passage>
-{passage}
-</passage>
-
-How many city-score audit records are in the passage?
-Reason briefly without quoting, listing, or restating any part of the passage.
-Stop as soon as you determine the count, then output exactly one line:
-Total: <integer>
-```
-
-### Smoke-only concise-reasoning candidate
-
-This paired candidate replaces the stronger no-listing instruction with the
-shorter constraint `Reason concisely without repeating or restarting.` It
-tests whether a neutral anti-repetition cue can reduce truncation without
-prescribing a counting procedure or forbidding a useful internal strategy.
+### Native thinking
 
 ```text
 You will need to count all city-score audit records in the passage below.
@@ -252,17 +210,17 @@ The smoke grid is:
 - Twelve stimuli and twelve guarded `native_thinking` requests per model,
   for 48 total.
 
-The only primary launch requirement is zero truncations over all 48 requests.
+The only primary launch requirement was zero truncations over all 48 requests.
 Per-model registered accuracy, raw exact-count accuracy, parse and format
 failures, output-token count, numbered-enumeration restarts, duplicate
 city-score mentions, duplicate reasoning lines, and the operational
 overthinking flag are reported for diagnosis. No smoke response is removed.
 
-For Qwen and Gemma, the official template thinking switch is enabled.
-DeepSeek and GLM-Z1 retain their official always-on reasoning templates.
-The formal run should start only after the 48-row completeness check, the
-zero-truncation gate, and inspection of any parse, formatting, or repetition
-failure examples.
+For Qwen and Gemma, the official template thinking switch was enabled.
+DeepSeek and GLM-Z1 retained their official always-on reasoning templates.
+The final smoke run contained all 48 rows and zero truncations. Its complete
+artifact is retained in the local export archive; transient server-side
+smoke directories are not inputs to the formal run.
 
 ## Decoding controls
 
