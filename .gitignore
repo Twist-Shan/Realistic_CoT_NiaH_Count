@@ -32,6 +32,11 @@ reports/niah_eight_model_report_*/
 reports/qwen_query_last_mode_specific_empirical_law_*/
 reports/generated/
 
+# Generated Realistic NiaH analysis releases contain request-level tables,
+# rendered reports, figures, and copied build scripts. Keep the complete
+# release local/Drive rather than committing any part of the report tree.
+reports/v*_realistic_niah_analysis_*/
+
 .DS_Store
 Thumbs.db
 .vscode/
