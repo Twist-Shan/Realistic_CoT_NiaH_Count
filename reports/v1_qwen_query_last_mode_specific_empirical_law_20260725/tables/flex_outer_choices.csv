@@ -1,0 +1,271 @@
+target,model_label,prompt_mode,outer_seed,selection_rule,selected_spec,selected_label,inner_loss,inner_fold_se,best_inner_loss
+exact,Qwen3-1.7B,direct,1234,one_se,log_needles_only__identity__logistic__0.3,Log N only; ridge=0.3,0.4355854706457604,0.03216498030012707,0.4342729384621498
+exact,Qwen3-1.7B,direct,1235,one_se,log_burden__identity__logistic__0.3,Log burden; ridge=0.3,0.43717304515254496,0.058300589598255556,0.429716459662276
+exact,Qwen3-1.7B,direct,1236,one_se,log_burden__identity__logistic__0.3,Log burden; ridge=0.3,0.407747665890596,0.03766689689521712,0.4003001604864508
+exact,Qwen3-1.7B,direct,1237,one_se,log_needles_only__identity__logistic__0.3,Log N only; ridge=0.3,0.421457248260409,0.026562368337918835,0.421457248260409
+exact,Qwen3-1.7B,direct,1238,one_se,log_needles_only__identity__logistic__0.3,Log N only; ridge=0.3,0.4531587920382879,0.0212941918378034,0.44438692248899603
+exact,Qwen3-1.7B,direct,1234,best,log_interaction__identity__logistic__0.3,Log T x log N; ridge=0.3,0.4342729384621498,0.03067898931616209,0.4342729384621498
+exact,Qwen3-1.7B,direct,1235,best,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.429716459662276,0.04373758966821662,0.429716459662276
+exact,Qwen3-1.7B,direct,1236,best,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.4003001604864508,0.02316408011050221,0.4003001604864508
+exact,Qwen3-1.7B,direct,1237,best,log_needles_only__identity__logistic__0.3,Log N only; ridge=0.3,0.421457248260409,0.026562368337918835,0.421457248260409
+exact,Qwen3-1.7B,direct,1238,best,piecewise_log_needles__identity__logistic__0.3,Log T + piecewise log N; ridge=0.3,0.44438692248899603,0.02900025767443914,0.44438692248899603
+bias,Qwen3-1.7B,direct,1234,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,4.815944038366717,0.6633403604449801,4.5758937212995505
+bias,Qwen3-1.7B,direct,1235,one_se,log_interaction__asinh__huber__0.01,Log T x log N; asinh + Huber,3.8718542447687487,0.4283280571707587,3.8624298554994927
+bias,Qwen3-1.7B,direct,1236,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,5.5931812976835555,0.6994442388406068,5.284857847155343
+bias,Qwen3-1.7B,direct,1237,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,5.181957114758493,0.8232672069170107,5.139937402659595
+bias,Qwen3-1.7B,direct,1238,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,5.265248500556458,0.7966834812353446,5.221902597496154
+bias,Qwen3-1.7B,direct,1234,best,quadratic_surface__asinh__ridge__0.001,Quadratic log surface; asinh + ridge,4.5758937212995505,0.41551692995148987,4.5758937212995505
+bias,Qwen3-1.7B,direct,1235,best,length_specific_log_n__asinh__huber__0.01,T-specific log-N slopes; asinh + Huber,3.8624298554994927,0.4211174842364491,3.8624298554994927
+bias,Qwen3-1.7B,direct,1236,best,length_specific_log_n__asinh__huber__0.01,T-specific log-N slopes; asinh + Huber,5.284857847155343,0.6567819137591175,5.284857847155343
+bias,Qwen3-1.7B,direct,1237,best,length_specific_piecewise_n__asinh__ridge__0.001,T-specific piecewise N; asinh + ridge,5.139937402659595,0.7218423544362135,5.139937402659595
+bias,Qwen3-1.7B,direct,1238,best,length_specific_piecewise_n__asinh__ridge__0.001,T-specific piecewise N; asinh + ridge,5.221902597496154,0.5964273784451533,5.221902597496154
+absolute_error,Qwen3-1.7B,direct,1234,one_se,log_needles_only__log1p__ridge__0.001,Log N only; log1p + ridge,3.251669022752281,0.6530140412812363,3.103091617116375
+absolute_error,Qwen3-1.7B,direct,1235,one_se,quadratic_surface__log1p__ridge__0.001,Quadratic log surface; log1p + ridge,3.112574703128098,0.3618552957451644,2.8734577922450604
+absolute_error,Qwen3-1.7B,direct,1236,one_se,log_needles_only__log1p__ridge__0.001,Log N only; log1p + ridge,3.758398966978521,0.8725676346388589,3.562580520507065
+absolute_error,Qwen3-1.7B,direct,1237,one_se,log_needles_only__log1p__ridge__0.001,Log N only; log1p + ridge,3.6344903536076227,0.8808634748615402,3.5840053637392013
+absolute_error,Qwen3-1.7B,direct,1238,one_se,linear_needles_only__log1p__ridge__0.001,Linear N only; log1p + ridge,3.695038210705025,0.8783861115167957,3.569853852008576
+absolute_error,Qwen3-1.7B,direct,1234,best,linear_needles_only__sqrt__huber__0.01,Linear N only; sqrt + Huber,3.103091617116375,0.6583067188578664,3.103091617116375
+absolute_error,Qwen3-1.7B,direct,1235,best,length_specific_piecewise_n__log1p__huber__0.01,T-specific piecewise N; log1p + Huber,2.8734577922450604,0.4426561740293908,2.8734577922450604
+absolute_error,Qwen3-1.7B,direct,1236,best,quadratic_surface__log1p__huber__0.01,Quadratic log surface; log1p + Huber,3.562580520507065,0.451890639840342,3.562580520507065
+absolute_error,Qwen3-1.7B,direct,1237,best,linear_needles_only__sqrt__huber__0.01,Linear N only; sqrt + Huber,3.5840053637392013,0.9585473436344967,3.5840053637392013
+absolute_error,Qwen3-1.7B,direct,1238,best,linear_needles_only__sqrt__huber__0.01,Linear N only; sqrt + Huber,3.569853852008576,0.9653051593531468,3.569853852008576
+exact,Qwen3-1.7B,enumeration,1234,one_se,log_needles_only__identity__logistic__0.3,Log N only; ridge=0.3,0.45696382188646817,0.07305590218960237,0.43967126219514074
+exact,Qwen3-1.7B,enumeration,1235,one_se,log_needles_only__identity__logistic__0.3,Log N only; ridge=0.3,0.43364882225393586,0.0552196678051709,0.4111369864673514
+exact,Qwen3-1.7B,enumeration,1236,one_se,log_needles_only__identity__logistic__0.3,Log N only; ridge=0.3,0.47069481827359905,0.036606161969057784,0.4299148791585183
+exact,Qwen3-1.7B,enumeration,1237,one_se,log_needles_only__identity__logistic__0.3,Log N only; ridge=0.3,0.4774268148272957,0.0625943905379957,0.45544822871598273
+exact,Qwen3-1.7B,enumeration,1238,one_se,log_needles_only__identity__logistic__0.3,Log N only; ridge=0.3,0.494000916121851,0.031801353996914764,0.4695394070041632
+exact,Qwen3-1.7B,enumeration,1234,best,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.43967126219514074,0.07318379415616032,0.43967126219514074
+exact,Qwen3-1.7B,enumeration,1235,best,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.4111369864673514,0.04973326248016683,0.4111369864673514
+exact,Qwen3-1.7B,enumeration,1236,best,piecewise_log_needles__identity__logistic__0.03,Log T + piecewise log N; ridge=0.03,0.4299148791585183,0.04137189090109938,0.4299148791585183
+exact,Qwen3-1.7B,enumeration,1237,best,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.45544822871598273,0.05899119625006009,0.45544822871598273
+exact,Qwen3-1.7B,enumeration,1238,best,piecewise_log_needles__identity__logistic__0.3,Log T + piecewise log N; ridge=0.3,0.4695394070041632,0.029743632078642196,0.4695394070041632
+bias,Qwen3-1.7B,enumeration,1234,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,28.354846762008453,11.406062505508041,27.97714406893838
+bias,Qwen3-1.7B,enumeration,1235,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,47.004573224320595,13.807358654684242,44.885694157338314
+bias,Qwen3-1.7B,enumeration,1236,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,33.53467694730945,15.541564868726192,33.00752984248855
+bias,Qwen3-1.7B,enumeration,1237,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,42.83496141026115,16.46889424949218,42.55546638855392
+bias,Qwen3-1.7B,enumeration,1238,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,43.87885865239604,15.539744956828558,43.101690328561205
+bias,Qwen3-1.7B,enumeration,1234,best,length_specific_piecewise_n__asinh__ridge__0.001,T-specific piecewise N; asinh + ridge,27.97714406893838,11.159343357982777,27.97714406893838
+bias,Qwen3-1.7B,enumeration,1235,best,quadratic_surface__asinh__huber__0.01,Quadratic log surface; asinh + Huber,44.885694157338314,13.992742699594533,44.885694157338314
+bias,Qwen3-1.7B,enumeration,1236,best,linear_needles_only__asinh__huber__0.01,Linear N only; asinh + Huber,33.00752984248855,15.854640895130911,33.00752984248855
+bias,Qwen3-1.7B,enumeration,1237,best,quadratic_surface__asinh__ridge__0.001,Quadratic log surface; asinh + ridge,42.55546638855392,16.251851018052815,42.55546638855392
+bias,Qwen3-1.7B,enumeration,1238,best,length_specific_piecewise_n__asinh__ridge__0.001,T-specific piecewise N; asinh + ridge,43.101690328561205,15.156207405482888,43.101690328561205
+absolute_error,Qwen3-1.7B,enumeration,1234,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,28.31702123551463,10.804235802457624,27.524784718077075
+absolute_error,Qwen3-1.7B,enumeration,1235,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,46.362436460133225,13.7488258339618,42.672889676487955
+absolute_error,Qwen3-1.7B,enumeration,1236,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,33.51583132977772,15.374410236390416,32.62235791392125
+absolute_error,Qwen3-1.7B,enumeration,1237,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,42.886755674184556,15.948191276872434,41.88236403327714
+absolute_error,Qwen3-1.7B,enumeration,1238,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,43.93919534153213,14.957510780076316,42.48833188640854
+absolute_error,Qwen3-1.7B,enumeration,1234,best,length_factor_curved_n__log1p__ridge__0.001,T-level intercepts + curved log N; log1p + ridge,27.524784718077075,10.565871774785592,27.524784718077075
+absolute_error,Qwen3-1.7B,enumeration,1235,best,length_specific_piecewise_n__sqrt__huber__0.01,T-specific piecewise N; sqrt + Huber,42.672889676487955,12.484136436044963,42.672889676487955
+absolute_error,Qwen3-1.7B,enumeration,1236,best,length_factor_curved_n__log1p__ridge__0.001,T-level intercepts + curved log N; log1p + ridge,32.62235791392125,14.937314338466228,32.62235791392125
+absolute_error,Qwen3-1.7B,enumeration,1237,best,length_factor_curved_n__log1p__ridge__0.001,T-level intercepts + curved log N; log1p + ridge,41.88236403327714,15.43608408567655,41.88236403327714
+absolute_error,Qwen3-1.7B,enumeration,1238,best,piecewise_log_needles__log1p__ridge__0.001,Log T + piecewise log N; log1p + ridge,42.48833188640854,14.350326618729913,42.48833188640854
+exact,Qwen3-1.7B,native_thinking,1234,one_se,linear_needles_only__identity__logistic__0.3,Linear N only; ridge=0.3,0.5984123878959895,0.04956697674732562,0.5890176091316692
+exact,Qwen3-1.7B,native_thinking,1235,one_se,linear_needles_only__identity__logistic__0.3,Linear N only; ridge=0.3,0.5608764121364952,0.10012270285813415,0.5608764121364952
+exact,Qwen3-1.7B,native_thinking,1236,one_se,linear_needles_only__identity__logistic__0.3,Linear N only; ridge=0.3,0.5941432159018827,0.06397149603859079,0.5827971763727714
+exact,Qwen3-1.7B,native_thinking,1237,one_se,linear_needles_only__identity__logistic__0.3,Linear N only; ridge=0.3,0.5620335226586634,0.06722254028917232,0.5414651736583167
+exact,Qwen3-1.7B,native_thinking,1238,one_se,linear_needles_only__identity__logistic__0.3,Linear N only; ridge=0.3,0.5177781360779997,0.06050600032013658,0.5044525968934885
+exact,Qwen3-1.7B,native_thinking,1234,best,piecewise_log_needles__identity__logistic__0.3,Log T + piecewise log N; ridge=0.3,0.5890176091316692,0.04848485055749721,0.5890176091316692
+exact,Qwen3-1.7B,native_thinking,1235,best,linear_needles_only__identity__logistic__0.3,Linear N only; ridge=0.3,0.5608764121364952,0.10012270285813415,0.5608764121364952
+exact,Qwen3-1.7B,native_thinking,1236,best,length_specific_piecewise_n__identity__logistic__0.3,T-specific piecewise N; ridge=0.3,0.5827971763727714,0.07627161706078198,0.5827971763727714
+exact,Qwen3-1.7B,native_thinking,1237,best,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.5414651736583167,0.05223979042396141,0.5414651736583167
+exact,Qwen3-1.7B,native_thinking,1238,best,piecewise_log_needles__identity__logistic__0.3,Log T + piecewise log N; ridge=0.3,0.5044525968934885,0.05670712135348429,0.5044525968934885
+bias,Qwen3-1.7B,native_thinking,1234,one_se,linear_needles_only__asinh__huber__0.01,Linear N only; asinh + Huber,1.1105562391486399,0.13770978611033258,1.0939644286115247
+bias,Qwen3-1.7B,native_thinking,1235,one_se,linear_needles_only__asinh__ridge__0.001,Linear N only; asinh + ridge,1.0061429751458515,0.08625777451524726,0.9468190966807386
+bias,Qwen3-1.7B,native_thinking,1236,one_se,piecewise_log_needles__asinh__ridge__0.001,Log T + piecewise log N; asinh + ridge,1.0462060367219292,0.15423849077611965,0.9931298806293611
+bias,Qwen3-1.7B,native_thinking,1237,one_se,log_needles_only__asinh__ridge__0.001,Log N only; asinh + ridge,1.1891650867180692,0.13728897441559718,1.1085082433758897
+bias,Qwen3-1.7B,native_thinking,1238,one_se,linear_needles_only__asinh__ridge__0.001,Linear N only; asinh + ridge,1.140973609602746,0.10739668872049778,1.0905961091916423
+bias,Qwen3-1.7B,native_thinking,1234,best,piecewise_log_needles__asinh__huber__0.01,Log T + piecewise log N; asinh + Huber,1.0939644286115247,0.03733049189492541,1.0939644286115247
+bias,Qwen3-1.7B,native_thinking,1235,best,length_specific_piecewise_n__identity__huber__0.01,T-specific piecewise N; raw bias + Huber,0.9468190966807386,0.12309496002649255,0.9468190966807386
+bias,Qwen3-1.7B,native_thinking,1236,best,piecewise_log_needles__identity__huber__0.01,Log T + piecewise log N; raw bias + Huber,0.9931298806293611,0.08767406321413757,0.9931298806293611
+bias,Qwen3-1.7B,native_thinking,1237,best,piecewise_log_needles__identity__huber__0.01,Log T + piecewise log N; raw bias + Huber,1.1085082433758897,0.08299046630718644,1.1085082433758897
+bias,Qwen3-1.7B,native_thinking,1238,best,quadratic_surface__asinh__huber__0.01,Quadratic log surface; asinh + Huber,1.0905961091916423,0.08134202547111709,1.0905961091916423
+absolute_error,Qwen3-1.7B,native_thinking,1234,one_se,linear_needles_only__sqrt__huber__0.01,Linear N only; sqrt + Huber,1.0735703774780716,0.13007312480761302,1.0364218772591036
+absolute_error,Qwen3-1.7B,native_thinking,1235,one_se,linear_needles_only__log1p__ridge__0.001,Linear N only; log1p + ridge,0.9717814473971855,0.11067360032753493,0.8688919248797323
+absolute_error,Qwen3-1.7B,native_thinking,1236,one_se,log_needles_only__log1p__ridge__0.001,Log N only; log1p + ridge,1.0333979402000675,0.1870071794195613,0.9659436585620431
+absolute_error,Qwen3-1.7B,native_thinking,1237,one_se,log_needles_only__log1p__ridge__0.001,Log N only; log1p + ridge,1.0941764458839414,0.19656834230521075,1.0230291599418673
+absolute_error,Qwen3-1.7B,native_thinking,1238,one_se,linear_needles_only__log1p__ridge__0.001,Linear N only; log1p + ridge,1.0101157274946666,0.0964829877937921,0.9339068099502246
+absolute_error,Qwen3-1.7B,native_thinking,1234,best,piecewise_log_needles__sqrt__huber__0.01,Log T + piecewise log N; sqrt + Huber,1.0364218772591036,0.07690097170773195,1.0364218772591036
+absolute_error,Qwen3-1.7B,native_thinking,1235,best,piecewise_log_needles__sqrt__huber__0.01,Log T + piecewise log N; sqrt + Huber,0.8688919248797323,0.11702692570110808,0.8688919248797323
+absolute_error,Qwen3-1.7B,native_thinking,1236,best,length_factor_log_n__sqrt__huber__0.01,T-level intercepts + log N; sqrt + Huber,0.9659436585620431,0.2075636280205288,0.9659436585620431
+absolute_error,Qwen3-1.7B,native_thinking,1237,best,piecewise_log_needles__log1p__ridge__0.001,Log T + piecewise log N; log1p + ridge,1.0230291599418673,0.08227140171052544,1.0230291599418673
+absolute_error,Qwen3-1.7B,native_thinking,1238,best,semi_log_needles__sqrt__huber__0.01,Log T + linear N; sqrt + Huber,0.9339068099502246,0.0968197959017384,0.9339068099502246
+exact,Qwen3-8B,direct,1234,one_se,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.39925589952130036,0.04927658197476673,0.39925589952130036
+exact,Qwen3-8B,direct,1235,one_se,log_needles_only__identity__logistic__0.3,Log N only; ridge=0.3,0.44346163232575386,0.07238536707388604,0.3946670957371058
+exact,Qwen3-8B,direct,1236,one_se,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.3539683801404153,0.05761560947099156,0.3138712690332214
+exact,Qwen3-8B,direct,1237,one_se,log_needles_only__identity__logistic__0.3,Log N only; ridge=0.3,0.352355029969595,0.05316593273999743,0.3287762955094556
+exact,Qwen3-8B,direct,1238,one_se,log_needles_only__identity__logistic__0.3,Log N only; ridge=0.3,0.41957519495888096,0.09932432492184655,0.39798397806223157
+exact,Qwen3-8B,direct,1234,best,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.39925589952130036,0.04927658197476673,0.39925589952130036
+exact,Qwen3-8B,direct,1235,best,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.3946670957371058,0.054393063942562235,0.3946670957371058
+exact,Qwen3-8B,direct,1236,best,quadratic_surface__identity__logistic__0.03,Quadratic log surface; ridge=0.03,0.3138712690332214,0.05363952051640846,0.3138712690332214
+exact,Qwen3-8B,direct,1237,best,quadratic_log_needles__identity__logistic__0.03,Log T + curved log N; ridge=0.03,0.3287762955094556,0.05279364257323973,0.3287762955094556
+exact,Qwen3-8B,direct,1238,best,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.39798397806223157,0.08681506856034635,0.39798397806223157
+bias,Qwen3-8B,direct,1234,one_se,log_interaction__asinh__ridge__0.001,Log T x log N; asinh + ridge,1.7489623831624586,0.15153590209341553,1.7489623831624586
+bias,Qwen3-8B,direct,1235,one_se,log_interaction__asinh__ridge__0.001,Log T x log N; asinh + ridge,1.6592778110910946,0.08989685378823173,1.6512600465928216
+bias,Qwen3-8B,direct,1236,one_se,log_interaction__asinh__ridge__0.001,Log T x log N; asinh + ridge,1.6599074564298073,0.15661323858975232,1.6029765533160403
+bias,Qwen3-8B,direct,1237,one_se,log_needles_only__asinh__huber__0.01,Log N only; asinh + Huber,1.9475156030897751,0.15915335235948513,1.7767151074860756
+bias,Qwen3-8B,direct,1238,one_se,log_interaction__asinh__ridge__0.001,Log T x log N; asinh + ridge,1.78906634005349,0.13003961661469865,1.7601931622393887
+bias,Qwen3-8B,direct,1234,best,log_interaction__asinh__ridge__0.001,Log T x log N; asinh + ridge,1.7489623831624586,0.15153590209341553,1.7489623831624586
+bias,Qwen3-8B,direct,1235,best,log_interaction__asinh__huber__0.01,Log T x log N; asinh + Huber,1.6512600465928216,0.06375317102191329,1.6512600465928216
+bias,Qwen3-8B,direct,1236,best,length_specific_piecewise_n__asinh__huber__0.01,T-specific piecewise N; asinh + Huber,1.6029765533160403,0.22005742045108967,1.6029765533160403
+bias,Qwen3-8B,direct,1237,best,log_interaction__asinh__ridge__0.001,Log T x log N; asinh + ridge,1.7767151074860756,0.203244220055566,1.7767151074860756
+bias,Qwen3-8B,direct,1238,best,log_interaction__asinh__huber__0.01,Log T x log N; asinh + Huber,1.7601931622393887,0.09625712581631472,1.7601931622393887
+absolute_error,Qwen3-8B,direct,1234,one_se,log_separable__sqrt__huber__0.01,Log T + log N; sqrt + Huber,1.6563358253682723,0.14820551121649161,1.5339317894749582
+absolute_error,Qwen3-8B,direct,1235,one_se,log_needles_only__log1p__ridge__0.001,Log N only; log1p + ridge,1.4664388924357035,0.18846166529154157,1.379700763150153
+absolute_error,Qwen3-8B,direct,1236,one_se,log_interaction__log1p__ridge__0.001,Log T x log N; log1p + ridge,1.4365235822622153,0.13410427656042617,1.2720886128251339
+absolute_error,Qwen3-8B,direct,1237,one_se,log_needles_only__log1p__ridge__0.001,Log N only; log1p + ridge,1.5294355575890528,0.2179252546395321,1.4080776820813268
+absolute_error,Qwen3-8B,direct,1238,one_se,log_needles_only__log1p__ridge__0.001,Log N only; log1p + ridge,1.5842518266339647,0.21288240716050053,1.4227491984119731
+absolute_error,Qwen3-8B,direct,1234,best,log_interaction__sqrt__huber__0.01,Log T x log N; sqrt + Huber,1.5339317894749582,0.12311344496571501,1.5339317894749582
+absolute_error,Qwen3-8B,direct,1235,best,log_interaction__sqrt__huber__0.01,Log T x log N; sqrt + Huber,1.379700763150153,0.11618103631358986,1.379700763150153
+absolute_error,Qwen3-8B,direct,1236,best,quadratic_surface__sqrt__huber__0.01,Quadratic log surface; sqrt + Huber,1.2720886128251339,0.2140395502902307,1.2720886128251339
+absolute_error,Qwen3-8B,direct,1237,best,log_interaction__sqrt__huber__0.01,Log T x log N; sqrt + Huber,1.4080776820813268,0.19181141331423138,1.4080776820813268
+absolute_error,Qwen3-8B,direct,1238,best,length_specific_piecewise_n__sqrt__huber__0.01,T-specific piecewise N; sqrt + Huber,1.4227491984119731,0.22502317917308648,1.4227491984119731
+exact,Qwen3-8B,enumeration,1234,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.22370292911178627,0.10092941823934518,0.20363977717377774
+exact,Qwen3-8B,enumeration,1235,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.22370292911178627,0.10092941823934518,0.19575085709685533
+exact,Qwen3-8B,enumeration,1236,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.22370292911178627,0.10092941823934518,0.21182859624837239
+exact,Qwen3-8B,enumeration,1237,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.11978392501817889,0.02824409307963359,0.11476704542237165
+exact,Qwen3-8B,enumeration,1238,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.23794988159607222,0.08051639680065989,0.21827737779938158
+exact,Qwen3-8B,enumeration,1234,best,quadratic_surface__identity__logistic__0.3,Quadratic log surface; ridge=0.3,0.20363977717377774,0.08553902584770559,0.20363977717377774
+exact,Qwen3-8B,enumeration,1235,best,semi_log_needles__identity__logistic__0.3,Log T + linear N; ridge=0.3,0.19575085709685533,0.09069198633803231,0.19575085709685533
+exact,Qwen3-8B,enumeration,1236,best,semi_log_needles__identity__logistic__0.3,Log T + linear N; ridge=0.3,0.21182859624837239,0.08940843162698359,0.21182859624837239
+exact,Qwen3-8B,enumeration,1237,best,log_length_only__identity__logistic__0.3,Log T only; ridge=0.3,0.11476704542237165,0.02719668222755271,0.11476704542237165
+exact,Qwen3-8B,enumeration,1238,best,semi_log_needles__identity__logistic__0.3,Log T + linear N; ridge=0.3,0.21827737779938158,0.07037734206611941,0.21827737779938158
+bias,Qwen3-8B,enumeration,1234,one_se,constant__asinh__huber__0.01,Constant; asinh + Huber,0.05000006654280848,0.028867497880005106,0.05000006647373359
+bias,Qwen3-8B,enumeration,1235,one_se,constant__asinh__huber__0.01,Constant; asinh + Huber,0.04201686390422283,0.03154947470523413,0.04201686390422283
+bias,Qwen3-8B,enumeration,1236,one_se,constant__asinh__huber__0.01,Constant; asinh + Huber,0.04201686390422284,0.03154947470523413,0.04201686390422284
+bias,Qwen3-8B,enumeration,1237,one_se,constant__asinh__huber__0.01,Constant; asinh + Huber,0.016806745125563946,0.009622499729554718,0.016806745125563946
+bias,Qwen3-8B,enumeration,1238,one_se,constant__asinh__huber__0.01,Constant; asinh + Huber,0.050420234870086435,0.02886749785739974,0.05042023453222324
+bias,Qwen3-8B,enumeration,1234,best,log_length_only__asinh__huber__0.01,Log T only; asinh + Huber,0.05000006647373359,0.02886749669703272,0.05000006647373359
+bias,Qwen3-8B,enumeration,1235,best,constant__asinh__huber__0.01,Constant; asinh + Huber,0.04201686390422283,0.03154947470523413,0.04201686390422283
+bias,Qwen3-8B,enumeration,1236,best,constant__asinh__huber__0.01,Constant; asinh + Huber,0.04201686390422284,0.03154947470523413,0.04201686390422284
+bias,Qwen3-8B,enumeration,1237,best,constant__asinh__huber__0.01,Constant; asinh + Huber,0.016806745125563946,0.009622499729554718,0.016806745125563946
+bias,Qwen3-8B,enumeration,1238,best,log_length_only__asinh__huber__0.01,Log T only; asinh + Huber,0.05042023453222324,0.028867496998865386,0.05042023453222324
+absolute_error,Qwen3-8B,enumeration,1234,one_se,constant__log1p__huber__0.01,Constant; log1p + Huber,0.050000066542811174,0.02886749788000424,0.05000000000000539
+absolute_error,Qwen3-8B,enumeration,1235,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.07048568174781285,0.023599910718597343,0.0420168067226932
+absolute_error,Qwen3-8B,enumeration,1236,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.07048568174781286,0.023599910718597343,0.0420168067226932
+absolute_error,Qwen3-8B,enumeration,1237,one_se,constant__log1p__huber__0.01,Constant; log1p + Huber,0.01680674512556422,0.009622499729554606,0.016806722689076212
+absolute_error,Qwen3-8B,enumeration,1238,one_se,constant__log1p__huber__0.01,Constant; log1p + Huber,0.050420234870089176,0.02886749785739887,0.05042016806723231
+absolute_error,Qwen3-8B,enumeration,1234,best,constant__sqrt__huber__0.01,Constant; sqrt + Huber,0.05000000000000539,0.028867513459479563,0.05000000000000539
+absolute_error,Qwen3-8B,enumeration,1235,best,constant__sqrt__huber__0.01,Constant; sqrt + Huber,0.0420168067226932,0.03154949081000008,0.0420168067226932
+absolute_error,Qwen3-8B,enumeration,1236,best,constant__sqrt__huber__0.01,Constant; sqrt + Huber,0.0420168067226932,0.03154949081000008,0.0420168067226932
+absolute_error,Qwen3-8B,enumeration,1237,best,constant__sqrt__huber__0.01,Constant; sqrt + Huber,0.016806722689076212,0.00962250448649355,0.016806722689076212
+absolute_error,Qwen3-8B,enumeration,1238,best,constant__sqrt__huber__0.01,Constant; sqrt + Huber,0.05042016806723231,0.028867513459479546,0.05042016806723231
+exact,Qwen3-8B,native_thinking,1234,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.06152124640634285,0.04887580637098393,0.058629738652594285
+exact,Qwen3-8B,native_thinking,1235,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.13042967438127084,0.06356573508435337,0.12442509296488473
+exact,Qwen3-8B,native_thinking,1236,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.13042967438127084,0.06356573508435337,0.12442509296488473
+exact,Qwen3-8B,native_thinking,1237,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.12136714441087365,0.09762240110603501,0.12133232010042079
+exact,Qwen3-8B,native_thinking,1238,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.13042967438127084,0.06356573508435337,0.12442509296488473
+exact,Qwen3-8B,native_thinking,1234,best,length_factor_curved_n__identity__logistic__0.3,T-level intercepts + curved log N; ridge=0.3,0.058629738652594285,0.046271154189767245,0.058629738652594285
+exact,Qwen3-8B,native_thinking,1235,best,length_factor_log_n__identity__logistic__0.3,T-level intercepts + log N; ridge=0.3,0.12442509296488473,0.055795053695707086,0.12442509296488473
+exact,Qwen3-8B,native_thinking,1236,best,length_factor_log_n__identity__logistic__0.3,T-level intercepts + log N; ridge=0.3,0.12442509296488473,0.055795053695707086,0.12442509296488473
+exact,Qwen3-8B,native_thinking,1237,best,log_length_only__identity__logistic__0.3,Log T only; ridge=0.3,0.12133232010042079,0.09758761901548485,0.12133232010042079
+exact,Qwen3-8B,native_thinking,1238,best,length_factor_log_n__identity__logistic__0.3,T-level intercepts + log N; ridge=0.3,0.12442509296488473,0.05579505369570709,0.12442509296488473
+bias,Qwen3-8B,native_thinking,1234,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,1235,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,1236,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,1237,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,1238,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,1234,best,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,1235,best,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,1236,best,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,1237,best,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,1238,best,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,1234,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,1235,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,1236,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,1237,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,1238,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,1234,best,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,1235,best,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,1236,best,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,1237,best,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,1238,best,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.0,0.0,0.0
+exact,Qwen3-32B,direct,1234,one_se,log_separable__identity__logistic__0.3,Log T + log N; ridge=0.3,0.4116927105171769,0.028220649260370004,0.38616913920879076
+exact,Qwen3-32B,direct,1235,one_se,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.39963215036611716,0.022555370699008294,0.39963215036611716
+exact,Qwen3-32B,direct,1236,one_se,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.3474568984512898,0.04234560553374279,0.33096348385585134
+exact,Qwen3-32B,direct,1237,one_se,log_separable__identity__logistic__0.3,Log T + log N; ridge=0.3,0.39762113510806557,0.021679262289169252,0.3672282316535668
+exact,Qwen3-32B,direct,1238,one_se,log_burden__identity__logistic__0.3,Log burden; ridge=0.3,0.41979034108773555,0.035343286418017913,0.36675250805723447
+exact,Qwen3-32B,direct,1234,best,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.38616913920879076,0.025818606888443618,0.38616913920879076
+exact,Qwen3-32B,direct,1235,best,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.39963215036611716,0.022555370699008294,0.39963215036611716
+exact,Qwen3-32B,direct,1236,best,quadratic_surface__identity__logistic__0.3,Quadratic log surface; ridge=0.3,0.33096348385585134,0.03600861212296735,0.33096348385585134
+exact,Qwen3-32B,direct,1237,best,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.3672282316535668,0.031787051802298814,0.3672282316535668
+exact,Qwen3-32B,direct,1238,best,quadratic_log_needles__identity__logistic__0.3,Log T + curved log N; ridge=0.3,0.36675250805723447,0.057208737534903166,0.36675250805723447
+bias,Qwen3-32B,direct,1234,one_se,log_interaction__asinh__ridge__0.001,Log T x log N; asinh + ridge,1.1739673206830141,0.09698750735172426,1.1651942098690646
+bias,Qwen3-32B,direct,1235,one_se,quadratic_surface__asinh__ridge__0.001,Quadratic log surface; asinh + ridge,1.111171379360296,0.07184312449760213,1.0654376719336094
+bias,Qwen3-32B,direct,1236,one_se,piecewise_log_needles__asinh__huber__0.01,Log T + piecewise log N; asinh + Huber,1.1022838471471805,0.07434398409893438,1.0207055086330323
+bias,Qwen3-32B,direct,1237,one_se,log_interaction__asinh__ridge__0.001,Log T x log N; asinh + ridge,1.0962804560174797,0.10657879463378991,1.080118981801717
+bias,Qwen3-32B,direct,1238,one_se,log_interaction__asinh__ridge__0.001,Log T x log N; asinh + ridge,1.0157348104163968,0.07629847924864647,0.9985126807061709
+bias,Qwen3-32B,direct,1234,best,quadratic_surface__asinh__ridge__0.001,Quadratic log surface; asinh + ridge,1.1651942098690646,0.08381797052525389,1.1651942098690646
+bias,Qwen3-32B,direct,1235,best,quadratic_surface__asinh__huber__0.01,Quadratic log surface; asinh + Huber,1.0654376719336094,0.08346101298959777,1.0654376719336094
+bias,Qwen3-32B,direct,1236,best,length_specific_piecewise_n__asinh__huber__0.01,T-specific piecewise N; asinh + Huber,1.0207055086330323,0.13108537207470367,1.0207055086330323
+bias,Qwen3-32B,direct,1237,best,length_specific_piecewise_n__asinh__huber__0.01,T-specific piecewise N; asinh + Huber,1.080118981801717,0.1357006055176149,1.080118981801717
+bias,Qwen3-32B,direct,1238,best,quadratic_surface__asinh__ridge__0.001,Quadratic log surface; asinh + ridge,0.9985126807061709,0.10711899662250693,0.9985126807061709
+absolute_error,Qwen3-32B,direct,1234,one_se,log_burden__log1p__ridge__0.001,Log burden; log1p + ridge,1.1841466303092736,0.09721499593482616,1.104641792190327
+absolute_error,Qwen3-32B,direct,1235,one_se,piecewise_log_needles__log1p__huber__0.01,Log T + piecewise log N; log1p + Huber,1.046898243568973,0.12710481457729572,1.0027374551490904
+absolute_error,Qwen3-32B,direct,1236,one_se,log_separable__log1p__ridge__0.001,Log T + log N; log1p + ridge,1.0931993113274503,0.08999065595500753,0.963692839746996
+absolute_error,Qwen3-32B,direct,1237,one_se,log_separable__sqrt__huber__0.01,Log T + log N; sqrt + Huber,1.081847847704209,0.09642077053535034,1.0329487587730752
+absolute_error,Qwen3-32B,direct,1238,one_se,log_interaction__log1p__ridge__0.001,Log T x log N; log1p + ridge,0.9751744009771972,0.07413590580228953,0.9656754066026979
+absolute_error,Qwen3-32B,direct,1234,best,piecewise_log_needles__sqrt__huber__0.01,Log T + piecewise log N; sqrt + Huber,1.104641792190327,0.15312986619960917,1.104641792190327
+absolute_error,Qwen3-32B,direct,1235,best,quadratic_surface__log1p__huber__0.01,Quadratic log surface; log1p + Huber,1.0027374551490904,0.07199580153259881,1.0027374551490904
+absolute_error,Qwen3-32B,direct,1236,best,quadratic_surface__log1p__huber__0.01,Quadratic log surface; log1p + Huber,0.963692839746996,0.13077532074827614,0.963692839746996
+absolute_error,Qwen3-32B,direct,1237,best,quadratic_surface__sqrt__huber__0.01,Quadratic log surface; sqrt + Huber,1.0329487587730752,0.07059243792111664,1.0329487587730752
+absolute_error,Qwen3-32B,direct,1238,best,quadratic_surface__log1p__ridge__0.001,Quadratic log surface; log1p + ridge,0.9656754066026979,0.08858184876382366,0.9656754066026979
+exact,Qwen3-32B,enumeration,1234,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.06152124640634282,0.0488758063709839,0.061354420717653894
+exact,Qwen3-32B,enumeration,1235,one_se,log_burden__identity__logistic__0.3,Log burden; ridge=0.3,0.06001156495060424,0.01963891670889871,0.05555412378364795
+exact,Qwen3-32B,enumeration,1236,one_se,log_burden__identity__logistic__0.3,Log burden; ridge=0.3,0.06001156495060424,0.01963891670889871,0.05555412378364795
+exact,Qwen3-32B,enumeration,1237,one_se,log_burden__identity__logistic__0.3,Log burden; ridge=0.3,0.06001156495060424,0.01963891670889871,0.05555412378364795
+exact,Qwen3-32B,enumeration,1238,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.06152124640634282,0.0488758063709839,0.06135442087233005
+exact,Qwen3-32B,enumeration,1234,best,log_length_only__identity__logistic__0.3,Log T only; ridge=0.3,0.061354420717653894,0.048628751054164206,0.061354420717653894
+exact,Qwen3-32B,enumeration,1235,best,length_factor_log_n__identity__logistic__0.03,T-level intercepts + log N; ridge=0.03,0.05555412378364795,0.01775009386012657,0.05555412378364795
+exact,Qwen3-32B,enumeration,1236,best,length_factor_log_n__identity__logistic__0.03,T-level intercepts + log N; ridge=0.03,0.05555412378364795,0.01775009386012657,0.05555412378364795
+exact,Qwen3-32B,enumeration,1237,best,length_factor_log_n__identity__logistic__0.03,T-level intercepts + log N; ridge=0.03,0.05555412378364795,0.01775009386012657,0.05555412378364795
+exact,Qwen3-32B,enumeration,1238,best,log_length_only__identity__logistic__0.3,Log T only; ridge=0.3,0.06135442087233005,0.04862875100260547,0.06135442087233005
+bias,Qwen3-32B,enumeration,1234,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.04015473473400282,0.01994842175533239,0.025000011334142314
+bias,Qwen3-32B,enumeration,1235,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.05533444954841813,0.01868234561077131,0.033333355669605776
+bias,Qwen3-32B,enumeration,1236,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.05533444954841813,0.01868234561077131,0.033333355669605776
+bias,Qwen3-32B,enumeration,1237,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.05533444954841813,0.01868234561077131,0.033333355669605776
+bias,Qwen3-32B,enumeration,1238,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.01567822246298539,0.005885036956782647,0.008333344667475647
+bias,Qwen3-32B,enumeration,1234,best,constant__identity__huber__0.01,Constant; raw bias + Huber,0.025000011334142314,0.024999996221952564,0.025000011334142314
+bias,Qwen3-32B,enumeration,1235,best,constant__identity__huber__0.01,Constant; raw bias + Huber,0.033333355669605776,0.023570222159156193,0.033333355669605776
+bias,Qwen3-32B,enumeration,1236,best,constant__identity__huber__0.01,Constant; raw bias + Huber,0.033333355669605776,0.023570222159156193,0.033333355669605776
+bias,Qwen3-32B,enumeration,1237,best,constant__identity__huber__0.01,Constant; raw bias + Huber,0.033333355669605776,0.023570222159156193,0.033333355669605776
+bias,Qwen3-32B,enumeration,1238,best,constant__asinh__huber__0.01,Constant; asinh + Huber,0.008333344667475647,0.008333329555285896,0.008333344667475647
+absolute_error,Qwen3-32B,enumeration,1234,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.03664187134291405,0.02111937621902865,0.02500000000000017
+absolute_error,Qwen3-32B,enumeration,1235,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.050446165863067896,0.019781130009813134,0.03333333333333393
+absolute_error,Qwen3-32B,enumeration,1236,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.050446165863067896,0.019781130009813134,0.03333333333333393
+absolute_error,Qwen3-32B,enumeration,1237,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.050446165863067896,0.019781130009813134,0.03333333333333393
+absolute_error,Qwen3-32B,enumeration,1238,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.014131853778554589,0.006400493184926247,0.008333333333333503
+absolute_error,Qwen3-32B,enumeration,1234,best,constant__sqrt__huber__0.01,Constant; sqrt + Huber,0.02500000000000017,0.024999999999999942,0.02500000000000017
+absolute_error,Qwen3-32B,enumeration,1235,best,constant__sqrt__huber__0.01,Constant; sqrt + Huber,0.03333333333333393,0.023570226039551428,0.03333333333333393
+absolute_error,Qwen3-32B,enumeration,1236,best,constant__sqrt__huber__0.01,Constant; sqrt + Huber,0.03333333333333393,0.023570226039551428,0.03333333333333393
+absolute_error,Qwen3-32B,enumeration,1237,best,constant__sqrt__huber__0.01,Constant; sqrt + Huber,0.03333333333333393,0.023570226039551428,0.03333333333333393
+absolute_error,Qwen3-32B,enumeration,1238,best,constant__sqrt__huber__0.01,Constant; sqrt + Huber,0.008333333333333503,0.008333333333333276,0.008333333333333503
+exact,Qwen3-32B,native_thinking,1234,one_se,log_burden__identity__logistic__0.3,Log burden; ridge=0.3,0.060011564950604245,0.01963891670889871,0.05555412366867004
+exact,Qwen3-32B,native_thinking,1235,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.13042967438127084,0.0635657350843534,0.10446061079766701
+exact,Qwen3-32B,native_thinking,1236,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.13042967438127084,0.0635657350843534,0.10446061079766737
+exact,Qwen3-32B,native_thinking,1237,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.15279081021466484,0.04624700230804534,0.11419084749915266
+exact,Qwen3-32B,native_thinking,1238,one_se,constant__identity__logistic__0.3,Constant; ridge=0.3,0.15279081021466484,0.04624700230804534,0.11419084749915266
+exact,Qwen3-32B,native_thinking,1234,best,length_factor_log_n__identity__logistic__0.03,T-level intercepts + log N; ridge=0.03,0.05555412366867004,0.01775009392285109,0.05555412366867004
+exact,Qwen3-32B,native_thinking,1235,best,log_length_only__identity__logistic__0.001,Log T only; ridge=0.001,0.10446061079766701,0.047508461563225704,0.10446061079766701
+exact,Qwen3-32B,native_thinking,1236,best,log_length_only__identity__logistic__0.001,Log T only; ridge=0.001,0.10446061079766737,0.04750846156322657,0.10446061079766737
+exact,Qwen3-32B,native_thinking,1237,best,length_factor_log_n__identity__logistic__0.3,T-level intercepts + log N; ridge=0.3,0.11419084749915266,0.04046852670329048,0.11419084749915266
+exact,Qwen3-32B,native_thinking,1238,best,length_factor_log_n__identity__logistic__0.3,T-level intercepts + log N; ridge=0.3,0.11419084749915266,0.04046852670329048,0.11419084749915266
+bias,Qwen3-32B,native_thinking,1234,one_se,constant__asinh__huber__0.01,Constant; asinh + Huber,0.025000022336272448,0.015957114163812704,0.02500002233627244
+bias,Qwen3-32B,native_thinking,1235,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.08414300335160191,0.05808945715827184,0.07500001125597382
+bias,Qwen3-32B,native_thinking,1236,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.07747554910392312,0.0559308589612007,0.06666667792264049
+bias,Qwen3-32B,native_thinking,1237,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.09383518742296036,0.05623620748701221,0.08333335549998103
+bias,Qwen3-32B,native_thinking,1238,one_se,constant__asinh__ridge__0.001,Constant; asinh + ridge,0.09383518742296036,0.05623620748701221,0.08333335549998103
+bias,Qwen3-32B,native_thinking,1234,best,constant__identity__huber__0.01,Constant; raw bias + Huber,0.02500002233627244,0.015957114163812704,0.02500002233627244
+bias,Qwen3-32B,native_thinking,1235,best,constant__asinh__huber__0.01,Constant; asinh + Huber,0.07500001125597382,0.05506729876365145,0.07500001125597382
+bias,Qwen3-32B,native_thinking,1236,best,constant__asinh__huber__0.01,Constant; asinh + Huber,0.06666667792264049,0.05610836119865894,0.06666667792264049
+bias,Qwen3-32B,native_thinking,1237,best,constant__asinh__huber__0.01,Constant; asinh + Huber,0.08333335549998103,0.05181877366058082,0.08333335549998103
+bias,Qwen3-32B,native_thinking,1238,best,constant__asinh__huber__0.01,Constant; asinh + Huber,0.08333335549998103,0.05181877366058082,0.08333335549998103
+absolute_error,Qwen3-32B,native_thinking,1234,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.0397236453164493,0.012787099205837383,0.025000000000000598
+absolute_error,Qwen3-32B,native_thinking,1235,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.1058063232413209,0.047662126404884354,0.0750000000000013
+absolute_error,Qwen3-32B,native_thinking,1236,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.09414428682799784,0.048941308769102035,0.06666666666666797
+absolute_error,Qwen3-32B,native_thinking,1237,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.11900108967319321,0.04516239550815461,0.08333333333333552
+absolute_error,Qwen3-32B,native_thinking,1238,one_se,constant__log1p__ridge__0.001,Constant; log1p + ridge,0.11900108967319321,0.04516239550815461,0.08333333333333552
+absolute_error,Qwen3-32B,native_thinking,1234,best,constant__sqrt__huber__0.01,Constant; sqrt + Huber,0.025000000000000598,0.015957118462605457,0.025000000000000598
+absolute_error,Qwen3-32B,native_thinking,1235,best,constant__sqrt__huber__0.01,Constant; sqrt + Huber,0.0750000000000013,0.055067298893330126,0.0750000000000013
+absolute_error,Qwen3-32B,native_thinking,1236,best,constant__sqrt__huber__0.01,Constant; sqrt + Huber,0.06666666666666797,0.056108360768677784,0.06666666666666797
+absolute_error,Qwen3-32B,native_thinking,1237,best,constant__sqrt__huber__0.01,Constant; sqrt + Huber,0.08333333333333552,0.05181877251715952,0.08333333333333552
+absolute_error,Qwen3-32B,native_thinking,1238,best,constant__sqrt__huber__0.01,Constant; sqrt + Huber,0.08333333333333552,0.05181877251715952,0.08333333333333552

@@ -1,0 +1,202 @@
+{
+  "analysis": "realistic_niah_v2_prompt_accuracy_and_bias_laws",
+  "generated_at": "2026-07-26",
+  "input_compact_csv": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Synthetic_NiaH_like_Count\\work\\v2_reporting\\eda_requests.csv",
+  "input_rows": 14500,
+  "selection": {
+    "cells": 29,
+    "requests_per_cell": 500,
+    "enumeration": "V2.1 replacement",
+    "gemma4_12b_direct": "V2.1 strict appendix substituted in the current-prompt 29-cell composite",
+    "remaining_modes": "V2 formal"
+  },
+  "method": {
+    "bias": "predicted_count - gold_count, parsed requests only",
+    "primary_cell_target": "mean signed bias over seeds",
+    "candidate_search": "finite low-complexity registry in build_v2_reports.py",
+    "selection": "leave-one-seed CV; one-SE eligibility; cross-fitted cell R2 minus 0.015 per extra parameter",
+    "bootstrap": "400 seed-block resamples"
+  },
+  "files": [
+    {
+      "path": "01_prompt_accuracy_report.html",
+      "bytes": 62591,
+      "sha256": "83777a549a529b0c6ee1f3b5cd63e3184166409be59b969fee51664dcb413cbc"
+    },
+    {
+      "path": "02_bias_law_report.html",
+      "bytes": 69378,
+      "sha256": "996bc5a649c161068cdd2a8b2d4d6ee3bf66cb78527ac9b713c07264039c863e"
+    },
+    {
+      "path": "figures/bias/01_selected_law_quality.png",
+      "bytes": 108421,
+      "sha256": "dad7f109f7eba2b42500b28d258a1bf79dae807cec2b0a96f28077d5255ce97f"
+    },
+    {
+      "path": "figures/bias/02_native_commonality.png",
+      "bytes": 73916,
+      "sha256": "cfb1c01959dc2f0596372d0c41c5ec5ce469b9f9bd7dd884ee899f028674d9a8"
+    },
+    {
+      "path": "figures/bias/03_relative_bias_fallbacks.png",
+      "bytes": 497263,
+      "sha256": "1b5bbcc41c384662d88dcbd851e19784d14bb58f5735daa9bf41f5b7aeb76789"
+    },
+    {
+      "path": "figures/bias/model_deepseek-r1-0528-qwen3-8b.png",
+      "bytes": 94695,
+      "sha256": "879a9016398ff0f5115e098df9b1c6349577e3f1f537b6a8b2249c12df6d0cdd"
+    },
+    {
+      "path": "figures/bias/model_gemma4-12b.png",
+      "bytes": 373262,
+      "sha256": "e0c56ecaecaa9738ebb56bcd6bdb61d6058209f43e025b11060b4a4ce933fe0a"
+    },
+    {
+      "path": "figures/bias/model_gemma4-e4b.png",
+      "bytes": 361091,
+      "sha256": "bbb8199527c2cbd8cfd5fad19ec78db527583c049eb3ffa65e2b36e759100288"
+    },
+    {
+      "path": "figures/bias/model_glm-4-9b-0414.png",
+      "bytes": 272906,
+      "sha256": "2b85896784aabb9c6515bfdd2c079840387d8a4e144b1aca3d77fd664ce58ee9"
+    },
+    {
+      "path": "figures/bias/model_glm-z1-9b-0414.png",
+      "bytes": 118500,
+      "sha256": "1863c6ce0aa8d90af088164a344eee7053cb6fa1b71d43d9ee9113cee95160bd"
+    },
+    {
+      "path": "figures/bias/model_qwen3-17b.png",
+      "bytes": 352358,
+      "sha256": "a40f65c738935bfa7508ec7e12c9864bd3b1ee92e677a63d5b2ba55ab014450b"
+    },
+    {
+      "path": "figures/bias/model_qwen3-32b.png",
+      "bytes": 318644,
+      "sha256": "078e8433b2741b080926fd452f3bc2655e14afc3239b4f41db7ede15dbcd68e4"
+    },
+    {
+      "path": "figures/bias/model_qwen3-4b.png",
+      "bytes": 338951,
+      "sha256": "eac5e396cef2a0950a6173d975fcb10eccb45bcaa60de55a17a53e729f6907fa"
+    },
+    {
+      "path": "figures/bias/model_qwen3-8b.png",
+      "bytes": 350824,
+      "sha256": "150e8d7fa5adff508e161e8070195416fb62341bc4f00bfbbc65aaf55727996a"
+    },
+    {
+      "path": "figures/prompt/01_accuracy_heatmap.png",
+      "bytes": 135736,
+      "sha256": "bb4bd73b828eafe52dfb40a45e62a97473b543dc36baad7456a611f5c49b2bbb"
+    },
+    {
+      "path": "figures/prompt/02_accuracy_by_N.png",
+      "bytes": 467294,
+      "sha256": "e4b9590715000024d4089a171da551ad3c9b2aee2ab655249b5b121475b037b9"
+    },
+    {
+      "path": "figures/prompt/03_accuracy_by_L.png",
+      "bytes": 385093,
+      "sha256": "9d6d8d9be49083e655d44bca0d6e6fe0601ee3d5e78bbb0e00281570da4f9609"
+    },
+    {
+      "path": "figures/prompt/04_failure_budget.png",
+      "bytes": 149425,
+      "sha256": "c26208b251113353f81a4b8e0ddafe659bdda721be42cd9e10c702b302843c59"
+    },
+    {
+      "path": "figures/prompt/05_gemma_direct_prompt_intervention.png",
+      "bytes": 44062,
+      "sha256": "b58513e88409cf2922b93ef6f95bed2b93a60e36762affff45a11be422628e92"
+    },
+    {
+      "path": "README.md",
+      "bytes": 866,
+      "sha256": "e4beb60e3a4e4477685f7e55ffb1317e72f3d66af81bc39ace06a5891d92b04d"
+    },
+    {
+      "path": "scripts/build_v2_reports.py",
+      "bytes": 95681,
+      "sha256": "38cb087b3f4d05b7c536dea7a7036ae58678e88e4d666300c2fa0235314b3fb9"
+    },
+    {
+      "path": "tables/bias/candidate_law_comparison.csv",
+      "bytes": 353704,
+      "sha256": "396a739867dcffdb38db8442c8969a38bcc612aaf89dcdcba56648296f4ab28b"
+    },
+    {
+      "path": "tables/bias/cell_targets_and_predictions.csv",
+      "bytes": 312390,
+      "sha256": "a6e77bef4dcd465d66ae53ac5bf70b1072069544ba9fa988db5ec3f60f19c171"
+    },
+    {
+      "path": "tables/bias/common_bilinear_diagnostics.csv",
+      "bytes": 5281,
+      "sha256": "1582524d52a70f276396ef723a45b7c7a326725e2f871ec597ac8a1b7909cd44"
+    },
+    {
+      "path": "tables/bias/qwen_common_bilinear_by_mode.csv",
+      "bytes": 2905,
+      "sha256": "8f503b50137635a93536219533029a0b38f867526c23baae2261520c5ab6473c"
+    },
+    {
+      "path": "tables/bias/relative_bias_fallbacks.csv",
+      "bytes": 4484,
+      "sha256": "e733c09c5cf1208a772f5edb331ea772f68804a8477431df39bdbec0c3178ed2"
+    },
+    {
+      "path": "tables/bias/selected_coefficients.csv",
+      "bytes": 26871,
+      "sha256": "c0b9c0d282e8ae07333528743711818c07752e20e04da260b0353c3d25610886"
+    },
+    {
+      "path": "tables/bias/selected_laws.csv",
+      "bytes": 23487,
+      "sha256": "df7a89c47df596d6c19dab474bde33a21195021a59fa00c7787ee65fdcb95d78"
+    },
+    {
+      "path": "tables/bias/selected_oof_predictions.csv",
+      "bytes": 4590477,
+      "sha256": "1900b513f1d759cd0c715b525571e92df0ae431516586d74fe3649bfda5f7ef6"
+    },
+    {
+      "path": "tables/prompt/accuracy_by_L.csv",
+      "bytes": 6053,
+      "sha256": "43f54571e16f485bd3bb20a8f9642322894a158eae4d891ac997ec860112d9bf"
+    },
+    {
+      "path": "tables/prompt/accuracy_by_N.csv",
+      "bytes": 10849,
+      "sha256": "7bc6e5e4b7cdc611a4563dafcebb552729034b84044873c0b5bd94261b21f3c8"
+    },
+    {
+      "path": "tables/prompt/failure_budget.csv",
+      "bytes": 4536,
+      "sha256": "72b1e9b7da361ad3906bf0a74dda843effd82030db1a6c7c8886ad684d175b6a"
+    },
+    {
+      "path": "tables/prompt/model_mode_summary.csv",
+      "bytes": 4891,
+      "sha256": "4fe1d86314f5abc422838ff75c9b36084932e76fd7f8794a97663b4893b07c2d"
+    },
+    {
+      "path": "tables/prompt/paired_mode_effects.csv",
+      "bytes": 3849,
+      "sha256": "1f17d4d50b76c801bbe10dca5abf8a7f86db3af1d3c8e48ec66c2235a754cf8a"
+    },
+    {
+      "path": "tables/prompt/representative_errors.csv",
+      "bytes": 6846,
+      "sha256": "f0b7dbdd9958f9a253fff1b5d6ce9961e4bc0c54b506257110d4913e8eb8285e"
+    },
+    {
+      "path": "tables/request_level_compact.csv",
+      "bytes": 10617207,
+      "sha256": "e641bd6cfadaf56102a57a2953570277c23ec8384d11ad093b86305257ac9930"
+    }
+  ]
+}

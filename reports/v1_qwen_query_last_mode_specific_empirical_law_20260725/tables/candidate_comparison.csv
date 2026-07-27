@@ -1,0 +1,568 @@
+target,model_label,prompt_mode,candidate,candidate_label,complexity,scheme,n,log_loss,brier,log_loss_fold_se,mae,rmse,mae_fold_se
+exact,Qwen3-1.7B,direct,intercept_only,Constant,0,seed,150,0.6479231472022705,0.2276388414450248,0.015875328793225618,,,
+exact,Qwen3-1.7B,direct,intercept_only,Constant,0,needle,150,0.6984381085480911,0.2500074030888088,0.08103140352611045,,,
+exact,Qwen3-1.7B,direct,intercept_only,Constant,0,length,150,0.6651213830710309,0.23526619306878216,0.044983878721073844,,,
+exact,Qwen3-1.7B,direct,log_density,Log density,1,seed,150,0.5723396871847575,0.19591412910703457,0.03092850025867287,,,
+exact,Qwen3-1.7B,direct,log_density,Log density,1,needle,150,0.6191474444959314,0.21586058939810931,0.0856017717855373,,,
+exact,Qwen3-1.7B,direct,log_density,Log density,1,length,150,0.8207004744423051,0.2727687131869837,0.1804710834915361,,,
+exact,Qwen3-1.7B,direct,log_burden,Log burden,1,seed,150,0.44470964533521956,0.14161177950171994,0.044064885235612264,,,
+exact,Qwen3-1.7B,direct,log_burden,Log burden,1,needle,150,0.4700100645902836,0.14930443551703468,0.08938329796756922,,,
+exact,Qwen3-1.7B,direct,log_burden,Log burden,1,length,150,0.4814743554678451,0.15387837416716335,0.03891350500044064,,,
+exact,Qwen3-1.7B,direct,log_separable,Separate log T + log N,2,seed,150,0.4259809725253808,0.13618436312026092,0.02842187563735549,,,
+exact,Qwen3-1.7B,direct,log_separable,Separate log T + log N,2,needle,150,0.4481805129099701,0.14055906661068196,0.10021261325886834,,,
+exact,Qwen3-1.7B,direct,log_separable,Separate log T + log N,2,length,150,0.40954885254550955,0.13018147165615465,0.015670181214939714,,,
+exact,Qwen3-1.7B,direct,semi_log_needles,Log T + linear N,2,seed,150,0.4556131580010386,0.14682919142061104,0.025634737767075512,,,
+exact,Qwen3-1.7B,direct,semi_log_needles,Log T + linear N,2,needle,150,0.5222740554492771,0.16152473437946555,0.11347472391678419,,,
+exact,Qwen3-1.7B,direct,semi_log_needles,Log T + linear N,2,length,150,0.4421431067900963,0.14080331471176677,0.011526257305413751,,,
+exact,Qwen3-1.7B,direct,piecewise_log_needles,Log T + piecewise log N,3,seed,150,0.42627036813075253,0.13624914811860003,0.02830094747704517,,,
+exact,Qwen3-1.7B,direct,piecewise_log_needles,Log T + piecewise log N,3,needle,150,0.47192197566109184,0.14630776423374048,0.10495152188605578,,,
+exact,Qwen3-1.7B,direct,piecewise_log_needles,Log T + piecewise log N,3,length,150,0.4112342099754825,0.13062756453199895,0.015661189518622557,,,
+exact,Qwen3-1.7B,direct,log_interaction,Log T × log N,3,seed,150,0.428159582854523,0.1365452613850918,0.027531363572529985,,,
+exact,Qwen3-1.7B,direct,log_interaction,Log T × log N,3,needle,150,0.468994673002843,0.14490042237325548,0.10373059904671378,,,
+exact,Qwen3-1.7B,direct,log_interaction,Log T × log N,3,length,150,0.4136893204033958,0.13125899769504978,0.01939299810812026,,,
+bias,Qwen3-1.7B,direct,intercept_only,Constant,0,seed,150,,,,1.502623848277579,1.9533516918564653,0.06684920290995715
+bias,Qwen3-1.7B,direct,intercept_only,Constant,0,needle,150,,,,1.4360080094224514,1.8691766299205916,0.3286081139534763
+bias,Qwen3-1.7B,direct,intercept_only,Constant,0,length,150,,,,1.6491307664688335,2.100604329600411,0.22147591619590806
+bias,Qwen3-1.7B,direct,log_density,Log density,1,seed,150,,,,1.4977643034914991,1.885467019371287,0.08266425071531264
+bias,Qwen3-1.7B,direct,log_density,Log density,1,needle,150,,,,1.488497393505943,1.8430935344961015,0.26421301810610176
+bias,Qwen3-1.7B,direct,log_density,Log density,1,length,150,,,,1.682803165002565,2.088039825331109,0.16741797273446105
+bias,Qwen3-1.7B,direct,log_burden,Log burden,1,seed,150,,,,1.5056764293683451,1.9712763804319124,0.09768706964999051
+bias,Qwen3-1.7B,direct,log_burden,Log burden,1,needle,150,,,,1.4328995556721482,1.851183636727456,0.31828539173966286
+bias,Qwen3-1.7B,direct,log_burden,Log burden,1,length,150,,,,1.6547167282202921,2.241474144843973,0.30860171600690045
+bias,Qwen3-1.7B,direct,log_separable,Separate log T + log N,2,seed,150,,,,1.4817773834836825,1.8269743634864213,0.12063322012010613
+bias,Qwen3-1.7B,direct,log_separable,Separate log T + log N,2,needle,150,,,,1.4220802188727306,1.7169664396840385,0.23981687730199577
+bias,Qwen3-1.7B,direct,log_separable,Separate log T + log N,2,length,150,,,,1.64338290035495,1.949210133333863,0.16703274178906558
+bias,Qwen3-1.7B,direct,semi_log_needles,Log T + linear N,2,seed,150,,,,1.4640824740699963,1.8186673482513798,0.1145226063681955
+bias,Qwen3-1.7B,direct,semi_log_needles,Log T + linear N,2,needle,150,,,,1.3957850975057828,1.7078821626415956,0.2302786795015506
+bias,Qwen3-1.7B,direct,semi_log_needles,Log T + linear N,2,length,150,,,,1.6171011452612647,1.946929636728078,0.1494893199264278
+bias,Qwen3-1.7B,direct,piecewise_log_needles,Log T + piecewise log N,3,seed,150,,,,1.453848910219009,1.8164681305313404,0.12342123154200264
+bias,Qwen3-1.7B,direct,piecewise_log_needles,Log T + piecewise log N,3,needle,150,,,,1.3700226868451482,1.6956834487057342,0.23269924527535332
+bias,Qwen3-1.7B,direct,piecewise_log_needles,Log T + piecewise log N,3,length,150,,,,1.5903447860878819,1.9404741593769517,0.1534366569819767
+bias,Qwen3-1.7B,direct,log_interaction,Log T × log N,3,seed,150,,,,1.2750117077331116,1.7124577231631424,0.1330890723630897
+bias,Qwen3-1.7B,direct,log_interaction,Log T × log N,3,needle,150,,,,1.196825012587501,1.5822347200139584,0.2097559725328075
+bias,Qwen3-1.7B,direct,log_interaction,Log T × log N,3,length,150,,,,1.3708565756540785,1.734366704958826,0.13372286022472307
+absolute_error,Qwen3-1.7B,direct,intercept_only,Constant,0,seed,150,,,,0.9039480812089173,1.0802404049953604,0.04237292350405968
+absolute_error,Qwen3-1.7B,direct,intercept_only,Constant,0,needle,150,,,,0.9633483809756354,1.1473868037603054,0.13353825978031314
+absolute_error,Qwen3-1.7B,direct,intercept_only,Constant,0,length,150,,,,0.9352353865050547,1.1297488187234872,0.11206612724986856
+absolute_error,Qwen3-1.7B,direct,log_density,Log density,1,seed,150,,,,0.7502877426892055,0.963906893622794,0.08407577668269377
+absolute_error,Qwen3-1.7B,direct,log_density,Log density,1,needle,150,,,,0.7944451980534025,1.015120657607492,0.08659339189205126
+absolute_error,Qwen3-1.7B,direct,log_density,Log density,1,length,150,,,,1.065996801844703,1.2859374335193672,0.26792006974876037
+absolute_error,Qwen3-1.7B,direct,log_burden,Log burden,1,seed,150,,,,0.5527711244634762,0.7009522036809882,0.02932156832463212
+absolute_error,Qwen3-1.7B,direct,log_burden,Log burden,1,needle,150,,,,0.565838167992305,0.7248951319527989,0.06524581798791254
+absolute_error,Qwen3-1.7B,direct,log_burden,Log burden,1,length,150,,,,0.6287357794762098,0.7715822312011583,0.09649999462797
+absolute_error,Qwen3-1.7B,direct,log_separable,Separate log T + log N,2,seed,150,,,,0.5405426636694447,0.6889601905169839,0.03546307104706731
+absolute_error,Qwen3-1.7B,direct,log_separable,Separate log T + log N,2,needle,150,,,,0.5484706243996229,0.6993930881633864,0.05710330167254249
+absolute_error,Qwen3-1.7B,direct,log_separable,Separate log T + log N,2,length,150,,,,0.6135976075906661,0.7728280085390722,0.08272311190243348
+absolute_error,Qwen3-1.7B,direct,semi_log_needles,Log T + linear N,2,seed,150,,,,0.5421404693480423,0.6836802402804935,0.046017162517562174
+absolute_error,Qwen3-1.7B,direct,semi_log_needles,Log T + linear N,2,needle,150,,,,0.535752556722505,0.6765233975711475,0.04910147200041333
+absolute_error,Qwen3-1.7B,direct,semi_log_needles,Log T + linear N,2,length,150,,,,0.6208556870377393,0.764582872733767,0.09288455312472042
+absolute_error,Qwen3-1.7B,direct,piecewise_log_needles,Log T + piecewise log N,3,seed,150,,,,0.5165841262038191,0.6721492684945032,0.04259248825137384
+absolute_error,Qwen3-1.7B,direct,piecewise_log_needles,Log T + piecewise log N,3,needle,150,,,,0.5045829199252917,0.6494338256742345,0.053054495801094594
+absolute_error,Qwen3-1.7B,direct,piecewise_log_needles,Log T + piecewise log N,3,length,150,,,,0.5931333923426129,0.7565145684311415,0.10113589506611004
+absolute_error,Qwen3-1.7B,direct,log_interaction,Log T × log N,3,seed,150,,,,0.5382414961565967,0.6876901706097991,0.03626618713307953
+absolute_error,Qwen3-1.7B,direct,log_interaction,Log T × log N,3,needle,150,,,,0.5500004191163057,0.6927338652005466,0.06065216414183635
+absolute_error,Qwen3-1.7B,direct,log_interaction,Log T × log N,3,length,150,,,,0.6118740707063064,0.8124985942078632,0.08124644039485464
+exact,Qwen3-1.7B,enumeration,intercept_only,Constant,0,seed,150,0.6499069020079276,0.22822197418222787,0.03278902281269963,,,
+exact,Qwen3-1.7B,enumeration,intercept_only,Constant,0,needle,150,0.6951933910987879,0.24745038868635022,0.09575635298483183,,,
+exact,Qwen3-1.7B,enumeration,intercept_only,Constant,0,length,150,0.6489101611426116,0.22766636946656363,0.03570221033820271,,,
+exact,Qwen3-1.7B,enumeration,log_density,Log density,1,seed,150,0.5682803876084243,0.18990237575090482,0.03802133806141831,,,
+exact,Qwen3-1.7B,enumeration,log_density,Log density,1,needle,150,0.6105389645131303,0.208965786411141,0.07522046777162514,,,
+exact,Qwen3-1.7B,enumeration,log_density,Log density,1,length,150,0.7897327355892393,0.24867869680865595,0.18950904447507003,,,
+exact,Qwen3-1.7B,enumeration,log_burden,Log burden,1,seed,150,0.4814011953744554,0.15953578387330997,0.04819607180177397,,,
+exact,Qwen3-1.7B,enumeration,log_burden,Log burden,1,needle,150,0.49079026857523106,0.16492290870951454,0.06918310458668607,,,
+exact,Qwen3-1.7B,enumeration,log_burden,Log burden,1,length,150,0.529049922827291,0.18035023813707818,0.09851648059111691,,,
+exact,Qwen3-1.7B,enumeration,log_separable,Separate log T + log N,2,seed,150,0.4520372512469129,0.14242257821474563,0.05024810302253275,,,
+exact,Qwen3-1.7B,enumeration,log_separable,Separate log T + log N,2,needle,150,0.4676379040812546,0.1482585439931042,0.07318149027169701,,,
+exact,Qwen3-1.7B,enumeration,log_separable,Separate log T + log N,2,length,150,0.42991872910964624,0.13387506075267955,0.05862270756752456,,,
+exact,Qwen3-1.7B,enumeration,semi_log_needles,Log T + linear N,2,seed,150,0.5237957040260318,0.1614798599450881,0.05837512251921556,,,
+exact,Qwen3-1.7B,enumeration,semi_log_needles,Log T + linear N,2,needle,150,0.5911736427575136,0.18056515772717976,0.08627923512104728,,,
+exact,Qwen3-1.7B,enumeration,semi_log_needles,Log T + linear N,2,length,150,0.5445213658715702,0.15484595188941164,0.11239534889610713,,,
+exact,Qwen3-1.7B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,seed,150,0.43551882654462476,0.13823636748713822,0.04151727109647561,,,
+exact,Qwen3-1.7B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,needle,150,0.4991071553975373,0.1526504631674454,0.11203479971883676,,,
+exact,Qwen3-1.7B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,length,150,0.41685451259082207,0.1324083242755334,0.04786920517846867,,,
+exact,Qwen3-1.7B,enumeration,log_interaction,Log T × log N,3,seed,150,0.4523871143646769,0.14385616110396574,0.05210678851111995,,,
+exact,Qwen3-1.7B,enumeration,log_interaction,Log T × log N,3,needle,150,0.4820092913315931,0.15195350012405204,0.07976369249125989,,,
+exact,Qwen3-1.7B,enumeration,log_interaction,Log T × log N,3,length,150,0.42172193195371505,0.13369539378071604,0.05518734895777166,,,
+bias,Qwen3-1.7B,enumeration,intercept_only,Constant,0,seed,138,,,,2.694837077834479,2.9521693159045497,0.11556234059900865
+bias,Qwen3-1.7B,enumeration,intercept_only,Constant,0,needle,138,,,,2.6716911028766694,2.90674572862463,0.22680949408770745
+bias,Qwen3-1.7B,enumeration,intercept_only,Constant,0,length,138,,,,2.653010876357925,2.8999124087099135,0.108507918967762
+bias,Qwen3-1.7B,enumeration,log_density,Log density,1,seed,138,,,,2.71577256399112,2.9555815283415843,0.1281548909800586
+bias,Qwen3-1.7B,enumeration,log_density,Log density,1,needle,138,,,,2.8550787902343218,3.056703470854963,0.17705469138536006
+bias,Qwen3-1.7B,enumeration,log_density,Log density,1,length,138,,,,2.719934504570735,2.8975539935381542,0.15089382520257072
+bias,Qwen3-1.7B,enumeration,log_burden,Log burden,1,seed,138,,,,2.648837836635542,2.95996913845685,0.11941073016015587
+bias,Qwen3-1.7B,enumeration,log_burden,Log burden,1,needle,138,,,,2.7238174348847193,3.035645540736362,0.30831553583641125
+bias,Qwen3-1.7B,enumeration,log_burden,Log burden,1,length,138,,,,2.598688642965787,2.9558275713231823,0.16919066483016548
+bias,Qwen3-1.7B,enumeration,log_separable,Separate log T + log N,2,seed,138,,,,2.6292786225362432,2.93804340641093,0.1371493978160358
+bias,Qwen3-1.7B,enumeration,log_separable,Separate log T + log N,2,needle,138,,,,2.822728150853661,3.1172466883238013,0.2515565382620485
+bias,Qwen3-1.7B,enumeration,log_separable,Separate log T + log N,2,length,138,,,,2.4656249371385988,2.869796763470118,0.34309262276271313
+bias,Qwen3-1.7B,enumeration,semi_log_needles,Log T + linear N,2,seed,138,,,,2.5971579597948917,2.8746065686327595,0.13872889212077452
+bias,Qwen3-1.7B,enumeration,semi_log_needles,Log T + linear N,2,needle,138,,,,2.790800010916209,3.0590959818797394,0.20654969585739474
+bias,Qwen3-1.7B,enumeration,semi_log_needles,Log T + linear N,2,length,138,,,,2.411483715614969,2.8038365888500225,0.3464383336531235
+bias,Qwen3-1.7B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,seed,138,,,,2.3432111829756437,2.745044071646018,0.11180370077343736
+bias,Qwen3-1.7B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,needle,138,,,,2.4601011039393295,2.7765860160747526,0.1797029238305998
+bias,Qwen3-1.7B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,length,138,,,,2.2571948955028116,2.6869681383703816,0.1839834857305346
+bias,Qwen3-1.7B,enumeration,log_interaction,Log T × log N,3,seed,138,,,,2.595583837016247,2.9155443321321712,0.13532700903841843
+bias,Qwen3-1.7B,enumeration,log_interaction,Log T × log N,3,needle,138,,,,2.7888738464807137,3.113924827056364,0.23857691475385218
+bias,Qwen3-1.7B,enumeration,log_interaction,Log T × log N,3,length,138,,,,2.520526245929902,2.8583890063451305,0.24019438108551633
+absolute_error,Qwen3-1.7B,enumeration,intercept_only,Constant,0,seed,138,,,,1.8299573932324142,2.0322818449071822,0.13818101597956894
+absolute_error,Qwen3-1.7B,enumeration,intercept_only,Constant,0,needle,138,,,,1.8291652654726187,2.0294717973541454,0.1340721971946563
+absolute_error,Qwen3-1.7B,enumeration,intercept_only,Constant,0,length,138,,,,1.8109532165198436,2.013857816733938,0.07757212448172247
+absolute_error,Qwen3-1.7B,enumeration,log_density,Log density,1,seed,138,,,,1.8193981262442551,2.0123616221082403,0.13017344806531503
+absolute_error,Qwen3-1.7B,enumeration,log_density,Log density,1,needle,138,,,,1.8917099522548497,2.0525286132483354,0.07909194380741273
+absolute_error,Qwen3-1.7B,enumeration,log_density,Log density,1,length,138,,,,1.8636766998885501,2.121570305688646,0.12466011336969543
+absolute_error,Qwen3-1.7B,enumeration,log_burden,Log burden,1,seed,138,,,,1.6625875017876792,1.8947296854697253,0.15028641441254287
+absolute_error,Qwen3-1.7B,enumeration,log_burden,Log burden,1,needle,138,,,,1.6918395753124666,1.89948520367853,0.0814767228988963
+absolute_error,Qwen3-1.7B,enumeration,log_burden,Log burden,1,length,138,,,,1.585088591837186,1.8499228697208934,0.16072886614251042
+absolute_error,Qwen3-1.7B,enumeration,log_separable,Separate log T + log N,2,seed,138,,,,1.672177924603212,1.9001329783999865,0.1475383358246839
+absolute_error,Qwen3-1.7B,enumeration,log_separable,Separate log T + log N,2,needle,138,,,,1.7553772082214258,1.949041261945815,0.08145038590918693
+absolute_error,Qwen3-1.7B,enumeration,log_separable,Separate log T + log N,2,length,138,,,,1.5672590728885984,1.8672905478196635,0.16583557635255064
+absolute_error,Qwen3-1.7B,enumeration,semi_log_needles,Log T + linear N,2,seed,138,,,,1.7829863147190004,1.9887706667258884,0.15847140522206746
+absolute_error,Qwen3-1.7B,enumeration,semi_log_needles,Log T + linear N,2,needle,138,,,,1.9401657095001776,2.1508482663414505,0.1116367968163236
+absolute_error,Qwen3-1.7B,enumeration,semi_log_needles,Log T + linear N,2,length,138,,,,1.661441983819375,1.9461965873097977,0.19383293636550053
+absolute_error,Qwen3-1.7B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,seed,138,,,,1.5426960037063313,1.8255418922218987,0.12762456663239413
+absolute_error,Qwen3-1.7B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,needle,138,,,,1.587762152583552,1.813370438172849,0.09545309028588496
+absolute_error,Qwen3-1.7B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,length,138,,,,1.474731646865237,1.7956866486134981,0.0678304357820982
+absolute_error,Qwen3-1.7B,enumeration,log_interaction,Log T × log N,3,seed,138,,,,1.6546512809362752,1.8943905277858348,0.14615519480943423
+absolute_error,Qwen3-1.7B,enumeration,log_interaction,Log T × log N,3,needle,138,,,,1.7412261693849578,1.9577436607598413,0.07976358246603686
+absolute_error,Qwen3-1.7B,enumeration,log_interaction,Log T × log N,3,length,138,,,,1.6489915978500969,1.887363420171743,0.08034882467065042
+exact,Qwen3-1.7B,native_thinking,intercept_only,Constant,0,seed,150,0.7075310429150511,0.25705518369234504,0.016296942540034404,,,
+exact,Qwen3-1.7B,native_thinking,intercept_only,Constant,0,needle,150,0.7341077471870041,0.2701007814459022,0.02971529733670094,,,
+exact,Qwen3-1.7B,native_thinking,intercept_only,Constant,0,length,150,0.689023131581094,0.24793329552545368,0.004258641166034586,,,
+exact,Qwen3-1.7B,native_thinking,log_density,Log density,1,seed,150,0.6287011087420783,0.21118429951187154,0.06370284797630367,,,
+exact,Qwen3-1.7B,native_thinking,log_density,Log density,1,needle,150,0.6441730353998758,0.21488071603120565,0.06641527588450162,,,
+exact,Qwen3-1.7B,native_thinking,log_density,Log density,1,length,150,0.6352688194374528,0.21762101926297353,0.023765739233591567,,,
+exact,Qwen3-1.7B,native_thinking,log_burden,Log burden,1,seed,150,0.6373236969896684,0.2197363460624483,0.04328909761403633,,,
+exact,Qwen3-1.7B,native_thinking,log_burden,Log burden,1,needle,150,0.6635410777425759,0.22788671785338774,0.057131470988423264,,,
+exact,Qwen3-1.7B,native_thinking,log_burden,Log burden,1,length,150,0.6829299117425733,0.23821053478880627,0.052597172082533616,,,
+exact,Qwen3-1.7B,native_thinking,log_separable,Separate log T + log N,2,seed,150,0.6003480349708975,0.1912830341981873,0.07665753784115503,,,
+exact,Qwen3-1.7B,native_thinking,log_separable,Separate log T + log N,2,needle,150,0.6476184391845515,0.19120024075947975,0.13899009340449034,,,
+exact,Qwen3-1.7B,native_thinking,log_separable,Separate log T + log N,2,length,150,0.565219504049449,0.18058641465244085,0.01783762818180513,,,
+exact,Qwen3-1.7B,native_thinking,semi_log_needles,Log T + linear N,2,seed,150,0.5627486017054965,0.18412160734820152,0.06092026662929657,,,
+exact,Qwen3-1.7B,native_thinking,semi_log_needles,Log T + linear N,2,needle,150,0.5522753921253074,0.17948370570402916,0.06686510931746191,,,
+exact,Qwen3-1.7B,native_thinking,semi_log_needles,Log T + linear N,2,length,150,0.551341717107106,0.17457412880183237,0.049460983947259805,,,
+exact,Qwen3-1.7B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,seed,150,0.5489036234229276,0.1800112255131894,0.056721360715648796,,,
+exact,Qwen3-1.7B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,needle,150,0.6088578767029564,0.1861184010506841,0.12082000686540033,,,
+exact,Qwen3-1.7B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,length,150,0.527904751221898,0.16930265465409192,0.03921458360180591,,,
+exact,Qwen3-1.7B,native_thinking,log_interaction,Log T × log N,3,seed,150,0.6087125935218543,0.1926856500110218,0.0783145632276516,,,
+exact,Qwen3-1.7B,native_thinking,log_interaction,Log T × log N,3,needle,150,0.6496431898784288,0.1920606833979859,0.13883949165017784,,,
+exact,Qwen3-1.7B,native_thinking,log_interaction,Log T × log N,3,length,150,0.5964314967918631,0.1989415768649934,0.008901956930691863,,,
+bias,Qwen3-1.7B,native_thinking,intercept_only,Constant,0,seed,148,,,,0.8801731294731157,1.058035615312326,0.025602659668250764
+bias,Qwen3-1.7B,native_thinking,intercept_only,Constant,0,needle,148,,,,0.9298344180372227,1.1200493028458507,0.15843203325230204
+bias,Qwen3-1.7B,native_thinking,intercept_only,Constant,0,length,148,,,,0.8786275058341507,1.06008326837882,0.019380204852101526
+bias,Qwen3-1.7B,native_thinking,log_density,Log density,1,seed,148,,,,0.6238923486029262,0.8240150095410234,0.03387722178900465
+bias,Qwen3-1.7B,native_thinking,log_density,Log density,1,needle,148,,,,0.6458965174186202,0.8494266819783022,0.10213374851961587
+bias,Qwen3-1.7B,native_thinking,log_density,Log density,1,length,148,,,,0.688112989317206,0.8804838401571431,0.04126525525111414
+bias,Qwen3-1.7B,native_thinking,log_burden,Log burden,1,seed,148,,,,0.7052119602407888,0.9123511875902415,0.026703629015090193
+bias,Qwen3-1.7B,native_thinking,log_burden,Log burden,1,needle,148,,,,0.7472673610252523,0.9514681969959955,0.11914162989929697
+bias,Qwen3-1.7B,native_thinking,log_burden,Log burden,1,length,148,,,,0.8864068862151997,1.078769414099534,0.11623043124069739
+bias,Qwen3-1.7B,native_thinking,log_separable,Separate log T + log N,2,seed,148,,,,0.565958970987589,0.7635715447847975,0.0296743649282242
+bias,Qwen3-1.7B,native_thinking,log_separable,Separate log T + log N,2,needle,148,,,,0.6046002033498205,0.7890120658977949,0.0899545067486159
+bias,Qwen3-1.7B,native_thinking,log_separable,Separate log T + log N,2,length,148,,,,0.5592320974881598,0.7531192268239164,0.021415820369147753
+bias,Qwen3-1.7B,native_thinking,semi_log_needles,Log T + linear N,2,seed,148,,,,0.4996049976339659,0.7166438269080994,0.018485754550203456
+bias,Qwen3-1.7B,native_thinking,semi_log_needles,Log T + linear N,2,needle,148,,,,0.48797148557980496,0.7077355116921393,0.09119948409208559
+bias,Qwen3-1.7B,native_thinking,semi_log_needles,Log T + linear N,2,length,148,,,,0.4816338302599569,0.7159299647071979,0.032504681148049386
+bias,Qwen3-1.7B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,seed,148,,,,0.4867264642055969,0.7151327212780321,0.011950600137874776
+bias,Qwen3-1.7B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,needle,148,,,,0.45638927785354555,0.6854542230336423,0.08554867115832876
+bias,Qwen3-1.7B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,length,148,,,,0.4773080111923252,0.7094391222253199,0.020354359012321906
+bias,Qwen3-1.7B,native_thinking,log_interaction,Log T × log N,3,seed,148,,,,0.5689586029703873,0.7652543731637698,0.027855710087815698
+bias,Qwen3-1.7B,native_thinking,log_interaction,Log T × log N,3,needle,148,,,,0.6035464695084858,0.7890666754690989,0.09003014968060537
+bias,Qwen3-1.7B,native_thinking,log_interaction,Log T × log N,3,length,148,,,,0.6108521475762021,0.8300484289699688,0.013662128501566593
+absolute_error,Qwen3-1.7B,native_thinking,intercept_only,Constant,0,seed,148,,,,0.6466047505411707,0.7537949146023241,0.015792459686900958
+absolute_error,Qwen3-1.7B,native_thinking,intercept_only,Constant,0,needle,148,,,,0.6779748867220634,0.8024016591481151,0.11047609561940301
+absolute_error,Qwen3-1.7B,native_thinking,intercept_only,Constant,0,length,148,,,,0.6382374412578473,0.7473940859814351,0.009731042019847517
+absolute_error,Qwen3-1.7B,native_thinking,log_density,Log density,1,seed,148,,,,0.49525263667766084,0.6137379600727818,0.02041828351458603
+absolute_error,Qwen3-1.7B,native_thinking,log_density,Log density,1,needle,148,,,,0.5418513707375268,0.6671047555324513,0.06919100625725125
+absolute_error,Qwen3-1.7B,native_thinking,log_density,Log density,1,length,148,,,,0.5522187036594172,0.6834968315662422,0.03275066782829956
+absolute_error,Qwen3-1.7B,native_thinking,log_burden,Log burden,1,seed,148,,,,0.5201478555687924,0.6289001180728848,0.025115094118042792
+absolute_error,Qwen3-1.7B,native_thinking,log_burden,Log burden,1,needle,148,,,,0.5658770682190749,0.6777126599094437,0.0729032490302741
+absolute_error,Qwen3-1.7B,native_thinking,log_burden,Log burden,1,length,148,,,,0.6086151086749984,0.7241101840990914,0.0507777812829274
+absolute_error,Qwen3-1.7B,native_thinking,log_separable,Separate log T + log N,2,seed,148,,,,0.441333420631661,0.5496166439392449,0.02288204259718691
+absolute_error,Qwen3-1.7B,native_thinking,log_separable,Separate log T + log N,2,needle,148,,,,0.5073626437052107,0.6288530974044263,0.0860733449416354
+absolute_error,Qwen3-1.7B,native_thinking,log_separable,Separate log T + log N,2,length,148,,,,0.4382028763004701,0.5449062063952904,0.010595545179533412
+absolute_error,Qwen3-1.7B,native_thinking,semi_log_needles,Log T + linear N,2,seed,148,,,,0.3872328502974856,0.48118538411805845,0.022744504549437754
+absolute_error,Qwen3-1.7B,native_thinking,semi_log_needles,Log T + linear N,2,needle,148,,,,0.39125866477761595,0.4955867895168235,0.05126262548723573
+absolute_error,Qwen3-1.7B,native_thinking,semi_log_needles,Log T + linear N,2,length,148,,,,0.3617883389921544,0.4730816440167958,0.018960677309702793
+absolute_error,Qwen3-1.7B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,seed,148,,,,0.3538100376949432,0.463091731001083,0.01916930915307597
+absolute_error,Qwen3-1.7B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,needle,148,,,,0.34163169813457206,0.4536400125832648,0.04807055110598107
+absolute_error,Qwen3-1.7B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,length,148,,,,0.3229520078525422,0.4555682538875329,0.022709219552734323
+absolute_error,Qwen3-1.7B,native_thinking,log_interaction,Log T × log N,3,seed,148,,,,0.44227148854977655,0.5491183534436774,0.02029276167956714
+absolute_error,Qwen3-1.7B,native_thinking,log_interaction,Log T × log N,3,needle,148,,,,0.5049021903250257,0.6266808943463325,0.08604386545947863
+absolute_error,Qwen3-1.7B,native_thinking,log_interaction,Log T × log N,3,length,148,,,,0.45148860433837207,0.5566537055489077,0.005351081041756294
+exact,Qwen3-8B,direct,intercept_only,Constant,0,seed,150,0.6861296540738266,0.24647215228312258,0.007929978611348596,,,
+exact,Qwen3-8B,direct,intercept_only,Constant,0,needle,150,0.75528969606283,0.2799000977707395,0.05306957548998361,,,
+exact,Qwen3-8B,direct,intercept_only,Constant,0,length,150,0.6852985663286434,0.24606659596697464,0.006094871209019835,,,
+exact,Qwen3-8B,direct,log_density,Log density,1,seed,150,0.5308471751757822,0.16836218871152525,0.05497737002413632,,,
+exact,Qwen3-8B,direct,log_density,Log density,1,needle,150,0.5621176451900151,0.181941312250901,0.05877498268124945,,,
+exact,Qwen3-8B,direct,log_density,Log density,1,length,150,0.8054077878292574,0.22305384043067733,0.2925138128263165,,,
+exact,Qwen3-8B,direct,log_burden,Log burden,1,seed,150,0.5013876388467782,0.17200018740806522,0.0206414941084702,,,
+exact,Qwen3-8B,direct,log_burden,Log burden,1,needle,150,0.5424491777157336,0.18855741580277166,0.080126987893817,,,
+exact,Qwen3-8B,direct,log_burden,Log burden,1,length,150,0.6801332459067463,0.2356935150701072,0.14021963704570384,,,
+exact,Qwen3-8B,direct,log_separable,Separate log T + log N,2,seed,150,0.42535645187291976,0.11370505832884328,0.0775872741594765,,,
+exact,Qwen3-8B,direct,log_separable,Separate log T + log N,2,needle,150,0.45310258983382456,0.12199871854582266,0.09140420419098493,,,
+exact,Qwen3-8B,direct,log_separable,Separate log T + log N,2,length,150,0.4795480117976127,0.12484556344855892,0.11209645777878346,,,
+exact,Qwen3-8B,direct,semi_log_needles,Log T + linear N,2,seed,150,0.5783223355196329,0.14424267556057685,0.10909353094751163,,,
+exact,Qwen3-8B,direct,semi_log_needles,Log T + linear N,2,needle,150,0.7108481851381739,0.16972396102753096,0.17851750874773553,,,
+exact,Qwen3-8B,direct,semi_log_needles,Log T + linear N,2,length,150,0.7245623082841356,0.14836815748516674,0.26063786616664586,,,
+exact,Qwen3-8B,direct,piecewise_log_needles,Log T + piecewise log N,3,seed,150,0.37982414471616804,0.10661041042022906,0.05908175620739977,,,
+exact,Qwen3-8B,direct,piecewise_log_needles,Log T + piecewise log N,3,needle,150,0.40592144924667684,0.11064694908397174,0.07483570306288059,,,
+exact,Qwen3-8B,direct,piecewise_log_needles,Log T + piecewise log N,3,length,150,0.5011780294861743,0.12442311873828421,0.08456429951047505,,,
+exact,Qwen3-8B,direct,log_interaction,Log T × log N,3,seed,150,0.4159179793615058,0.11956315853500937,0.06547918945211127,,,
+exact,Qwen3-8B,direct,log_interaction,Log T × log N,3,needle,150,0.4561111783165656,0.13002163199582417,0.09120182626114053,,,
+exact,Qwen3-8B,direct,log_interaction,Log T × log N,3,length,150,0.5875601903111711,0.19920159851647465,0.24327143415292246,,,
+bias,Qwen3-8B,direct,intercept_only,Constant,0,seed,150,,,,1.0429840488448598,1.2409279344419712,0.025880186221343266
+bias,Qwen3-8B,direct,intercept_only,Constant,0,needle,150,,,,1.1016621858641757,1.2863974080335439,0.15824267144543236
+bias,Qwen3-8B,direct,intercept_only,Constant,0,length,150,,,,1.0594846964447004,1.270709999986838,0.01236038716753675
+bias,Qwen3-8B,direct,log_density,Log density,1,seed,150,,,,0.8698483786316331,1.1656033310805063,0.025240474288663408
+bias,Qwen3-8B,direct,log_density,Log density,1,needle,150,,,,0.903073252933256,1.1754391670156328,0.16285178307859896
+bias,Qwen3-8B,direct,log_density,Log density,1,length,150,,,,1.2067402986518327,1.6138893641925585,0.30036004723332665
+bias,Qwen3-8B,direct,log_burden,Log burden,1,seed,150,,,,0.7702759363237532,1.011641749923268,0.014304331512086037
+bias,Qwen3-8B,direct,log_burden,Log burden,1,needle,150,,,,0.7988226577404546,1.0221140624410752,0.09603919784337187
+bias,Qwen3-8B,direct,log_burden,Log burden,1,length,150,,,,0.9350046547341746,1.1406173481084434,0.1693937712416111
+bias,Qwen3-8B,direct,log_separable,Separate log T + log N,2,seed,150,,,,0.7164840055475665,1.0012548386710076,0.010509496190842689
+bias,Qwen3-8B,direct,log_separable,Separate log T + log N,2,needle,150,,,,0.7668562113834634,1.0436001620349549,0.1061678488551322
+bias,Qwen3-8B,direct,log_separable,Separate log T + log N,2,length,150,,,,0.8512751008982046,1.2363283115920158,0.07314542152533056
+bias,Qwen3-8B,direct,semi_log_needles,Log T + linear N,2,seed,150,,,,0.8109877180212952,1.0704426412741597,0.011532858174794172
+bias,Qwen3-8B,direct,semi_log_needles,Log T + linear N,2,needle,150,,,,0.8804129250581182,1.2130540882911076,0.11776007717703339
+bias,Qwen3-8B,direct,semi_log_needles,Log T + linear N,2,length,150,,,,0.9578785831550489,1.3467880563022492,0.06881168120781286
+bias,Qwen3-8B,direct,piecewise_log_needles,Log T + piecewise log N,3,seed,150,,,,0.7115350957933949,1.0029212638383418,0.010455689766966071
+bias,Qwen3-8B,direct,piecewise_log_needles,Log T + piecewise log N,3,needle,150,,,,0.8178104425677606,1.0999192887529992,0.10280899674390763
+bias,Qwen3-8B,direct,piecewise_log_needles,Log T + piecewise log N,3,length,150,,,,0.8641853870297636,1.2996405593421325,0.07301067917107895
+bias,Qwen3-8B,direct,log_interaction,Log T × log N,3,seed,150,,,,0.6856047383282695,0.9170388258979963,0.014822475068299189
+bias,Qwen3-8B,direct,log_interaction,Log T × log N,3,needle,150,,,,0.7605850696922942,0.9869299053397292,0.0787407372669856
+bias,Qwen3-8B,direct,log_interaction,Log T × log N,3,length,150,,,,0.8132103369179537,1.168974644976091,0.06484960140760071
+absolute_error,Qwen3-8B,direct,intercept_only,Constant,0,seed,150,,,,0.7623927718723227,0.8850102019259486,0.011301033153723477
+absolute_error,Qwen3-8B,direct,intercept_only,Constant,0,needle,150,,,,0.8229975043615515,0.9493542524423936,0.10871526195540061
+absolute_error,Qwen3-8B,direct,intercept_only,Constant,0,length,150,,,,0.7652537800126421,0.8923090840545647,0.0540483708145667
+absolute_error,Qwen3-8B,direct,log_density,Log density,1,seed,150,,,,0.561650924415977,0.7216678313766303,0.03753559523030902
+absolute_error,Qwen3-8B,direct,log_density,Log density,1,needle,150,,,,0.5824766142184675,0.735468187082036,0.07563252399546386
+absolute_error,Qwen3-8B,direct,log_density,Log density,1,length,150,,,,0.8113156266999964,1.0040320189065743,0.19672958970099147
+absolute_error,Qwen3-8B,direct,log_burden,Log burden,1,seed,150,,,,0.5171504867981447,0.6254905874175823,0.02122644616388802
+absolute_error,Qwen3-8B,direct,log_burden,Log burden,1,needle,150,,,,0.5434753841003036,0.6522589183696954,0.04130878694793518
+absolute_error,Qwen3-8B,direct,log_burden,Log burden,1,length,150,,,,0.6631799130502293,0.77118685250597,0.09403849627855171
+absolute_error,Qwen3-8B,direct,log_separable,Separate log T + log N,2,seed,150,,,,0.42745421042642107,0.5497320752847722,0.02540575353357162
+absolute_error,Qwen3-8B,direct,log_separable,Separate log T + log N,2,needle,150,,,,0.46505190199592733,0.5846167430476271,0.05154689887206425
+absolute_error,Qwen3-8B,direct,log_separable,Separate log T + log N,2,length,150,,,,0.483916609965531,0.6337321552973338,0.015964546153250103
+absolute_error,Qwen3-8B,direct,semi_log_needles,Log T + linear N,2,seed,150,,,,0.4873941950031914,0.6062287565415899,0.027789352844763478
+absolute_error,Qwen3-8B,direct,semi_log_needles,Log T + linear N,2,needle,150,,,,0.5658361721300218,0.7231986852377965,0.08070022659299392
+absolute_error,Qwen3-8B,direct,semi_log_needles,Log T + linear N,2,length,150,,,,0.5488466577125145,0.696203719970638,0.0149169620722224
+absolute_error,Qwen3-8B,direct,piecewise_log_needles,Log T + piecewise log N,3,seed,150,,,,0.4099332579562159,0.542442627466466,0.028923004937690133
+absolute_error,Qwen3-8B,direct,piecewise_log_needles,Log T + piecewise log N,3,needle,150,,,,0.4757352404098503,0.6015622495706315,0.04934223392839359
+absolute_error,Qwen3-8B,direct,piecewise_log_needles,Log T + piecewise log N,3,length,150,,,,0.4782065741300354,0.6434141795926815,0.014787201222494363
+absolute_error,Qwen3-8B,direct,log_interaction,Log T × log N,3,seed,150,,,,0.41990991198477884,0.5303272508534821,0.02191580980536128
+absolute_error,Qwen3-8B,direct,log_interaction,Log T × log N,3,needle,150,,,,0.45632555494630966,0.5681825012695506,0.04751685875998874
+absolute_error,Qwen3-8B,direct,log_interaction,Log T × log N,3,length,150,,,,0.44869343173759557,0.5896315085289322,0.0026457905963687737
+exact,Qwen3-8B,enumeration,intercept_only,Constant,0,seed,150,0.20442706123124166,0.04563859845738921,0.0792189332793413,,,
+exact,Qwen3-8B,enumeration,intercept_only,Constant,0,needle,150,0.19350937204883698,0.044916247413865844,0.04374501364218239,,,
+exact,Qwen3-8B,enumeration,intercept_only,Constant,0,length,150,0.20419154970618675,0.045932959299143976,0.06944962096291733,,,
+exact,Qwen3-8B,enumeration,log_density,Log density,1,seed,150,0.1989352014527263,0.04591166955716914,0.07559918793847184,,,
+exact,Qwen3-8B,enumeration,log_density,Log density,1,needle,150,0.18690114817821196,0.04460828114888376,0.04559734217499627,,,
+exact,Qwen3-8B,enumeration,log_density,Log density,1,length,150,0.20402389101525306,0.04564147447392151,0.07896106186684888,,,
+exact,Qwen3-8B,enumeration,log_burden,Log burden,1,seed,150,0.20579658191471556,0.04581522208948692,0.07872344452211633,,,
+exact,Qwen3-8B,enumeration,log_burden,Log burden,1,needle,150,0.19873679019496057,0.04564596794647854,0.04160574432986468,,,
+exact,Qwen3-8B,enumeration,log_burden,Log burden,1,length,150,0.2189579239049255,0.04812856636966219,0.06560628910532523,,,
+exact,Qwen3-8B,enumeration,log_separable,Separate log T + log N,2,seed,150,0.19509451155758073,0.045746946052569425,0.07389625751429635,,,
+exact,Qwen3-8B,enumeration,log_separable,Separate log T + log N,2,needle,150,0.1840981692339196,0.04433817192724137,0.042725093346134536,,,
+exact,Qwen3-8B,enumeration,log_separable,Separate log T + log N,2,length,150,0.4107893041234287,0.1331551104759076,0.24449743350016506,,,
+exact,Qwen3-8B,enumeration,semi_log_needles,Log T + linear N,2,seed,150,0.1901500559937683,0.045393810462821794,0.07102986853643861,,,
+exact,Qwen3-8B,enumeration,semi_log_needles,Log T + linear N,2,needle,150,0.17820308342938362,0.043949021974400204,0.04307187079777563,,,
+exact,Qwen3-8B,enumeration,semi_log_needles,Log T + linear N,2,length,150,0.40243397685889637,0.12892855422253008,0.23625270259602035,,,
+exact,Qwen3-8B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,seed,150,0.22108546002793575,0.04802524673355021,0.07375978119751413,,,
+exact,Qwen3-8B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,needle,150,0.18961623688245785,0.044884822251821374,0.04621012837694528,,,
+exact,Qwen3-8B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,length,150,0.41821832870207887,0.12232632057575583,0.2505450862183785,,,
+exact,Qwen3-8B,enumeration,log_interaction,Log T × log N,3,seed,150,0.19527808100341734,0.046046262539745794,0.07581932719702891,,,
+exact,Qwen3-8B,enumeration,log_interaction,Log T × log N,3,needle,150,0.1831085999110186,0.04430167966531029,0.042394551173317654,,,
+exact,Qwen3-8B,enumeration,log_interaction,Log T × log N,3,length,150,0.44288040459584543,0.1444643930285025,0.2316083575496648,,,
+bias,Qwen3-8B,enumeration,intercept_only,Constant,0,seed,149,,,,0.06912154088461031,0.17628423321182543,0.015494935299947794
+bias,Qwen3-8B,enumeration,intercept_only,Constant,0,needle,149,,,,0.068483591947185,0.17429592158493634,0.010700991862778432
+bias,Qwen3-8B,enumeration,intercept_only,Constant,0,length,149,,,,0.06893427707106944,0.175561227538427,0.007789534709753939
+bias,Qwen3-8B,enumeration,log_density,Log density,1,seed,149,,,,0.06922881145060857,0.17695599939099324,0.015511856417496993
+bias,Qwen3-8B,enumeration,log_density,Log density,1,needle,149,,,,0.07070515877321343,0.17510540427190446,0.011528900041476687
+bias,Qwen3-8B,enumeration,log_density,Log density,1,length,149,,,,0.0701475661587564,0.17502684725918718,0.011461734871077307
+bias,Qwen3-8B,enumeration,log_burden,Log burden,1,seed,149,,,,0.0690126373630275,0.17611304554886542,0.01548159220661606
+bias,Qwen3-8B,enumeration,log_burden,Log burden,1,needle,149,,,,0.07196342845669766,0.17535370996182728,0.010261515350217423
+bias,Qwen3-8B,enumeration,log_burden,Log burden,1,length,149,,,,0.0760876745866053,0.1761270215074424,0.009718425651873221
+bias,Qwen3-8B,enumeration,log_separable,Separate log T + log N,2,seed,149,,,,0.0690079655164789,0.17659635084558892,0.015423088060264796
+bias,Qwen3-8B,enumeration,log_separable,Separate log T + log N,2,needle,149,,,,0.07267563524726979,0.1748912804135446,0.009170030849871903
+bias,Qwen3-8B,enumeration,log_separable,Separate log T + log N,2,length,149,,,,0.08879291901902327,0.17632882973736103,0.02481699773277664
+bias,Qwen3-8B,enumeration,semi_log_needles,Log T + linear N,2,seed,149,,,,0.07080890413474894,0.17654397019487247,0.014715847368159339
+bias,Qwen3-8B,enumeration,semi_log_needles,Log T + linear N,2,needle,149,,,,0.07083073518200952,0.1732192922038952,0.011072150650654873
+bias,Qwen3-8B,enumeration,semi_log_needles,Log T + linear N,2,length,149,,,,0.08850154509473644,0.17581574530829178,0.02461529720045657
+bias,Qwen3-8B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,seed,149,,,,0.07544964956132315,0.17682474078329313,0.013610919306075107
+bias,Qwen3-8B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,needle,149,,,,0.07649453570489731,0.17174417690694094,0.01411607514893558
+bias,Qwen3-8B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,length,149,,,,0.0910476276080751,0.17584092213079894,0.02244603071912553
+bias,Qwen3-8B,enumeration,log_interaction,Log T × log N,3,seed,149,,,,0.06888057506867964,0.17685259019958377,0.015384200054237986
+bias,Qwen3-8B,enumeration,log_interaction,Log T × log N,3,needle,149,,,,0.07267591911136041,0.17540127242347978,0.009131654116809669
+bias,Qwen3-8B,enumeration,log_interaction,Log T × log N,3,length,149,,,,0.09124087637346615,0.1790544179421251,0.023525055976278113
+absolute_error,Qwen3-8B,enumeration,intercept_only,Constant,0,seed,149,,,,0.054359923970655886,0.13863691972112532,0.012185832289843095
+absolute_error,Qwen3-8B,enumeration,intercept_only,Constant,0,needle,149,,,,0.053858215598825865,0.13707323251906925,0.008415684844791384
+absolute_error,Qwen3-8B,enumeration,intercept_only,Constant,0,length,149,,,,0.05421265227305976,0.1380683193552582,0.006125999350851947
+absolute_error,Qwen3-8B,enumeration,log_density,Log density,1,seed,149,,,,0.054444285802544005,0.13916522331445205,0.012199139728475123
+absolute_error,Qwen3-8B,enumeration,log_density,Log density,1,needle,149,,,,0.05560534395003314,0.13770984184166246,0.009066784705598182
+absolute_error,Qwen3-8B,enumeration,log_density,Log density,1,length,149,,,,0.055166830980840485,0.1376480614880415,0.009013963349047676
+absolute_error,Qwen3-8B,enumeration,log_burden,Log burden,1,seed,149,,,,0.054274277917665543,0.13850229094659097,0.01217533875150811
+absolute_error,Qwen3-8B,enumeration,log_burden,Log burden,1,needle,149,,,,0.05659489718413954,0.1379051192942907,0.008070063067499314
+absolute_error,Qwen3-8B,enumeration,log_burden,Log burden,1,length,149,,,,0.059838368078868484,0.13851328219528042,0.007642955767323231
+absolute_error,Qwen3-8B,enumeration,log_separable,Separate log T + log N,2,seed,149,,,,0.05427060379206108,0.13888238141981069,0.012129328768123454
+absolute_error,Qwen3-8B,enumeration,log_separable,Separate log T + log N,2,needle,149,,,,0.057155004879821815,0.1375414463384404,0.007211676323011359
+absolute_error,Qwen3-8B,enumeration,log_separable,Separate log T + log N,2,length,149,,,,0.06983027671597204,0.13867199219934911,0.019517072285552012
+absolute_error,Qwen3-8B,enumeration,semi_log_needles,Log T + linear N,2,seed,149,,,,0.055686933421176345,0.13884118719650432,0.011573126609436234
+absolute_error,Qwen3-8B,enumeration,semi_log_needles,Log T + linear N,2,needle,149,,,,0.05570410222346429,0.13622652843017066,0.008707578851085106
+absolute_error,Qwen3-8B,enumeration,semi_log_needles,Log T + linear N,2,length,149,,,,0.06960112869397253,0.13826848223418078,0.019358446979150578
+absolute_error,Qwen3-8B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,seed,149,,,,0.05933659986852706,0.13906199633421182,0.010704167314269306
+absolute_error,Qwen3-8B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,needle,149,,,,0.06015833981523204,0.13506643919656622,0.011101441924467442
+absolute_error,Qwen3-8B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,length,149,,,,0.07160346906539387,0.13828828228695444,0.017652449695408
+absolute_error,Qwen3-8B,enumeration,log_interaction,Log T × log N,3,seed,149,,,,0.05417041888633803,0.1390838982208424,0.01209874569627734
+absolute_error,Qwen3-8B,enumeration,log_interaction,Log T × log N,3,needle,149,,,,0.057155228121812444,0.13794252430242845,0.0071814953365228265
+absolute_error,Qwen3-8B,enumeration,log_interaction,Log T × log N,3,length,149,,,,0.07175544756673569,0.140815502973127,0.018501037996400158
+exact,Qwen3-8B,native_thinking,intercept_only,Constant,0,seed,150,0.11108685881451298,0.019999761928778795,0.059275301122010016,,,
+exact,Qwen3-8B,native_thinking,intercept_only,Constant,0,needle,150,0.10413971913122143,0.01981883588899425,0.04156813908865241,,,
+exact,Qwen3-8B,native_thinking,intercept_only,Constant,0,length,150,0.2060507231487013,0.020597679845980498,0.17555569124305842,,,
+exact,Qwen3-8B,native_thinking,log_density,Log density,1,seed,150,0.11723657725162731,0.02053491051103653,0.06071337183867136,,,
+exact,Qwen3-8B,native_thinking,log_density,Log density,1,needle,150,0.09815914261850736,0.01964471538411897,0.04266170376453953,,,
+exact,Qwen3-8B,native_thinking,log_density,Log density,1,length,150,0.25285732516607257,0.03651826797921046,0.16164140511168623,,,
+exact,Qwen3-8B,native_thinking,log_burden,Log burden,1,seed,150,0.1160295292669363,0.020682042489953333,0.059102890683689964,,,
+exact,Qwen3-8B,native_thinking,log_burden,Log burden,1,needle,150,0.09589060338568874,0.019570664199080032,0.042573172561834724,,,
+exact,Qwen3-8B,native_thinking,log_burden,Log burden,1,length,150,0.2384069119035392,0.03222613223039801,0.1639808504775632,,,
+exact,Qwen3-8B,native_thinking,log_separable,Separate log T + log N,2,seed,150,0.12504670231140808,0.020928256930850844,0.06253606118033907,,,
+exact,Qwen3-8B,native_thinking,log_separable,Separate log T + log N,2,needle,150,0.10019908142441722,0.01941555951682135,0.04816364086745765,,,
+exact,Qwen3-8B,native_thinking,log_separable,Separate log T + log N,2,length,150,1.0603490046523711,0.317293567371243,0.4028795639488408,,,
+exact,Qwen3-8B,native_thinking,semi_log_needles,Log T + linear N,2,seed,150,0.1350463506522004,0.0210650673736683,0.0727737170418381,,,
+exact,Qwen3-8B,native_thinking,semi_log_needles,Log T + linear N,2,needle,150,0.10744133819352478,0.022055707294463496,0.050010581237866086,,,
+exact,Qwen3-8B,native_thinking,semi_log_needles,Log T + linear N,2,length,150,1.1279642108472923,0.34633121224696406,0.4405152655641686,,,
+exact,Qwen3-8B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,seed,150,0.14831426627893957,0.021093565886139698,0.0816583369748638,,,
+exact,Qwen3-8B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,needle,150,0.10122704324007299,0.01937397390715573,0.04827347133988682,,,
+exact,Qwen3-8B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,length,150,1.0351386096571609,0.306560490169789,0.37528834945461653,,,
+exact,Qwen3-8B,native_thinking,log_interaction,Log T × log N,3,seed,150,0.12504814529515185,0.020929028609505445,0.0625363582346061,,,
+exact,Qwen3-8B,native_thinking,log_interaction,Log T × log N,3,needle,150,0.10019970376306518,0.01941669301936542,0.04816426744724921,,,
+exact,Qwen3-8B,native_thinking,log_interaction,Log T × log N,3,length,150,1.0417471690944076,0.26471121131670716,0.3609361525874756,,,
+bias,Qwen3-8B,native_thinking,intercept_only,Constant,0,seed,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,intercept_only,Constant,0,needle,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,intercept_only,Constant,0,length,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,log_density,Log density,1,seed,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,log_density,Log density,1,needle,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,log_density,Log density,1,length,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,log_burden,Log burden,1,seed,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,log_burden,Log burden,1,needle,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,log_burden,Log burden,1,length,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,log_separable,Separate log T + log N,2,seed,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,log_separable,Separate log T + log N,2,needle,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,log_separable,Separate log T + log N,2,length,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,semi_log_needles,Log T + linear N,2,seed,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,semi_log_needles,Log T + linear N,2,needle,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,semi_log_needles,Log T + linear N,2,length,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,seed,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,needle,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,length,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,log_interaction,Log T × log N,3,seed,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,log_interaction,Log T × log N,3,needle,147,,,,0.0,0.0,0.0
+bias,Qwen3-8B,native_thinking,log_interaction,Log T × log N,3,length,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,intercept_only,Constant,0,seed,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,intercept_only,Constant,0,needle,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,intercept_only,Constant,0,length,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,log_density,Log density,1,seed,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,log_density,Log density,1,needle,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,log_density,Log density,1,length,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,log_burden,Log burden,1,seed,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,log_burden,Log burden,1,needle,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,log_burden,Log burden,1,length,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,log_separable,Separate log T + log N,2,seed,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,log_separable,Separate log T + log N,2,needle,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,log_separable,Separate log T + log N,2,length,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,semi_log_needles,Log T + linear N,2,seed,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,semi_log_needles,Log T + linear N,2,needle,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,semi_log_needles,Log T + linear N,2,length,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,seed,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,needle,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,length,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,log_interaction,Log T × log N,3,seed,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,log_interaction,Log T × log N,3,needle,147,,,,0.0,0.0,0.0
+absolute_error,Qwen3-8B,native_thinking,log_interaction,Log T × log N,3,length,147,,,,0.0,0.0,0.0
+exact,Qwen3-32B,direct,intercept_only,Constant,0,seed,150,0.6976656018056868,0.2522499015156148,0.005177717793975154,,,
+exact,Qwen3-32B,direct,intercept_only,Constant,0,needle,150,0.7530678239119336,0.27979054823621424,0.019848440519689883,,,
+exact,Qwen3-32B,direct,intercept_only,Constant,0,length,150,0.743892780560701,0.27493209785243616,0.033866038664351276,,,
+exact,Qwen3-32B,direct,log_density,Log density,1,seed,150,0.6318078524039255,0.2196645677819875,0.020284091297994394,,,
+exact,Qwen3-32B,direct,log_density,Log density,1,needle,150,0.6799307398697965,0.24073123955054077,0.04871176995690335,,,
+exact,Qwen3-32B,direct,log_density,Log density,1,length,150,1.204090394437957,0.3483255834764594,0.49773063435634485,,,
+exact,Qwen3-32B,direct,log_burden,Log burden,1,seed,150,0.4131344904539536,0.1396041182569448,0.025786844676647144,,,
+exact,Qwen3-32B,direct,log_burden,Log burden,1,needle,150,0.43214908656199724,0.1445376560856767,0.06283162105039618,,,
+exact,Qwen3-32B,direct,log_burden,Log burden,1,length,150,0.45009497231023365,0.15304827812293983,0.04117358070979457,,,
+exact,Qwen3-32B,direct,log_separable,Separate log T + log N,2,seed,150,0.4051905945177959,0.13002895818878987,0.023608094137716713,,,
+exact,Qwen3-32B,direct,log_separable,Separate log T + log N,2,needle,150,0.46015629221077553,0.13795668368152722,0.0894712316008702,,,
+exact,Qwen3-32B,direct,log_separable,Separate log T + log N,2,length,150,0.5305204609812031,0.14749219439479272,0.1302996125805513,,,
+exact,Qwen3-32B,direct,semi_log_needles,Log T + linear N,2,seed,150,0.5175032858541281,0.16241517830566157,0.020304060902130553,,,
+exact,Qwen3-32B,direct,semi_log_needles,Log T + linear N,2,needle,150,0.7581269410275217,0.18267538800169386,0.23301943849003687,,,
+exact,Qwen3-32B,direct,semi_log_needles,Log T + linear N,2,length,150,0.8904162199796133,0.1763204136598862,0.3738653417638735,,,
+exact,Qwen3-32B,direct,piecewise_log_needles,Log T + piecewise log N,3,seed,150,0.39478179415232423,0.13070838425514894,0.028299360743797443,,,
+exact,Qwen3-32B,direct,piecewise_log_needles,Log T + piecewise log N,3,needle,150,0.5124335347641616,0.15235599729040014,0.11046231491383422,,,
+exact,Qwen3-32B,direct,piecewise_log_needles,Log T + piecewise log N,3,length,150,0.5225824332247911,0.14099121671568735,0.13756356923891927,,,
+exact,Qwen3-32B,direct,log_interaction,Log T × log N,3,seed,150,0.39349075617573653,0.13187745405780613,0.02355793237566583,,,
+exact,Qwen3-32B,direct,log_interaction,Log T × log N,3,needle,150,0.4986561017566216,0.14834615933725787,0.10660292318103358,,,
+exact,Qwen3-32B,direct,log_interaction,Log T × log N,3,length,150,0.5310982057958998,0.13918152035447276,0.18057465622443467,,,
+bias,Qwen3-32B,direct,intercept_only,Constant,0,seed,150,,,,0.8652520930258023,1.0536265782111596,0.03154212595347283
+bias,Qwen3-32B,direct,intercept_only,Constant,0,needle,150,,,,0.919362395957276,1.112738367101589,0.14597235154026075
+bias,Qwen3-32B,direct,intercept_only,Constant,0,length,150,,,,0.9317044226786356,1.1251996256399908,0.06736342261118548
+bias,Qwen3-32B,direct,log_density,Log density,1,seed,150,,,,0.7672090934671683,0.9798093972108393,0.016932520798150854
+bias,Qwen3-32B,direct,log_density,Log density,1,needle,150,,,,0.8109263797581093,1.0133185228476305,0.12962808397684175
+bias,Qwen3-32B,direct,log_density,Log density,1,length,150,,,,1.1630168972883899,1.458037786018763,0.3175794981895003
+bias,Qwen3-32B,direct,log_burden,Log burden,1,seed,150,,,,0.5150899055871927,0.694314587206883,0.026740436133855322
+bias,Qwen3-32B,direct,log_burden,Log burden,1,needle,150,,,,0.5428500709022896,0.7244644039181584,0.07338857336992094
+bias,Qwen3-32B,direct,log_burden,Log burden,1,length,150,,,,0.6042950943964227,0.7888595696064845,0.10208710490189031
+bias,Qwen3-32B,direct,log_separable,Separate log T + log N,2,seed,150,,,,0.4959204752715305,0.6878842633587169,0.028157262260424813
+bias,Qwen3-32B,direct,log_separable,Separate log T + log N,2,needle,150,,,,0.5461594700591867,0.7437784083943031,0.08367127709843664
+bias,Qwen3-32B,direct,log_separable,Separate log T + log N,2,length,150,,,,0.5592898767117948,0.7913555942138794,0.06678762176668852
+bias,Qwen3-32B,direct,semi_log_needles,Log T + linear N,2,seed,150,,,,0.5281856556903743,0.7303997153582195,0.02813922605339345
+bias,Qwen3-32B,direct,semi_log_needles,Log T + linear N,2,needle,150,,,,0.6156714908959202,0.9195751482917406,0.12984002771951833
+bias,Qwen3-32B,direct,semi_log_needles,Log T + linear N,2,length,150,,,,0.5805653493169266,0.8529039964763732,0.05353664476712272
+bias,Qwen3-32B,direct,piecewise_log_needles,Log T + piecewise log N,3,seed,150,,,,0.4711899179339995,0.6699609185888404,0.029279380211856224
+bias,Qwen3-32B,direct,piecewise_log_needles,Log T + piecewise log N,3,needle,150,,,,0.5154395685929499,0.7569109235221326,0.08127662226838647
+bias,Qwen3-32B,direct,piecewise_log_needles,Log T + piecewise log N,3,length,150,,,,0.5251141794568913,0.7862251316300015,0.06082665642639724
+bias,Qwen3-32B,direct,log_interaction,Log T × log N,3,seed,150,,,,0.46062946171986824,0.6135753019537045,0.033552547509312816
+bias,Qwen3-32B,direct,log_interaction,Log T × log N,3,needle,150,,,,0.5194378567410949,0.6948174410924289,0.07467002853611031
+bias,Qwen3-32B,direct,log_interaction,Log T × log N,3,length,150,,,,0.4966879627350801,0.6945466912921452,0.04338276986365521
+absolute_error,Qwen3-32B,direct,intercept_only,Constant,0,seed,150,,,,0.6667406004554038,0.8113735922847588,0.02241529120783481
+absolute_error,Qwen3-32B,direct,intercept_only,Constant,0,needle,150,,,,0.7161723343187247,0.866378017447138,0.11088119794823424
+absolute_error,Qwen3-32B,direct,intercept_only,Constant,0,length,150,,,,0.7110703100852709,0.8581087058863277,0.05408023491323004
+absolute_error,Qwen3-32B,direct,log_density,Log density,1,seed,150,,,,0.5772767501641317,0.7304202717319369,0.02266854390926465
+absolute_error,Qwen3-32B,direct,log_density,Log density,1,needle,150,,,,0.6024996387628111,0.7583500001400207,0.09142829816767213
+absolute_error,Qwen3-32B,direct,log_density,Log density,1,length,150,,,,0.8858532234329908,1.08508512456162,0.24091349542435828
+absolute_error,Qwen3-32B,direct,log_burden,Log burden,1,seed,150,,,,0.3886986819080665,0.4940559090137337,0.02060757457722668
+absolute_error,Qwen3-32B,direct,log_burden,Log burden,1,needle,150,,,,0.4119893103864824,0.529226296765578,0.04861582388099363
+absolute_error,Qwen3-32B,direct,log_burden,Log burden,1,length,150,,,,0.4587623221997445,0.5754217187655648,0.072606160598664
+absolute_error,Qwen3-32B,direct,log_separable,Separate log T + log N,2,seed,150,,,,0.36918480411516147,0.4821238633389066,0.02672100041520241
+absolute_error,Qwen3-32B,direct,log_separable,Separate log T + log N,2,needle,150,,,,0.405831321121817,0.5246968430585445,0.06000496246911675
+absolute_error,Qwen3-32B,direct,log_separable,Separate log T + log N,2,length,150,,,,0.3925399227659211,0.5324023217523385,0.041177439213086024
+absolute_error,Qwen3-32B,direct,semi_log_needles,Log T + linear N,2,seed,150,,,,0.3792733218133581,0.4963817341220903,0.024430721224518885
+absolute_error,Qwen3-32B,direct,semi_log_needles,Log T + linear N,2,needle,150,,,,0.42473410053707095,0.597324052912434,0.07368870547214972
+absolute_error,Qwen3-32B,direct,semi_log_needles,Log T + linear N,2,length,150,,,,0.40416599775479706,0.5530929766442744,0.038141931868211
+absolute_error,Qwen3-32B,direct,piecewise_log_needles,Log T + piecewise log N,3,seed,150,,,,0.33825917166302816,0.45452571814229625,0.028317661496249757
+absolute_error,Qwen3-32B,direct,piecewise_log_needles,Log T + piecewise log N,3,needle,150,,,,0.35474271205235325,0.4858599611344499,0.04654850217364486
+absolute_error,Qwen3-32B,direct,piecewise_log_needles,Log T + piecewise log N,3,length,150,,,,0.3634503328235363,0.5090230326740491,0.03850332519742445
+absolute_error,Qwen3-32B,direct,log_interaction,Log T × log N,3,seed,150,,,,0.35237612375885574,0.44379657190470717,0.021882313971139565
+absolute_error,Qwen3-32B,direct,log_interaction,Log T × log N,3,needle,150,,,,0.3895451103011856,0.4861250957623423,0.05800026087598028
+absolute_error,Qwen3-32B,direct,log_interaction,Log T × log N,3,length,150,,,,0.3501597591125571,0.45700429319360847,0.02310979702035079
+exact,Qwen3-32B,enumeration,intercept_only,Constant,0,seed,150,0.07712594788815479,0.01330544040525759,0.03691643818570635,,,
+exact,Qwen3-32B,enumeration,intercept_only,Constant,0,needle,150,0.07869901686257923,0.013322237905537939,0.04249454937376412,,,
+exact,Qwen3-32B,enumeration,intercept_only,Constant,0,length,150,0.1373190513787393,0.013598565308770804,0.1170766510533077,,,
+exact,Qwen3-32B,enumeration,log_density,Log density,1,seed,150,0.07540183251711943,0.013350661136212916,0.03584051397901214,,,
+exact,Qwen3-32B,enumeration,log_density,Log density,1,needle,150,0.07485352784292262,0.013287688266267082,0.04197831072760492,,,
+exact,Qwen3-32B,enumeration,log_density,Log density,1,length,150,0.15932617002749574,0.017500799181798123,0.11031514571735093,,,
+exact,Qwen3-32B,enumeration,log_burden,Log burden,1,seed,150,0.05085502582389484,0.014018723680750224,0.02082966058917842,,,
+exact,Qwen3-32B,enumeration,log_burden,Log burden,1,needle,150,0.05407341746129248,0.017509753583923014,0.03602223925098428,,,
+exact,Qwen3-32B,enumeration,log_burden,Log burden,1,length,150,0.12120859019851996,0.013411743250888248,0.11771809493657037,,,
+exact,Qwen3-32B,enumeration,log_separable,Separate log T + log N,2,seed,150,0.05044162477072572,0.013948014434421884,0.020456645304986365,,,
+exact,Qwen3-32B,enumeration,log_separable,Separate log T + log N,2,needle,150,0.05176886274764833,0.01618519599658144,0.033737485530226,,,
+exact,Qwen3-32B,enumeration,log_separable,Separate log T + log N,2,length,150,0.12217481027207056,0.013400298605170459,0.11899118176596771,,,
+exact,Qwen3-32B,enumeration,semi_log_needles,Log T + linear N,2,seed,150,0.06072113974434407,0.014496519751079682,0.02916650283665747,,,
+exact,Qwen3-32B,enumeration,semi_log_needles,Log T + linear N,2,needle,150,0.14006041187992269,0.040740186645154906,0.10974179163421353,,,
+exact,Qwen3-32B,enumeration,semi_log_needles,Log T + linear N,2,length,150,0.13193827447355508,0.01340488006535122,0.1287609307249076,,,
+exact,Qwen3-32B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,seed,150,0.052044528593649296,0.01409547075670468,0.021812098906046795,,,
+exact,Qwen3-32B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,needle,150,0.056044870777953254,0.01784457493639839,0.03705988272383803,,,
+exact,Qwen3-32B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,length,150,0.12591915138282925,0.013402701687670045,0.12272473190952288,,,
+exact,Qwen3-32B,enumeration,log_interaction,Log T × log N,3,seed,150,0.05158916999261416,0.014199188122134514,0.021608603563258527,,,
+exact,Qwen3-32B,enumeration,log_interaction,Log T × log N,3,needle,150,0.05557177189581103,0.018641910959809525,0.03667743333985747,,,
+exact,Qwen3-32B,enumeration,log_interaction,Log T × log N,3,length,150,0.12086101683023076,0.013342182484982897,0.1191065459287651,,,
+bias,Qwen3-32B,enumeration,intercept_only,Constant,0,seed,150,,,,0.03569762061140158,0.16500922048769381,0.008925707874778852
+bias,Qwen3-32B,enumeration,intercept_only,Constant,0,needle,150,,,,0.035730951723099834,0.1650743907228189,0.01130084414436949
+bias,Qwen3-32B,enumeration,intercept_only,Constant,0,length,150,,,,0.03599760061650815,0.1664623522563846,0.008999400154262026
+bias,Qwen3-32B,enumeration,log_density,Log density,1,seed,150,,,,0.035818588614269314,0.16496729642051822,0.00892571017055332
+bias,Qwen3-32B,enumeration,log_density,Log density,1,needle,150,,,,0.035502232292581294,0.16467251339917224,0.012920542148018441
+bias,Qwen3-32B,enumeration,log_density,Log density,1,length,150,,,,0.046787441054751376,0.1700558934494482,0.010616606535444035
+bias,Qwen3-32B,enumeration,log_burden,Log burden,1,seed,150,,,,0.04728497374366742,0.16481705863524637,0.006560406102067693
+bias,Qwen3-32B,enumeration,log_burden,Log burden,1,needle,150,,,,0.047101110062390115,0.16373544099249224,0.013642952848474072
+bias,Qwen3-32B,enumeration,log_burden,Log burden,1,length,150,,,,0.04546226696467091,0.16991306493965347,0.004392175724402719
+bias,Qwen3-32B,enumeration,log_separable,Separate log T + log N,2,seed,150,,,,0.04737003639334117,0.16484781900172918,0.0065447717350008375
+bias,Qwen3-32B,enumeration,log_separable,Separate log T + log N,2,needle,150,,,,0.04893881396359996,0.16409384482330627,0.013515070853757636
+bias,Qwen3-32B,enumeration,log_separable,Separate log T + log N,2,length,150,,,,0.055309957370890124,0.17387969905292558,0.008922687247198805
+bias,Qwen3-32B,enumeration,semi_log_needles,Log T + linear N,2,seed,150,,,,0.04704768905294917,0.16461768464221857,0.006702199003960126
+bias,Qwen3-32B,enumeration,semi_log_needles,Log T + linear N,2,needle,150,,,,0.05186582057551696,0.1652011615413942,0.019934557092886513
+bias,Qwen3-32B,enumeration,semi_log_needles,Log T + linear N,2,length,150,,,,0.05534800067453934,0.17478967999906264,0.013026340591477939
+bias,Qwen3-32B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,seed,150,,,,0.04768695890056297,0.16470759593502549,0.006418214946491539
+bias,Qwen3-32B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,needle,150,,,,0.05041319068611377,0.16366334550094205,0.01821419271452772
+bias,Qwen3-32B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,length,150,,,,0.05537760818131223,0.1752145893531721,0.01251219693606374
+bias,Qwen3-32B,enumeration,log_interaction,Log T × log N,3,seed,150,,,,0.04960543457236493,0.1646049212567062,0.005856248299422709
+bias,Qwen3-32B,enumeration,log_interaction,Log T × log N,3,needle,150,,,,0.05074642409917331,0.16260928395290888,0.01538641233058678
+bias,Qwen3-32B,enumeration,log_interaction,Log T × log N,3,length,150,,,,0.06629907238661514,0.18266918796480364,0.017745783644889046
+absolute_error,Qwen3-32B,enumeration,intercept_only,Constant,0,seed,150,,,,0.027494838162097565,0.1265507821545891,0.006826490796228695
+absolute_error,Qwen3-32B,enumeration,intercept_only,Constant,0,needle,150,,,,0.027520510279908508,0.12660284995442903,0.008657076562651451
+absolute_error,Qwen3-32B,enumeration,intercept_only,Constant,0,length,150,,,,0.027725887222259184,0.12768465950256203,0.006931471805668767
+absolute_error,Qwen3-32B,enumeration,log_density,Log density,1,seed,150,,,,0.027593084684492612,0.12651755313218824,0.006824907515937882
+absolute_error,Qwen3-32B,enumeration,log_density,Log density,1,needle,150,,,,0.027340165280886477,0.12628617472319767,0.009921569930287078
+absolute_error,Qwen3-32B,enumeration,log_density,Log density,1,length,150,,,,0.03605794919543178,0.1304749876148805,0.008193199328850074
+absolute_error,Qwen3-32B,enumeration,log_burden,Log burden,1,seed,150,,,,0.03644291698340203,0.12637466416510154,0.00499770446286718
+absolute_error,Qwen3-32B,enumeration,log_burden,Log burden,1,needle,150,,,,0.03628936579670729,0.12552250606507306,0.0104864529526931
+absolute_error,Qwen3-32B,enumeration,log_burden,Log burden,1,length,150,,,,0.035047642445478075,0.1303643319099272,0.0033709078324990756
+absolute_error,Qwen3-32B,enumeration,log_separable,Separate log T + log N,2,seed,150,,,,0.03650777068000167,0.12639797171988087,0.004986023113866027
+absolute_error,Qwen3-32B,enumeration,log_separable,Separate log T + log N,2,needle,150,,,,0.037702512904322666,0.12579835098849323,0.010390185579178283
+absolute_error,Qwen3-32B,enumeration,log_separable,Separate log T + log N,2,length,150,,,,0.04261191958661568,0.13342906989281897,0.006862989438200067
+absolute_error,Qwen3-32B,enumeration,semi_log_needles,Log T + linear N,2,seed,150,,,,0.03627693290250155,0.12622828520113522,0.005101161963079814
+absolute_error,Qwen3-32B,enumeration,semi_log_needles,Log T + linear N,2,needle,150,,,,0.03988620263791958,0.12652838093959912,0.015319356261947536
+absolute_error,Qwen3-32B,enumeration,semi_log_needles,Log T + linear N,2,length,150,,,,0.04267471476848463,0.13415159433158352,0.01004107785912791
+absolute_error,Qwen3-32B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,seed,150,,,,0.03675930653798959,0.12628645666120544,0.004883770011816468
+absolute_error,Qwen3-32B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,needle,150,,,,0.03880517203576252,0.12538789370919975,0.014007620373740953
+absolute_error,Qwen3-32B,enumeration,piecewise_log_needles,Log T + piecewise log N,3,length,150,,,,0.04268672008528083,0.1344698417098302,0.009634353393983152
+absolute_error,Qwen3-32B,enumeration,log_interaction,Log T × log N,3,seed,150,,,,0.038237743249577114,0.12619048524691878,0.004445919661046445
+absolute_error,Qwen3-32B,enumeration,log_interaction,Log T × log N,3,needle,150,,,,0.039099320387928564,0.12460206704749652,0.01183915631194607
+absolute_error,Qwen3-32B,enumeration,log_interaction,Log T × log N,3,length,150,,,,0.051107530990722905,0.14024937363927256,0.013689427334038277
+exact,Qwen3-32B,native_thinking,intercept_only,Constant,0,seed,150,0.13025057217841243,0.02630542186195546,0.047010881499732704,,,
+exact,Qwen3-32B,native_thinking,intercept_only,Constant,0,needle,150,0.13344189071607895,0.026414103851313334,0.058595798892960786,,,
+exact,Qwen3-32B,native_thinking,intercept_only,Constant,0,length,150,0.27485401338370774,0.02773007967409688,0.233998922200287,,,
+exact,Qwen3-32B,native_thinking,log_density,Log density,1,seed,150,0.1348115275617886,0.026439597600228692,0.05090097273646083,,,
+exact,Qwen3-32B,native_thinking,log_density,Log density,1,needle,150,0.13659133163037054,0.026521491472684972,0.05946198376321342,,,
+exact,Qwen3-32B,native_thinking,log_density,Log density,1,length,150,0.28964347543799124,0.03004192534460507,0.22700303397417043,,,
+exact,Qwen3-32B,native_thinking,log_burden,Log burden,1,seed,150,0.11657154277545319,0.02506938426275085,0.05835094451874882,,,
+exact,Qwen3-32B,native_thinking,log_burden,Log burden,1,needle,150,0.11926687106729406,0.02764200116735936,0.056894504806795594,,,
+exact,Qwen3-32B,native_thinking,log_burden,Log burden,1,length,150,0.2513128169662116,0.02748901802889676,0.23400170575341586,,,
+exact,Qwen3-32B,native_thinking,log_separable,Separate log T + log N,2,seed,150,0.10501708878119849,0.024842401845606748,0.048742264427881044,,,
+exact,Qwen3-32B,native_thinking,log_separable,Separate log T + log N,2,needle,150,0.10281125575568331,0.025705464908474973,0.0457322293921362,,,
+exact,Qwen3-32B,native_thinking,log_separable,Separate log T + log N,2,length,150,0.2424277841632592,0.026736493326477363,0.23761359056609405,,,
+exact,Qwen3-32B,native_thinking,semi_log_needles,Log T + linear N,2,seed,150,0.10043133346032476,0.025846125941046485,0.04231820299899666,,,
+exact,Qwen3-32B,native_thinking,semi_log_needles,Log T + linear N,2,needle,150,0.12205738706311098,0.035873040611166265,0.05594663009993154,,,
+exact,Qwen3-32B,native_thinking,semi_log_needles,Log T + linear N,2,length,150,0.25481401102647916,0.02674801210237146,0.2499563227099735,,,
+exact,Qwen3-32B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,seed,150,0.10468533564145438,0.025016074363676692,0.048110893752513186,,,
+exact,Qwen3-32B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,needle,150,0.10589436051207181,0.027037827871289194,0.04611663723049523,,,
+exact,Qwen3-32B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,length,150,0.24713848958829862,0.02674087962684535,0.24230054421597694,,,
+exact,Qwen3-32B,native_thinking,log_interaction,Log T × log N,3,seed,150,0.10690843195555681,0.024948982334978977,0.05090373180840099,,,
+exact,Qwen3-32B,native_thinking,log_interaction,Log T × log N,3,needle,150,0.10373892321141583,0.025926657819097514,0.046423765669501724,,,
+exact,Qwen3-32B,native_thinking,log_interaction,Log T × log N,3,length,150,0.24128494589849944,0.026689034617120477,0.23745393472764,,,
+bias,Qwen3-32B,native_thinking,intercept_only,Constant,0,seed,150,,,,0.045479445879439875,0.2574702313828474,0.023074832471879227
+bias,Qwen3-32B,native_thinking,intercept_only,Constant,0,needle,150,,,,0.045384623554068165,0.25866660515724693,0.022879801180519983
+bias,Qwen3-32B,native_thinking,intercept_only,Constant,0,length,150,,,,0.042751768656190965,0.2562784369990556,0.03560574069053259
+bias,Qwen3-32B,native_thinking,log_density,Log density,1,seed,150,,,,0.06158091388013836,0.2573132970151324,0.019080422069408822
+bias,Qwen3-32B,native_thinking,log_density,Log density,1,needle,150,,,,0.06170696558972008,0.2582769401961993,0.02122237170166968
+bias,Qwen3-32B,native_thinking,log_density,Log density,1,length,150,,,,0.0688810276187074,0.2609699597133605,0.026272061258200825
+bias,Qwen3-32B,native_thinking,log_burden,Log burden,1,seed,150,,,,0.0638127955176668,0.2565754061908229,0.019861059923152853
+bias,Qwen3-32B,native_thinking,log_burden,Log burden,1,needle,150,,,,0.06433835012324594,0.25964233619973004,0.020041765732783334
+bias,Qwen3-32B,native_thinking,log_burden,Log burden,1,length,150,,,,0.06970266036567596,0.2609354467099301,0.02437368131357002
+bias,Qwen3-32B,native_thinking,log_separable,Separate log T + log N,2,seed,150,,,,0.06751203027651922,0.2576228186928342,0.019286724500100917
+bias,Qwen3-32B,native_thinking,log_separable,Separate log T + log N,2,needle,150,,,,0.07160891364669968,0.2616473595597648,0.022170711154960946
+bias,Qwen3-32B,native_thinking,log_separable,Separate log T + log N,2,length,150,,,,0.06804498928160685,0.26027672332475277,0.022974778027815106
+bias,Qwen3-32B,native_thinking,semi_log_needles,Log T + linear N,2,seed,150,,,,0.06986744754034797,0.2569622418935474,0.018919524534205534
+bias,Qwen3-32B,native_thinking,semi_log_needles,Log T + linear N,2,needle,150,,,,0.07664465229825249,0.26331794383944956,0.02890545133553068
+bias,Qwen3-32B,native_thinking,semi_log_needles,Log T + linear N,2,length,150,,,,0.07318339912974264,0.26189027998430986,0.020715182696355663
+bias,Qwen3-32B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,seed,150,,,,0.07562963879362526,0.2566163759361456,0.017300477742692482
+bias,Qwen3-32B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,needle,150,,,,0.08016527417273518,0.26120621571579705,0.027423006341367094
+bias,Qwen3-32B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,length,150,,,,0.07904741758400441,0.26375281688624685,0.017700582045476667
+bias,Qwen3-32B,native_thinking,log_interaction,Log T × log N,3,seed,150,,,,0.0734511980915513,0.25551494893164917,0.017485962852710514
+bias,Qwen3-32B,native_thinking,log_interaction,Log T × log N,3,needle,150,,,,0.07765187715114814,0.26122560235930614,0.021645101989295205
+bias,Qwen3-32B,native_thinking,log_interaction,Log T × log N,3,length,150,,,,0.0927322682227209,0.27184458353714175,0.02164785042157539
+absolute_error,Qwen3-32B,native_thinking,intercept_only,Constant,0,seed,150,,,,0.05789384697690624,0.1985303560973599,0.01179848191457548
+absolute_error,Qwen3-32B,native_thinking,intercept_only,Constant,0,needle,150,,,,0.05794168660883114,0.19849048317313858,0.014149264507551246
+absolute_error,Qwen3-32B,native_thinking,intercept_only,Constant,0,length,150,,,,0.05907755731761546,0.20249679292753667,0.014769389329625406
+absolute_error,Qwen3-32B,native_thinking,log_density,Log density,1,seed,150,,,,0.05812930610797641,0.19939328585399918,0.011877808575382738
+absolute_error,Qwen3-32B,native_thinking,log_density,Log density,1,needle,150,,,,0.05915221097732148,0.19982226976500708,0.013083506557480697
+absolute_error,Qwen3-32B,native_thinking,log_density,Log density,1,length,150,,,,0.06400041325882767,0.2038547048543568,0.012918947291743315
+absolute_error,Qwen3-32B,native_thinking,log_burden,Log burden,1,seed,150,,,,0.06351307047041622,0.19665786500405608,0.011524023247462148
+absolute_error,Qwen3-32B,native_thinking,log_burden,Log burden,1,needle,150,,,,0.06452359184155933,0.1969429691427112,0.016314267344866927
+absolute_error,Qwen3-32B,native_thinking,log_burden,Log burden,1,length,150,,,,0.057774240391426444,0.2037126127316151,0.01653884119509783
+absolute_error,Qwen3-32B,native_thinking,log_separable,Separate log T + log N,2,seed,150,,,,0.06745133084956223,0.19727747817391308,0.010536014711914201
+absolute_error,Qwen3-32B,native_thinking,log_separable,Separate log T + log N,2,needle,150,,,,0.06724728910269816,0.19733597609832268,0.013746030310660627
+absolute_error,Qwen3-32B,native_thinking,log_separable,Separate log T + log N,2,length,150,,,,0.08540403914797516,0.21364785746734738,0.01931951019935063
+absolute_error,Qwen3-32B,native_thinking,semi_log_needles,Log T + linear N,2,seed,150,,,,0.06805184643972027,0.19764586575331639,0.01040948864715038
+absolute_error,Qwen3-32B,native_thinking,semi_log_needles,Log T + linear N,2,needle,150,,,,0.07253657533692671,0.19922076334165942,0.01642819076399319
+absolute_error,Qwen3-32B,native_thinking,semi_log_needles,Log T + linear N,2,length,150,,,,0.08540403914786501,0.2136916092272051,0.0193195101992067
+absolute_error,Qwen3-32B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,seed,150,,,,0.06784253486723356,0.1981597550987269,0.010552391178343392
+absolute_error,Qwen3-32B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,needle,150,,,,0.06992036541780744,0.19901576864857132,0.014404660844329916
+absolute_error,Qwen3-32B,native_thinking,piecewise_log_needles,Log T + piecewise log N,3,length,150,,,,0.08540403914787215,0.21371428046533747,0.019319510199216006
+absolute_error,Qwen3-32B,native_thinking,log_interaction,Log T × log N,3,seed,150,,,,0.0662796461946905,0.19688615519469865,0.010958834842480739
+absolute_error,Qwen3-32B,native_thinking,log_interaction,Log T × log N,3,needle,150,,,,0.06503448999255819,0.19715249767903972,0.015699850477721045
+absolute_error,Qwen3-32B,native_thinking,log_interaction,Log T × log N,3,length,150,,,,0.08688691071371404,0.21748671744164133,0.019782574009775157

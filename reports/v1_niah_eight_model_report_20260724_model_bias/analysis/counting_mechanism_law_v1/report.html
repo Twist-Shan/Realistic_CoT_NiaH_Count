@@ -1,0 +1,1993 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Counting-mechanism empirical law</title>
+<style>
+:root { color-scheme: light; --ink:#17212b; --muted:#596875; --blue:#245b8a; --line:#d9e0e6; --panel:#f7f9fb; }
+body { margin:0; font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif; color:var(--ink); line-height:1.62; background:white; }
+main { max-width:1180px; margin:0 auto; padding:40px 34px 80px; }
+h1 { font-size:2.15rem; line-height:1.2; margin:0 0 8px; }
+h2 { margin-top:42px; padding-bottom:8px; border-bottom:2px solid var(--line); }
+h3 { margin-top:28px; }
+p,li { max-width:92ch; }
+.meta { color:var(--muted); margin-bottom:28px; }
+.callout { background:#edf5fb; border-left:5px solid var(--blue); padding:16px 20px; margin:18px 0; }
+.warning { background:#fff6df; border-left-color:#c67a00; }
+.formula { font-family:"Cambria Math","STIX Two Math",serif; font-size:1.05rem; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 18px; margin:12px 0; overflow-x:auto; }
+figure { margin:28px 0 38px; }
+figure img { display:block; width:100%; height:auto; border:1px solid var(--line); border-radius:8px; background:white; }
+figcaption { color:var(--muted); font-size:.94rem; margin-top:9px; }
+.table-wrap { overflow-x:auto; border:1px solid var(--line); border-radius:8px; margin:14px 0 26px; }
+.data-table { border-collapse:collapse; width:100%; font-size:.88rem; }
+.data-table th { position:sticky; top:0; background:#eaf0f5; text-align:left; }
+.data-table th,.data-table td { border-bottom:1px solid var(--line); padding:7px 9px; vertical-align:top; }
+code { background:#f0f3f5; border-radius:4px; padding:1px 4px; }
+small { color:var(--muted); }
+
+/* COUNTING_MATH_ENV_V1: paper-style offline MathML and responsive layout */
+main {
+  min-width: 0;
+  counter-reset: report-equation;
+}
+#counting-mechanism-law-v1,
+#counting-mechanism-stage2,
+#model-bias-noise-v1 {
+  min-width: 0;
+}
+/*
+ * Display equations intentionally follow a conventional paper layout:
+ * no colored card, no shadow, centered mathematics, and a right-aligned
+ * sequential equation number.  The surrounding prose carries definitions.
+ */
+.formula.math-equation,
+.math-equation {
+  width: min(100%, 1040px);
+  max-width: 1040px;
+  margin: 28px auto 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.math-equation .equation-title {
+  max-width: 920px;
+  margin: 0 auto 9px;
+  color: var(--ink);
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  font-size: .92rem;
+  font-weight: 700;
+  letter-spacing: .01em;
+  line-height: 1.45;
+  text-transform: none;
+}
+.math-scroll {
+  counter-increment: report-equation;
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr) 3.35rem;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  min-height: 3.15rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 7px 0 8px;
+  border: 0;
+  background: transparent;
+  scrollbar-width: thin;
+}
+.math-scroll::after {
+  content: "(" counter(report-equation) ")";
+  grid-column: 2;
+  justify-self: end;
+  align-self: center;
+  padding-left: .65rem;
+  color: var(--muted);
+  font-family: "Times New Roman", "Cambria Math", serif;
+  font-size: .97rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.math-scroll + .math-scroll {
+  margin-top: 6px;
+}
+.math-scroll math[display="block"] {
+  grid-column: 1;
+  justify-self: center;
+  display: block;
+  width: max-content;
+  max-width: none;
+  margin: 0 1.15rem;
+  color: var(--ink);
+  font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif;
+  font-size: 1.34rem;
+  line-height: 1.55;
+}
+.math-equation .equation-note {
+  max-width: 920px;
+  margin: 8px auto 0;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  font-size: .90rem;
+  line-height: 1.65;
+}
+.inline-math {
+  font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif;
+  font-size: 1.02em;
+  white-space: nowrap;
+}
+#counting-mechanism-law-v1 figure,
+#counting-mechanism-stage2 figure,
+#counting-mechanism-law-v1 .figure,
+#counting-mechanism-stage2 .figure {
+  width: min(100%, 1080px);
+  max-width: 1080px;
+  margin: 28px auto 36px;
+}
+#counting-mechanism-law-v1 figure img,
+#counting-mechanism-stage2 figure img,
+#counting-mechanism-law-v1 .figure img,
+#counting-mechanism-stage2 .figure img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+#counting-mechanism-law-v1 .table-wrap,
+#counting-mechanism-stage2 .table-wrap {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+#counting-mechanism-law-v1 .table-wrap table,
+#counting-mechanism-stage2 .table-wrap table {
+  width: max-content;
+  min-width: 100%;
+}
+@media (max-width: 720px) {
+  .formula.math-equation,
+  .math-equation {
+    margin: 22px auto 24px;
+    padding: 0;
+  }
+  .math-equation .equation-title {
+    padding: 0 2px;
+    font-size: .86rem;
+  }
+  .math-scroll {
+    grid-template-columns: minmax(max-content, 1fr) 2.5rem;
+    min-height: 2.8rem;
+    padding: 5px 0 6px;
+  }
+  .math-scroll::after {
+    padding-left: .45rem;
+    font-size: .84rem;
+  }
+  .math-scroll math[display="block"] {
+    margin: 0 .7rem;
+    font-size: 1.08rem;
+  }
+  .math-equation .equation-note {
+    padding: 0 2px;
+    font-size: .86rem;
+  }
+}
+/* END COUNTING_MATH_ENV_V1 */
+</style>
+</head>
+<body><main>
+<h1>Counting mechanism 的 empirical-law 搜索</h1>
+<p class="meta">按 nonthinking、enumeration、CoT 分层；不使用模型大小；生成于 2026-07-25T15:50:45.283130+00:00。源请求级表 SHA256：<code>329694728ee69f330f447c48892f194060808e7033a2f49129dff747ac71f150</code>。</p>
+
+<div class="callout">
+<strong>如何读这份分析：</strong>每种 prompt mode 使用同一组候选函数族，但每个模型拥有自己的参数。选择依据是按 seed 与完整 (L,N) cell 分组的 held-out 指标；primary exact law 另外使用“外层 cell、内层 seed”的 nested 验证。任何高训练拟合都不会单独构成结论。
+</div>
+
+<h2>1. 机制假说与定义</h2>
+<p>令 <strong>L</strong> 为目标 haystack token 长度，<strong>N</strong> 为 needle 数。基础坐标为 <code>l=log(L/5000)</code> 与 <code>n=log(N/5)</code>。所有 exact correctness 都把解析失败、未按格式和截断保留为失败；数值误差只在成功解析的输出上定义并明确报告分母。</p>
+<div class="formula equation-card math-equation">
+<div class="equation-title">Failure-hazard / survival law</div>
+<div class="math-scroll"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block" aria-label="p_m(L,N,o)=\exp\{-\exp[a_m+r_m\ln(L/5000)+s_m\ln(N/5)+o_m\mathbb{1}_{\mathrm{query-last}}]\}"><semantics><mrow><mrow><msub><mi>p</mi><mi>m</mi></msub><mrow><mo>(</mo><mrow><mi>L</mi><mo>,</mo><mi>N</mi><mo>,</mo><mi>o</mi></mrow><mo>)</mo></mrow></mrow><mo>=</mo><mrow><mi mathvariant="normal">exp</mi><mrow><mo>(</mo><mrow><mo>−</mo><mrow><mi mathvariant="normal">exp</mi><mrow><mo>(</mo><mrow><msub><mi>a</mi><mi>m</mi></msub><mo>+</mo><msub><mi>r</mi><mi>m</mi></msub><mrow><mi mathvariant="normal">ln</mi><mrow><mo>(</mo><mfrac><mi>L</mi><mn>5000</mn></mfrac><mo>)</mo></mrow></mrow><mo>+</mo><msub><mi>s</mi><mi>m</mi></msub><mrow><mi mathvariant="normal">ln</mi><mrow><mo>(</mo><mfrac><mi>N</mi><mn>5</mn></mfrac><mo>)</mo></mrow></mrow><mo>+</mo><msub><mi>o</mi><mi>m</mi></msub><mrow><mi mathvariant="double-struck">1</mi><mrow><mo>{</mo><mtext>query-last</mtext><mo>}</mo></mrow></mrow></mrow><mo>)</mo></mrow></mrow></mrow><mo>)</mo></mrow></mrow></mrow><annotation encoding="application/x-tex">p_m(L,N,o)=\exp\{-\exp[a_m+r_m\ln(L/5000)+s_m\ln(N/5)+o_m\mathbb{1}_{\mathrm{query-last}}]\}</annotation></semantics></math></div>
+</div>
+<div class="formula equation-card math-equation">
+<div class="equation-title">Logistic / Hill law</div>
+<div class="math-scroll"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block" aria-label="\operatorname{logit}p_m(L,N,o)=a_m+r_m\ln(L/5000)+s_m\ln(N/5)+o_m\mathbb{1}_{\mathrm{query-last}}"><semantics><mrow><mrow><mi mathvariant="normal">logit</mi><mrow><mo>(</mo><mrow><msub><mi>p</mi><mi>m</mi></msub><mrow><mo>(</mo><mrow><mi>L</mi><mo>,</mo><mi>N</mi><mo>,</mo><mi>o</mi></mrow><mo>)</mo></mrow></mrow><mo>)</mo></mrow></mrow><mo>=</mo><mrow><msub><mi>a</mi><mi>m</mi></msub><mo>+</mo><msub><mi>r</mi><mi>m</mi></msub><mrow><mi mathvariant="normal">ln</mi><mrow><mo>(</mo><mfrac><mi>L</mi><mn>5000</mn></mfrac><mo>)</mo></mrow></mrow><mo>+</mo><msub><mi>s</mi><mi>m</mi></msub><mrow><mi mathvariant="normal">ln</mi><mrow><mo>(</mo><mfrac><mi>N</mi><mn>5</mn></mfrac><mo>)</mo></mrow></mrow><mo>+</mo><msub><mi>o</mi><mi>m</mi></msub><mrow><mi mathvariant="double-struck">1</mi><mrow><mo>{</mo><mtext>query-last</mtext><mo>}</mo></mrow></mrow></mrow></mrow><annotation encoding="application/x-tex">\operatorname{logit}p_m(L,N,o)=a_m+r_m\ln(L/5000)+s_m\ln(N/5)+o_m\mathbb{1}_{\mathrm{query-last}}</annotation></semantics></math></div>
+</div>
+<div class="formula equation-card math-equation">
+<div class="equation-title">Enumeration retrieval compounding</div>
+<div class="math-scroll"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block" aria-label="\operatorname{logit}q_m(L,N,o)=a_m+r_m\ln(L/5000)+s_m\ln(N/5)+o_m\mathbb{1}_{\mathrm{query-last}}"><semantics><mrow><mrow><mi mathvariant="normal">logit</mi><mrow><mo>(</mo><mrow><msub><mi>q</mi><mi>m</mi></msub><mrow><mo>(</mo><mrow><mi>L</mi><mo>,</mo><mi>N</mi><mo>,</mo><mi>o</mi></mrow><mo>)</mo></mrow></mrow><mo>)</mo></mrow></mrow><mo>=</mo><mrow><msub><mi>a</mi><mi>m</mi></msub><mo>+</mo><msub><mi>r</mi><mi>m</mi></msub><mrow><mi mathvariant="normal">ln</mi><mrow><mo>(</mo><mfrac><mi>L</mi><mn>5000</mn></mfrac><mo>)</mo></mrow></mrow><mo>+</mo><msub><mi>s</mi><mi>m</mi></msub><mrow><mi mathvariant="normal">ln</mi><mrow><mo>(</mo><mfrac><mi>N</mi><mn>5</mn></mfrac><mo>)</mo></mrow></mrow><mo>+</mo><msub><mi>o</mi><mi>m</mi></msub><mrow><mi mathvariant="double-struck">1</mi><mrow><mo>{</mo><mtext>query-last</mtext><mo>}</mo></mrow></mrow></mrow></mrow><annotation encoding="application/x-tex">\operatorname{logit}q_m(L,N,o)=a_m+r_m\ln(L/5000)+s_m\ln(N/5)+o_m\mathbb{1}_{\mathrm{query-last}}</annotation></semantics></math></div>
+<div class="math-scroll"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block" aria-label="P(\mathrm{all\ }N\mathrm{\ gold\ pairs\ found})\approx q_m(L,N,o)^N"><semantics><mrow><mtext>P</mtext><mrow><mo>(</mo><mtext>all N gold pairs found</mtext><mo>)</mo></mrow><mo>≈</mo><msup><mrow><msub><mi>q</mi><mi>m</mi></msub><mrow><mo>(</mo><mrow><mi>L</mi><mo>,</mo><mi>N</mi><mo>,</mo><mi>o</mi></mrow><mo>)</mo></mrow></mrow><mi>N</mi></msup></mrow><annotation encoding="application/x-tex">P(\mathrm{all\ }N\mathrm{\ gold\ pairs\ found})\approx q_m(L,N,o)^N</annotation></semantics></math></div>
+</div>
+<p>这里的 <em>q</em> 是逐 needle 的 pair-recall 概率：每条枚举输出以 <code>N−missing_pairs</code> 为成功数、<code>N</code> 为试验数。<code>q^N</code> 是“各 needle 检索近似独立”时全部找齐的复合概率，因此它比只回归最终准确率更接近可检验的 counting/retrieval mechanism。</p>
+
+<h2>2. Primary exact-count law</h2>
+<div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>mode</th>
+      <th>candidate</th>
+      <th>link</th>
+      <th>formula</th>
+      <th>seed_log_loss</th>
+      <th>cell_log_loss</th>
+      <th>cell_cell_r2</th>
+      <th>length_cell_r2</th>
+      <th>needle_cell_r2</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>power_separable</td>
+      <td>logistic</td>
+      <td>logit(p) = a_m + r_m log(L/5000) + s_m log(N/5) + o_m I(query-last)</td>
+      <td>0.3755</td>
+      <td>0.3862</td>
+      <td>0.7979</td>
+      <td>0.7723</td>
+      <td>0.7476</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>log_burden</td>
+      <td>logistic</td>
+      <td>logit(p) = a_m + b_m log[(N/5)(L/5000)] + o_m I(query-last)</td>
+      <td>0.3927</td>
+      <td>0.3854</td>
+      <td>0.7829</td>
+      <td>0.7022</td>
+      <td>0.7432</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>root_separable</td>
+      <td>logistic</td>
+      <td>logit(p) = model-specific root_separable surface plus query-order nuisance</td>
+      <td>0.3288</td>
+      <td>0.2965</td>
+      <td>0.8567</td>
+      <td>-0.2228</td>
+      <td>0.8471</td>
+    </tr>
+  </tbody>
+</table></div>
+<figure><img src="figures/exact_candidate_cv.png" alt="Exact-count candidate CV">
+<figcaption>图 1｜每种 mode 的候选函数族。横轴是 seed OOF 与 blocked-cell OOF log loss 的均值，越低越好。图中仅显示每种 mode 最好的 12 个候选；完整搜索表保存在 CSV。</figcaption></figure>
+<figure><img src="figures/nested_exact_cell_calibration.png" alt="Nested exact calibration">
+<figcaption>图 2｜严格 nested 验证：外层整块留出 (L,N) cell，内层仅在训练 cell 上用 leave-one-seed-out 选择函数族。每点是一个 model × L × N 单元；横轴为完全 held-out 的预测准确率，纵轴为实际准确率。R² 只描述 cell 均值，不等于 request-level R²。</figcaption></figure>
+<div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>mode</th>
+      <th>log_loss</th>
+      <th>brier</th>
+      <th>cell_r2</th>
+      <th>cell_rmse</th>
+      <th>cell_mae</th>
+      <th>n_cells</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>0.3917</td>
+      <td>0.1217</td>
+      <td>0.7891</td>
+      <td>0.1569</td>
+      <td>0.1052</td>
+      <td>240</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>0.3814</td>
+      <td>0.1219</td>
+      <td>0.7937</td>
+      <td>0.1613</td>
+      <td>0.1165</td>
+      <td>240</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>0.3210</td>
+      <td>0.0993</td>
+      <td>0.7090</td>
+      <td>0.1458</td>
+      <td>0.0976</td>
+      <td>150</td>
+    </tr>
+  </tbody>
+</table></div>
+
+<h2>3. L 与 N 的阶数</h2>
+<p>当被选函数族包含 log L 与 log N 时，表中的两个系数就是相应 link 尺度上的局部幂阶。不同模型可以有不同斜率；空值表示该 mode 选中了 density、burden、raw、piecewise 或其他坐标，不能硬解释成独立幂阶。</p>
+<figure><img src="figures/exact_selected_orders.png" alt="Selected exact orders">
+<figcaption>图 3｜exact law 中 log(L/5000) 与 log(N/5) 的模型参数。颜色与数字均是 link 尺度上的系数；survival-link 中正系数意味着 failure hazard 随变量增加，logistic-link 中负系数意味着准确率下降。</figcaption></figure>
+<div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>mode</th>
+      <th>model_label</th>
+      <th>candidate</th>
+      <th>link</th>
+      <th>length_order_log</th>
+      <th>needle_order_log</th>
+      <th>log_interaction</th>
+      <th>density_order</th>
+      <th>burden_order</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Gemma4-12B</td>
+      <td>power_separable</td>
+      <td>logistic</td>
+      <td>-2.7392</td>
+      <td>-3.8582</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Gemma4-E4B</td>
+      <td>power_separable</td>
+      <td>logistic</td>
+      <td>0.0695</td>
+      <td>-2.8149</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Llama3.1-8B</td>
+      <td>power_separable</td>
+      <td>logistic</td>
+      <td>-1.1379</td>
+      <td>-1.7867</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Llama3.2-3B</td>
+      <td>power_separable</td>
+      <td>logistic</td>
+      <td>-0.2935</td>
+      <td>-1.9021</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>OLMo-Hybrid-7B</td>
+      <td>power_separable</td>
+      <td>logistic</td>
+      <td>-0.4918</td>
+      <td>-0.9984</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Qwen3-1.7B</td>
+      <td>power_separable</td>
+      <td>logistic</td>
+      <td>-0.5986</td>
+      <td>-1.8321</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Qwen3-32B</td>
+      <td>power_separable</td>
+      <td>logistic</td>
+      <td>-1.2997</td>
+      <td>-2.6608</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Qwen3-8B</td>
+      <td>power_separable</td>
+      <td>logistic</td>
+      <td>-0.6005</td>
+      <td>-3.1934</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Gemma4-12B</td>
+      <td>log_burden</td>
+      <td>logistic</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>-2.2740</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Gemma4-E4B</td>
+      <td>log_burden</td>
+      <td>logistic</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>-0.7322</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Llama3.1-8B</td>
+      <td>log_burden</td>
+      <td>logistic</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>0.0760</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Llama3.2-3B</td>
+      <td>log_burden</td>
+      <td>logistic</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>0.2255</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>OLMo-Hybrid-7B</td>
+      <td>log_burden</td>
+      <td>logistic</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>-0.8941</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Qwen3-1.7B</td>
+      <td>log_burden</td>
+      <td>logistic</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>-1.3901</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Qwen3-32B</td>
+      <td>log_burden</td>
+      <td>logistic</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>-0.5269</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Qwen3-8B</td>
+      <td>log_burden</td>
+      <td>logistic</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>-0.5863</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Gemma4-12B</td>
+      <td>root_separable</td>
+      <td>logistic</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Gemma4-E4B</td>
+      <td>root_separable</td>
+      <td>logistic</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Qwen3-1.7B</td>
+      <td>root_separable</td>
+      <td>logistic</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Qwen3-32B</td>
+      <td>root_separable</td>
+      <td>logistic</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Qwen3-8B</td>
+      <td>root_separable</td>
+      <td>logistic</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+  </tbody>
+</table></div>
+
+<h2>4. 机制拆解：哪里容易拟合，哪里不容易</h2>
+<figure><img src="figures/mechanism_target_cell_r2.png" alt="Mechanism target cell R2">
+<figcaption>图 4｜各机制指标的 blocked-cell OOF R²。行是不同目标，列是 prompt mode；每个值在 model × L × N 的 held-out 单元均值上计算。高值说明 L、N 与 query order 的响应面能跨 cell 复现该指标；负值说明还不如单纯预测总体均值。</figcaption></figure>
+<div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>mode</th>
+      <th>target</th>
+      <th>kind</th>
+      <th>candidate</th>
+      <th>link</th>
+      <th>n_rows</th>
+      <th>cell_log_loss</th>
+      <th>cell_brier</th>
+      <th>cell_cell_r2</th>
+      <th>cell_r2</th>
+      <th>length_cell_r2</th>
+      <th>needle_cell_r2</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Parse success</td>
+      <td>binary</td>
+      <td>inverse_separable</td>
+      <td>logistic</td>
+      <td>2400</td>
+      <td>0.1079</td>
+      <td>0.0299</td>
+      <td>0.9444</td>
+      <td>—</td>
+      <td>0.5711</td>
+      <td>0.8612</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Truncation</td>
+      <td>binary</td>
+      <td>log_burden</td>
+      <td>logistic</td>
+      <td>2400</td>
+      <td>0.0982</td>
+      <td>0.0276</td>
+      <td>0.9454</td>
+      <td>—</td>
+      <td>0.9212</td>
+      <td>0.9260</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Exact correctness | parsed</td>
+      <td>binary</td>
+      <td>power_separable</td>
+      <td>logistic</td>
+      <td>2013</td>
+      <td>0.4254</td>
+      <td>0.1347</td>
+      <td>0.7890</td>
+      <td>—</td>
+      <td>0.7703</td>
+      <td>0.7499</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>|count error| ≤ 1 | parsed</td>
+      <td>binary</td>
+      <td>power_separable</td>
+      <td>logistic</td>
+      <td>2013</td>
+      <td>0.3294</td>
+      <td>0.1000</td>
+      <td>0.8773</td>
+      <td>—</td>
+      <td>0.8504</td>
+      <td>0.8680</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>log(1 + absolute count error) | parsed</td>
+      <td>continuous</td>
+      <td>root_separable</td>
+      <td>identity</td>
+      <td>2013</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>0.6670</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Signed error / N | parsed</td>
+      <td>continuous</td>
+      <td>intercept_only</td>
+      <td>identity</td>
+      <td>2013</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>0.1364</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Parse success</td>
+      <td>binary</td>
+      <td>intercept_only</td>
+      <td>logistic</td>
+      <td>2400</td>
+      <td>0.2318</td>
+      <td>0.0708</td>
+      <td>0.8219</td>
+      <td>—</td>
+      <td>0.8162</td>
+      <td>0.8081</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Truncation</td>
+      <td>binary</td>
+      <td>intercept_only</td>
+      <td>logistic</td>
+      <td>2400</td>
+      <td>0.0615</td>
+      <td>0.0126</td>
+      <td>0.1249</td>
+      <td>—</td>
+      <td>0.1020</td>
+      <td>0.1292</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Exact correctness | parsed</td>
+      <td>binary</td>
+      <td>log_burden</td>
+      <td>logistic</td>
+      <td>1996</td>
+      <td>0.3934</td>
+      <td>0.1271</td>
+      <td>0.6639</td>
+      <td>—</td>
+      <td>0.5417</td>
+      <td>0.6293</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>|count error| ≤ 1 | parsed</td>
+      <td>binary</td>
+      <td>inverse_separable</td>
+      <td>survival_loglog</td>
+      <td>1996</td>
+      <td>0.3458</td>
+      <td>0.1090</td>
+      <td>0.7170</td>
+      <td>—</td>
+      <td>0.6602</td>
+      <td>0.6493</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>All gold pairs retrieved</td>
+      <td>binary</td>
+      <td>power_separable</td>
+      <td>logistic</td>
+      <td>2400</td>
+      <td>0.3792</td>
+      <td>0.1247</td>
+      <td>0.7891</td>
+      <td>—</td>
+      <td>0.4495</td>
+      <td>0.7559</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Listed-record count = N</td>
+      <td>binary</td>
+      <td>power_interaction</td>
+      <td>logistic</td>
+      <td>2400</td>
+      <td>0.3877</td>
+      <td>0.1252</td>
+      <td>0.7697</td>
+      <td>—</td>
+      <td>0.4447</td>
+      <td>0.7333</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Per-needle retrieval (binomial)</td>
+      <td>binary</td>
+      <td>log_density</td>
+      <td>logistic</td>
+      <td>2400</td>
+      <td>0.3210</td>
+      <td>0.0694</td>
+      <td>0.6535</td>
+      <td>—</td>
+      <td>0.4549</td>
+      <td>0.6408</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>log(1 + absolute count error) | parsed</td>
+      <td>continuous</td>
+      <td>piecewise_power</td>
+      <td>identity</td>
+      <td>1996</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>0.4670</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Signed error / N | parsed</td>
+      <td>continuous</td>
+      <td>intercept_only</td>
+      <td>identity</td>
+      <td>1996</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>0.2565</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Missing-pair fraction</td>
+      <td>continuous</td>
+      <td>exponential_separable</td>
+      <td>identity</td>
+      <td>2400</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>0.3385</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Parse success</td>
+      <td>binary</td>
+      <td>log_burden</td>
+      <td>survival_loglog</td>
+      <td>1500</td>
+      <td>0.1478</td>
+      <td>0.0409</td>
+      <td>0.8023</td>
+      <td>—</td>
+      <td>0.5691</td>
+      <td>0.7934</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Truncation</td>
+      <td>binary</td>
+      <td>log_burden</td>
+      <td>logistic</td>
+      <td>1500</td>
+      <td>0.1471</td>
+      <td>0.0408</td>
+      <td>0.8039</td>
+      <td>—</td>
+      <td>0.6034</td>
+      <td>0.7964</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Exact correctness | parsed</td>
+      <td>binary</td>
+      <td>log_burden</td>
+      <td>survival_loglog</td>
+      <td>1376</td>
+      <td>0.2487</td>
+      <td>0.0699</td>
+      <td>0.6674</td>
+      <td>—</td>
+      <td>0.4347</td>
+      <td>0.6244</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>|count error| ≤ 1 | parsed</td>
+      <td>binary</td>
+      <td>log_density</td>
+      <td>logistic</td>
+      <td>1376</td>
+      <td>0.1863</td>
+      <td>0.0422</td>
+      <td>0.6398</td>
+      <td>—</td>
+      <td>0.2659</td>
+      <td>0.6337</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>log(1 + absolute count error) | parsed</td>
+      <td>continuous</td>
+      <td>logL_rawN</td>
+      <td>identity</td>
+      <td>1376</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>0.5789</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Signed error / N | parsed</td>
+      <td>continuous</td>
+      <td>intercept_only</td>
+      <td>identity</td>
+      <td>1376</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      <td>0.0070</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+  </tbody>
+</table></div>
+
+<h2>5. Enumeration：逐 needle 检索能否复合成“全部找齐”</h2>
+<figure><img src="figures/enumeration_retrieval_compounding.png" alt="Enumeration compounding">
+<figcaption>图 5｜先在 blocked cell 上预测单个 needle 的检索概率 q，再计算 q^N。左图与“全部 gold pairs 找齐”比较，是独立检索假说的直接检验；右图与最终 numeric exact count 比较，检验检索完整性是否足以解释最后的计数答案。两者不应混为一谈。</figcaption></figure>
+<div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>scheme</th>
+      <th>prediction</th>
+      <th>target</th>
+      <th>log_loss</th>
+      <th>brier</th>
+      <th>cell_r2</th>
+      <th>cell_rmse</th>
+      <th>cell_mae</th>
+      <th>n_cells</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>seed</td>
+      <td>q_hat^N</td>
+      <td>all_pairs_found</td>
+      <td>0.7249</td>
+      <td>0.1832</td>
+      <td>0.3457</td>
+      <td>0.2432</td>
+      <td>0.1770</td>
+      <td>240</td>
+    </tr>
+    <tr>
+      <td>seed</td>
+      <td>q_hat^N</td>
+      <td>exact_correct</td>
+      <td>1.0374</td>
+      <td>0.2632</td>
+      <td>0.4067</td>
+      <td>0.2737</td>
+      <td>0.2018</td>
+      <td>240</td>
+    </tr>
+    <tr>
+      <td>cell</td>
+      <td>q_hat^N</td>
+      <td>all_pairs_found</td>
+      <td>0.7230</td>
+      <td>0.1803</td>
+      <td>0.3263</td>
+      <td>0.2468</td>
+      <td>0.1792</td>
+      <td>240</td>
+    </tr>
+    <tr>
+      <td>cell</td>
+      <td>q_hat^N</td>
+      <td>exact_correct</td>
+      <td>1.0894</td>
+      <td>0.2630</td>
+      <td>0.3931</td>
+      <td>0.2768</td>
+      <td>0.2037</td>
+      <td>240</td>
+    </tr>
+  </tbody>
+</table></div>
+
+<h2>6. Error 与资源量的响应面</h2>
+<figure><img src="figures/continuous_target_r2.png" alt="Continuous target R2">
+<figcaption>图 6｜误差和输出 token 等连续目标的 blocked-cell OOF request-level R²。误差只在成功解析的请求上定义；<code>log1p</code> 与 <code>asinh</code> 变换用于保留所有极端值同时降低少数异常大输出的支配。</figcaption></figure>
+
+<h2>7. 结论边界</h2>
+<ul>
+<li>“统一 law”在这里指<strong>统一的函数族</strong>，不是统一参数；每个模型都允许不同的 a、r、s 和 query-order nuisance 参数。</li>
+<li>三种 mode 分开选择，避免把 nonthinking、enumeration 与 CoT 的不同失败机制压成一个斜率。</li>
+<li>pair retrieval、parse、truncation 与 numeric count 是统计关联的机制指标，不构成神经网络内部因果机制的直接证明。</li>
+<li>实验只覆盖 L∈{2000,5000,10000}、N∈{1,2,3,4,5,6,8,10,20,30}；任何区间外外推都需要新实验验证。</li>
+</ul>
+<p><small>完整候选、fold 指标、参数、OOF 预测、分析计划、manifest 与复现脚本均在本目录中。</small></p>
+
+
+<!-- COUNTING_MECHANISM_STAGE2_START -->
+<section id="counting-mechanism-stage2">
+<h2>8. 第二阶段：从相关检索与正负误差混合中提炼机制</h2>
+<div class="callout">
+第一阶段的两个失败诊断被保留：独立 needle 假说 <code>q^N</code> 对 all-pairs-found 的 held-out cell R² 较低；单一 signed-bias 曲面也因欠计与多计抵消而不稳定。第二阶段在看到这些失败后单独冻结，只比较 <code>N_eff=κN^τ</code> 与 under/over hurdle 两个有机制含义的小型候选族。
+</div>
+
+<h3>8.1 Enumeration 的有效独立 needle 数</h3>
+<div class="formula equation-card math-equation">
+<div class="equation-title">Correlated-retrieval law</div>
+<div class="math-scroll"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block" aria-label="P(\mathrm{all\ pairs\ found}\mid L,N,m,o)=q_m(L,N,o)^{N_{\mathrm{eff},m}(N)}"><semantics><mrow><mtext>P</mtext><mrow><mo>(</mo><mrow><mtext>all pairs found</mtext><mo>|</mo><mi>L</mi><mo>,</mo><mi>N</mi><mo>,</mo><mi>m</mi><mo>,</mo><mi>o</mi></mrow><mo>)</mo></mrow><mo>=</mo><msup><mrow><msub><mi>q</mi><mi>m</mi></msub><mrow><mo>(</mo><mrow><mi>L</mi><mo>,</mo><mi>N</mi><mo>,</mo><mi>o</mi></mrow><mo>)</mo></mrow></mrow><mrow><msub><mi>N</mi><mrow><mtext>eff</mtext><mo>,</mo><mi>m</mi></mrow></msub><mrow><mo>(</mo><mi>N</mi><mo>)</mo></mrow></mrow></msup></mrow><annotation encoding="application/x-tex">P(\mathrm{all\ pairs\ found}\mid L,N,m,o)=q_m(L,N,o)^{N_{\mathrm{eff},m}(N)}</annotation></semantics></math></div>
+<div class="math-scroll"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block" aria-label="N_{\mathrm{eff},m}(N)=\kappa_mN^\tau"><semantics><mrow><mrow><msub><mi>N</mi><mrow><mtext>eff</mtext><mo>,</mo><mi>m</mi></mrow></msub><mrow><mo>(</mo><mi>N</mi><mo>)</mo></mrow></mrow><mo>=</mo><msub><mi>κ</mi><mi>m</mi></msub><msup><mi>N</mi><mi>τ</mi></msup></mrow><annotation encoding="application/x-tex">N_{\mathrm{eff},m}(N)=\kappa_mN^\tau</annotation></semantics></math></div>
+</div>
+<p>选择结果：<strong>model_scale_shared_order</strong>；blocked-cell OOF log loss=0.4047，cell R²=0.7585。共享 needle 阶数的 seed-cluster bootstrap 中位数为 <strong>τ=0.747</strong>（95% percentile interval 0.641–0.850）。若 N_eff/N&lt;1，表示一次共同难度会让多个 needle 的成功/失败正相关，因此“有效独立试验数”少于实际 needle 数；它是经验相关性参数，不是网络内部单元数。</p>
+<div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>candidate</th>
+      <th>link</th>
+      <th>complexity</th>
+      <th>description</th>
+      <th>selection_score</th>
+      <th>selection_se</th>
+      <th>log_loss</th>
+      <th>brier</th>
+      <th>cell_r2</th>
+      <th>cell_rmse</th>
+      <th>cell_mae</th>
+      <th>n_cells</th>
+      <th>converged_all_folds</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>model_scale_order_query</td>
+      <td>compounding</td>
+      <td>4</td>
+      <td>N_eff=kappa_m N^tau_m exp(o_m I(query-last))</td>
+      <td>0.3907</td>
+      <td>0.0108</td>
+      <td>0.3907</td>
+      <td>0.1266</td>
+      <td>0.7700</td>
+      <td>0.1442</td>
+      <td>0.1025</td>
+      <td>240</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <td>model_scale_order</td>
+      <td>compounding</td>
+      <td>3</td>
+      <td>N_eff=kappa_m N^tau_m</td>
+      <td>0.3955</td>
+      <td>0.0123</td>
+      <td>0.3955</td>
+      <td>0.1267</td>
+      <td>0.7707</td>
+      <td>0.1440</td>
+      <td>0.1025</td>
+      <td>240</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>model_scale_shared_order</td>
+      <td>compounding</td>
+      <td>2</td>
+      <td>N_eff=kappa_m N^tau</td>
+      <td>0.4047</td>
+      <td>0.0136</td>
+      <td>0.4047</td>
+      <td>0.1294</td>
+      <td>0.7585</td>
+      <td>0.1478</td>
+      <td>0.1098</td>
+      <td>240</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>model_scale</td>
+      <td>compounding</td>
+      <td>1</td>
+      <td>N_eff=kappa_m N</td>
+      <td>0.4097</td>
+      <td>0.0133</td>
+      <td>0.4097</td>
+      <td>0.1306</td>
+      <td>0.7495</td>
+      <td>0.1505</td>
+      <td>0.1087</td>
+      <td>240</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>shared_scale_order</td>
+      <td>compounding</td>
+      <td>2</td>
+      <td>N_eff=kappa N^tau</td>
+      <td>0.4362</td>
+      <td>0.0205</td>
+      <td>0.4362</td>
+      <td>0.1419</td>
+      <td>0.6556</td>
+      <td>0.1765</td>
+      <td>0.1293</td>
+      <td>240</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <td>independence</td>
+      <td>compounding</td>
+      <td>0</td>
+      <td>N_eff=N</td>
+      <td>0.7230</td>
+      <td>0.0508</td>
+      <td>0.7230</td>
+      <td>0.1803</td>
+      <td>0.3263</td>
+      <td>0.2468</td>
+      <td>0.1792</td>
+      <td>240</td>
+      <td>True</td>
+    </tr>
+  </tbody>
+</table></div>
+<figure><img src="figures/stage2_compounding_candidates.png" alt="Effective N candidates">
+<figcaption>图 7｜有效 N 候选的完全 blocked-cell OOF 比较。左轴为 request-level log loss，右轴为 model×L×N cell 均值 R²；independence 行就是第一阶段保留的 q^N 基线。</figcaption></figure>
+<figure><img src="figures/stage2_compounding_calibration.png" alt="Effective N calibration">
+<figcaption>图 8｜左：所选 effective-N law 的 held-out cell 校准；右：实际 N 与估计 N_eff，双轴均为 log。虚线 N_eff=N 代表独立 needle；偏离虚线量化相关检索/共同难度。</figcaption></figure>
+<div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>model_label</th>
+      <th>selected_candidate</th>
+      <th>kappa</th>
+      <th>tau</th>
+      <th>query_last_log_neff_effect</th>
+      <th>neff_at_N1_query_first</th>
+      <th>neff_at_N5_query_first</th>
+      <th>neff_at_N30_query_first</th>
+      <th>neff_over_N_at_N30</th>
+      <th>bootstrap_draws</th>
+      <th>kappa_median</th>
+      <th>kappa_ci95_low</th>
+      <th>kappa_ci95_high</th>
+      <th>tau_median</th>
+      <th>tau_ci95_low</th>
+      <th>tau_ci95_high</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Gemma4-12B</td>
+      <td>model_scale_shared_order</td>
+      <td>0.7923</td>
+      <td>0.7475</td>
+      <td>0.0000</td>
+      <td>0.7923</td>
+      <td>2.6385</td>
+      <td>10.0693</td>
+      <td>0.3356</td>
+      <td>400</td>
+      <td>0.7378</td>
+      <td>0.4028</td>
+      <td>1.5694</td>
+      <td>0.7475</td>
+      <td>0.6406</td>
+      <td>0.8496</td>
+    </tr>
+    <tr>
+      <td>Gemma4-E4B</td>
+      <td>model_scale_shared_order</td>
+      <td>1.2744</td>
+      <td>0.7475</td>
+      <td>0.0000</td>
+      <td>1.2744</td>
+      <td>4.2437</td>
+      <td>16.1954</td>
+      <td>0.5398</td>
+      <td>400</td>
+      <td>1.2492</td>
+      <td>0.7073</td>
+      <td>2.1216</td>
+      <td>0.7475</td>
+      <td>0.6406</td>
+      <td>0.8496</td>
+    </tr>
+    <tr>
+      <td>Llama3.1-8B</td>
+      <td>model_scale_shared_order</td>
+      <td>0.4089</td>
+      <td>0.7475</td>
+      <td>0.0000</td>
+      <td>0.4089</td>
+      <td>1.3618</td>
+      <td>5.1971</td>
+      <td>0.1732</td>
+      <td>400</td>
+      <td>0.4186</td>
+      <td>0.2133</td>
+      <td>0.8439</td>
+      <td>0.7475</td>
+      <td>0.6406</td>
+      <td>0.8496</td>
+    </tr>
+    <tr>
+      <td>Llama3.2-3B</td>
+      <td>model_scale_shared_order</td>
+      <td>0.4664</td>
+      <td>0.7475</td>
+      <td>0.0000</td>
+      <td>0.4664</td>
+      <td>1.5532</td>
+      <td>5.9274</td>
+      <td>0.1976</td>
+      <td>400</td>
+      <td>0.4677</td>
+      <td>0.3610</td>
+      <td>0.5900</td>
+      <td>0.7475</td>
+      <td>0.6406</td>
+      <td>0.8496</td>
+    </tr>
+    <tr>
+      <td>OLMo-Hybrid-7B</td>
+      <td>model_scale_shared_order</td>
+      <td>0.3952</td>
+      <td>0.7475</td>
+      <td>0.0000</td>
+      <td>0.3952</td>
+      <td>1.3161</td>
+      <td>5.0228</td>
+      <td>0.1674</td>
+      <td>400</td>
+      <td>0.3952</td>
+      <td>0.2930</td>
+      <td>0.5621</td>
+      <td>0.7475</td>
+      <td>0.6406</td>
+      <td>0.8496</td>
+    </tr>
+    <tr>
+      <td>Qwen3-1.7B</td>
+      <td>model_scale_shared_order</td>
+      <td>1.2200</td>
+      <td>0.7475</td>
+      <td>0.0000</td>
+      <td>1.2200</td>
+      <td>4.0629</td>
+      <td>15.5051</td>
+      <td>0.5168</td>
+      <td>400</td>
+      <td>1.1978</td>
+      <td>0.7086</td>
+      <td>2.1628</td>
+      <td>0.7475</td>
+      <td>0.6406</td>
+      <td>0.8496</td>
+    </tr>
+    <tr>
+      <td>Qwen3-32B</td>
+      <td>model_scale_shared_order</td>
+      <td>1.2302</td>
+      <td>0.7475</td>
+      <td>0.0000</td>
+      <td>1.2302</td>
+      <td>4.0968</td>
+      <td>15.6347</td>
+      <td>0.5212</td>
+      <td>400</td>
+      <td>1.2182</td>
+      <td>0.2786</td>
+      <td>2.4743</td>
+      <td>0.7475</td>
+      <td>0.6406</td>
+      <td>0.8496</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>model_scale_shared_order</td>
+      <td>0.2253</td>
+      <td>0.7475</td>
+      <td>0.0000</td>
+      <td>0.2253</td>
+      <td>0.7501</td>
+      <td>2.8627</td>
+      <td>0.0954</td>
+      <td>400</td>
+      <td>0.2275</td>
+      <td>0.1217</td>
+      <td>0.4146</td>
+      <td>0.7475</td>
+      <td>0.6406</td>
+      <td>0.8496</td>
+    </tr>
+  </tbody>
+</table></div>
+
+<h3>8.2 Bias 不是单一曲面，而是 hurdle mixture</h3>
+<div class="formula equation-card math-equation">
+<div class="equation-title">Two-part bias law</div>
+<div class="math-scroll"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block" aria-label="\mathbb E[(\widehat N-N)/N]=P(\mathrm{over})\mathbb E[|\widehat N-N|/N\mid\mathrm{over}]-P(\mathrm{under})\mathbb E[|\widehat N-N|/N\mid\mathrm{under}]"><semantics><mrow><mrow><mi mathvariant="double-struck">E</mi><mrow><mo>[</mo><mfrac><mrow><mover><mi>N</mi><mo>^</mo></mover><mo>−</mo><mi>N</mi></mrow><mi>N</mi></mfrac><mo>]</mo></mrow></mrow><mo>=</mo><mtext>P</mtext><mrow><mo>(</mo><mtext>over</mtext><mo>)</mo></mrow><mrow><mi mathvariant="double-struck">E</mi><mrow><mo>[</mo><mrow><mfrac><mrow><mo>|</mo><mover><mi>N</mi><mo>^</mo></mover><mo>−</mo><mi>N</mi><mo>|</mo></mrow><mi>N</mi></mfrac><mo>|</mo><mtext>over</mtext></mrow><mo>]</mo></mrow></mrow><mo>−</mo><mtext>P</mtext><mrow><mo>(</mo><mtext>under</mtext><mo>)</mo></mrow><mrow><mi mathvariant="double-struck">E</mi><mrow><mo>[</mo><mrow><mfrac><mrow><mo>|</mo><mover><mi>N</mi><mo>^</mo></mover><mo>−</mo><mi>N</mi><mo>|</mo></mrow><mi>N</mi></mfrac><mo>|</mo><mtext>under</mtext></mrow><mo>]</mo></mrow></mrow></mrow><annotation encoding="application/x-tex">\mathbb E[(\widehat N-N)/N]=P(\mathrm{over})\mathbb E[|\widehat N-N|/N\mid\mathrm{over}]-P(\mathrm{under})\mathbb E[|\widehat N-N|/N\mid\mathrm{under}]</annotation></semantics></math></div>
+</div>
+<p>概率项使用 grouped logistic law；幅度项拟合 <code>log(1+|error|/N)</code> 并以 training-only Duan smearing 反变换。这样不会让符号抵消掩盖 L、N 对错误频率和错误幅度的不同作用。</p>
+<div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>mode</th>
+      <th>method</th>
+      <th>target</th>
+      <th>rmse</th>
+      <th>mae</th>
+      <th>r2</th>
+      <th>n_cells</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>direct</td>
+      <td>model_only_hurdle</td>
+      <td>cell_mean_relative_absolute_error</td>
+      <td>0.2689</td>
+      <td>0.1494</td>
+      <td>0.4442</td>
+      <td>213</td>
+    </tr>
+    <tr>
+      <td>direct</td>
+      <td>selected_hurdle</td>
+      <td>cell_mean_relative_absolute_error</td>
+      <td>0.4176</td>
+      <td>0.1260</td>
+      <td>-0.3410</td>
+      <td>213</td>
+    </tr>
+    <tr>
+      <td>direct</td>
+      <td>model_only_hurdle</td>
+      <td>cell_mean_signed_relative_bias</td>
+      <td>0.2937</td>
+      <td>0.1634</td>
+      <td>0.3964</td>
+      <td>213</td>
+    </tr>
+    <tr>
+      <td>direct</td>
+      <td>selected_hurdle</td>
+      <td>cell_mean_signed_relative_bias</td>
+      <td>0.4282</td>
+      <td>0.1407</td>
+      <td>-0.2836</td>
+      <td>213</td>
+    </tr>
+    <tr>
+      <td>direct</td>
+      <td>single_signed_surface</td>
+      <td>cell_mean_signed_relative_bias</td>
+      <td>0.2916</td>
+      <td>0.1629</td>
+      <td>0.4048</td>
+      <td>213</td>
+    </tr>
+    <tr>
+      <td>enumeration</td>
+      <td>model_only_hurdle</td>
+      <td>cell_mean_relative_absolute_error</td>
+      <td>34.9474</td>
+      <td>13.0320</td>
+      <td>0.1428</td>
+      <td>237</td>
+    </tr>
+    <tr>
+      <td>enumeration</td>
+      <td>selected_hurdle</td>
+      <td>cell_mean_relative_absolute_error</td>
+      <td>31.3236</td>
+      <td>11.4607</td>
+      <td>0.3114</td>
+      <td>237</td>
+    </tr>
+    <tr>
+      <td>enumeration</td>
+      <td>model_only_hurdle</td>
+      <td>cell_mean_signed_relative_bias</td>
+      <td>34.9621</td>
+      <td>13.0431</td>
+      <td>0.1423</td>
+      <td>237</td>
+    </tr>
+    <tr>
+      <td>enumeration</td>
+      <td>selected_hurdle</td>
+      <td>cell_mean_signed_relative_bias</td>
+      <td>31.3251</td>
+      <td>11.4652</td>
+      <td>0.3114</td>
+      <td>237</td>
+    </tr>
+    <tr>
+      <td>enumeration</td>
+      <td>single_signed_surface</td>
+      <td>cell_mean_signed_relative_bias</td>
+      <td>34.9802</td>
+      <td>13.0594</td>
+      <td>0.1414</td>
+      <td>237</td>
+    </tr>
+    <tr>
+      <td>native_thinking</td>
+      <td>model_only_hurdle</td>
+      <td>cell_mean_relative_absolute_error</td>
+      <td>0.0718</td>
+      <td>0.0386</td>
+      <td>0.1210</td>
+      <td>150</td>
+    </tr>
+    <tr>
+      <td>native_thinking</td>
+      <td>selected_hurdle</td>
+      <td>cell_mean_relative_absolute_error</td>
+      <td>0.0677</td>
+      <td>0.0306</td>
+      <td>0.2174</td>
+      <td>150</td>
+    </tr>
+    <tr>
+      <td>native_thinking</td>
+      <td>model_only_hurdle</td>
+      <td>cell_mean_signed_relative_bias</td>
+      <td>0.0795</td>
+      <td>0.0405</td>
+      <td>0.0435</td>
+      <td>150</td>
+    </tr>
+    <tr>
+      <td>native_thinking</td>
+      <td>selected_hurdle</td>
+      <td>cell_mean_signed_relative_bias</td>
+      <td>0.0686</td>
+      <td>0.0309</td>
+      <td>0.2880</td>
+      <td>150</td>
+    </tr>
+    <tr>
+      <td>native_thinking</td>
+      <td>single_signed_surface</td>
+      <td>cell_mean_signed_relative_bias</td>
+      <td>0.0795</td>
+      <td>0.0405</td>
+      <td>0.0434</td>
+      <td>150</td>
+    </tr>
+  </tbody>
+</table></div>
+<figure><img src="figures/stage2_hurdle_bias_calibration.png" alt="Hurdle bias calibration">
+<figcaption>图 9｜每点是 held-out model×L×N cell。横轴为 under/over hurdle 组合出的平均 signed bias/N，纵轴为观测 cell 均值；各面板分别对应 nonthinking、enumeration、CoT。</figcaption></figure>
+<p>条件幅度候选（每个 mode×方向最低 held-out score 的行）：</p>
+<div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>mode</th>
+      <th>direction</th>
+      <th>candidate</th>
+      <th>seed_r2</th>
+      <th>cell_r2</th>
+      <th>seed_nrmse</th>
+      <th>cell_nrmse</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>direct</td>
+      <td>under</td>
+      <td>inverse_separable</td>
+      <td>0.6032</td>
+      <td>0.6223</td>
+      <td>0.6299</td>
+      <td>0.6146</td>
+    </tr>
+    <tr>
+      <td>direct</td>
+      <td>over</td>
+      <td>inverse_separable</td>
+      <td>0.5755</td>
+      <td>0.6622</td>
+      <td>0.6516</td>
+      <td>0.5812</td>
+    </tr>
+    <tr>
+      <td>enumeration</td>
+      <td>under</td>
+      <td>inverse_separable</td>
+      <td>0.4711</td>
+      <td>0.4726</td>
+      <td>0.7272</td>
+      <td>0.7262</td>
+    </tr>
+    <tr>
+      <td>enumeration</td>
+      <td>over</td>
+      <td>root_separable</td>
+      <td>0.4344</td>
+      <td>0.5040</td>
+      <td>0.7521</td>
+      <td>0.7043</td>
+    </tr>
+    <tr>
+      <td>native_thinking</td>
+      <td>under</td>
+      <td>intercept_only</td>
+      <td>0.0239</td>
+      <td>0.1064</td>
+      <td>0.9880</td>
+      <td>0.9453</td>
+    </tr>
+    <tr>
+      <td>native_thinking</td>
+      <td>over</td>
+      <td>log_density</td>
+      <td>-0.0574</td>
+      <td>-0.5696</td>
+      <td>1.0283</td>
+      <td>1.2528</td>
+    </tr>
+  </tbody>
+</table></div>
+
+<h3>8.3 Exact accuracy 的 parse × counting 分解</h3>
+<div class="formula equation-card math-equation">
+<div class="equation-title">Exact accuracy decomposition</div>
+<div class="math-scroll"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block" aria-label="P(\mathrm{exact})=P(\mathrm{parse})P(\mathrm{exact}\mid\mathrm{parse})"><semantics><mrow><mtext>P</mtext><mrow><mo>(</mo><mtext>exact</mtext><mo>)</mo></mrow><mo>=</mo><mtext>P</mtext><mrow><mo>(</mo><mtext>parse</mtext><mo>)</mo></mrow><mo>×</mo><mtext>P</mtext><mrow><mo>(</mo><mrow><mtext>exact</mtext><mo>|</mo><mtext>parse</mtext></mrow><mo>)</mo></mrow></mrow><annotation encoding="application/x-tex">P(\mathrm{exact})=P(\mathrm{parse})P(\mathrm{exact}\mid\mathrm{parse})</annotation></semantics></math></div>
+</div>
+<div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>mode</th>
+      <th>method</th>
+      <th>log_loss</th>
+      <th>brier</th>
+      <th>cell_r2</th>
+      <th>cell_rmse</th>
+      <th>cell_mae</th>
+      <th>n_cells</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>direct</td>
+      <td>parse_times_conditional_exact</td>
+      <td>0.3848</td>
+      <td>0.1189</td>
+      <td>0.8002</td>
+      <td>0.1527</td>
+      <td>0.1040</td>
+      <td>240</td>
+    </tr>
+    <tr>
+      <td>direct</td>
+      <td>stage1_nested_direct_surface</td>
+      <td>0.3917</td>
+      <td>0.1217</td>
+      <td>0.7891</td>
+      <td>0.1569</td>
+      <td>0.1052</td>
+      <td>240</td>
+    </tr>
+    <tr>
+      <td>enumeration</td>
+      <td>parse_times_conditional_exact</td>
+      <td>0.3873</td>
+      <td>0.1243</td>
+      <td>0.7786</td>
+      <td>0.1672</td>
+      <td>0.1212</td>
+      <td>240</td>
+    </tr>
+    <tr>
+      <td>enumeration</td>
+      <td>stage1_nested_direct_surface</td>
+      <td>0.3814</td>
+      <td>0.1219</td>
+      <td>0.7937</td>
+      <td>0.1613</td>
+      <td>0.1165</td>
+      <td>240</td>
+    </tr>
+    <tr>
+      <td>native_thinking</td>
+      <td>parse_times_conditional_exact</td>
+      <td>0.3230</td>
+      <td>0.1007</td>
+      <td>0.6875</td>
+      <td>0.1511</td>
+      <td>0.1008</td>
+      <td>150</td>
+    </tr>
+    <tr>
+      <td>native_thinking</td>
+      <td>stage1_nested_direct_surface</td>
+      <td>0.3210</td>
+      <td>0.0993</td>
+      <td>0.7090</td>
+      <td>0.1458</td>
+      <td>0.0976</td>
+      <td>150</td>
+    </tr>
+  </tbody>
+</table></div>
+<figure><img src="figures/stage2_exact_decomposition.png" alt="Exact decomposition">
+<figcaption>图 10｜蓝/橙柱比较直接 exact surface 与 parse×conditional-count hurdle。在 log loss 上越低越好，在 cell R² 上越高越好；若乘积分解不改善，说明直接 surface 已更有效地吸收了组件相关性。</figcaption></figure>
+
+<h3>8.4 可比较的 L、N 阶数参考</h3>
+<p>即使 one-standard-error 规则选择了 density、burden、root 或 piecewise 坐标，我们仍额外报告同一个 separable-power logistic 参考式，以便跨模型比较 r_m 与 s_m；它不是为了替换 held-out 最佳 law。置信区间按 5 个 seed 聚类，因此只应视为有限簇的稳健性诊断。</p>
+<div class="formula equation-card math-equation">
+<div class="equation-title">Comparable L/N order reference</div>
+<div class="math-scroll"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block" aria-label="\operatorname{logit}p_m=a_m+r_m\ln(L/5000)+s_m\ln(N/5)+\mathrm{query\ order\ nuisance}"><semantics><mrow><mrow><mi mathvariant="normal">logit</mi><mrow><mo>(</mo><msub><mi>p</mi><mi>m</mi></msub><mo>)</mo></mrow></mrow><mo>=</mo><msub><mi>a</mi><mi>m</mi></msub><mo>+</mo><msub><mi>r</mi><mi>m</mi></msub><mrow><mi mathvariant="normal">ln</mi><mrow><mo>(</mo><mfrac><mi>L</mi><mn>5000</mn></mfrac><mo>)</mo></mrow></mrow><mo>+</mo><msub><mi>s</mi><mi>m</mi></msub><mrow><mi mathvariant="normal">ln</mi><mrow><mo>(</mo><mfrac><mi>N</mi><mn>5</mn></mfrac><mo>)</mo></mrow></mrow><mo>+</mo><mtext>query-order nuisance</mtext></mrow><annotation encoding="application/x-tex">\operatorname{logit}p_m=a_m+r_m\ln(L/5000)+s_m\ln(N/5)+\mathrm{query\ order\ nuisance}</annotation></semantics></math></div>
+</div>
+<figure><img src="figures/stage2_reference_power_orders.png" alt="Reference power orders">
+<figcaption>图 11｜exact correctness 的参考幂阶与 seed-clustered 95% 区间。负 r_m/s_m 表示相应变量增大时准确率下降；区间跨 0 表示当前数据不足以稳定确定该独立阶数。</figcaption></figure>
+<div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>mode</th>
+      <th>model_label</th>
+      <th>term</th>
+      <th>estimate</th>
+      <th>cluster_seed_se</th>
+      <th>ci95_low</th>
+      <th>ci95_high</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Gemma4-12B</td>
+      <td>length order r_m</td>
+      <td>-2.7392</td>
+      <td>1.6238</td>
+      <td>-5.9218</td>
+      <td>0.4434</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Gemma4-12B</td>
+      <td>needle order s_m</td>
+      <td>-3.8582</td>
+      <td>0.7137</td>
+      <td>-5.2570</td>
+      <td>-2.4593</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Gemma4-E4B</td>
+      <td>length order r_m</td>
+      <td>0.0695</td>
+      <td>0.3327</td>
+      <td>-0.5827</td>
+      <td>0.7216</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Gemma4-E4B</td>
+      <td>needle order s_m</td>
+      <td>-2.8149</td>
+      <td>0.3411</td>
+      <td>-3.4835</td>
+      <td>-2.1463</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Llama3.1-8B</td>
+      <td>length order r_m</td>
+      <td>-1.1379</td>
+      <td>0.2260</td>
+      <td>-1.5808</td>
+      <td>-0.6950</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Llama3.1-8B</td>
+      <td>needle order s_m</td>
+      <td>-1.7867</td>
+      <td>0.2905</td>
+      <td>-2.3560</td>
+      <td>-1.2174</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Llama3.2-3B</td>
+      <td>length order r_m</td>
+      <td>-0.2935</td>
+      <td>0.1019</td>
+      <td>-0.4932</td>
+      <td>-0.0938</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Llama3.2-3B</td>
+      <td>needle order s_m</td>
+      <td>-1.9021</td>
+      <td>0.3703</td>
+      <td>-2.6280</td>
+      <td>-1.1763</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>OLMo-Hybrid-7B</td>
+      <td>length order r_m</td>
+      <td>-0.4918</td>
+      <td>0.2534</td>
+      <td>-0.9884</td>
+      <td>0.0048</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>OLMo-Hybrid-7B</td>
+      <td>needle order s_m</td>
+      <td>-0.9984</td>
+      <td>0.1990</td>
+      <td>-1.3885</td>
+      <td>-0.6083</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Qwen3-1.7B</td>
+      <td>length order r_m</td>
+      <td>-0.5986</td>
+      <td>0.3691</td>
+      <td>-1.3219</td>
+      <td>0.1248</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Qwen3-1.7B</td>
+      <td>needle order s_m</td>
+      <td>-1.8321</td>
+      <td>0.1361</td>
+      <td>-2.0988</td>
+      <td>-1.5654</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Qwen3-32B</td>
+      <td>length order r_m</td>
+      <td>-1.2997</td>
+      <td>0.1965</td>
+      <td>-1.6848</td>
+      <td>-0.9145</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Qwen3-32B</td>
+      <td>needle order s_m</td>
+      <td>-2.6608</td>
+      <td>0.2014</td>
+      <td>-3.0556</td>
+      <td>-2.2661</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Qwen3-8B</td>
+      <td>length order r_m</td>
+      <td>-0.6005</td>
+      <td>0.0876</td>
+      <td>-0.7722</td>
+      <td>-0.4289</td>
+    </tr>
+    <tr>
+      <td>Nonthinking / direct</td>
+      <td>Qwen3-8B</td>
+      <td>needle order s_m</td>
+      <td>-3.1934</td>
+      <td>0.7229</td>
+      <td>-4.6103</td>
+      <td>-1.7764</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Gemma4-12B</td>
+      <td>length order r_m</td>
+      <td>-2.4739</td>
+      <td>0.6284</td>
+      <td>-3.7055</td>
+      <td>-1.2423</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Gemma4-12B</td>
+      <td>needle order s_m</td>
+      <td>-2.2118</td>
+      <td>0.6894</td>
+      <td>-3.5630</td>
+      <td>-0.8607</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Gemma4-E4B</td>
+      <td>length order r_m</td>
+      <td>-0.8334</td>
+      <td>0.1991</td>
+      <td>-1.2237</td>
+      <td>-0.4431</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Gemma4-E4B</td>
+      <td>needle order s_m</td>
+      <td>-0.6896</td>
+      <td>0.2259</td>
+      <td>-1.1324</td>
+      <td>-0.2468</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Llama3.1-8B</td>
+      <td>length order r_m</td>
+      <td>-0.4785</td>
+      <td>0.2365</td>
+      <td>-0.9420</td>
+      <td>-0.0150</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Llama3.1-8B</td>
+      <td>needle order s_m</td>
+      <td>0.3377</td>
+      <td>0.1366</td>
+      <td>0.0699</td>
+      <td>0.6056</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Llama3.2-3B</td>
+      <td>length order r_m</td>
+      <td>-0.9395</td>
+      <td>0.4114</td>
+      <td>-1.7458</td>
+      <td>-0.1331</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Llama3.2-3B</td>
+      <td>needle order s_m</td>
+      <td>0.7952</td>
+      <td>0.4422</td>
+      <td>-0.0716</td>
+      <td>1.6620</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>OLMo-Hybrid-7B</td>
+      <td>length order r_m</td>
+      <td>-0.4062</td>
+      <td>0.3603</td>
+      <td>-1.1125</td>
+      <td>0.3000</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>OLMo-Hybrid-7B</td>
+      <td>needle order s_m</td>
+      <td>-1.1630</td>
+      <td>0.1352</td>
+      <td>-1.4280</td>
+      <td>-0.8980</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Qwen3-1.7B</td>
+      <td>length order r_m</td>
+      <td>-0.3198</td>
+      <td>0.3154</td>
+      <td>-0.9380</td>
+      <td>0.2983</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Qwen3-1.7B</td>
+      <td>needle order s_m</td>
+      <td>-2.2610</td>
+      <td>0.3654</td>
+      <td>-2.9772</td>
+      <td>-1.5448</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Qwen3-32B</td>
+      <td>length order r_m</td>
+      <td>-0.0662</td>
+      <td>0.1115</td>
+      <td>-0.2847</td>
+      <td>0.1523</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Qwen3-32B</td>
+      <td>needle order s_m</td>
+      <td>-0.7560</td>
+      <td>0.1572</td>
+      <td>-1.0641</td>
+      <td>-0.4479</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Qwen3-8B</td>
+      <td>length order r_m</td>
+      <td>-1.4632</td>
+      <td>0.2091</td>
+      <td>-1.8730</td>
+      <td>-1.0535</td>
+    </tr>
+    <tr>
+      <td>Enumeration</td>
+      <td>Qwen3-8B</td>
+      <td>needle order s_m</td>
+      <td>-0.2316</td>
+      <td>0.1288</td>
+      <td>-0.4840</td>
+      <td>0.0208</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Gemma4-12B</td>
+      <td>length order r_m</td>
+      <td>-2.1413</td>
+      <td>0.3255</td>
+      <td>-2.7792</td>
+      <td>-1.5035</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Gemma4-12B</td>
+      <td>needle order s_m</td>
+      <td>-0.4957</td>
+      <td>0.2070</td>
+      <td>-0.9014</td>
+      <td>-0.0901</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Gemma4-E4B</td>
+      <td>length order r_m</td>
+      <td>-1.6536</td>
+      <td>0.7639</td>
+      <td>-3.1508</td>
+      <td>-0.1565</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Gemma4-E4B</td>
+      <td>needle order s_m</td>
+      <td>-1.0677</td>
+      <td>0.1667</td>
+      <td>-1.3944</td>
+      <td>-0.7409</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Qwen3-1.7B</td>
+      <td>length order r_m</td>
+      <td>0.2144</td>
+      <td>0.3110</td>
+      <td>-0.3951</td>
+      <td>0.8238</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Qwen3-1.7B</td>
+      <td>needle order s_m</td>
+      <td>-1.8902</td>
+      <td>0.2975</td>
+      <td>-2.4734</td>
+      <td>-1.3071</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Qwen3-32B</td>
+      <td>length order r_m</td>
+      <td>-1.0716</td>
+      <td>1.2461</td>
+      <td>-3.5140</td>
+      <td>1.3708</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Qwen3-32B</td>
+      <td>needle order s_m</td>
+      <td>-0.8774</td>
+      <td>0.3994</td>
+      <td>-1.6603</td>
+      <td>-0.0945</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Qwen3-8B</td>
+      <td>length order r_m</td>
+      <td>-0.4432</td>
+      <td>0.3114</td>
+      <td>-1.0535</td>
+      <td>0.1671</td>
+    </tr>
+    <tr>
+      <td>CoT / native thinking</td>
+      <td>Qwen3-8B</td>
+      <td>needle order s_m</td>
+      <td>-1.3972</td>
+      <td>0.7609</td>
+      <td>-2.8886</td>
+      <td>0.0941</td>
+    </tr>
+  </tbody>
+</table></div>
+
+<h3>8.5 第二阶段的解释边界</h3>
+<ul>
+<li>Stage 2 是由预先保留的 failure diagnostics 触发的探索性细化；它与 stage-1 预注册比较分开记录。</li>
+<li>高 cell R² 说明响应面在当前 L、N 网格内可复现，不意味着能外推到更长 context 或更大的 N。</li>
+<li>N_eff 是相关性/异质性的经验摘要；hurdle law 是输出行为分解。二者都不是对隐藏状态内部算法的直接因果识别。</li>
+</ul>
+</section>
+<!-- COUNTING_MECHANISM_STAGE2_END -->
+
+</main></body></html>

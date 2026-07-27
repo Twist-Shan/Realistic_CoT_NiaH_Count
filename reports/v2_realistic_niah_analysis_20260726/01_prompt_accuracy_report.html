@@ -1,0 +1,2287 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Realistic NiaH V2：Prompt、Mode 与计数正确率</title>
+<style>
+:root {
+  --ink:#18222e; --muted:#5c6b79; --line:#d8e0e7; --soft:#f4f7f9;
+  --blue:#275d8c; --blue-soft:#eaf2f8; --green:#176f5b; --amber:#9a5a14;
+  --red:#9d3434; --paper:#ffffff;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#eef2f5;color:var(--ink);font-family:Inter,"Segoe UI",Arial,sans-serif;line-height:1.62}
+main{max-width:1180px;margin:0 auto;background:var(--paper);padding:48px 64px 80px;min-height:100vh}
+h1{font-size:2.05rem;line-height:1.22;margin:0 0 10px;letter-spacing:-.02em}
+h2{font-size:1.46rem;margin:48px 0 18px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+h3{font-size:1.1rem;margin:28px 0 12px}
+p{margin:10px 0}
+.subtitle{color:var(--muted);font-size:1.05rem;margin-bottom:24px}
+.meta{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 28px}
+.pill{background:var(--soft);border:1px solid var(--line);border-radius:999px;padding:5px 10px;font-size:.86rem}
+.toc{background:var(--soft);border-left:4px solid var(--blue);padding:14px 18px;margin:24px 0}
+.toc a{color:var(--blue);text-decoration:none;margin-right:16px;white-space:nowrap}
+.callout{background:var(--blue-soft);border-left:4px solid var(--blue);padding:14px 18px;margin:18px 0}
+.warning{background:#fff6e9;border-left-color:var(--amber)}
+.conclusion{background:#edf7f3;border-left:4px solid var(--green);padding:14px 18px;margin:20px 0 6px}
+.conclusion strong{color:var(--green)}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:18px 0}
+.metric{border:1px solid var(--line);padding:13px 15px;border-radius:8px}
+.metric .value{font-size:1.38rem;font-weight:650;color:var(--blue)}
+.metric .label{font-size:.82rem;color:var(--muted)}
+figure{margin:26px 0 30px}
+figure img{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:8px;background:white}
+figcaption{font-size:.9rem;color:var(--muted);margin-top:8px}
+.table-wrap{overflow-x:auto;margin:14px 0 20px}
+table.dataframe{border-collapse:collapse;width:100%;font-size:.86rem}
+table.dataframe th,table.dataframe td{padding:8px 9px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}
+table.dataframe th:first-child,table.dataframe td:first-child{text-align:left}
+table.dataframe thead th{background:var(--soft);position:sticky;top:0;z-index:1}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f7f8fa;border:1px solid var(--line);border-radius:7px;padding:14px;font-size:.86rem;line-height:1.5}
+code{font-family:"Cascadia Mono",Consolas,monospace}
+details{border:1px solid var(--line);border-radius:7px;margin:10px 0;padding:10px 14px}
+summary{cursor:pointer;font-weight:650}
+.equation{overflow-x:auto;text-align:center;margin:16px 0;padding:10px}
+.small{font-size:.88rem;color:var(--muted)}
+.good{color:var(--green);font-weight:650}.mid{color:var(--amber);font-weight:650}.weak{color:var(--red);font-weight:650}
+footer{margin-top:52px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+@media(max-width:760px){main{padding:28px 18px}h1{font-size:1.65rem}.metric-grid{grid-template-columns:1fr 1fr}}
+@media print{body{background:white}main{max-width:none;padding:20px}details{break-inside:avoid}figure{break-inside:avoid}}
+</style>
+<script>
+window.MathJax={tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']]}};
+</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body><main>
+<h1>Realistic NiaH V2：Prompt、Mode 与计数正确率</h1>
+<div class="subtitle">当前 intended prompt 组合的 14,500 条请求；含错误机制与 Gemma4-12B Direct 受控干预</div>
+
+<div class="meta"><span class="pill">14,500 selected requests</span><span class="pill">29 model × mode cells</span><span class="pill">500 requests per cell</span><span class="pill">V2 + V2.1 current-prompt composite</span></div>
+<nav class="toc"><a href="#scope">1. 口径</a><a href="#prompts">2. Prompt</a><a href="#accuracy">3. 正确率</a><a href="#difficulty">4. N 与 L</a><a href="#errors">5. 错误机制</a><a href="#gemma">6. Gemma intervention</a></nav>
+
+<section id="scope"><h2>1. 实验设定与分析口径</h2>
+<p>设计为 5 个 passage 长度 \(L\in\{2,3,5,10,20\}\)k tokens × 10 个真实 needle 数 \(N\in\{1,2,3,4,5,6,8,10,20,30\}\) × 10 seeds（1234–1243），每个 model × mode 单元 500 条。八个目标模型之外，GLM-4-9B-0414 是 GLM-Z1 的 matched non-thinking control，因此表中共有 9 个模型标签、29 个实际运行单元。</p>
+<p>当前 prompt 口径不是把所有历史文件简单混合：Index/Bullet 取 V2.1 重跑；Gemma4-12B Direct 取严格 appendix；其余 Direct 和 Native Thinking 取正式 V2。原始 Gemma4-12B Direct 只在第 6 节作为受控 prompt 失败对照。成功严格定义为：计数正确、可解析、最终格式合规且未因长度截断。</p>
+<div class="callout warning"><strong>实际 decoding：</strong>冻结结果显示 Direct/Index/Bullet 使用 temperature=0、max tokens 分别为 64/1536；Native Thinking 使用 Qwen/DeepSeek/GLM temperature=0.6、Gemma temperature=1.0，max tokens=4096。因此本报告比较的是“mode + 实际 decoding policy”的整体条件，不能把差异全部归因于一句 prompt 文本。</div>
+<div class="conclusion"><strong>本节结论：</strong>主表有 14,500 条且每格平衡；但它是 current-prompt composite。Gemma4-12B Strict Direct 与其他模型旧 Direct 的横向比较必须谨慎，最可靠用途是模型内部和同 stimulus 的 mode 比较。</div></section>
+
+<section id="prompts"><h2>2. 四种 Prompt 与输出约束</h2>
+<h3>共用前半段</h3><pre><code>You will need to count all city-score audit records in the passage below.
+A city-score audit record names one city and gives that city&#x27;s numeric score.
+
+&lt;passage&gt;
+{PASSAGE}
+&lt;/passage&gt;</code></pre>
+<h3>Direct（正式 V2，除当前 Gemma4-12B appendix 外）</h3><pre><code>How many city-score audit records are in the passage?
+In the final answer, output exactly one line:
+Total: &lt;integer&gt;</code></pre>
+<h3>Gemma4-12B Strict Direct appendix</h3><pre><code>How many city-score audit records are in the passage?
+Do not explain, reason aloud, quote, or list any records.
+Your entire response must be exactly one line:
+Total: &lt;integer&gt;</code></pre>
+<h3>Index（V2.1 replacement）</h3><pre><code>How many city-score audit records are in the passage?
+List each occurrence once, in passage order.
+Begin the first item with &quot;1. &quot;, the second with &quot;2. &quot;, and continue with ordinary digits.
+After each number, write the actual city name, then &quot;: &quot;, then the actual numeric score.
+Use only actual values from the passage; do not output placeholders or angle brackets.
+Then report the number listed:
+Total: &lt;integer&gt;
+Do not include any other text.</code></pre>
+<h3>Bullet（V2.1 replacement）</h3><pre><code>How many city-score audit records are in the passage?
+List each occurrence once, in passage order.
+Begin each item with &quot;-&quot;, then write the actual city name, then &quot;: &quot;, then the actual numeric score.
+Use only actual values from the passage; do not output placeholders or angle brackets.
+Then report the number listed:
+Total: &lt;integer&gt;
+Do not include any other text.</code></pre>
+<h3>Native Thinking</h3><pre><code>How many city-score audit records are in the passage?
+Reason concisely without repeating or restarting.
+Stop as soon as you determine the count, then output exactly one line:
+Total: &lt;integer&gt;</code></pre>
+<p>Direct/Native 的最终可见文本必须完整匹配 <code>Total: &lt;integer&gt;</code>。Index/Bullet 还要求每个非空行匹配指定列表语法，且 Total 必须位于最后一行。枚举内容与 gold 的 pair precision/recall 作为机制诊断，但注册成功的冻结定义并未额外要求 pair F1=1。</p>
+<div class="conclusion"><strong>本节结论：</strong>新版枚举 prompt 已消除“复制 &lt;k&gt;/&lt;city&gt; 占位符”的歧义；Strict Direct 的核心干预是禁止在 64-token 输出预算内先解释或列举。</div></section>
+
+<section id="accuracy"><h2>3. 模型 × Mode 的正确率</h2>
+<div class="metric-grid"><div class="metric"><div class="value">97.6%</div><div class="label">Qwen3-32B Native Thinking</div></div><div class="metric"><div class="value">51.4%</div><div class="label">Gemma4-12B Strict Direct</div></div><div class="metric"><div class="value">24.8%</div><div class="label">Qwen3-1.7B Index</div></div><div class="metric"><div class="value">90.8% / 31.4%</div><div class="label">Gemma4-12B Native exact / strict success</div></div></div>
+<figure><img src="figures/prompt/01_accuracy_heatmap.png" alt="Accuracy heatmap"><figcaption><strong>图 1.</strong> 每格为 500 条请求的 registered success。横轴是 prompt mode，纵轴是模型；空格代表该组合未运行，不按 0 处理。</figcaption></figure>
+<div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Model</th>
+      <th>Best current mode</th>
+      <th>Success</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Qwen3-1.7B</td>
+      <td>Native Thinking</td>
+      <td>60.2%</td>
+    </tr>
+    <tr>
+      <td>Qwen3-4B</td>
+      <td>Native Thinking</td>
+      <td>92.8%</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>Index</td>
+      <td>96.0%</td>
+    </tr>
+    <tr>
+      <td>Qwen3-32B</td>
+      <td>Native Thinking</td>
+      <td>97.6%</td>
+    </tr>
+    <tr>
+      <td>Gemma4-E4B</td>
+      <td>Index</td>
+      <td>88.2%</td>
+    </tr>
+    <tr>
+      <td>Gemma4-12B</td>
+      <td>Index</td>
+      <td>95.0%</td>
+    </tr>
+    <tr>
+      <td>DeepSeek-R1-0528-Qwen3-8B</td>
+      <td>Native Thinking</td>
+      <td>67.2%</td>
+    </tr>
+    <tr>
+      <td>GLM-Z1-9B-0414</td>
+      <td>Native Thinking</td>
+      <td>68.4%</td>
+    </tr>
+    <tr>
+      <td>GLM-4-9B-0414</td>
+      <td>Index</td>
+      <td>70.4%</td>
+    </tr>
+  </tbody>
+</table></div>
+<h3>完整指标</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Model</th>
+      <th>Mode</th>
+      <th>Success</th>
+      <th>95% CI</th>
+      <th>Exact</th>
+      <th>Parsed</th>
+      <th>Format</th>
+      <th>Truncated</th>
+      <th>Mean bias*</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Qwen3-1.7B</td>
+      <td>Direct</td>
+      <td>19.6%</td>
+      <td>16.4–23.3%</td>
+      <td>19.6%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>0.0%</td>
+      <td>2.40</td>
+    </tr>
+    <tr>
+      <td>Qwen3-1.7B</td>
+      <td>Index</td>
+      <td>24.8%</td>
+      <td>21.2–28.8%</td>
+      <td>28.8%</td>
+      <td>78.2%</td>
+      <td>67.4%</td>
+      <td>2.4%</td>
+      <td>18.74</td>
+    </tr>
+    <tr>
+      <td>Qwen3-1.7B</td>
+      <td>Bullet</td>
+      <td>38.0%</td>
+      <td>33.9–42.3%</td>
+      <td>39.6%</td>
+      <td>69.6%</td>
+      <td>66.6%</td>
+      <td>25.0%</td>
+      <td>3.09</td>
+    </tr>
+    <tr>
+      <td>Qwen3-1.7B</td>
+      <td>Native Thinking</td>
+      <td>60.2%</td>
+      <td>55.8–64.4%</td>
+      <td>60.2%</td>
+      <td>99.6%</td>
+      <td>99.6%</td>
+      <td>0.4%</td>
+      <td>-1.12</td>
+    </tr>
+    <tr>
+      <td>Qwen3-4B</td>
+      <td>Direct</td>
+      <td>43.2%</td>
+      <td>38.9–47.6%</td>
+      <td>43.2%</td>
+      <td>89.6%</td>
+      <td>89.6%</td>
+      <td>10.4%</td>
+      <td>-1.00</td>
+    </tr>
+    <tr>
+      <td>Qwen3-4B</td>
+      <td>Index</td>
+      <td>88.8%</td>
+      <td>85.7–91.3%</td>
+      <td>88.8%</td>
+      <td>99.0%</td>
+      <td>99.0%</td>
+      <td>0.0%</td>
+      <td>0.24</td>
+    </tr>
+    <tr>
+      <td>Qwen3-4B</td>
+      <td>Bullet</td>
+      <td>80.6%</td>
+      <td>76.9–83.8%</td>
+      <td>81.8%</td>
+      <td>97.4%</td>
+      <td>96.0%</td>
+      <td>0.6%</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td>Qwen3-4B</td>
+      <td>Native Thinking</td>
+      <td>92.8%</td>
+      <td>90.2–94.8%</td>
+      <td>92.8%</td>
+      <td>99.2%</td>
+      <td>99.2%</td>
+      <td>0.8%</td>
+      <td>-0.11</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>Direct</td>
+      <td>57.0%</td>
+      <td>52.6–61.3%</td>
+      <td>57.0%</td>
+      <td>97.2%</td>
+      <td>97.2%</td>
+      <td>2.8%</td>
+      <td>-0.26</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>Index</td>
+      <td>96.0%</td>
+      <td>93.9–97.4%</td>
+      <td>96.2%</td>
+      <td>100.0%</td>
+      <td>99.8%</td>
+      <td>0.0%</td>
+      <td>-0.04</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>Bullet</td>
+      <td>89.4%</td>
+      <td>86.4–91.8%</td>
+      <td>89.4%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>0.0%</td>
+      <td>-0.24</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>Native Thinking</td>
+      <td>95.6%</td>
+      <td>93.4–97.1%</td>
+      <td>95.6%</td>
+      <td>99.8%</td>
+      <td>99.8%</td>
+      <td>0.2%</td>
+      <td>-0.06</td>
+    </tr>
+    <tr>
+      <td>Qwen3-32B</td>
+      <td>Direct</td>
+      <td>60.0%</td>
+      <td>55.6–64.2%</td>
+      <td>60.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>0.0%</td>
+      <td>1.54</td>
+    </tr>
+    <tr>
+      <td>Qwen3-32B</td>
+      <td>Index</td>
+      <td>97.4%</td>
+      <td>95.6–98.5%</td>
+      <td>98.2%</td>
+      <td>100.0%</td>
+      <td>99.2%</td>
+      <td>0.0%</td>
+      <td>0.04</td>
+    </tr>
+    <tr>
+      <td>Qwen3-32B</td>
+      <td>Bullet</td>
+      <td>85.8%</td>
+      <td>82.5–88.6%</td>
+      <td>85.8%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>0.0%</td>
+      <td>0.21</td>
+    </tr>
+    <tr>
+      <td>Qwen3-32B</td>
+      <td>Native Thinking</td>
+      <td>97.6%</td>
+      <td>95.9–98.6%</td>
+      <td>97.6%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>0.0%</td>
+      <td>0.00</td>
+    </tr>
+    <tr>
+      <td>Gemma4-E4B</td>
+      <td>Direct</td>
+      <td>24.0%</td>
+      <td>20.5–27.9%</td>
+      <td>24.8%</td>
+      <td>66.0%</td>
+      <td>65.2%</td>
+      <td>34.0%</td>
+      <td>-2.41</td>
+    </tr>
+    <tr>
+      <td>Gemma4-E4B</td>
+      <td>Index</td>
+      <td>88.2%</td>
+      <td>85.1–90.7%</td>
+      <td>88.2%</td>
+      <td>100.0%</td>
+      <td>99.6%</td>
+      <td>0.0%</td>
+      <td>-0.15</td>
+    </tr>
+    <tr>
+      <td>Gemma4-E4B</td>
+      <td>Bullet</td>
+      <td>79.4%</td>
+      <td>75.6–82.7%</td>
+      <td>79.6%</td>
+      <td>100.0%</td>
+      <td>99.8%</td>
+      <td>0.0%</td>
+      <td>-0.37</td>
+    </tr>
+    <tr>
+      <td>Gemma4-E4B</td>
+      <td>Native Thinking</td>
+      <td>79.2%</td>
+      <td>75.4–82.5%</td>
+      <td>83.2%</td>
+      <td>99.8%</td>
+      <td>95.4%</td>
+      <td>0.2%</td>
+      <td>-0.39</td>
+    </tr>
+    <tr>
+      <td>Gemma4-12B</td>
+      <td>Direct</td>
+      <td>51.4%</td>
+      <td>47.0–55.8%</td>
+      <td>51.4%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>0.0%</td>
+      <td>-1.90</td>
+    </tr>
+    <tr>
+      <td>Gemma4-12B</td>
+      <td>Index</td>
+      <td>95.0%</td>
+      <td>92.7–96.6%</td>
+      <td>95.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>0.0%</td>
+      <td>-0.08</td>
+    </tr>
+    <tr>
+      <td>Gemma4-12B</td>
+      <td>Bullet</td>
+      <td>74.6%</td>
+      <td>70.6–78.2%</td>
+      <td>74.6%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>0.0%</td>
+      <td>-0.36</td>
+    </tr>
+    <tr>
+      <td>Gemma4-12B</td>
+      <td>Native Thinking</td>
+      <td>31.4%</td>
+      <td>27.5–35.6%</td>
+      <td>90.8%</td>
+      <td>98.4%</td>
+      <td>35.4%</td>
+      <td>1.6%</td>
+      <td>-0.16</td>
+    </tr>
+    <tr>
+      <td>DeepSeek-R1-0528-Qwen3-8B</td>
+      <td>Native Thinking</td>
+      <td>67.2%</td>
+      <td>63.0–71.2%</td>
+      <td>67.2%</td>
+      <td>95.6%</td>
+      <td>95.6%</td>
+      <td>4.4%</td>
+      <td>0.22</td>
+    </tr>
+    <tr>
+      <td>GLM-Z1-9B-0414</td>
+      <td>Native Thinking</td>
+      <td>68.4%</td>
+      <td>64.2–72.3%</td>
+      <td>68.4%</td>
+      <td>91.8%</td>
+      <td>91.8%</td>
+      <td>8.2%</td>
+      <td>-0.45</td>
+    </tr>
+    <tr>
+      <td>GLM-4-9B-0414</td>
+      <td>Direct</td>
+      <td>30.2%</td>
+      <td>26.3–34.4%</td>
+      <td>30.2%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>0.0%</td>
+      <td>-4.71</td>
+    </tr>
+    <tr>
+      <td>GLM-4-9B-0414</td>
+      <td>Index</td>
+      <td>70.4%</td>
+      <td>66.3–74.2%</td>
+      <td>71.0%</td>
+      <td>97.8%</td>
+      <td>96.6%</td>
+      <td>0.2%</td>
+      <td>1.23</td>
+    </tr>
+    <tr>
+      <td>GLM-4-9B-0414</td>
+      <td>Bullet</td>
+      <td>62.4%</td>
+      <td>58.1–66.5%</td>
+      <td>63.6%</td>
+      <td>94.8%</td>
+      <td>93.2%</td>
+      <td>0.2%</td>
+      <td>-1.19</td>
+    </tr>
+  </tbody>
+</table></div>
+<p class="small">* Mean bias 仅在成功解析出数值的请求上定义；它不是把 parse failure 当作零误差。</p>
+<h3>同 stimulus 配对差异</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Model</th>
+      <th>Comparison</th>
+      <th>Δ success</th>
+      <th>Exact paired p</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Gemma4-12B</td>
+      <td>Index − Direct</td>
+      <td>+43.6 pp</td>
+      <td>2.62e-64</td>
+    </tr>
+    <tr>
+      <td>Gemma4-12B</td>
+      <td>Bullet − Direct</td>
+      <td>+23.2 pp</td>
+      <td>7.16e-34</td>
+    </tr>
+    <tr>
+      <td>Gemma4-12B</td>
+      <td>Native Thinking − Direct</td>
+      <td>-20.0 pp</td>
+      <td>6.99e-10</td>
+    </tr>
+    <tr>
+      <td>Gemma4-12B</td>
+      <td>Index − Bullet</td>
+      <td>+20.4 pp</td>
+      <td>1.04e-29</td>
+    </tr>
+    <tr>
+      <td>Gemma4-12B</td>
+      <td>Native Thinking − Index</td>
+      <td>-63.6 pp</td>
+      <td>3.01e-94</td>
+    </tr>
+    <tr>
+      <td>Gemma4-E4B</td>
+      <td>Index − Direct</td>
+      <td>+64.2 pp</td>
+      <td>3.79e-95</td>
+    </tr>
+    <tr>
+      <td>Gemma4-E4B</td>
+      <td>Bullet − Direct</td>
+      <td>+55.4 pp</td>
+      <td>4.86e-79</td>
+    </tr>
+    <tr>
+      <td>Gemma4-E4B</td>
+      <td>Native Thinking − Direct</td>
+      <td>+55.2 pp</td>
+      <td>3.14e-68</td>
+    </tr>
+    <tr>
+      <td>Gemma4-E4B</td>
+      <td>Index − Bullet</td>
+      <td>+8.8 pp</td>
+      <td>3.89e-10</td>
+    </tr>
+    <tr>
+      <td>Gemma4-E4B</td>
+      <td>Native Thinking − Index</td>
+      <td>-9.0 pp</td>
+      <td>5.20e-07</td>
+    </tr>
+    <tr>
+      <td>Qwen3-1.7B</td>
+      <td>Index − Direct</td>
+      <td>+5.2 pp</td>
+      <td>3.04e-02</td>
+    </tr>
+    <tr>
+      <td>Qwen3-1.7B</td>
+      <td>Bullet − Direct</td>
+      <td>+18.4 pp</td>
+      <td>8.37e-14</td>
+    </tr>
+    <tr>
+      <td>Qwen3-1.7B</td>
+      <td>Native Thinking − Direct</td>
+      <td>+40.6 pp</td>
+      <td>9.59e-42</td>
+    </tr>
+    <tr>
+      <td>Qwen3-1.7B</td>
+      <td>Index − Bullet</td>
+      <td>-13.2 pp</td>
+      <td>9.92e-09</td>
+    </tr>
+    <tr>
+      <td>Qwen3-1.7B</td>
+      <td>Native Thinking − Index</td>
+      <td>+35.4 pp</td>
+      <td>1.37e-35</td>
+    </tr>
+    <tr>
+      <td>Qwen3-32B</td>
+      <td>Index − Direct</td>
+      <td>+37.4 pp</td>
+      <td>2.40e-50</td>
+    </tr>
+    <tr>
+      <td>Qwen3-32B</td>
+      <td>Bullet − Direct</td>
+      <td>+25.8 pp</td>
+      <td>1.20e-33</td>
+    </tr>
+    <tr>
+      <td>Qwen3-32B</td>
+      <td>Native Thinking − Direct</td>
+      <td>+37.6 pp</td>
+      <td>1.23e-50</td>
+    </tr>
+    <tr>
+      <td>Qwen3-32B</td>
+      <td>Index − Bullet</td>
+      <td>+11.6 pp</td>
+      <td>6.96e-13</td>
+    </tr>
+    <tr>
+      <td>Qwen3-32B</td>
+      <td>Native Thinking − Index</td>
+      <td>+0.2 pp</td>
+      <td>1.00e+00</td>
+    </tr>
+    <tr>
+      <td>Qwen3-4B</td>
+      <td>Index − Direct</td>
+      <td>+45.6 pp</td>
+      <td>3.90e-50</td>
+    </tr>
+    <tr>
+      <td>Qwen3-4B</td>
+      <td>Bullet − Direct</td>
+      <td>+37.4 pp</td>
+      <td>8.54e-36</td>
+    </tr>
+    <tr>
+      <td>Qwen3-4B</td>
+      <td>Native Thinking − Direct</td>
+      <td>+49.6 pp</td>
+      <td>4.04e-68</td>
+    </tr>
+    <tr>
+      <td>Qwen3-4B</td>
+      <td>Index − Bullet</td>
+      <td>+8.2 pp</td>
+      <td>4.19e-06</td>
+    </tr>
+    <tr>
+      <td>Qwen3-4B</td>
+      <td>Native Thinking − Index</td>
+      <td>+4.0 pp</td>
+      <td>6.60e-03</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>Index − Direct</td>
+      <td>+39.0 pp</td>
+      <td>7.86e-51</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>Bullet − Direct</td>
+      <td>+32.4 pp</td>
+      <td>5.45e-38</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>Native Thinking − Direct</td>
+      <td>+38.6 pp</td>
+      <td>4.36e-52</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>Index − Bullet</td>
+      <td>+6.6 pp</td>
+      <td>5.42e-07</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>Native Thinking − Index</td>
+      <td>-0.4 pp</td>
+      <td>8.24e-01</td>
+    </tr>
+  </tbody>
+</table></div>
+<p>Qwen 随规模增大，从 Direct 到显式/隐式过程的收益总体减小：1.7B 强烈依赖 Native Thinking；4B 的 Native 明显优于 Direct；8B 和 32B 的 Index 与 Native 接近饱和。Gemma 则更偏好 Index：E4B 和 12B 的 Index 分别达到 88.2% 与 95.0%。</p>
+<div class="conclusion"><strong>本节结论：</strong>没有单一 mode 在每个模型上都同等占优；但 Index/Native 在中大型 Qwen 上接近 96–98%，Index 是两款 Gemma 的最佳严格输出模式。Qwen3-1.7B 是明显能力边界，prompt 变清楚仍不能阻止枚举退化。</div></section>
+
+<section id="difficulty"><h2>4. Needle 数 N 与 Passage 长度 L</h2>
+<figure><img src="figures/prompt/02_accuracy_by_N.png" alt="Accuracy versus N"><figcaption><strong>图 2.</strong> 横轴为真实 needle 数 \(N\)，纵轴为 registered success；每点平均五个长度和十个 seeds。线只连接离散实验水平，不表示连续插值 law。</figcaption></figure>
+<figure><img src="figures/prompt/03_accuracy_by_L.png" alt="Accuracy versus L"><figcaption><strong>图 3.</strong> 横轴为 passage 长度 \(L\)（千 tokens），纵轴为 registered success；每点平均十个 N 水平和十个 seeds。</figcaption></figure>
+<details><summary>Qwen3-1.7B：按 N 与 L 的完整准确率</summary>
+            <h3>按真实 needle 数 N</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>N</th>
+      <th>1</th>
+      <th>2</th>
+      <th>3</th>
+      <th>4</th>
+      <th>5</th>
+      <th>6</th>
+      <th>8</th>
+      <th>10</th>
+      <th>20</th>
+      <th>30</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td>80.0%</td>
+      <td>44.0%</td>
+      <td>22.0%</td>
+      <td>6.0%</td>
+      <td>12.0%</td>
+      <td>6.0%</td>
+      <td>4.0%</td>
+      <td>18.0%</td>
+      <td>0.0%</td>
+      <td>4.0%</td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td>44.0%</td>
+      <td>46.0%</td>
+      <td>12.0%</td>
+      <td>28.0%</td>
+      <td>32.0%</td>
+      <td>20.0%</td>
+      <td>18.0%</td>
+      <td>26.0%</td>
+      <td>10.0%</td>
+      <td>12.0%</td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td>62.0%</td>
+      <td>52.0%</td>
+      <td>50.0%</td>
+      <td>62.0%</td>
+      <td>60.0%</td>
+      <td>28.0%</td>
+      <td>40.0%</td>
+      <td>20.0%</td>
+      <td>2.0%</td>
+      <td>4.0%</td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>68.0%</td>
+      <td>88.0%</td>
+      <td>92.0%</td>
+      <td>90.0%</td>
+      <td>84.0%</td>
+      <td>74.0%</td>
+      <td>58.0%</td>
+      <td>30.0%</td>
+      <td>12.0%</td>
+      <td>6.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            <h3>按 passage 长度 L</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>2k</th>
+      <th>3k</th>
+      <th>5k</th>
+      <th>10k</th>
+      <th>20k</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td>30.0%</td>
+      <td>24.0%</td>
+      <td>19.0%</td>
+      <td>15.0%</td>
+      <td>10.0%</td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td>38.0%</td>
+      <td>38.0%</td>
+      <td>33.0%</td>
+      <td>10.0%</td>
+      <td>5.0%</td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td>53.0%</td>
+      <td>58.0%</td>
+      <td>41.0%</td>
+      <td>27.0%</td>
+      <td>11.0%</td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>69.0%</td>
+      <td>65.0%</td>
+      <td>63.0%</td>
+      <td>59.0%</td>
+      <td>45.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            </details><details><summary>Qwen3-4B：按 N 与 L 的完整准确率</summary>
+            <h3>按真实 needle 数 N</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>N</th>
+      <th>1</th>
+      <th>2</th>
+      <th>3</th>
+      <th>4</th>
+      <th>5</th>
+      <th>6</th>
+      <th>8</th>
+      <th>10</th>
+      <th>20</th>
+      <th>30</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td>96.0%</td>
+      <td>98.0%</td>
+      <td>84.0%</td>
+      <td>38.0%</td>
+      <td>20.0%</td>
+      <td>36.0%</td>
+      <td>20.0%</td>
+      <td>24.0%</td>
+      <td>8.0%</td>
+      <td>8.0%</td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td>80.0%</td>
+      <td>92.0%</td>
+      <td>100.0%</td>
+      <td>98.0%</td>
+      <td>98.0%</td>
+      <td>96.0%</td>
+      <td>92.0%</td>
+      <td>84.0%</td>
+      <td>80.0%</td>
+      <td>68.0%</td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td>82.0%</td>
+      <td>96.0%</td>
+      <td>94.0%</td>
+      <td>88.0%</td>
+      <td>88.0%</td>
+      <td>92.0%</td>
+      <td>92.0%</td>
+      <td>80.0%</td>
+      <td>50.0%</td>
+      <td>44.0%</td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>100.0%</td>
+      <td>98.0%</td>
+      <td>98.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>92.0%</td>
+      <td>94.0%</td>
+      <td>78.0%</td>
+      <td>68.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            <h3>按 passage 长度 L</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>2k</th>
+      <th>3k</th>
+      <th>5k</th>
+      <th>10k</th>
+      <th>20k</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td>42.0%</td>
+      <td>46.0%</td>
+      <td>43.0%</td>
+      <td>41.0%</td>
+      <td>44.0%</td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td>94.0%</td>
+      <td>95.0%</td>
+      <td>89.0%</td>
+      <td>88.0%</td>
+      <td>78.0%</td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td>84.0%</td>
+      <td>88.0%</td>
+      <td>79.0%</td>
+      <td>79.0%</td>
+      <td>73.0%</td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>98.0%</td>
+      <td>99.0%</td>
+      <td>95.0%</td>
+      <td>92.0%</td>
+      <td>80.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            </details><details><summary>Qwen3-8B：按 N 与 L 的完整准确率</summary>
+            <h3>按真实 needle 数 N</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>N</th>
+      <th>1</th>
+      <th>2</th>
+      <th>3</th>
+      <th>4</th>
+      <th>5</th>
+      <th>6</th>
+      <th>8</th>
+      <th>10</th>
+      <th>20</th>
+      <th>30</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td>92.0%</td>
+      <td>100.0%</td>
+      <td>90.0%</td>
+      <td>70.0%</td>
+      <td>28.0%</td>
+      <td>42.0%</td>
+      <td>56.0%</td>
+      <td>54.0%</td>
+      <td>24.0%</td>
+      <td>14.0%</td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td>96.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>98.0%</td>
+      <td>98.0%</td>
+      <td>94.0%</td>
+      <td>88.0%</td>
+      <td>86.0%</td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>98.0%</td>
+      <td>100.0%</td>
+      <td>98.0%</td>
+      <td>96.0%</td>
+      <td>94.0%</td>
+      <td>74.0%</td>
+      <td>34.0%</td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>98.0%</td>
+      <td>98.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>98.0%</td>
+      <td>100.0%</td>
+      <td>98.0%</td>
+      <td>94.0%</td>
+      <td>86.0%</td>
+      <td>84.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            <h3>按 passage 长度 L</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>2k</th>
+      <th>3k</th>
+      <th>5k</th>
+      <th>10k</th>
+      <th>20k</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td>61.0%</td>
+      <td>65.0%</td>
+      <td>63.0%</td>
+      <td>54.0%</td>
+      <td>42.0%</td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td>96.0%</td>
+      <td>99.0%</td>
+      <td>100.0%</td>
+      <td>96.0%</td>
+      <td>89.0%</td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td>90.0%</td>
+      <td>95.0%</td>
+      <td>92.0%</td>
+      <td>89.0%</td>
+      <td>81.0%</td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>99.0%</td>
+      <td>99.0%</td>
+      <td>98.0%</td>
+      <td>96.0%</td>
+      <td>86.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            </details><details><summary>Qwen3-32B：按 N 与 L 的完整准确率</summary>
+            <h3>按真实 needle 数 N</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>N</th>
+      <th>1</th>
+      <th>2</th>
+      <th>3</th>
+      <th>4</th>
+      <th>5</th>
+      <th>6</th>
+      <th>8</th>
+      <th>10</th>
+      <th>20</th>
+      <th>30</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>90.0%</td>
+      <td>94.0%</td>
+      <td>84.0%</td>
+      <td>70.0%</td>
+      <td>32.0%</td>
+      <td>20.0%</td>
+      <td>2.0%</td>
+      <td>8.0%</td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>98.0%</td>
+      <td>96.0%</td>
+      <td>98.0%</td>
+      <td>98.0%</td>
+      <td>96.0%</td>
+      <td>100.0%</td>
+      <td>96.0%</td>
+      <td>92.0%</td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>96.0%</td>
+      <td>34.0%</td>
+      <td>28.0%</td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>96.0%</td>
+      <td>98.0%</td>
+      <td>98.0%</td>
+      <td>96.0%</td>
+      <td>100.0%</td>
+      <td>96.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>96.0%</td>
+      <td>96.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            <h3>按 passage 长度 L</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>2k</th>
+      <th>3k</th>
+      <th>5k</th>
+      <th>10k</th>
+      <th>20k</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td>63.0%</td>
+      <td>61.0%</td>
+      <td>70.0%</td>
+      <td>61.0%</td>
+      <td>45.0%</td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td>100.0%</td>
+      <td>99.0%</td>
+      <td>100.0%</td>
+      <td>98.0%</td>
+      <td>90.0%</td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td>90.0%</td>
+      <td>89.0%</td>
+      <td>83.0%</td>
+      <td>85.0%</td>
+      <td>82.0%</td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>98.0%</td>
+      <td>90.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            </details><details><summary>Gemma4-E4B：按 N 与 L 的完整准确率</summary>
+            <h3>按真实 needle 数 N</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>N</th>
+      <th>1</th>
+      <th>2</th>
+      <th>3</th>
+      <th>4</th>
+      <th>5</th>
+      <th>6</th>
+      <th>8</th>
+      <th>10</th>
+      <th>20</th>
+      <th>30</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td>78.0%</td>
+      <td>38.0%</td>
+      <td>56.0%</td>
+      <td>42.0%</td>
+      <td>14.0%</td>
+      <td>8.0%</td>
+      <td>2.0%</td>
+      <td>2.0%</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td>98.0%</td>
+      <td>98.0%</td>
+      <td>96.0%</td>
+      <td>92.0%</td>
+      <td>92.0%</td>
+      <td>86.0%</td>
+      <td>78.0%</td>
+      <td>82.0%</td>
+      <td>82.0%</td>
+      <td>78.0%</td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td>100.0%</td>
+      <td>98.0%</td>
+      <td>92.0%</td>
+      <td>96.0%</td>
+      <td>86.0%</td>
+      <td>82.0%</td>
+      <td>66.0%</td>
+      <td>80.0%</td>
+      <td>66.0%</td>
+      <td>28.0%</td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>94.0%</td>
+      <td>98.0%</td>
+      <td>74.0%</td>
+      <td>80.0%</td>
+      <td>80.0%</td>
+      <td>78.0%</td>
+      <td>76.0%</td>
+      <td>70.0%</td>
+      <td>72.0%</td>
+      <td>70.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            <h3>按 passage 长度 L</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>2k</th>
+      <th>3k</th>
+      <th>5k</th>
+      <th>10k</th>
+      <th>20k</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td>16.0%</td>
+      <td>23.0%</td>
+      <td>29.0%</td>
+      <td>26.0%</td>
+      <td>26.0%</td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td>100.0%</td>
+      <td>99.0%</td>
+      <td>96.0%</td>
+      <td>90.0%</td>
+      <td>56.0%</td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td>96.0%</td>
+      <td>93.0%</td>
+      <td>84.0%</td>
+      <td>74.0%</td>
+      <td>50.0%</td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>93.0%</td>
+      <td>97.0%</td>
+      <td>90.0%</td>
+      <td>67.0%</td>
+      <td>49.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            </details><details><summary>Gemma4-12B：按 N 与 L 的完整准确率</summary>
+            <h3>按真实 needle 数 N</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>N</th>
+      <th>1</th>
+      <th>2</th>
+      <th>3</th>
+      <th>4</th>
+      <th>5</th>
+      <th>6</th>
+      <th>8</th>
+      <th>10</th>
+      <th>20</th>
+      <th>30</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td>100.0%</td>
+      <td>96.0%</td>
+      <td>100.0%</td>
+      <td>94.0%</td>
+      <td>54.0%</td>
+      <td>38.0%</td>
+      <td>30.0%</td>
+      <td>2.0%</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>98.0%</td>
+      <td>98.0%</td>
+      <td>90.0%</td>
+      <td>96.0%</td>
+      <td>88.0%</td>
+      <td>90.0%</td>
+      <td>90.0%</td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>98.0%</td>
+      <td>96.0%</td>
+      <td>88.0%</td>
+      <td>94.0%</td>
+      <td>66.0%</td>
+      <td>4.0%</td>
+      <td>0.0%</td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>38.0%</td>
+      <td>32.0%</td>
+      <td>26.0%</td>
+      <td>28.0%</td>
+      <td>28.0%</td>
+      <td>26.0%</td>
+      <td>32.0%</td>
+      <td>32.0%</td>
+      <td>38.0%</td>
+      <td>34.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            <h3>按 passage 长度 L</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>2k</th>
+      <th>3k</th>
+      <th>5k</th>
+      <th>10k</th>
+      <th>20k</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td>58.0%</td>
+      <td>62.0%</td>
+      <td>52.0%</td>
+      <td>43.0%</td>
+      <td>42.0%</td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td>100.0%</td>
+      <td>100.0%</td>
+      <td>99.0%</td>
+      <td>99.0%</td>
+      <td>77.0%</td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td>78.0%</td>
+      <td>79.0%</td>
+      <td>76.0%</td>
+      <td>76.0%</td>
+      <td>64.0%</td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>16.0%</td>
+      <td>28.0%</td>
+      <td>36.0%</td>
+      <td>45.0%</td>
+      <td>32.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            </details><details><summary>DeepSeek-R1-0528-Qwen3-8B：按 N 与 L 的完整准确率</summary>
+            <h3>按真实 needle 数 N</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>N</th>
+      <th>1</th>
+      <th>2</th>
+      <th>3</th>
+      <th>4</th>
+      <th>5</th>
+      <th>6</th>
+      <th>8</th>
+      <th>10</th>
+      <th>20</th>
+      <th>30</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>90.0%</td>
+      <td>88.0%</td>
+      <td>98.0%</td>
+      <td>80.0%</td>
+      <td>76.0%</td>
+      <td>72.0%</td>
+      <td>56.0%</td>
+      <td>54.0%</td>
+      <td>34.0%</td>
+      <td>24.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            <h3>按 passage 长度 L</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>2k</th>
+      <th>3k</th>
+      <th>5k</th>
+      <th>10k</th>
+      <th>20k</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>83.0%</td>
+      <td>71.0%</td>
+      <td>71.0%</td>
+      <td>64.0%</td>
+      <td>47.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            </details><details><summary>GLM-Z1-9B-0414：按 N 与 L 的完整准确率</summary>
+            <h3>按真实 needle 数 N</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>N</th>
+      <th>1</th>
+      <th>2</th>
+      <th>3</th>
+      <th>4</th>
+      <th>5</th>
+      <th>6</th>
+      <th>8</th>
+      <th>10</th>
+      <th>20</th>
+      <th>30</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>94.0%</td>
+      <td>86.0%</td>
+      <td>76.0%</td>
+      <td>74.0%</td>
+      <td>80.0%</td>
+      <td>70.0%</td>
+      <td>68.0%</td>
+      <td>62.0%</td>
+      <td>38.0%</td>
+      <td>36.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            <h3>按 passage 长度 L</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>2k</th>
+      <th>3k</th>
+      <th>5k</th>
+      <th>10k</th>
+      <th>20k</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td>96.0%</td>
+      <td>82.0%</td>
+      <td>71.0%</td>
+      <td>54.0%</td>
+      <td>39.0%</td>
+    </tr>
+  </tbody>
+</table></div>
+            </details><details><summary>GLM-4-9B-0414：按 N 与 L 的完整准确率</summary>
+            <h3>按真实 needle 数 N</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>N</th>
+      <th>1</th>
+      <th>2</th>
+      <th>3</th>
+      <th>4</th>
+      <th>5</th>
+      <th>6</th>
+      <th>8</th>
+      <th>10</th>
+      <th>20</th>
+      <th>30</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td>94.0%</td>
+      <td>96.0%</td>
+      <td>66.0%</td>
+      <td>30.0%</td>
+      <td>14.0%</td>
+      <td>2.0%</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+      <td>0.0%</td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td>74.0%</td>
+      <td>92.0%</td>
+      <td>98.0%</td>
+      <td>92.0%</td>
+      <td>80.0%</td>
+      <td>74.0%</td>
+      <td>66.0%</td>
+      <td>56.0%</td>
+      <td>36.0%</td>
+      <td>36.0%</td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td>88.0%</td>
+      <td>92.0%</td>
+      <td>98.0%</td>
+      <td>94.0%</td>
+      <td>74.0%</td>
+      <td>76.0%</td>
+      <td>56.0%</td>
+      <td>38.0%</td>
+      <td>8.0%</td>
+      <td>0.0%</td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+  </tbody>
+</table></div>
+            <h3>按 passage 长度 L</h3><div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>2k</th>
+      <th>3k</th>
+      <th>5k</th>
+      <th>10k</th>
+      <th>20k</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>Direct</th>
+      <td>37.0%</td>
+      <td>32.0%</td>
+      <td>25.0%</td>
+      <td>28.0%</td>
+      <td>29.0%</td>
+    </tr>
+    <tr>
+      <th>Index</th>
+      <td>95.0%</td>
+      <td>84.0%</td>
+      <td>76.0%</td>
+      <td>49.0%</td>
+      <td>48.0%</td>
+    </tr>
+    <tr>
+      <th>Bullet</th>
+      <td>80.0%</td>
+      <td>75.0%</td>
+      <td>67.0%</td>
+      <td>50.0%</td>
+      <td>40.0%</td>
+    </tr>
+    <tr>
+      <th>Native Thinking</th>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+  </tbody>
+</table></div>
+            </details>
+<p>多数过程化模式在 N 和 L 增大时下降，但下降方式并不相同：Direct 常在高 N 发生计数偏差或触发隐式列举；Enumeration 在弱模型上会随列表变长出现漏项、幻觉或循环；Native Thinking 在较强 Qwen 上对设计范围最稳。</p>
+<div class="conclusion"><strong>本节结论：</strong>N 与 L 都是有效难度轴，但 N 通常更直接控制需要维护的计数状态；L 主要增加搜索距离。二者在弱模型和长输出模式中表现出交互，而非一个简单的“needle density”即可解释全部正确率。</div></section>
+
+<section id="errors"><h2>5. 具体错误原因</h2>
+<figure><img src="figures/prompt/04_failure_budget.png" alt="Failure composition"><figcaption><strong>图 4.</strong> 每一横条以全部 500 请求为分母，按互斥优先级拆分失败：截断 → 无 Total → 格式失败 → 数值错误。横轴不是“失败内部比例”，因此条长直接等于总失败率。</figcaption></figure>
+<div class="table-wrap"><table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Model</th>
+      <th>Mode</th>
+      <th>Dominant failure</th>
+      <th>Failure rate</th>
+      <th>Undercount among parsed</th>
+      <th>Overcount among parsed</th>
+      <th>MAE among parsed</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>DeepSeek-R1-0528-Qwen3-8B</td>
+      <td>Native Thinking</td>
+      <td>Wrong count</td>
+      <td>32.8%</td>
+      <td>16.9%</td>
+      <td>12.8%</td>
+      <td>1.17</td>
+    </tr>
+    <tr>
+      <td>GLM-4-9B-0414</td>
+      <td>Direct</td>
+      <td>Wrong count</td>
+      <td>69.8%</td>
+      <td>68.0%</td>
+      <td>1.8%</td>
+      <td>4.77</td>
+    </tr>
+    <tr>
+      <td>GLM-4-9B-0414</td>
+      <td>Bullet</td>
+      <td>Wrong count</td>
+      <td>37.6%</td>
+      <td>31.6%</td>
+      <td>1.3%</td>
+      <td>1.24</td>
+    </tr>
+    <tr>
+      <td>GLM-4-9B-0414</td>
+      <td>Index</td>
+      <td>Wrong count</td>
+      <td>29.6%</td>
+      <td>21.9%</td>
+      <td>5.5%</td>
+      <td>2.31</td>
+    </tr>
+    <tr>
+      <td>GLM-Z1-9B-0414</td>
+      <td>Native Thinking</td>
+      <td>Wrong count</td>
+      <td>31.6%</td>
+      <td>21.1%</td>
+      <td>4.4%</td>
+      <td>0.70</td>
+    </tr>
+    <tr>
+      <td>Gemma4-12B</td>
+      <td>Direct</td>
+      <td>Wrong count</td>
+      <td>48.6%</td>
+      <td>47.8%</td>
+      <td>0.8%</td>
+      <td>1.92</td>
+    </tr>
+    <tr>
+      <td>Gemma4-12B</td>
+      <td>Bullet</td>
+      <td>Wrong count</td>
+      <td>25.4%</td>
+      <td>25.4%</td>
+      <td>0.0%</td>
+      <td>0.36</td>
+    </tr>
+    <tr>
+      <td>Gemma4-12B</td>
+      <td>Index</td>
+      <td>Wrong count</td>
+      <td>5.0%</td>
+      <td>5.0%</td>
+      <td>0.0%</td>
+      <td>0.08</td>
+    </tr>
+    <tr>
+      <td>Gemma4-12B</td>
+      <td>Native Thinking</td>
+      <td>Final-format failure</td>
+      <td>68.6%</td>
+      <td>7.7%</td>
+      <td>0.0%</td>
+      <td>0.16</td>
+    </tr>
+    <tr>
+      <td>Gemma4-E4B</td>
+      <td>Direct</td>
+      <td>Wrong count</td>
+      <td>76.0%</td>
+      <td>55.5%</td>
+      <td>7.0%</td>
+      <td>2.58</td>
+    </tr>
+    <tr>
+      <td>Gemma4-E4B</td>
+      <td>Bullet</td>
+      <td>Wrong count</td>
+      <td>20.6%</td>
+      <td>16.4%</td>
+      <td>4.0%</td>
+      <td>0.45</td>
+    </tr>
+    <tr>
+      <td>Gemma4-E4B</td>
+      <td>Index</td>
+      <td>Wrong count</td>
+      <td>11.8%</td>
+      <td>11.4%</td>
+      <td>0.4%</td>
+      <td>0.30</td>
+    </tr>
+    <tr>
+      <td>Gemma4-E4B</td>
+      <td>Native Thinking</td>
+      <td>Wrong count</td>
+      <td>20.8%</td>
+      <td>16.4%</td>
+      <td>0.2%</td>
+      <td>0.42</td>
+    </tr>
+    <tr>
+      <td>Qwen3-1.7B</td>
+      <td>Direct</td>
+      <td>Wrong count</td>
+      <td>80.4%</td>
+      <td>24.0%</td>
+      <td>56.4%</td>
+      <td>6.04</td>
+    </tr>
+    <tr>
+      <td>Qwen3-1.7B</td>
+      <td>Bullet</td>
+      <td>Wrong count</td>
+      <td>62.0%</td>
+      <td>12.6%</td>
+      <td>30.5%</td>
+      <td>3.47</td>
+    </tr>
+    <tr>
+      <td>Qwen3-1.7B</td>
+      <td>Index</td>
+      <td>Wrong count</td>
+      <td>75.2%</td>
+      <td>27.9%</td>
+      <td>35.3%</td>
+      <td>20.72</td>
+    </tr>
+    <tr>
+      <td>Qwen3-1.7B</td>
+      <td>Native Thinking</td>
+      <td>Wrong count</td>
+      <td>39.8%</td>
+      <td>32.5%</td>
+      <td>7.0%</td>
+      <td>1.47</td>
+    </tr>
+    <tr>
+      <td>Qwen3-32B</td>
+      <td>Direct</td>
+      <td>Wrong count</td>
+      <td>40.0%</td>
+      <td>1.0%</td>
+      <td>39.0%</td>
+      <td>1.56</td>
+    </tr>
+    <tr>
+      <td>Qwen3-32B</td>
+      <td>Bullet</td>
+      <td>Wrong count</td>
+      <td>14.2%</td>
+      <td>2.0%</td>
+      <td>12.2%</td>
+      <td>0.26</td>
+    </tr>
+    <tr>
+      <td>Qwen3-32B</td>
+      <td>Index</td>
+      <td>Wrong count</td>
+      <td>2.6%</td>
+      <td>1.6%</td>
+      <td>0.2%</td>
+      <td>0.08</td>
+    </tr>
+    <tr>
+      <td>Qwen3-32B</td>
+      <td>Native Thinking</td>
+      <td>Wrong count</td>
+      <td>2.4%</td>
+      <td>1.0%</td>
+      <td>1.4%</td>
+      <td>0.03</td>
+    </tr>
+    <tr>
+      <td>Qwen3-4B</td>
+      <td>Direct</td>
+      <td>Wrong count</td>
+      <td>56.8%</td>
+      <td>40.0%</td>
+      <td>11.8%</td>
+      <td>1.50</td>
+    </tr>
+    <tr>
+      <td>Qwen3-4B</td>
+      <td>Bullet</td>
+      <td>Wrong count</td>
+      <td>19.4%</td>
+      <td>7.6%</td>
+      <td>8.4%</td>
+      <td>0.37</td>
+    </tr>
+    <tr>
+      <td>Qwen3-4B</td>
+      <td>Index</td>
+      <td>Wrong count</td>
+      <td>11.2%</td>
+      <td>6.3%</td>
+      <td>4.0%</td>
+      <td>0.50</td>
+    </tr>
+    <tr>
+      <td>Qwen3-4B</td>
+      <td>Native Thinking</td>
+      <td>Wrong count</td>
+      <td>7.2%</td>
+      <td>5.8%</td>
+      <td>0.6%</td>
+      <td>0.18</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>Direct</td>
+      <td>Wrong count</td>
+      <td>43.0%</td>
+      <td>27.2%</td>
+      <td>14.2%</td>
+      <td>1.08</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>Bullet</td>
+      <td>Wrong count</td>
+      <td>10.6%</td>
+      <td>7.6%</td>
+      <td>3.0%</td>
+      <td>0.35</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>Index</td>
+      <td>Wrong count</td>
+      <td>4.0%</td>
+      <td>2.8%</td>
+      <td>1.0%</td>
+      <td>0.08</td>
+    </tr>
+    <tr>
+      <td>Qwen3-8B</td>
+      <td>Native Thinking</td>
+      <td>Wrong count</td>
+      <td>4.4%</td>
+      <td>3.2%</td>
+      <td>1.0%</td>
+      <td>0.08</td>
+    </tr>
+  </tbody>
+</table></div>
+<h3>代表性原始输出片段</h3><details><summary>Gemma4-12B (original) · Direct · truncated</summary>
+            <p><strong>观测到的机制：</strong>The weak Direct instruction triggered an explicit scan/list; the 64-token budget ended before Total.</p>
+            <pre><code>To count the city-score audit records, I will scan the passage for the specific format &quot;city name received a score of [number]&quot; or &quot;city name received a score of [number]&quot; within the context of a &quot;city score audit.&quot;
+
+1.  &quot;In the 2024 city score audit</code></pre></details><details><summary>Gemma4-12B · Native Thinking · response_format_failure</summary>
+            <p><strong>观测到的机制：</strong>The stored output exposed a &lt;|channel&gt;thought block. The frozen parser retained it in final_text, so an often-correct count failed the Total-only gate.</p>
+            <pre><code>&lt;|channel&gt;thought
+*   Goal: Count all &quot;city-score audit records&quot;.
+    *   Definition: A record naming one city and giving its numeric score.
+    *   Instruction: Reason concisely, stop when count is determined, and output &quot;Total: &lt;integer&gt;&quot;.
+
+    *   &quot;...In the 2024 city score audit, Athens received a score of 83.&quot; (Athens, 83) - *1*
+    *   &quot;...In the 2024 city score audit, Lahore received a score of 64.&quot; (Lahore, 64) - *2*
+    *   &quot;...In the 2024 city score audit, Mexico City received a score of 72.&quot; (Mexico City, 72) - *3*
+    *   &quot;...In the 2024 city score audit, Tokyo received a score of 56.&quot; (Tokyo, 56) - *4*
+    *   &quot;...In the 2024 city score audit, Zagreb received a score of 100.&quot; (Zagreb, 100) - *5*
+    *   &quot;...In the 2024 city score audit, London received a score of 86.&quot; (London, 86) - *6*
+    *   &quot;...In the 2024 city score audit, Guangzhou received a score of 94.&quot; (Guangzhou, 94) - *7*
+    *   &quot;...In the 2024 city score audit, Seoul received a score of 78.&quot; (Seoul, 78) - *8*
+    *   &quot;...In the 2024 city score audit, Buenos Aires received a score of 85.&quot; (Buenos Aires, 85) - *9*
+    *   &quot;...In the 2024 city score audit, Kuala Lumpur received a score of 91.&quot; (Kuala Lumpur,</code></pre></details><details><summary>Qwen3-1.7B · Index · parse_failure</summary>
+            <p><strong>观测到的机制：</strong>The model listed records but omitted the required final Total line.</p>
+            <pre><code>1. Manila: 52
+2. Sarajevo: 80
+3. Hyderabad: 84
+4. Lima: 55
+5. Mumbai: 58
+6. Lahore: 87
+7. Delhi: 66
+8. Seoul: 100
+9. Astana: 56
+10. Skopje: 51</code></pre></details><details><summary>Qwen3-1.7B · Index · enumeration_format_failure</summary>
+            <p><strong>观测到的机制：</strong>After valid records it hallucinated/repeated placeholder-like items, inflating the total.</p>
+            <pre><code>1. Barcelona: 63
+2. Hangzhou: 84
+3. Skopje: 69
+4. Lisbon: 75
+5. Stockholm: 55
+6. Chengdu: 90
+7. Bucharest: 57
+8. Xi’an: 77
+9. Shanghai: 73
+10. Sao Paulo: 92
+11. Paris: (missing)
+12. Rome: (missing)
+13. Berlin: (missing)
+14. Madrid: (missing)
+15. Athens: (missing)
+16. Prague: (missing)
+17. Vienna: (missing)
+18. Budapest: (missing)
+19. Oslo: (missing)
+20. Oslo: (missing)
+21. Oslo: (missing)
+22. Oslo: (missing)
+23. Oslo: (missing)
+24. Oslo: (missing)
+25. Oslo: (missing)
+26. Oslo: (missing)
+27. Oslo: (missing)
+28. Oslo: (missing)
+29. Oslo: (missing)
+30. Oslo: (missing)
+31. Oslo: (missing)
+32. Oslo: (missing)
+33. Oslo: (missing)
+34. Oslo: (missing)
+35. Oslo: (missing)
+36. Oslo: (missing)
+37. Oslo: (missing)
+38. Oslo: (missing)
+39. Oslo: (missing)
+40. Oslo: (missing)
+41. Oslo: (missing)
+42. Oslo: (missing)
+43. Oslo: (missing)
+44. Oslo: (missing)
+45. Oslo: (missing)
+46. Oslo: (missing)
+47. Oslo: (missing)
+48. Oslo: (missing)
+49. Oslo: (missing)
+50. Oslo: (missing)
+51. Oslo: (missing)
+52. Oslo: (missing)
+53. Oslo: (missing)
+54. Oslo: (missing)
+55. Oslo: (missing)
+56. Oslo: (missing)
+57. Oslo: (missing)
+58. Oslo: (missing)
+59. Oslo: (missing)
+60. Oslo: (missing)
+61. Oslo: (missing)
+62. Oslo</code></pre></details><details><summary>Qwen3-1.7B · Bullet · truncated</summary>
+            <p><strong>观测到的机制：</strong>The model entered a repeated-item loop until the 1,536-token limit.</p>
+            <pre><code>- Barcelona: 63
+- Hangzhou: 84
+- Skopje: 69
+- Stockholm: 55
+- Lisbon: 75
+- Chengdu: 90
+- Bucharest: 57
+- Xi’an: 77
+- Shanghai: 73
+- Sao Paulo: 92
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 75
+- Paris: 7</code></pre></details><details><summary>Qwen3-4B · Direct · truncated</summary>
+            <p><strong>观测到的机制：</strong>Despite non-thinking mode, the weak formal Direct wording elicited explanation and enumeration; 64 tokens were insufficient.</p>
+            <pre><code>To determine the number of city-score audit records in the passage, we need to identify all instances where a city is mentioned along with its numeric score.
+
+Here is the list of city-score audit records found in the passage:
+
+1. Manila - 52
+2. Sarajevo - 80
+3.</code></pre></details><details><summary>GLM-4-9B-0414 · Index · wrong_count</summary>
+            <p><strong>观测到的机制：</strong>The syntax was valid, but one or more dispersed records were omitted.</p>
+            <pre><code>1. Manila: 52
+2. Sarajevo: 80
+3. Hyderabad: 84
+4. Mumbai: 58
+5. Lahore: 87
+6. Delhi: 66
+7. Seoul: 100
+8. Astana: 56
+9. Skopje: 51
+Total: 9</code></pre></details><details><summary>DeepSeek-R1-0528-Qwen3-8B · Native Thinking · truncated</summary>
+            <p><strong>观测到的机制：</strong>The reasoning trace began a long scan/list and did not reach the final line within 4,096 tokens.</p>
+            <pre><code>&lt;think&gt;
+Alright, let me tackle this problem step by step. So, the user wants me to count all the city-score audit records in the provided passage. A city-score audit record is defined as naming one city and giving that city&#x27;s numeric score. 
+
+First, I need to scan through the entire passage carefully. The passage is quite lengthy, so I&#x27;ll need to look for specific mentions of city names followed by their scores. 
+
+I notice that there are several instances where city names are mentioned along with scores. For example, in October 2011, there&#x27;s a mention of Osaka receiving a score of 91. Later on, other cities like Delhi, Bangkok, and Reykjavik are also mentioned with their respective scores. 
+
+Let me list out all the city-score pairs I find:
+
+1. October 2011: Osaka received a score of 91.
+2. October 2011: Delhi received a score of 99.
+3. June 2021: Oslo received a score of 68.
+4. October 2011: Bangkok received a score of 56.
+5. October 2011: Reykjavik received a score of 77.
+
+Wait a minute, I think I missed some. Let me double-check the passage. 
+
+In the October 2011 section, there are multiple cities mentioned:
+- October 2011: Kaohsiung received a score of 78.
+- October 2011: Chengd</code></pre></details>
+<p>最主要的三类机制可以被区分：①检索/计数错误——输出格式正确但 Total 错；②输出控制失败——循环、冗长解释或未写 Total；③评估接口不匹配——内容中已有正确 Total，但冻结 parser 仍把额外 channel/text 判为格式错误。下面的因果表述只限于输出证据，不推断模型内部神经机制。</p>
+<div class="conclusion"><strong>本节结论：</strong>低分不能统一解释为“不会数数”。Qwen3-1.7B 的枚举失败主要是生成退化，GLM-4 Direct 主要是系统性漏计，Gemma4-12B Native 的低 registered success 则主要是 thought-channel/严格格式不匹配。</div></section>
+
+<section id="gemma"><h2>6. Gemma4-12B Direct 的受控 Prompt 干预</h2>
+<figure><img src="figures/prompt/05_gemma_direct_prompt_intervention.png" alt="Gemma direct prompt comparison"><figcaption><strong>图 5.</strong> 同一 500-stimulus 设计中，旧 Direct 与 Strict Direct 的各门槛比例。Truncated 越低越好，其余四项越高越好。</figcaption></figure>
+<p>旧 prompt 的 500/500 输出都在 64 tokens 截断，且没有可解析的 Total；典型输出先解释如何扫描，再开始编号列举。Strict Direct 保持数据、模型和 64-token预算不变，只明确禁止解释、公开推理、引用和列举：截断降至 0，解析率与格式率升至 100%，registered success 升至 51.4%。剩余失败均为可解析但数值错误。</p>
+<div class="conclusion"><strong>本节结论：</strong>Gemma4-12B 原始 Direct 的 0% 是 prompt × 输出预算造成的完全输出控制失败，不支持“模型完全听不懂任务”。严格 prompt 修复了输出通道，但其计数能力在该模式下仍只有约一半请求成功。</div></section>
+
+<footer>Generated 2026-07-26. 所有百分比均由冻结请求逐条重新汇总；未改写原始输出或评分。</footer>
+</main></body></html>

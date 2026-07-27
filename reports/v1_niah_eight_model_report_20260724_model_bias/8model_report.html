@@ -1,0 +1,1029 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Realistic CoT NiaH Count：准确率、Query 顺序与推理模式</title>
+  <meta name="description" content="Eight-model Realistic NiaH exact-accuracy report split by query placement and reasoning mode.">
+  <style>
+    :root {
+      --ink: #1d262b;
+      --muted: #667078;
+      --line: #dfe3e6;
+      --soft: #f5f7f7;
+      --accent: #245f56;
+      --accent-soft: #e9f2ef;
+      --warm: #9d4e2f;
+      --warm-soft: #f8eee8;
+      --blue: #315f8c;
+      --page: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: Inter, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.72;
+    }
+    header {
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(125deg, #f4f8f7, #ffffff 65%);
+    }
+    .header-inner, main, .nav-inner {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+    .header-inner { padding: 56px 0 42px; }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--accent);
+      font-size: .78rem;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 900px;
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(2rem, 4.5vw, 3.5rem);
+      line-height: 1.12;
+      letter-spacing: -.025em;
+    }
+    .subtitle {
+      max-width: 850px;
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: 1.08rem;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 22px;
+      margin-top: 24px;
+      color: var(--muted);
+      font-size: .88rem;
+    }
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.96);
+      backdrop-filter: blur(8px);
+    }
+    .nav-inner {
+      display: flex;
+      gap: 22px;
+      overflow-x: auto;
+      padding: 12px 0;
+      scrollbar-width: thin;
+    }
+    nav a {
+      flex: 0 0 auto;
+      color: #435159;
+      font-size: .86rem;
+      text-decoration: none;
+    }
+    nav a:hover { color: var(--accent); }
+    main { padding: 34px 0 90px; }
+    section {
+      padding: 38px 0 48px;
+      border-top: 1px solid var(--line);
+      scroll-margin-top: 55px;
+    }
+    section:first-child { border-top: 0; padding-top: 18px; }
+    h2 {
+      margin: 0 0 14px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(1.55rem, 3vw, 2.15rem);
+      line-height: 1.25;
+    }
+    h3 {
+      margin: 0 0 12px;
+      font-size: 1.05rem;
+      line-height: 1.4;
+    }
+    p { margin: 10px 0 16px; }
+    .lead { max-width: 900px; color: var(--muted); font-size: 1.02rem; }
+    h4 { margin: 0 0 8px; font-size: .92rem; color: #344b50; }
+    .prompt-grid, .method-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin: 20px 0;
+    }
+    .prompt-grid > div {
+      min-width: 0;
+      padding: 15px 17px;
+      border: 1px solid var(--line);
+      background: #fafbfb;
+    }
+    pre {
+      margin: 10px 0;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border: 1px solid #d9dfe0;
+      border-left: 4px solid var(--accent);
+      background: #f7f9f9;
+      font-family: "Cascadia Mono", Consolas, monospace;
+      font-size: .82rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+    .method-box, .conclusion-box {
+      padding: 15px 18px;
+      border-left: 4px solid var(--blue);
+      background: #edf3f8;
+    }
+    .conclusion-box {
+      border-left-color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .method-box span, .conclusion-box span {
+      display: block;
+      color: var(--blue);
+      font-size: .75rem;
+      font-weight: 850;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .conclusion-box span { color: var(--accent); }
+    .method-box p, .conclusion-box p {
+      margin: 5px 0 0;
+      font-size: .91rem;
+    }
+    .answer-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0 34px;
+      margin: 28px 0 6px;
+      border-top: 2px solid var(--ink);
+      border-bottom: 1px solid var(--line);
+    }
+    .answer {
+      padding: 20px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .answer:nth-last-child(-n+2) { border-bottom: 0; }
+    .answer .number {
+      color: var(--accent);
+      font-family: Georgia, serif;
+      font-size: 1.45rem;
+      font-weight: 700;
+    }
+    .answer strong { display: block; margin: 4px 0 4px; }
+    .answer p { margin: 0; color: var(--muted); font-size: .93rem; }
+    .callout {
+      margin: 24px 0;
+      padding: 18px 22px;
+      border-left: 4px solid var(--accent);
+      background: var(--accent-soft);
+    }
+    .callout.warning {
+      border-left-color: var(--warm);
+      background: var(--warm-soft);
+    }
+    .callout p:last-child { margin-bottom: 0; }
+    .table-wrap {
+      width: 100%;
+      margin: 22px 0 14px;
+      overflow-x: auto;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    table {
+      width: 100%;
+      min-width: 760px;
+      border-collapse: collapse;
+      font-size: .88rem;
+      line-height: 1.45;
+    }
+    table.compact { min-width: 660px; }
+    th, td {
+      padding: 11px 12px;
+      border-bottom: 1px solid #e9ecee;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: #4d5960;
+      background: #f6f7f7;
+      font-size: .76rem;
+      font-weight: 800;
+      letter-spacing: .025em;
+      text-transform: uppercase;
+    }
+    tbody tr:last-child td { border-bottom: 0; }
+    .numeric td:not(:first-child), .numeric th:not(:first-child) {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    figure {
+      width: min(100%, 1080px);
+      margin: 30px auto 38px;
+    }
+    figure img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+    figcaption {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: .86rem;
+      line-height: 1.58;
+    }
+    .model-detail {
+      padding: 26px 0 22px;
+      border-top: 1px solid var(--line);
+    }
+    .model-detail:first-child { border-top: 0; }
+    .model-detail .table-wrap { margin: 12px 0 10px; }
+    .model-detail p { max-width: 980px; color: #4e5960; }
+    .diagnosis-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0 34px;
+      margin-top: 24px;
+    }
+    .diagnosis {
+      padding: 18px 0;
+      border-top: 1px solid var(--line);
+    }
+    .diagnosis p { margin: 5px 0 0; color: var(--muted); }
+    .anomaly-stack { margin: 20px 0 26px; }
+    details.anomaly-case { margin: 0; }
+    details.anomaly-case summary {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      padding: 15px 0;
+    }
+    .anomaly-id {
+      flex: 0 0 auto;
+      color: var(--warm);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 1.05rem;
+      font-weight: 800;
+    }
+    details.anomaly-case p {
+      max-width: 980px;
+      margin: 7px 0;
+    }
+    details.anomaly-case .caveat { color: var(--muted); }
+    .paired-example {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    }
+    .paired-example > div {
+      min-width: 0;
+      padding: 13px 15px;
+      border: 1px solid var(--line);
+      background: var(--soft);
+    }
+    pre {
+      margin: 8px 0 0;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      color: #263238;
+      font: .84rem/1.55 Consolas, "SFMono-Regular", monospace;
+    }
+    .math-equation {
+      width: min(100%, 1040px);
+      margin: 28px auto;
+      padding: 0 8px;
+      counter-increment: equation;
+    }
+    main { counter-reset: equation; }
+    .equation-title {
+      max-width: 920px;
+      margin: 0 auto 8px;
+      font-size: .88rem;
+      font-weight: 700;
+    }
+    .math-scroll {
+      display: grid;
+      grid-template-columns: minmax(max-content, 1fr) 3rem;
+      align-items: center;
+      width: 100%;
+      overflow-x: auto;
+      padding: 7px 0;
+    }
+    .math-scroll::after {
+      content: "(" counter(equation) ")";
+      grid-column: 2;
+      justify-self: end;
+      color: var(--muted);
+      font-family: "Times New Roman", serif;
+    }
+    math[display="block"] {
+      grid-column: 1;
+      justify-self: center;
+      width: max-content;
+      margin: 0 1rem;
+      font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif;
+      font-size: 1.26rem;
+    }
+    .equation-note {
+      max-width: 920px;
+      margin: 7px auto 0;
+      color: var(--muted);
+      font-size: .88rem;
+    }
+    details {
+      margin: 18px 0;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    summary {
+      cursor: pointer;
+      padding: 13px 0;
+      font-weight: 700;
+    }
+    details > div { padding: 0 0 18px; }
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 16px;
+      margin-top: 18px;
+    }
+    .links a {
+      color: var(--accent);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+    code {
+      padding: .12em .32em;
+      border-radius: 3px;
+      background: #f0f2f2;
+      font-size: .9em;
+    }
+    footer {
+      padding: 28px 0 45px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: .82rem;
+    }
+    @media (max-width: 780px) {
+      .header-inner, main, .nav-inner { width: min(100% - 24px, 1180px); }
+      .header-inner { padding: 38px 0 30px; }
+      .answer-grid, .diagnosis-list, .paired-example, .prompt-grid, .method-grid { grid-template-columns: 1fr; }
+      .answer:nth-last-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .answer:last-child { border-bottom: 0; }
+      section { padding: 30px 0 38px; }
+      .math-scroll { grid-template-columns: minmax(max-content, 1fr) 2.4rem; }
+      math[display="block"] { font-size: 1.05rem; margin: 0 .6rem; }
+    }
+    @media print {
+      nav { display: none; }
+      body { font-size: 11pt; }
+      section { break-inside: auto; }
+      figure, .model-detail, .math-equation { break-inside: avoid; }
+    }
+    </style>
+</head>
+<body>
+<!-- CORE_RESULTS_REPORT_V3 -->
+<header>
+  <div class="header-inner">
+    <p class="eyebrow">Realistic CoT NiaH Count · Core results</p>
+    <h1>准确率、Query 顺序与推理模式</h1>
+    <p class="subtitle">重写后的主报告先回答三个问题：八个模型到底有多准；query 放在 passage 前后会怎样；每个模型内部的 direct、enumeration 与 native thinking 有什么差别。低准确率的原因随后单独诊断，empirical-law 拟合保留在最后。</p>
+    <div class="meta">
+      <span>6,300 requests</span><span>8 models</span><span>3 passage lengths</span>
+      <span>10 needle counts</span><span>5 seeds</span><span>Generated 2026-07-25 18:52 UTC</span>
+    </div>
+  </div>
+</header>
+<nav>
+  <div class="nav-inner">
+    <a href="#answers">结论</a>
+    <a href="#setup">实验设定</a>
+    <a href="#query-order">准确率与 query 顺序</a>
+    <a href="#modes">逐模型模式比较</a>
+    <a href="#anomalies">异常现象与机制</a>
+    <a href="#low-accuracy">低准确率原因</a>
+    <a href="#laws">Empirical law</a>
+    <a href="#reproducibility">复现与完整数据</a>
+  </div>
+</nav>
+<main>
+  <section id="answers">
+    <h2>先给答案</h2>
+    <p class="lead">下面四点是主结果。所有百分比均为 exact accuracy；parse failure、格式失败和截断都保留为失败。</p>
+    <div class="answer-grid">
+      <div class="answer">
+        <span class="number">01</span>
+        <strong>总体最高的是 Qwen3-32B，最低的是 Llama3.2-3B。</strong>
+        <p>总体准确率从 Qwen3-32B 的 76.2%、Gemma4-E4B 的 69.9%、Qwen3-8B 的 68.0%，下降到 Llama3.2-3B 的 13.7%。但总分不能解释 query-order 反转。</p>
+      </div>
+      <div class="answer">
+        <span class="number">02</span>
+        <strong>Query last 并不普遍更好；效应由模型和模式共同决定。</strong>
+        <p>Qwen enumeration 强烈偏好 query last（8B: 32.0% → 95.3%; 32B: 50.7% → 98.7%），Gemma4-E4B enumeration 则相反（95.3% → 75.3%）。</p>
+      </div>
+      <div class="answer">
+        <span class="number">03</span>
+        <strong>Native thinking 对五个支持它的模型全部有明显收益。</strong>
+        <p>相对 direct 的总体提升为 +36.7 至 +56.0 pp。OLMo 与两个 Llama 在本实验中没有注册 native thinking，不能把缺失值解释为 0。</p>
+      </div>
+      <div class="answer">
+        <span class="number">04</span>
+        <strong>低准确率并非单一原因。</strong>
+        <p>Qwen3-1.7B 与 OLMo 主要是可解析的数值计数错误；Llama3.1 混合了 direct undercount 与 enumeration 格式失败；Llama3.2 同时存在格式、重复、幻觉和计数错误；Gemma4-12B 则是严重的模式特定截断。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="setup">
+    <h2>实验设定与读表规则</h2>
+    <p class="lead">每个已注册模式包含 3 个 canonical passage 长度（2k、5k、10k tokens）× 10 个真实 needle 数量（1、2、3、4、5、6、8、10、20、30）× 5 seeds × 2 个 query orders，共 300 个请求。下面把数据生成、prompt 与解码口径全部写出，避免把模板差异误当成模型能力差异。</p>
+    <ul>
+      <li><strong>Master stimuli：</strong>150 条 = 3 个 T × 10 个 N × 5 seeds；同一 raw-text passage 在所有模型、模式与 query order 中复用。</li>
+      <li><strong>长度 T：</strong>使用 canonical tokenizer <code>Qwen/Qwen3-8B</code>，在插入全部 needles 后、加入 task/chat template 前计算。固定 T 时增加 N 会相应缩短 filler，因此不会机械地同时增加总 passage 长度。</li>
+      <li><strong>Needle density：</strong><code>ρ = N / (T/1000) = 1000N/T</code>；每条 needle 是唯一 city-score audit record，单个 stimulus 内 city 与 score 都不重复。</li>
+      <li><strong>Query first</strong>：任务问题/输出约束位于 passage 之前；<strong>query last</strong>：位于 passage 之后。</li>
+      <li><strong>Direct</strong>：直接给出总数；<strong>enumeration</strong>：列出识别到的记录并给出总数；<strong>native thinking</strong>：使用该模型官方 chat template 的 thinking 开关。</li>
+      <li>Qwen3 与 Gemma4 共 5 个模型运行三种模式，各 900 条；OLMo 与两个 Llama 只注册 direct + enumeration，各 600 条。</li>
+      <li><strong>运行环境：</strong>Lambda Cloud 单卡 NVIDIA H100 PCIe 80 GB，BF16、vLLM 0.25.1、Transformers 5.14.1；仓库 commit <code>090d9838…1c9</code>，stimuli SHA256 <code>374dc935…a5f1</code>。</li>
+      <li>Primary metric 的分母始终包含所有请求；只有 signed bias/absolute error 才条件于成功解析的数值输出。</li>
+    </ul>
+    
+    <div class="math-equation">
+      <div class="equation-title">Primary outcome: exact correctness over every registered request</div>
+      <div class="math-scroll">
+        <math display="block" aria-label="Exact accuracy definition">
+          <mrow>
+            <msub><mi>Y</mi><mi>i</mi></msub><mo>=</mo>
+            <mn>1</mn><mo>{</mo>
+            <msub><mi>parsed</mi><mi>i</mi></msub><mo>=</mo><mn>1</mn><mo>,</mo>
+            <msub><mi>truncated</mi><mi>i</mi></msub><mo>=</mo><mn>0</mn><mo>,</mo>
+            <msub><mover><mi>N</mi><mo>^</mo></mover><mi>i</mi></msub>
+            <mo>=</mo><msub><mi>N</mi><mi>i</mi></msub><mo>}</mo><mo>,</mo>
+            <mspace width="1em"/>
+            <mi>Accuracy</mi><mo>=</mo>
+            <mfrac><mrow><munderover><mo>∑</mo><mi>i</mi><mi>n</mi></munderover>
+            <msub><mi>Y</mi><mi>i</mi></msub></mrow><mi>n</mi></mfrac>
+          </mrow>
+        </math>
+      </div>
+      <p class="equation-note">Parse failure, wrong format, and truncation remain failures; no request is removed from the denominator.</p>
+    </div>
+    
+    
+    <h3>Query placement：唯一改变的是 task block 的位置</h3>
+    <div class="prompt-grid">
+      <div>
+        <h4>Query-first 外层结构</h4>
+        <pre>&lt;TASK BLOCK&gt;
+
+&lt;passage&gt;
+{context}
+&lt;/passage&gt;</pre>
+      </div>
+      <div>
+        <h4>Query-last 外层结构</h4>
+        <pre>&lt;passage&gt;
+{context}
+&lt;/passage&gt;
+
+&lt;TASK BLOCK&gt;</pre>
+      </div>
+    </div>
+    <p>System/template 文本、passage 内容、分隔符和输出约束保持不变；query last
+    的 passage 前不出现寻找 city-score records 的 task cue。</p>
+
+    <h3>Direct 与 native thinking 使用的完整 task block</h3>
+    <pre>The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city&#x27;s numeric score.
+
+How many city-score audit records are in the passage?
+In the final answer, output exactly one line in this form:
+Total: &lt;integer&gt;</pre>
+    <p>两者 messages 完全相同。Direct 关闭模型官方 thinking 开关；
+    native thinking 只开启该开关，并将 raw reasoning 与 final answer 分开保存。</p>
+    <p>对 Qwen3，direct 与 enumeration 使用
+    <code>enable_thinking=false</code>，tokenizer-rendered assistant prefix 中预闭合一个
+    空的 <code>&lt;think&gt;…&lt;/think&gt;</code> 区块；native thinking 使用
+    <code>enable_thinking=true</code>，不预闭合该区块。其他 checkpoint 的精确 wrapper
+    与注入行为列在下表，并由逐条件 prompt SHA256 快照审计。</p>
+
+    <h3>Enumeration 的完整 task block</h3>
+    <pre>The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city&#x27;s numeric score.
+
+Find every city-score audit record in the passage. In passage order, output
+one record per line as:
+&lt;k&gt;. &lt;city&gt;: &lt;score&gt;
+where k starts at 1 and increases by 1.
+Then output one final line:
+Total: &lt;integer&gt;
+Do not include any other text.</pre>
+    <p>Enumeration 关闭 native thinking；评估器同时解析编号清单与最后的
+    <code>Total</code>。Primary exact accuracy 只检查 final count，完整清单 fidelity
+    在异常诊断中另算。</p>
+
+    <h3>冻结解码设置</h3>
+    <div class="table-wrap"><table class="compact numeric"><thead><tr><th>Mode / family</th><th>Sampling</th><th>Thinking</th><th>max new tokens</th><th>temperature</th><th>top-p</th><th>top-k</th><th>min-p</th></tr></thead><tbody><tr><td>Direct / all models</td><td>Greedy</td><td>Off where supported</td><td>64</td><td>0</td><td>1.0</td><td>−1</td><td>0</td></tr><tr><td>Enumeration / all models</td><td>Greedy</td><td>Off where supported</td><td>1,536</td><td>0</td><td>1.0</td><td>−1</td><td>0</td></tr><tr><td>Native thinking / Qwen3</td><td>Sampled</td><td>On</td><td>4,096</td><td>0.6</td><td>0.95</td><td>20</td><td>0</td></tr><tr><td>Native thinking / Gemma4</td><td>Sampled</td><td>On</td><td>4,096</td><td>1.0</td><td>0.95</td><td>64</td><td>template default</td></tr></tbody></table></div>
+    <p>Native-thinking generation seed 由 stimulus seed 确定并保存。所有 first-pass
+    outputs 均保留；<code>finish_reason=length</code> 记为 truncation，不重写 prompt、
+    不放宽 parser、不选择性重跑。</p>
+    
+    <details>
+      <summary>查看八个 checkpoint 的 tokenizer-rendered wrapper 摘要</summary>
+      <div>
+        <div class="table-wrap"><table class="compact"><thead><tr><th>Model</th><th>Registered modes</th><th>Native thinking</th><th>Tokenizer-rendered wrapper</th><th>Injected/template behavior</th></tr></thead><tbody><tr><td><strong>Qwen3-8B</strong></td><td>direct, enumeration, native_thinking</td><td>Yes</td><td>&lt;|im_start|&gt;user … &lt;|im_end|&gt; → &lt;|im_start|&gt;assistant</td><td>No injected system message. With thinking off, the assistant prefix contains an empty &lt;think&gt;…&lt;/think&gt; block; native thinking leaves it open.</td></tr><tr><td><strong>Qwen3-1.7B</strong></td><td>direct, enumeration, native_thinking</td><td>Yes</td><td>&lt;|im_start|&gt;user … &lt;|im_end|&gt; → &lt;|im_start|&gt;assistant</td><td>No injected system message. With thinking off, the assistant prefix contains an empty &lt;think&gt;…&lt;/think&gt; block; native thinking leaves it open.</td></tr><tr><td><strong>Qwen3-32B</strong></td><td>direct, enumeration, native_thinking</td><td>Yes</td><td>&lt;|im_start|&gt;user … &lt;|im_end|&gt; → &lt;|im_start|&gt;assistant</td><td>No injected system message. With thinking off, the assistant prefix contains an empty &lt;think&gt;…&lt;/think&gt; block; native thinking leaves it open.</td></tr><tr><td><strong>Gemma4-E4B</strong></td><td>direct, enumeration, native_thinking</td><td>Yes</td><td>&lt;bos&gt;&lt;|turn&gt;user … &lt;turn|&gt; → &lt;|turn&gt;model</td><td>Official Gemma template; native thinking adds its thought-channel template behavior.</td></tr><tr><td><strong>Gemma4-12B</strong></td><td>direct, enumeration, native_thinking</td><td>Yes</td><td>&lt;bos&gt;&lt;|turn&gt;user … &lt;turn|&gt; → &lt;|turn&gt;model</td><td>Official Gemma template; the frozen direct rendering opens the thought channel after the model marker.</td></tr><tr><td><strong>OLMo-Hybrid-7B</strong></td><td>direct, enumeration</td><td>No</td><td>ChatML system → user → assistant</td><td>Tokenizer injects a function-calling system message stating that no functions are available.</td></tr><tr><td><strong>Llama3.1-8B</strong></td><td>direct, enumeration</td><td>No</td><td>&lt;|begin_of_text|&gt; + system/user/assistant headers</td><td>Tokenizer injects knowledge date and frozen Today Date: 26 Jul 2024.</td></tr><tr><td><strong>Llama3.2-3B</strong></td><td>direct, enumeration</td><td>No</td><td>&lt;|begin_of_text|&gt; + system/user/assistant headers</td><td>Tokenizer injects knowledge date and frozen Today Date: 24 Jul 2026.</td></tr></tbody></table></div>
+        <p>完整 42 组 model × mode × query-order 示例与 SHA256 保留在
+        <a href="tables/model_prompt_format_examples.csv">prompt-format CSV</a> 和
+        <a href="prompt_formats/model_prompt_formats.json">prompt-format JSON</a>。</p>
+      </div>
+    </details>
+    
+    <div class="method-grid">
+      <div class="method-box">
+        <span>计算方法</span>
+        <p>正式网格由 150 条 master stimuli 与已注册模型/模式/order 做笛卡尔展开；结构 QC 核对 6,300 个唯一 request_id、T/N/seed 完整网格、context hash、stimuli SHA256、manifest 与 parser 字段。</p>
+      </div>
+      <div class="conclusion-box">
+        <span>目前结论</span>
+        <p>分析中的 T、N、ρ、mode 与 query order 都是冻结实验变量；prompt、解码和 parser 没有根据结果事后修改。不同模型 tokenizer 下的实际 passage/input tokens另存，但跨模型主图统一使用 canonical T。</p>
+      </div>
+    </div>
+    
+  </section>
+
+  <section id="query-order">
+    <h2>1. 先拆开 Query first 与 Query last</h2>
+    <p class="lead">表中的差值为 <code>query_last − query_first</code>。95% 区间按 stimulus 聚类 bootstrap；同一 stimulus 在不同模式中的结果一起重采样，避免把重复条件当作完全独立样本。</p>
+    <div class="table-wrap"><table class="numeric"><thead><tr><th>Model</th><th>Exact / n</th><th>Overall</th><th>Query first</th><th>Query last</th><th>Δ last − first</th><th>Paired cluster-bootstrap 95% CI</th></tr></thead><tbody><tr><td><strong>Qwen3-32B</strong></td><td>686/900</td><td>76.2%</td><td>71.1%</td><td>81.3%</td><td>+10.2 pp</td><td>[+6.7 pp, +13.8 pp]</td></tr><tr><td><strong>Gemma4-E4B</strong></td><td>629/900</td><td>69.9%</td><td>74.9%</td><td>64.9%</td><td>-10.0 pp</td><td>[-14.4 pp, -5.6 pp]</td></tr><tr><td><strong>Qwen3-8B</strong></td><td>612/900</td><td>68.0%</td><td>57.3%</td><td>78.7%</td><td>+21.3 pp</td><td>[+17.3 pp, +25.3 pp]</td></tr><tr><td><strong>Gemma4-12B</strong></td><td>452/900</td><td>50.2%</td><td>59.1%</td><td>41.3%</td><td>-17.8 pp</td><td>[-21.3 pp, -14.2 pp]</td></tr><tr><td><strong>OLMo-Hybrid-7B</strong></td><td>271/600</td><td>45.2%</td><td>48.7%</td><td>41.7%</td><td>-7.0 pp</td><td>[-14.0 pp, +0.0 pp]</td></tr><tr><td><strong>Qwen3-1.7B</strong></td><td>332/900</td><td>36.9%</td><td>32.7%</td><td>41.1%</td><td>+8.4 pp</td><td>[+4.2 pp, +12.9 pp]</td></tr><tr><td><strong>Llama3.1-8B</strong></td><td>182/600</td><td>30.3%</td><td>21.3%</td><td>39.3%</td><td>+18.0 pp</td><td>[+10.7 pp, +25.3 pp]</td></tr><tr><td><strong>Llama3.2-3B</strong></td><td>82/600</td><td>13.7%</td><td>7.3%</td><td>20.0%</td><td>+12.7 pp</td><td>[+8.7 pp, +16.7 pp]</td></tr></tbody></table></div>
+    <figure>
+      <img src="assets/core01_query_order_accuracy.png" alt="Eight-model dumbbell plot comparing exact accuracy for query first and query last.">
+      <figcaption><strong>Figure 1.</strong> 每个模型把所有已注册模式合并后，query first 与 query last 的 exact accuracy。横轴是全部请求准确率，连线只表示同一模型两种 query placement 的差异。该图适合看总体方向，但会掩盖 Figure 2 中的 mode-specific 反转。</figcaption>
+    </figure>
+    <div class="callout warning">
+      <strong>最重要的交互：</strong>
+      Qwen3-8B 和 Qwen3-32B 的 enumeration 在 query first 时大量把“分数之和”当作“记录数量”，query last 几乎消除了该错误；Gemma enumeration 则在 query first 时检索更完整。Llama3.2-3B 的 enumeration 是另一种模式：query last 的格式失败达到 85.3%，因此把所有模型平均成一个 query-order 主效应会产生误导。
+    </div>
+    <figure>
+      <img src="assets/core02_mode_query_accuracy.png" alt="Faceted heatmap of exact accuracy by model, prompt mode, and query placement.">
+      <figcaption><strong>Figure 2.</strong> 八个面板分别对应一个模型；行是 direct、enumeration、native thinking，列是 query first/query last，单元格为全部长度、needle 数量和 seeds 上的 exact accuracy。灰色 “not run” 表示模式未注册，不是失败。</figcaption>
+    </figure>
+    
+    <div class="method-grid">
+      <div class="method-box">
+        <span>计算方法</span>
+        <p>总体表按模型合并该模型已注册 modes；mode-specific 表保持 model×mode。差值定义为 query_last−query_first，并按完全相同 stimulus 配对；95% CI 用 5,000 次 stimulus-cluster bootstrap，异常条目另报告 exact McNemar 检验。</p>
+      </div>
+      <div class="conclusion-box">
+        <span>目前结论</span>
+        <p>不存在全模型共享的 query-last 主效应。Qwen enumeration 从 query last 获益很大；Gemma4-E4B enumeration 相反；部分 direct/native 条件还有方向反转。因此后续机制与回归必须保留 mode×order 条件。</p>
+      </div>
+    </div>
+    
+  </section>
+
+  <section id="modes">
+    <h2>2. 再在每个模型内部比较三种模式</h2>
+    <p class="lead">每个表先保留 query-order 拆分，再给出模式总体准确率。<code>Δ vs direct</code> 使用完全相同 stimulus 和 query order 的配对请求；因此它比跨模型比较更直接地回答“这种推理模式对该模型是否有帮助”。</p>
+    
+            <article class="model-detail" id="model-qwen3-8b">
+              <h3>Qwen3-8B</h3>
+              <div class="table-wrap"><table class="compact numeric"><thead><tr><th>Mode</th><th>Query first</th><th>Query last</th><th>Overall</th><th>Δ last − first</th><th>Δ vs direct</th></tr></thead><tbody><tr><td><strong>Direct</strong></td><td>42.7%</td><td>42.7%</td><td>42.7%</td><td>+0.0 pp</td><td>reference</td></tr><tr><td><strong>Enumeration</strong></td><td>32.0%</td><td>95.3%</td><td>63.7%</td><td>+63.3 pp</td><td>+21.0 pp</td></tr><tr><td><strong>Native thinking</strong></td><td>97.3%</td><td>98.0%</td><td>97.7%</td><td>+0.7 pp</td><td>+55.0 pp</td></tr></tbody></table></div>
+              <p>Native thinking is both strongest and stable (97.7%). Enumeration is highly order-sensitive: 32.0% with query first versus 95.3% with query last. The low query-first enumeration score is dominated by summing the record scores instead of counting records.</p>
+            </article>
+            
+
+            <article class="model-detail" id="model-qwen3-1-7b">
+              <h3>Qwen3-1.7B</h3>
+              <div class="table-wrap"><table class="compact numeric"><thead><tr><th>Mode</th><th>Query first</th><th>Query last</th><th>Overall</th><th>Δ last − first</th><th>Δ vs direct</th></tr></thead><tbody><tr><td><strong>Direct</strong></td><td>15.3%</td><td>34.7%</td><td>25.0%</td><td>+19.3 pp</td><td>reference</td></tr><tr><td><strong>Enumeration</strong></td><td>14.7%</td><td>33.3%</td><td>24.0%</td><td>+18.7 pp</td><td>-1.0 pp</td></tr><tr><td><strong>Native thinking</strong></td><td>68.0%</td><td>55.3%</td><td>61.7%</td><td>-12.7 pp</td><td>+36.7 pp</td></tr></tbody></table></div>
+              <p>Native thinking raises accuracy from 25.0% to 61.7%. Query last helps direct and enumeration, but native thinking is better with query first. The remaining error is mainly numeric under/over-counting rather than parsing.</p>
+            </article>
+            
+
+            <article class="model-detail" id="model-qwen3-32b">
+              <h3>Qwen3-32B</h3>
+              <div class="table-wrap"><table class="compact numeric"><thead><tr><th>Mode</th><th>Query first</th><th>Query last</th><th>Overall</th><th>Δ last − first</th><th>Δ vs direct</th></tr></thead><tbody><tr><td><strong>Direct</strong></td><td>64.0%</td><td>48.0%</td><td>56.0%</td><td>-16.0 pp</td><td>reference</td></tr><tr><td><strong>Enumeration</strong></td><td>50.7%</td><td>98.7%</td><td>74.7%</td><td>+48.0 pp</td><td>+18.7 pp</td></tr><tr><td><strong>Native thinking</strong></td><td>98.7%</td><td>97.3%</td><td>98.0%</td><td>-1.3 pp</td><td>+42.0 pp</td></tr></tbody></table></div>
+              <p>Native thinking is near ceiling (98.0%) for both orders. Enumeration again depends on placement (50.7% vs 98.7%); all 72 query-first enumeration overcounts retained the complete gold record list and then produced the wrong total.</p>
+            </article>
+            
+
+            <article class="model-detail" id="model-gemma4-e4b">
+              <h3>Gemma4-E4B</h3>
+              <div class="table-wrap"><table class="compact numeric"><thead><tr><th>Mode</th><th>Query first</th><th>Query last</th><th>Overall</th><th>Δ last − first</th><th>Δ vs direct</th></tr></thead><tbody><tr><td><strong>Direct</strong></td><td>33.3%</td><td>44.0%</td><td>38.7%</td><td>+10.7 pp</td><td>reference</td></tr><tr><td><strong>Enumeration</strong></td><td>95.3%</td><td>75.3%</td><td>85.3%</td><td>-20.0 pp</td><td>+46.7 pp</td></tr><tr><td><strong>Native thinking</strong></td><td>96.0%</td><td>75.3%</td><td>85.7%</td><td>-20.7 pp</td><td>+47.0 pp</td></tr></tbody></table></div>
+              <p>Enumeration (85.3%) and native thinking (85.7%) are effectively tied and far above direct (38.7%). Unlike Qwen enumeration, query first is better; query-last errors are mainly undercounts.</p>
+            </article>
+            
+
+            <article class="model-detail" id="model-gemma4-12b">
+              <h3>Gemma4-12B</h3>
+              <div class="table-wrap"><table class="compact numeric"><thead><tr><th>Mode</th><th>Query first</th><th>Query last</th><th>Overall</th><th>Δ last − first</th><th>Δ vs direct</th></tr></thead><tbody><tr><td><strong>Direct</strong></td><td>4.7%</td><td>0.0%</td><td>2.3%</td><td>-4.7 pp</td><td>reference</td></tr><tr><td><strong>Enumeration</strong></td><td>100.0%</td><td>80.0%</td><td>90.0%</td><td>-20.0 pp</td><td>+87.7 pp</td></tr><tr><td><strong>Native thinking</strong></td><td>72.7%</td><td>44.0%</td><td>58.3%</td><td>-28.7 pp</td><td>+56.0 pp</td></tr></tbody></table></div>
+              <p>Enumeration is the reliable mode (90.0%; 100.0% with query first). Direct collapses to 2.3% because 97.7% of requests hit the generation limit. This is a mode/template-output failure, not evidence that parsed numeric counts are generally poor.</p>
+            </article>
+            
+
+            <article class="model-detail" id="model-olmo-hybrid-7b">
+              <h3>OLMo-Hybrid-7B</h3>
+              <div class="table-wrap"><table class="compact numeric"><thead><tr><th>Mode</th><th>Query first</th><th>Query last</th><th>Overall</th><th>Δ last − first</th><th>Δ vs direct</th></tr></thead><tbody><tr><td><strong>Direct</strong></td><td>54.7%</td><td>44.0%</td><td>49.3%</td><td>-10.7 pp</td><td>reference</td></tr><tr><td><strong>Enumeration</strong></td><td>42.7%</td><td>39.3%</td><td>41.0%</td><td>-3.3 pp</td><td>-8.3 pp</td></tr><tr><td><strong>Native thinking</strong></td><td>—</td><td>—</td><td>—</td><td>—</td><td>Not registered</td></tr></tbody></table></div>
+              <p>Direct (49.3%) is better than enumeration (41.0%); query first is modestly better in both modes. Native thinking was not registered. Parsing is almost complete, so the bottleneck is numeric counting and enumeration aggregation.</p>
+            </article>
+            
+
+            <article class="model-detail" id="model-llama3-1-8b">
+              <h3>Llama3.1-8B</h3>
+              <div class="table-wrap"><table class="compact numeric"><thead><tr><th>Mode</th><th>Query first</th><th>Query last</th><th>Overall</th><th>Δ last − first</th><th>Δ vs direct</th></tr></thead><tbody><tr><td><strong>Direct</strong></td><td>15.3%</td><td>40.7%</td><td>28.0%</td><td>+25.3 pp</td><td>reference</td></tr><tr><td><strong>Enumeration</strong></td><td>27.3%</td><td>38.0%</td><td>32.7%</td><td>+10.7 pp</td><td>+4.7 pp</td></tr><tr><td><strong>Native thinking</strong></td><td>—</td><td>—</td><td>—</td><td>—</td><td>Not registered</td></tr></tbody></table></div>
+              <p>Both modes are weak (direct 28.0%, enumeration 32.7%), and query last helps both. Direct query-first failures are mostly undercounts; enumeration additionally has a high format/parse failure rate. Native thinking was not registered.</p>
+            </article>
+            
+
+            <article class="model-detail" id="model-llama3-2-3b">
+              <h3>Llama3.2-3B</h3>
+              <div class="table-wrap"><table class="compact numeric"><thead><tr><th>Mode</th><th>Query first</th><th>Query last</th><th>Overall</th><th>Δ last − first</th><th>Δ vs direct</th></tr></thead><tbody><tr><td><strong>Direct</strong></td><td>8.7%</td><td>38.0%</td><td>23.3%</td><td>+29.3 pp</td><td>reference</td></tr><tr><td><strong>Enumeration</strong></td><td>6.0%</td><td>2.0%</td><td>4.0%</td><td>-4.0 pp</td><td>-19.3 pp</td></tr><tr><td><strong>Native thinking</strong></td><td>—</td><td>—</td><td>—</td><td>—</td><td>Not registered</td></tr></tbody></table></div>
+              <p>Direct query last reaches 38.0%, but query first is only 8.7%. Enumeration is unreliable (4.0%), especially query last, where formatting fails on 85.3%. Repetition, hallucinated records, and score-summing all occur. Native thinking was not registered.</p>
+            </article>
+            
+    
+    <div class="method-grid">
+      <div class="method-box">
+        <span>计算方法</span>
+        <p>在每个模型内部，以 stimulus_id×query_order 将 enumeration/native-thinking 与 direct 一一配对；报告 comparison−direct 的平均 exact-correct 差值、cluster-bootstrap 95% CI 与 discordant-pair McNemar p-value。未注册 native thinking 的模型保持缺失。</p>
+      </div>
+      <div class="conclusion-box">
+        <span>目前结论</span>
+        <p>五个支持 native thinking 的模型都得到明显准确率提升；enumeration 则高度依赖模型与 query placement。模式收益不能从一个模型外推到另一模型，也不能把未运行的 native thinking 当作 0。</p>
+      </div>
+    </div>
+    
+  </section>
+
+  <section id="anomalies">
+    <h2>3. 异常现象：先定位发生在哪一步，再解释原因</h2>
+    <p class="lead">为避免只挑最显眼的例子，本节先冻结四条筛选规则，再逐项核对原始请求。规则覆盖大幅 query-order 跳变、模式相对 direct 的大幅变化、接口/生成失败，以及“已经完整检索却给错 Total”的 aggregation failure。完整命中清单保存在 CSV；下面十个案例将同一机制的重复命中合并解释。</p>
+    <div class="table-wrap"><table class="compact"><thead><tr><th>Flag family</th><th>Frozen rule</th><th>Flagged conditions</th><th>Examples</th></tr></thead><tbody><tr><td>query order shift</td><td>|query-last − query-first| ≥ 10 pp</td><td>15</td><td>Gemma4-12B / Enumeration; Gemma4-12B / Native thinking; Gemma4-E4B / Direct; Gemma4-E4B / Enumeration; +11 more</td></tr><tr><td>mode shift vs direct</td><td>|mode − direct| ≥ 20 pp</td><td>8</td><td>Gemma4-12B / Enumeration; Gemma4-12B / Native thinking; Gemma4-E4B / Enumeration; Gemma4-E4B / Native thinking; +4 more</td></tr><tr><td>interface failure</td><td>format/parse + truncation ≥ 25%</td><td>10</td><td>Gemma4-12B / Direct / Query first; Gemma4-12B / Direct / Query last; Gemma4-12B / Native thinking / Query first; Gemma4-12B / Native thinking / Query last; +6 more</td></tr><tr><td>aggregation after complete retrieval</td><td>complete record set but wrong Total ≥ 20%</td><td>9</td><td>Llama3.1-8B / Enumeration / Query first; Llama3.1-8B / Enumeration / Query last; Llama3.2-3B / Enumeration / Query first; Llama3.2-3B / Enumeration / Query last; +5 more</td></tr></tbody></table></div>
+    <p>这些规则共标记 42 个 model × mode × order/contrast 条件。它们是诊断入口，不是新的显著性阈值；query-order 案例另外保留成对 discordance 与 exact McNemar p-value。<a href="tables/core_anomaly_flags.csv">下载完整 anomaly flags</a>。</p>
+
+    <h3>先澄清 Qwen enumeration 的“准确率跳变”到底测到了什么</h3>
+    <p>Primary exact accuracy 只检查最终计数是否等于真实 <em>N</em>；完整 enumeration 还要求城市—分数记录无缺失、无幻觉、无重复。因此，“final-count accuracy”与“complete record-set fidelity”必须同时报告。下表中的相关系数和相对距离只在“记录已完整但 Total 错误”的请求上计算。</p>
+    <div class="table-wrap"><table class="compact numeric"><thead><tr><th>Model</th><th>Query order</th><th>Final-count accuracy</th><th>Complete record set</th><th>Complete set, wrong Total</th><th>Wrong Total = score sum</th><th>corr(Total, score sum)</th><th>Median distance to score sum</th></tr></thead><tbody><tr><td><strong>Qwen3-8B</strong></td><td>Query first</td><td>32.0%</td><td>146/150 (97.3%)</td><td>98</td><td>40</td><td>0.916</td><td>3.4%</td></tr><tr><td><strong>Qwen3-8B</strong></td><td>Query last</td><td>95.3%</td><td>107/150 (71.3%)</td><td>0</td><td>0</td><td>—</td><td>—</td></tr><tr><td><strong>Qwen3-32B</strong></td><td>Query first</td><td>50.7%</td><td>148/150 (98.7%)</td><td>72</td><td>30</td><td>0.999</td><td>0.4%</td></tr><tr><td><strong>Qwen3-32B</strong></td><td>Query last</td><td>98.7%</td><td>148/150 (98.7%)</td><td>0</td><td>0</td><td>—</td><td>—</td></tr></tbody></table></div>
+    <div class="callout warning">
+      <strong>最关键的结论：</strong>
+      Qwen3-8B query-first enumeration 的低分不是检索崩溃：146/150 个请求找全记录，98 个却在最后的 Total 上失败。预测 Total 与所列 scores 之和高度相关，因此最符合数据的解释是 aggregation operator 选错；而 95.3% 的 query-last 分数也不等于 95.3% 的完整清单正确率。
+    </div>
+
+    <h3>逐项机制诊断</h3>
+    <p>每个条目严格区分 measured evidence、best-supported explanation 与尚未被当前实验隔离的因果机制。展开条目即可查看。</p>
+    <div class="anomaly-stack">
+            <details class="anomaly-case">
+              <summary>
+                <span class="anomaly-id">A1</span>
+                <span>Qwen3-8B · Exact count jumps from 32.0% to 95.3%.</span>
+              </summary>
+              <div>
+                <p><strong>Scope.</strong> enumeration × query order</p>
+                <p><strong>Measured evidence.</strong> With query first, 146/150 lists are complete, but 98 of them still have the wrong Total. Predicted Total versus score sum has r=0.916; median relative distance is 3.4%, and 65/98 are within 10%.</p>
+                <p><strong>Best-supported explanation.</strong> The main failure is operator selection at aggregation: Total is read as a sum of numeric scores rather than the number of records. Moving the instruction next to generation restores the count rule.</p>
+                <p class="caveat"><strong>Limit.</strong> The 95.3% headline scores only the final count. Full-list fidelity is 71.3% with query last, so it is not a 95.3% fully-correct enumeration rate.</p>
+                
+            <div class="paired-example">
+              <div>
+                <strong>Same stimulus · query first</strong>
+                <pre>1. Chennai: 72
+2. Reykjavik: 64
+Total: 136</pre>
+              </div>
+              <div>
+                <strong>Same stimulus · query last</strong>
+                <pre>1. Chennai: 72
+2. Reykjavik: 64
+Total: 2</pre>
+              </div>
+            </div>
+            
+              </div>
+            </details>
+            
+            <details class="anomaly-case">
+              <summary>
+                <span class="anomaly-id">A2</span>
+                <span>Qwen3-32B · Exact count rises from 50.7% to 98.7%.</span>
+              </summary>
+              <div>
+                <p><strong>Scope.</strong> enumeration × query order</p>
+                <p><strong>Measured evidence.</strong> All 72 query-first complete-list errors occur after retrieval; 30 equal the listed score sum exactly, 69 are within 10%, and corr(Total, score sum)=0.999.</p>
+                <p><strong>Best-supported explanation.</strong> The same aggregation ambiguity appears at 32B, so it is not unique to the 8B checkpoint. Native thinking stays near ceiling, showing that the failure is execution-path specific.</p>
+                <p class="caveat"><strong>Limit.</strong> Shared behavior across two Qwen sizes supports a family-level prompt interaction, not a universal architectural law.</p>
+                
+              </div>
+            </details>
+            
+            <details class="anomaly-case">
+              <summary>
+                <span class="anomaly-id">A3</span>
+                <span>Qwen3-8B · Direct accuracy is 42.7% for both query orders, although the error direction nearly reverses.</span>
+              </summary>
+              <div>
+                <p><strong>Scope.</strong> direct signed-error reversal</p>
+                <p><strong>Measured evidence.</strong> Query first has 81 undercounts and 1 overcount; query last has 6 undercounts and 80 overcounts.</p>
+                <p><strong>Best-supported explanation.</strong> Query placement changes the sign of numerical bias even when exact accuracy is unchanged. Accuracy alone therefore hides a major mechanism change.</p>
+                <p class="caveat"><strong>Limit.</strong> This identifies an output-bias shift; it does not isolate the internal attention or memory process causing it.</p>
+                
+              </div>
+            </details>
+            
+            <details class="anomaly-case">
+              <summary>
+                <span class="anomaly-id">A4</span>
+                <span>Qwen3-1.7B · Query last helps direct (15.3% → 34.7%) and enumeration (14.7% → 33.3%), but hurts native thinking (68.0% → 55.3%).</span>
+              </summary>
+              <div>
+                <p><strong>Scope.</strong> mode × query-order sign reversal</p>
+                <p><strong>Measured evidence.</strong> Direct query first produces 126 undercounts; native thinking query first instead reaches 102/150 exact.</p>
+                <p><strong>Best-supported explanation.</strong> Native thinking is not a uniform accuracy offset: it changes how the model uses query position and reduces the strong query-first undercount mechanism.</p>
+                <p class="caveat"><strong>Limit.</strong> The comparison is within one model and frozen decoding; it should not be generalized to untested Qwen templates.</p>
+                
+              </div>
+            </details>
+            
+            <details class="anomaly-case">
+              <summary>
+                <span class="anomaly-id">A5</span>
+                <span>Qwen3-32B · Direct prefers query first (64.0% vs 48.0%), enumeration strongly prefers query last, and native thinking is stable (98.7% vs 97.3%).</span>
+              </summary>
+              <div>
+                <p><strong>Scope.</strong> direct/enumeration order reversal</p>
+                <p><strong>Measured evidence.</strong> The order effect changes from −16.0 pp in direct to +48.0 pp in enumeration while native thinking differs by only −1.3 pp.</p>
+                <p><strong>Best-supported explanation.</strong> There is no model-wide best query order. The output protocol selects different counting/aggregation paths with different position sensitivity.</p>
+                <p class="caveat"><strong>Limit.</strong> Order and instruction-to-generation distance change together in this design, so a rule-repetition ablation is needed for causality.</p>
+                
+              </div>
+            </details>
+            
+            <details class="anomaly-case">
+              <summary>
+                <span class="anomaly-id">A6</span>
+                <span>Gemma4-E4B · Enumeration/native thinking fall from 95.3%/96.0% to 75.3%/75.3%, while direct improves from 33.3% to 44.0%.</span>
+              </summary>
+              <div>
+                <p><strong>Scope.</strong> query-first advantage only for explicit reasoning</p>
+                <p><strong>Measured evidence.</strong> Enumeration undercounts rise from 1 to 34 and native-thinking undercounts from 4 to 30 when the query moves last.</p>
+                <p><strong>Best-supported explanation.</strong> For explicit extraction/reasoning, knowing the task before reading the passage appears to help Gemma retain the full candidate set; the terse direct path has a different bottleneck.</p>
+                <p class="caveat"><strong>Limit.</strong> This is the best-supported behavioral interpretation, not direct evidence about Gemma&#x27;s internal memory state.</p>
+                
+              </div>
+            </details>
+            
+            <details class="anomaly-case">
+              <summary>
+                <span class="anomaly-id">A7</span>
+                <span>Gemma4-12B · Direct accuracy is 2.3%, whereas enumeration reaches 90.0%; native thinking is intermediate at 58.3%.</span>
+              </summary>
+              <div>
+                <p><strong>Scope.</strong> mode-specific generation collapse</p>
+                <p><strong>Measured evidence.</strong> Direct truncates on 293/300 requests, including 150/150 query-last requests. Native-thinking truncation rises from 38/150 query first to 78/150 query last; enumeration query first is 150/150 exact.</p>
+                <p><strong>Best-supported explanation.</strong> This is a generation-budget/channel-path failure rather than a general inability to count. The same model succeeds when routed through the enumeration output path.</p>
+                <p class="caveat"><strong>Limit.</strong> Its direct/native scores are conditional on the frozen generation budget and should not be treated as architecture-only capability.</p>
+                
+              </div>
+            </details>
+            
+            <details class="anomaly-case">
+              <summary>
+                <span class="anomaly-id">A8</span>
+                <span>OLMo-Hybrid-7B · Explicit enumeration lowers accuracy from 49.3% to 41.0%.</span>
+              </summary>
+              <div>
+                <p><strong>Scope.</strong> enumeration underperforms direct</p>
+                <p><strong>Measured evidence.</strong> Parsing remains high, but enumeration produces 101 overcounts; 46 requests retrieve the complete record set and still give a wrong Total.</p>
+                <p><strong>Best-supported explanation.</strong> Listing records adds an aggregation stage that can fail; explicit intermediate output is not automatically beneficial.</p>
+                <p class="caveat"><strong>Limit.</strong> OLMo native thinking was not registered, so this does not compare all possible reasoning interfaces.</p>
+                
+              </div>
+            </details>
+            
+            <details class="anomaly-case">
+              <summary>
+                <span class="anomaly-id">A9</span>
+                <span>Llama3.1-8B · Query last improves direct from 15.3% to 40.7%, but enumeration remains only 32.7% overall.</span>
+              </summary>
+              <div>
+                <p><strong>Scope.</strong> mixed counting and interface failure</p>
+                <p><strong>Measured evidence.</strong> Direct query first has 121 undercounts. Enumeration has 159/300 non-truncation format/parse failures (92 query first, 67 query last).</p>
+                <p><strong>Best-supported explanation.</strong> Two mechanisms coexist: position-sensitive undercounting in direct answers and failure to obey the multi-line enumeration contract.</p>
+                <p class="caveat"><strong>Limit.</strong> Combining these failures into one &#x27;counting error&#x27; would overstate the numerical component.</p>
+                
+              </div>
+            </details>
+            
+            <details class="anomaly-case">
+              <summary>
+                <span class="anomaly-id">A10</span>
+                <span>Llama3.2-3B · Query last raises direct accuracy from 8.7% to 38.0%, yet enumeration falls from 6.0% to 2.0%.</span>
+              </summary>
+              <div>
+                <p><strong>Scope.</strong> mode-specific query-last collapse</p>
+                <p><strong>Measured evidence.</strong> Enumeration query last has 123 format/parse failures plus 5 truncations out of 150; query first also mixes 67 parse failures, 58 overcounts, and 7 truncations.</p>
+                <p><strong>Best-supported explanation.</strong> The short direct contract benefits from a recent query, while the long enumeration contract collapses at the interface/format stage. This is not a simple query-position effect.</p>
+                <p class="caveat"><strong>Limit.</strong> The 2.0% exact score should be read with the 85.3% format-failure rate, not as pure retrieval inability.</p>
+                
+              </div>
+            </details>
+            </div>
+    <div class="links">
+      <a href="tables/core_anomaly_case_summary.csv">下载十个异常案例摘要</a>
+      <a href="analysis/gemma_repetition_failure_examples.html">查看 Gemma 重复生成失败的完整原始输出</a>
+      <a href="tables/core_enumeration_fidelity.csv">下载 enumeration fidelity / arithmetic audit</a>
+    </div>
+    
+    <div class="method-grid">
+      <div class="method-box">
+        <span>计算方法</span>
+        <p>先按四条冻结规则穷举异常：|query-order 差|≥20 pp、|mode−direct|≥20 pp、格式/解析/截断率≥20%，或“完整检索但 Total 错误”率≥10%。再回到 request-level 输出与 enumeration 记录集合逐项核对；query-order 差异同时报告配对 McNemar 检验。这里的规则是诊断阈值，不是新增的显著性门槛。</p>
+      </div>
+      <div class="conclusion-box">
+        <span>目前结论</span>
+        <p>四类规则共标记 42 个条件，并归并成 10 个可解释案例。Qwen3-8B enumeration 的 32.0%→95.3% 主要不是 retrieval 突然改善，而是 query-first 下大量把 score 的和当作记录数；更一般地，异常多来自 prompt placement、输出通道与 counting/aggregation operator 的交互，不能只用模型规模解释。</p>
+      </div>
+    </div>
+    
+  </section>
+
+  <section id="low-accuracy">
+    <h2>4. 为什么几个模型或模式的准确率很低？</h2>
+    <p class="lead">这里不把所有错误都称为“不会数数”。先用 parse success 把接口/输出失败和已解析的数值错误分开，再看 undercount、overcount 与 truncation。</p>
+    <div class="table-wrap"><table class="numeric"><thead><tr><th>Model</th><th>Exact accuracy</th><th>Parse success</th><th>Exact | parsed</th><th>Undercount</th><th>Overcount</th><th>Format / parse</th><th>Truncation</th></tr></thead><tbody><tr><td><strong>Qwen3-1.7B</strong></td><td>36.9%</td><td>97.8%</td><td>37.7%</td><td>36.8%</td><td>24.1%</td><td>2.0%</td><td>0.2%</td></tr><tr><td><strong>Gemma4-12B</strong></td><td>50.2%</td><td>54.0%</td><td>93.0%</td><td>2.9%</td><td>0.9%</td><td>0.4%</td><td>45.6%</td></tr><tr><td><strong>OLMo-Hybrid-7B</strong></td><td>45.2%</td><td>97.2%</td><td>46.5%</td><td>25.7%</td><td>26.3%</td><td>0.2%</td><td>2.7%</td></tr><tr><td><strong>Llama3.1-8B</strong></td><td>30.3%</td><td>72.2%</td><td>42.0%</td><td>29.3%</td><td>12.5%</td><td>27.3%</td><td>0.5%</td></tr><tr><td><strong>Llama3.2-3B</strong></td><td>13.7%</td><td>60.5%</td><td>22.6%</td><td>15.8%</td><td>30.5%</td><td>34.3%</td><td>5.7%</td></tr></tbody></table></div>
+    <p><strong>Exact | parsed</strong> 是成功得到数值预测后，预测恰好正确的比例；它不替代 primary accuracy，只用于识别失败机制。例如 Gemma4-12B 的总体准确率只有 50.2%，但 <em>exact | parsed</em> 达到 93.0%，说明其主要问题是输出没有完成，而非已给出的数字普遍错误。</p>
+    <figure>
+      <img src="assets/core03_low_accuracy_failure_budget.png" alt="Stacked failure budgets for the low-accuracy and mode-collapse models, split by query placement.">
+      <figcaption><strong>Figure 3.</strong> 每个横条的分母是相应 model × mode × query-order 的全部 150 个请求。绿色为 exact correct；其余依次是 undercount、overcount、非截断格式/解析失败与 truncation。左右面板让 query placement 导致的错误类型变化直接可见。</figcaption>
+    </figure>
+    <div class="diagnosis-list">
+      <div class="diagnosis">
+        <h3>Qwen3-1.7B：主要是数值计数，不是 parser</h3>
+        <p>Parse success 为 97.8%，但 exact | parsed 只有 37.7%。Direct query first 150 条中有 126 条 undercount；native thinking 把总体准确率从 25.0% 提高到 61.7%。</p>
+      </div>
+      <div class="diagnosis">
+        <h3>Gemma4-12B：generation-budget / channel collapse</h3>
+        <p>Direct 的 300 条中 293 条截断，native thinking 也有 116 条截断；enumeration 却达到 90.0%，且 query first 为 100%。因此该异常是模式与模板输出路径特定的。</p>
+      </div>
+      <div class="diagnosis">
+        <h3>OLMo-Hybrid-7B：解析正常，聚合和计数错误</h3>
+        <p>Parse success 为 97.2%，但 undercount 与 overcount 各约四分之一。Enumeration 的 101 个 overcount 中，38 个已经完整找对记录，却仍输出错误总数。</p>
+      </div>
+      <div class="diagnosis">
+        <h3>Llama3.1-8B：direct undercount + enumeration 格式失败</h3>
+        <p>Direct 的 51.3% 是 undercount；enumeration 的 53.0% 是非截断格式/解析失败。Query last 将总体准确率从 21.3% 提高到 39.3%，但没有消除两种机制。</p>
+      </div>
+      <div class="diagnosis">
+        <h3>Llama3.2-3B：接口与 counting 同时失效</h3>
+        <p>总体 parse success 只有 60.5%，而 exact | parsed 也只有 22.6%。Enumeration 出现重复记录、幻觉记录、分数求和与缺少合规 final total；direct 则同时 overcount 和 undercount。</p>
+      </div>
+      <div class="diagnosis">
+        <h3>低准确率不是“模型越小越差”的单变量结论</h3>
+        <p>同一模型在 query placement 和模式之间可以跨越几十个百分点。当前数据支持的是 prompt/template 与 counting mechanism 的交互，不支持把差异简单归因于参数量或架构。</p>
+      </div>
+    </div>
+
+    <h3 style="margin-top:34px">Enumeration 的关键错误：找对记录，但把分数相加</h3>
+    <p>“Complete retrieval, wrong total” 要求 missing=0、hallucinated=0、duplicate=0 且列出的记录数等于真实 N；在这个严格条件下仍然 overcount，说明错误发生在最终 aggregation/answer 阶段。</p>
+    <div class="table-wrap"><table class="numeric"><thead><tr><th>Model</th><th>Enum. acc. first</th><th>Enum. acc. last</th><th>All overcounts</th><th>Complete retrieval, wrong total</th><th>Share of overcounts</th></tr></thead><tbody><tr><td><strong>Qwen3-8B</strong></td><td>32.0%</td><td>95.3%</td><td>100/300 (33.3%)</td><td>98/300 (32.7%)</td><td>98.0%</td></tr><tr><td><strong>Qwen3-1.7B</strong></td><td>14.7%</td><td>33.3%</td><td>153/300 (51.0%)</td><td>76/300 (25.3%)</td><td>49.7%</td></tr><tr><td><strong>Qwen3-32B</strong></td><td>50.7%</td><td>98.7%</td><td>72/300 (24.0%)</td><td>72/300 (24.0%)</td><td>100.0%</td></tr><tr><td><strong>Gemma4-E4B</strong></td><td>95.3%</td><td>75.3%</td><td>9/300 (3.0%)</td><td>7/300 (2.3%)</td><td>77.8%</td></tr><tr><td><strong>Gemma4-12B</strong></td><td>100.0%</td><td>80.0%</td><td>2/300 (0.7%)</td><td>0/300 (0.0%)</td><td>0.0%</td></tr><tr><td><strong>OLMo-Hybrid-7B</strong></td><td>42.7%</td><td>39.3%</td><td>101/300 (33.7%)</td><td>38/300 (12.7%)</td><td>37.6%</td></tr><tr><td><strong>Llama3.1-8B</strong></td><td>27.3%</td><td>38.0%</td><td>19/300 (6.3%)</td><td>12/300 (4.0%)</td><td>63.2%</td></tr><tr><td><strong>Llama3.2-3B</strong></td><td>6.0%</td><td>2.0%</td><td>73/300 (24.3%)</td><td>34/300 (11.3%)</td><td>46.6%</td></tr></tbody></table></div>
+    <figure>
+      <img src="assets/core04_enumeration_aggregation.png" alt="Enumeration overcount rates and complete-retrieval wrong-total rates by model.">
+      <figcaption><strong>Figure 4.</strong> 横轴是全部 enumeration 请求中的比例。浅色表示所有 overcount，深色表示已经完整、无幻觉、无重复地检索到 N 条记录，却仍给出错误 final total。Qwen3-8B 与 Qwen3-32B 的深浅条几乎相同，直接指向“把 numeric scores 求和”这一 aggregation bug。</figcaption>
+    </figure>
+    
+    <div class="method-grid">
+      <div class="method-box">
+        <span>计算方法</span>
+        <p>对每条请求依次判定 exact correct、可解析 undercount、可解析 overcount、非截断格式/解析失败与 truncation；五类互斥且覆盖全部请求。Exact | parsed 只在成功解析出数值的请求中计算，用于区分“接口没有完成”与“给出数字但数错”，不替代全请求 primary accuracy。Enumeration 另核对 missing、hallucinated、duplicate 与 listed-record 数。</p>
+      </div>
+      <div class="conclusion-box">
+        <span>目前结论</span>
+        <p>极低准确率不是同一种失败：Qwen3-1.7B 与 OLMo 以可解析计数偏差为主；Gemma4-12B 主要是 direct/native generation-budget 截断；Llama3.1 混合 direct undercount 与 enumeration 格式失败；Llama3.2 同时存在接口失败和计数失败。因而后续 law 必须分模型、分 mode，不能把所有错误压成一个统一噪声项。</p>
+      </div>
+    </div>
+    
+  </section>
+
+  <section id="laws">
+    <h2>5. Empirical-law 拟合保留，但不再打断主结果</h2>
+    <p class="lead">前面的拆分说明为什么拟合必须保留 model × mode × query-order 条件项。以下只保留经过 held-out 验证的核心结论；完整候选、参数、fold metrics、OOF predictions 与诊断图仍在原 analysis 目录中。</p>
+    
+    <div class="math-equation">
+      <div class="equation-title">Retained exact-accuracy response surface</div>
+      <div class="math-scroll">
+        <math display="block" aria-label="Model-specific accuracy law">
+          <mrow>
+            <mi>logit</mi><mo>(</mo>
+            <msub><mi>p</mi><mi>m</mi></msub><mo>(</mo><mi>T</mi><mo>,</mo><mi>N</mi><mo>,</mo><mi>q</mi><mo>,</mo><mi>o</mi><mo>)</mo><mo>)</mo>
+            <mo>=</mo>
+            <msub><mi>α</mi><mrow><mi>m</mi><mo>,</mo><mi>q</mi><mo>,</mo><mi>o</mi></mrow></msub>
+            <mo>+</mo>
+            <msub><mi>β</mi><mrow><mi>m</mi><mo>,</mo><mi>T</mi></mrow></msub>
+            <msub><mi>log</mi><mn>2</mn></msub><mo>(</mo><mfrac><mi>T</mi><mn>5000</mn></mfrac><mo>)</mo>
+            <mo>+</mo>
+            <msub><mi>β</mi><mrow><mi>m</mi><mo>,</mo><mi>N</mi></mrow></msub>
+            <msub><mi>log</mi><mn>2</mn></msub><mo>(</mo><mfrac><mi>N</mi><mn>5</mn></mfrac><mo>)</mo>
+          </mrow>
+        </math>
+      </div>
+      <p class="equation-note">The large mode × query-order differences are retained in the condition intercept; length and needle slopes are allowed to differ by model.</p>
+    </div>
+    
+    <div class="table-wrap"><table class="numeric"><thead><tr><th>Accuracy candidate</th><th>Parameters</th><th>Grouped-CV log loss</th><th>Brier</th><th>ECE</th></tr></thead><tbody><tr><td>Model-specific length / needle slopes</td><td>27</td><td>0.490</td><td>0.162</td><td>1.7%</td></tr><tr><td>Shared log L/N + interaction; model intercepts</td><td>14</td><td>0.499</td><td>0.165</td><td>1.3%</td></tr><tr><td>Shared log L/N; model intercepts</td><td>13</td><td>0.500</td><td>0.165</td><td>1.1%</td></tr><tr><td>Density-only; model intercepts</td><td>12</td><td>0.543</td><td>0.182</td><td>2.5%</td></tr><tr><td>Mode/order controls only</td><td>11</td><td>0.563</td><td>0.191</td><td>5.4%</td></tr></tbody></table></div>
+    <p>准确率的最佳候选允许每个模型拥有自己的 length 与 needle slopes；grouped-CV log loss 为 0.490、Brier 为 0.162、ECE 为 1.7%。这优于只含模式/query-order 控制项的 0.563 log loss，但不意味着所有模型共享同一阶数。</p>
+    <figure>
+      <img src="analysis/counting_mechanism_law_v1/figures/exact_candidate_cv.png" alt="Held-out comparison of exact-accuracy empirical-law candidates.">
+      <figcaption><strong>Figure 5.</strong> 原 empirical-law 分析保留的 held-out candidate comparison。指标来自按 stimulus/cell 隔离的验证；模型选择不使用训练集拟合优度。</figcaption>
+    </figure>
+
+    
+    <div class="math-equation">
+      <div class="equation-title">Model-wise signed-bias family retained from the prior analysis</div>
+      <div class="math-scroll">
+        <math display="block" aria-label="Signed bias response surface">
+          <mrow>
+            <mi>E</mi><mo>[</mo><mi>asinh</mi><mo>(</mo>
+            <mover><mi>N</mi><mo>^</mo></mover><mo>−</mo><mi>N</mi><mo>)</mo>
+            <mo>|</mo><mi>parsed</mi><mo>,</mo><mi>m</mi><mo>,</mo><mi>q</mi><mo>,</mo><mi>o</mi><mo>,</mo><mi>T</mi><mo>,</mo><mi>N</mi><mo>]</mo>
+            <mo>=</mo>
+            <msub><mi>α</mi><mrow><mi>m</mi><mo>,</mo><mi>q</mi><mo>,</mo><mi>o</mi></mrow></msub>
+            <mo>+</mo><msub><mi>f</mi><mi>m</mi></msub><mo>(</mo><mi>T</mi><mo>,</mo><mi>N</mi><mo>)</mo>
+          </mrow>
+        </math>
+      </div>
+      <p class="equation-note">Bias is prediction minus truth and is defined only for parsed numeric outputs. The selected function fₘ differs by model; unsupported models retain condition-only baselines.</p>
+    </div>
+    
+    <div class="table-wrap"><table class="numeric"><thead><tr><th>Model</th><th>Selected signed-bias law</th><th>CV gain vs condition-only</th><th>Evidence</th></tr></thead><tbody><tr><td><strong>Qwen3-8B</strong></td><td>仅模式/query-order 截距</td><td>0.0%</td><td>未发现稳定 law</td></tr><tr><td><strong>Qwen3-1.7B</strong></td><td>原始归一化 L + N</td><td>9.6%</td><td>有支持</td></tr><tr><td><strong>Qwen3-32B</strong></td><td>仅模式/query-order 截距</td><td>0.0%</td><td>未发现稳定 law</td></tr><tr><td><strong>Gemma4-E4B</strong></td><td>分离 log₂L + log₂N + 交互</td><td>2.2%</td><td>有支持</td></tr><tr><td><strong>Gemma4-12B</strong></td><td>仅模式/query-order 截距</td><td>0.0%</td><td>未发现稳定 law</td></tr><tr><td><strong>OLMo-Hybrid-7B</strong></td><td>仅模式/query-order 截距</td><td>0.0%</td><td>未发现稳定 law</td></tr><tr><td><strong>Llama3.1-8B</strong></td><td>原始归一化 L + N</td><td>6.0%</td><td>有支持</td></tr><tr><td><strong>Llama3.2-3B</strong></td><td>原始归一化 L + N</td><td>10.6%</td><td>有支持</td></tr></tbody></table></div>
+    <p>分模型 signed-bias law 仅在 Qwen3-1.7B、Gemma4-E4B、Llama3.1-8B 与 Llama3.2-3B 上得到稳定支持；其余模型的 L/N 变换未能可靠优于 mode/query-order condition-only baseline。Qwen 三个规模可以共享候选函数族和验证协议，但共享斜率没有 held-out 支持。</p>
+    <figure>
+      <img src="assets/fig15_model_bias_selected_surfaces.png" alt="Observed and predicted signed-bias surfaces for the selected per-model laws.">
+      <figcaption><strong>Figure 6.</strong> 分模型 signed-bias surfaces。横纵坐标分别为 canonical passage length T 与真实 needle 数量 N；颜色为 parsed outputs 上的 asinh signed bias。该图是机制诊断，不改变全请求 exact-accuracy 结论。</figcaption>
+    </figure>
+    <div class="links">
+      <a href="analysis/counting_mechanism_law_v1/report.html">打开完整 counting-mechanism / empirical-law 报告</a>
+      <a href="../qwen_query_last_mode_specific_empirical_law_20260725/report.html">打开独立 Qwen query-last 分层拟合报告</a>
+      <a href="tables/model_specific_bias_selected_laws.csv">下载分模型 bias-law 选择表</a>
+      <a href="tables/local_regression_candidate_comparison.csv">下载 accuracy candidate comparison</a>
+    </div>
+    
+    <div class="method-grid">
+      <div class="method-box">
+        <span>计算方法</span>
+        <p>Accuracy 使用全请求 Bernoulli exact-correct；bias 定义为 predicted_count−N，并仅在成功解析数值的请求上拟合 asinh(bias)，绝对误差拟合 log1p(|bias|)。所有候选均按 stimulus/cell 分组做 held-out 验证，模型选择看 OOF log loss/Brier 或 OOF RMSE，而不是训练集 R²；原分析保留全部候选与失败口径。</p>
+      </div>
+      <div class="conclusion-box">
+        <span>目前结论</span>
+        <p>八模型 pooled law 只能给出中等强度预测，且没有证据支持所有架构共享同一组 N、T 阶数。新增加的 Qwen 专报固定 query last，并在 3 个规模×3 种 mode 内分别估计同一参数化函数族；其中 Qwen direct 的误差结构最稳定，高准确率 enumeration/native strata 则受天花板效应限制。该结论比强行拟合统一跨模型斜率更可靠。</p>
+      </div>
+    </div>
+    
+  </section>
+
+  <section id="reproducibility">
+    <h2>复现、审计与完整数据</h2>
+    <p>本次重写只生成新的汇总表、四张主结果图和新的 root HTML；没有改动 6,300 条 request-level 数据、prompt 快照、原始拟合参数、OOF predictions 或任何 frozen experiment artifact。</p>
+    <div class="links">
+      <a href="tables/request_level_report.csv">6,300-row request-level CSV</a>
+      <a href="tables/core_accuracy_by_model_query.csv">Model × query-order accuracy</a>
+      <a href="tables/core_accuracy_by_model_mode_query.csv">Model × mode × query-order accuracy</a>
+      <a href="tables/core_query_order_effects_paired.csv">Paired query-order effects</a>
+      <a href="tables/core_mode_effects_paired.csv">Paired mode effects</a>
+      <a href="tables/core_failure_budget.csv">Failure budgets</a>
+      <a href="tables/core_enumeration_aggregation.csv">Enumeration aggregation audit</a>
+      <a href="tables/core_enumeration_fidelity.csv">Enumeration fidelity / arithmetic audit</a>
+      <a href="tables/core_anomaly_flags.csv">Exhaustive anomaly flags</a>
+      <a href="tables/core_anomaly_case_summary.csv">Interpreted anomaly cases</a>
+      <a href="scripts/rewrite_core_results_report.py">Rebuild script</a>
+      <a href="scripts/audit_core_results_report.py">Static and numerical audit script</a>
+      <a href="analysis/full_report_before_core_rewrite_20260725.html">Archived pre-rewrite full HTML</a>
+      <a href="SHA256SUMS.tsv">SHA256 manifest</a>
+    </div>
+    
+    <div class="method-grid">
+      <div class="method-box">
+        <span>计算方法</span>
+        <p>重建脚本从冻结的 6,300-row request table 与只读 raw export 重新计算汇总、异常和图；静态审计再次核对 request_id 唯一性、逐模型/逐 mode 行数、关键准确率、enumeration arithmetic、图片可解析性、本地链接与 SHA256 manifest。</p>
+      </div>
+      <div class="conclusion-box">
+        <span>目前结论</span>
+        <p>报告层的改写没有删除请求、重跑 parser、替换 prompt 或覆盖原始拟合。所有用于本文结论的汇总表、prompt 快照、构建脚本与审计脚本均随报告保存，可从 request level 复算。</p>
+      </div>
+    </div>
+    
+  </section>
+</main>
+<footer>
+  <div class="header-inner" style="padding:0">
+    CORE_RESULTS_REPORT_V3 · Primary sample n=6,300 · Signed bias conditional on parsed numeric outputs · No post-hoc request deletion.
+  </div>
+</footer>
+</body>
+</html>

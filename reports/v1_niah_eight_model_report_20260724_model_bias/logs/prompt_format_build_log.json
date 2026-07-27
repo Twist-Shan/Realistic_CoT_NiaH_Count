@@ -1,0 +1,20 @@
+{
+  "status": "complete",
+  "started_at_utc": "2026-07-25T05:18:46.561840+00:00",
+  "finished_at_utc": "2026-07-25T05:19:05.170034+00:00",
+  "elapsed_seconds": 18.608000900014304,
+  "base_report": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Synthetic_NiaH_like_Count\\outputs\\realistic_niah_eight_model_report_20260724_model_bias",
+  "output_dir": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Synthetic_NiaH_like_Count\\outputs\\realistic_niah_eight_model_report_20260724_model_bias_prompts",
+  "repo_root": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count",
+  "requests_scanned": 6300,
+  "models": 8,
+  "registered_combinations": 42,
+  "passage_redaction": "pass",
+  "source_integrity": "pass",
+  "new_files": [
+    "tables/model_prompt_format_summary.csv",
+    "tables/model_prompt_format_examples.csv",
+    "prompt_formats/model_prompt_formats.json",
+    "scripts/build_prompt_format_addendum.py"
+  ]
+}

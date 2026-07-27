@@ -1,0 +1,43 @@
+flag_type,model_label,prompt_mode,query_order,effect_or_rate,absolute_threshold,paired_units,exact_p_value,evidence
+aggregation_after_complete_retrieval,Llama3.1-8B,enumeration,query_first,0.6266666666666667,0.2,150,,complete record set but wrong Total = 94/150 (62.7%)
+aggregation_after_complete_retrieval,Llama3.1-8B,enumeration,query_last,0.32666666666666666,0.2,150,,complete record set but wrong Total = 49/150 (32.7%)
+aggregation_after_complete_retrieval,Llama3.2-3B,enumeration,query_first,0.3466666666666667,0.2,150,,complete record set but wrong Total = 52/150 (34.7%)
+aggregation_after_complete_retrieval,Llama3.2-3B,enumeration,query_last,0.31333333333333335,0.2,150,,complete record set but wrong Total = 47/150 (31.3%)
+aggregation_after_complete_retrieval,OLMo-Hybrid-7B,enumeration,query_first,0.22666666666666666,0.2,150,,complete record set but wrong Total = 34/150 (22.7%)
+aggregation_after_complete_retrieval,Qwen3-1.7B,enumeration,query_first,0.30666666666666664,0.2,150,,complete record set but wrong Total = 46/150 (30.7%)
+aggregation_after_complete_retrieval,Qwen3-1.7B,enumeration,query_last,0.2,0.2,150,,complete record set but wrong Total = 30/150 (20.0%)
+aggregation_after_complete_retrieval,Qwen3-32B,enumeration,query_first,0.48,0.2,150,,complete record set but wrong Total = 72/150 (48.0%)
+aggregation_after_complete_retrieval,Qwen3-8B,enumeration,query_first,0.6533333333333333,0.2,150,,complete record set but wrong Total = 98/150 (65.3%)
+interface_failure,Gemma4-12B,direct,query_first,0.9533333333333334,0.25,150,,format/parse + truncation = 95.3% (0 + 143 of 150)
+interface_failure,Gemma4-12B,direct,query_last,1.0,0.25,150,,format/parse + truncation = 100.0% (0 + 150 of 150)
+interface_failure,Gemma4-12B,native_thinking,query_first,0.25333333333333335,0.25,150,,format/parse + truncation = 25.3% (0 + 38 of 150)
+interface_failure,Gemma4-12B,native_thinking,query_last,0.52,0.25,150,,format/parse + truncation = 52.0% (0 + 78 of 150)
+interface_failure,Gemma4-E4B,direct,query_first,0.26,0.25,150,,format/parse + truncation = 26.0% (0 + 39 of 150)
+interface_failure,Llama3.1-8B,enumeration,query_first,0.6266666666666666,0.25,150,,format/parse + truncation = 62.7% (92 + 2 of 150)
+interface_failure,Llama3.1-8B,enumeration,query_last,0.44666666666666666,0.25,150,,format/parse + truncation = 44.7% (67 + 0 of 150)
+interface_failure,Llama3.2-3B,direct,query_first,0.25333333333333335,0.25,150,,format/parse + truncation = 25.3% (16 + 22 of 150)
+interface_failure,Llama3.2-3B,enumeration,query_first,0.49333333333333335,0.25,150,,format/parse + truncation = 49.3% (67 + 7 of 150)
+interface_failure,Llama3.2-3B,enumeration,query_last,0.8533333333333333,0.25,150,,format/parse + truncation = 85.3% (123 + 5 of 150)
+mode_shift_vs_direct,Gemma4-12B,enumeration,paired,0.8766666666666667,0.2,300,,enumeration − direct = +87.7 pp
+mode_shift_vs_direct,Gemma4-12B,native_thinking,paired,0.56,0.2,300,,native_thinking − direct = +56.0 pp
+mode_shift_vs_direct,Gemma4-E4B,enumeration,paired,0.4666666666666667,0.2,300,,enumeration − direct = +46.7 pp
+mode_shift_vs_direct,Gemma4-E4B,native_thinking,paired,0.47,0.2,300,,native_thinking − direct = +47.0 pp
+mode_shift_vs_direct,Qwen3-1.7B,native_thinking,paired,0.36666666666666664,0.2,300,,native_thinking − direct = +36.7 pp
+mode_shift_vs_direct,Qwen3-32B,native_thinking,paired,0.42,0.2,300,,native_thinking − direct = +42.0 pp
+mode_shift_vs_direct,Qwen3-8B,enumeration,paired,0.21,0.2,300,,enumeration − direct = +21.0 pp
+mode_shift_vs_direct,Qwen3-8B,native_thinking,paired,0.55,0.2,300,,native_thinking − direct = +55.0 pp
+query_order_shift,Gemma4-12B,enumeration,paired,-0.2,0.1,150,1.862645149230957e-09,query_last − query_first = -20.0 pp; discordant first-only/last-only = 30/0
+query_order_shift,Gemma4-12B,native_thinking,paired,-0.2866666666666667,0.1,150,6.981082378842984e-11,query_last − query_first = -28.7 pp; discordant first-only/last-only = 46/3
+query_order_shift,Gemma4-E4B,direct,paired,0.10666666666666667,0.1,150,0.019520472782460274,query_last − query_first = +10.7 pp; discordant first-only/last-only = 13/29
+query_order_shift,Gemma4-E4B,enumeration,paired,-0.2,0.1,150,2.8288777684792876e-06,query_last − query_first = -20.0 pp; discordant first-only/last-only = 36/6
+query_order_shift,Gemma4-E4B,native_thinking,paired,-0.20666666666666667,0.1,150,3.6729034036397934e-08,query_last − query_first = -20.7 pp; discordant first-only/last-only = 33/2
+query_order_shift,Llama3.1-8B,direct,paired,0.25333333333333335,0.1,150,3.243740565039843e-08,query_last − query_first = +25.3 pp; discordant first-only/last-only = 6/44
+query_order_shift,Llama3.1-8B,enumeration,paired,0.10666666666666667,0.1,150,0.04794032407166697,query_last − query_first = +10.7 pp; discordant first-only/last-only = 21/37
+query_order_shift,Llama3.2-3B,direct,paired,0.29333333333333333,0.1,150,8.363087999896379e-12,query_last − query_first = +29.3 pp; discordant first-only/last-only = 2/46
+query_order_shift,OLMo-Hybrid-7B,direct,paired,-0.10666666666666667,0.1,150,0.051893895928921435,query_last − query_first = -10.7 pp; discordant first-only/last-only = 38/22
+query_order_shift,Qwen3-1.7B,direct,paired,0.19333333333333333,0.1,150,2.4904030624384177e-05,query_last − query_first = +19.3 pp; discordant first-only/last-only = 9/38
+query_order_shift,Qwen3-1.7B,enumeration,paired,0.18666666666666668,0.1,150,5.774199962615967e-08,query_last − query_first = +18.7 pp; discordant first-only/last-only = 1/29
+query_order_shift,Qwen3-1.7B,native_thinking,paired,-0.12666666666666668,0.1,150,0.0013187271542847157,query_last − query_first = -12.7 pp; discordant first-only/last-only = 26/7
+query_order_shift,Qwen3-32B,direct,paired,-0.16,0.1,150,3.032386302947998e-06,query_last − query_first = -16.0 pp; discordant first-only/last-only = 26/2
+query_order_shift,Qwen3-32B,enumeration,paired,0.48,0.1,150,7.940933880509066e-21,query_last − query_first = +48.0 pp; discordant first-only/last-only = 1/73
+query_order_shift,Qwen3-8B,enumeration,paired,0.6333333333333333,0.1,150,1.2369338993865465e-27,query_last − query_first = +63.3 pp; discordant first-only/last-only = 1/96

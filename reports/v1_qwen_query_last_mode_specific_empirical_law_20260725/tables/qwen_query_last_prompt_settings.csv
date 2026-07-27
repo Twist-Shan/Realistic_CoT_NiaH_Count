@@ -1,0 +1,247 @@
+model_label,model_id,prompt_mode,thinking_enabled,query_order,request_count,message_roles,tokenize,add_generation_prompt,enable_thinking_argument,max_tokens,temperature,top_p,top_k,min_p,sample_request_id,sample_full_rendered_prompt_sha256,user_message_redacted,rendered_prompt_redacted
+Qwen3-1.7B,Qwen/Qwen3-1.7B,direct,False,query_last,150,user,False,True,false,64,0.0,1.0,-1,0.0,Qwen3-1.7B/direct/query_last/T10000_N10_seed1234,f1fcf490751b58848037482fa21eb4cf8af8c08ed9153d59f88f8d13ac9219b9,"<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+How many city-score audit records are in the passage?
+In the final answer, output exactly one line in this form:
+Total: <integer>","<|im_start|>user
+<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+How many city-score audit records are in the passage?
+In the final answer, output exactly one line in this form:
+Total: <integer><|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+"
+Qwen3-1.7B,Qwen/Qwen3-1.7B,enumeration,False,query_last,150,user,False,True,false,1536,0.0,1.0,-1,0.0,Qwen3-1.7B/enumeration/query_last/T10000_N10_seed1234,46ee04dbcbe5ac45f8776c04bf36d08183ad5de3b6f407f5396cd731ff769146,"<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+Find every city-score audit record in the passage. In passage order, output
+one record per line as:
+<k>. <city>: <score>
+where k starts at 1 and increases by 1.
+Then output one final line:
+Total: <integer>
+Do not include any other text.","<|im_start|>user
+<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+Find every city-score audit record in the passage. In passage order, output
+one record per line as:
+<k>. <city>: <score>
+where k starts at 1 and increases by 1.
+Then output one final line:
+Total: <integer>
+Do not include any other text.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+"
+Qwen3-1.7B,Qwen/Qwen3-1.7B,native_thinking,True,query_last,150,user,False,True,true,4096,0.6,0.95,20,0.0,Qwen3-1.7B/native_thinking/query_last/T10000_N10_seed1234,245c58b5fa44dd1b6574a86dc0a31c836f88197f83d30d12f41ed02a2a111d41,"<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+How many city-score audit records are in the passage?
+In the final answer, output exactly one line in this form:
+Total: <integer>","<|im_start|>user
+<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+How many city-score audit records are in the passage?
+In the final answer, output exactly one line in this form:
+Total: <integer><|im_end|>
+<|im_start|>assistant
+"
+Qwen3-8B,Qwen/Qwen3-8B,direct,False,query_last,150,user,False,True,false,64,0.0,1.0,-1,0.0,Qwen3-8B/direct/query_last/T10000_N10_seed1234,f1fcf490751b58848037482fa21eb4cf8af8c08ed9153d59f88f8d13ac9219b9,"<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+How many city-score audit records are in the passage?
+In the final answer, output exactly one line in this form:
+Total: <integer>","<|im_start|>user
+<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+How many city-score audit records are in the passage?
+In the final answer, output exactly one line in this form:
+Total: <integer><|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+"
+Qwen3-8B,Qwen/Qwen3-8B,enumeration,False,query_last,150,user,False,True,false,1536,0.0,1.0,-1,0.0,Qwen3-8B/enumeration/query_last/T10000_N10_seed1234,46ee04dbcbe5ac45f8776c04bf36d08183ad5de3b6f407f5396cd731ff769146,"<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+Find every city-score audit record in the passage. In passage order, output
+one record per line as:
+<k>. <city>: <score>
+where k starts at 1 and increases by 1.
+Then output one final line:
+Total: <integer>
+Do not include any other text.","<|im_start|>user
+<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+Find every city-score audit record in the passage. In passage order, output
+one record per line as:
+<k>. <city>: <score>
+where k starts at 1 and increases by 1.
+Then output one final line:
+Total: <integer>
+Do not include any other text.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+"
+Qwen3-8B,Qwen/Qwen3-8B,native_thinking,True,query_last,150,user,False,True,true,4096,0.6,0.95,20,0.0,Qwen3-8B/native_thinking/query_last/T10000_N10_seed1234,245c58b5fa44dd1b6574a86dc0a31c836f88197f83d30d12f41ed02a2a111d41,"<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+How many city-score audit records are in the passage?
+In the final answer, output exactly one line in this form:
+Total: <integer>","<|im_start|>user
+<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+How many city-score audit records are in the passage?
+In the final answer, output exactly one line in this form:
+Total: <integer><|im_end|>
+<|im_start|>assistant
+"
+Qwen3-32B,Qwen/Qwen3-32B,direct,False,query_last,150,user,False,True,false,64,0.0,1.0,-1,0.0,Qwen3-32B/direct/query_last/T10000_N10_seed1234,f1fcf490751b58848037482fa21eb4cf8af8c08ed9153d59f88f8d13ac9219b9,"<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+How many city-score audit records are in the passage?
+In the final answer, output exactly one line in this form:
+Total: <integer>","<|im_start|>user
+<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+How many city-score audit records are in the passage?
+In the final answer, output exactly one line in this form:
+Total: <integer><|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+"
+Qwen3-32B,Qwen/Qwen3-32B,enumeration,False,query_last,150,user,False,True,false,1536,0.0,1.0,-1,0.0,Qwen3-32B/enumeration/query_last/T10000_N10_seed1234,46ee04dbcbe5ac45f8776c04bf36d08183ad5de3b6f407f5396cd731ff769146,"<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+Find every city-score audit record in the passage. In passage order, output
+one record per line as:
+<k>. <city>: <score>
+where k starts at 1 and increases by 1.
+Then output one final line:
+Total: <integer>
+Do not include any other text.","<|im_start|>user
+<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+Find every city-score audit record in the passage. In passage order, output
+one record per line as:
+<k>. <city>: <score>
+where k starts at 1 and increases by 1.
+Then output one final line:
+Total: <integer>
+Do not include any other text.<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+"
+Qwen3-32B,Qwen/Qwen3-32B,native_thinking,True,query_last,150,user,False,True,true,4096,0.6,0.95,20,0.0,Qwen3-32B/native_thinking/query_last/T10000_N10_seed1234,245c58b5fa44dd1b6574a86dc0a31c836f88197f83d30d12f41ed02a2a111d41,"<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+How many city-score audit records are in the passage?
+In the final answer, output exactly one line in this form:
+Total: <integer>","<|im_start|>user
+<passage>
+[PASSAGE OMITTED]
+</passage>
+
+The passage contains one or more city-score audit records. A city-score
+audit record names one city and gives that city's numeric score.
+
+How many city-score audit records are in the passage?
+In the final answer, output exactly one line in this form:
+Total: <integer><|im_end|>
+<|im_start|>assistant
+"

@@ -1,0 +1,114 @@
+{
+  "started_at_utc": "2026-07-24T21:03:26.204408+00:00",
+  "finished_at_utc": "2026-07-24T21:05:15.485797+00:00",
+  "elapsed_seconds": 109.28138971328735,
+  "input_audit": {
+    "status": "pass",
+    "failures": [],
+    "requests": 6300,
+    "unique_request_ids": 6300,
+    "unique_stimuli": 150,
+    "dataset_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\dataset_candidate_n6_offset\\stimuli.jsonl",
+    "stimuli_sha256": "374dc935bf4c1403f705bb8b95ce686e5063647c83c609501e6f668e2331a5f1",
+    "expected_git_commit": "090d983819f06234cb135f6c499bf82e9a6de1c9",
+    "model_rows": {
+      "Qwen3-8B": 900,
+      "Qwen3-1.7B": 900,
+      "Qwen3-32B": 900,
+      "Gemma4-E4B": 900,
+      "Gemma4-12B": 900,
+      "OLMo-Hybrid-7B": 600,
+      "Llama3.1-8B": 600,
+      "Llama3.2-3B": 600
+    },
+    "manifests": [
+      {
+        "model": "Qwen3-8B",
+        "manifest_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\Qwen3-8B\\main\\run_manifest.json",
+        "manifest_sha256": "488db7a803798dba7d9adeba8d7ba89e615948fce631027fd1d9ae2a6870d9cd",
+        "qc_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\Qwen3-8B\\main\\qc_report.json",
+        "qc_sha256": "a1d2e1e7405be2f2558bf7a28aa7ee2ff04f96d68dcac7b8bd024104c5d5cd74",
+        "completed": 900,
+        "expected": 900,
+        "qc_status": null
+      },
+      {
+        "model": "Qwen3-1.7B",
+        "manifest_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\Qwen3-1.7B\\main\\run_manifest.json",
+        "manifest_sha256": "448a21ec7d3fb74da2fcdda8e3c8fa6ae51d7651971eec429196b9c21bfad6e2",
+        "qc_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\Qwen3-1.7B\\main\\qc_report.json",
+        "qc_sha256": "c4e24c1f6b274c9a0cd8313aa8f9052502dc8665b5b30b9bdd6c642c0b4113a6",
+        "completed": 900,
+        "expected": 900,
+        "qc_status": null
+      },
+      {
+        "model": "Qwen3-32B",
+        "manifest_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\Qwen3-32B\\main\\run_manifest.json",
+        "manifest_sha256": "2318c107e73a24af88c4e4dc61a1cc93f9e1a5632a20f0065d8e79d599bdce40",
+        "qc_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\Qwen3-32B\\main\\qc_report.json",
+        "qc_sha256": "2b2e3512573ea938f445d40427d0f8edd14de658ccb7675026aecdbf71061100",
+        "completed": 900,
+        "expected": 900,
+        "qc_status": null
+      },
+      {
+        "model": "Gemma4-E4B",
+        "manifest_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\Gemma4-E4B\\main\\run_manifest.json",
+        "manifest_sha256": "a92c39dacd0e63a993ee83dedf6a8aa2f364c77f287a87269aeec2551a892abf",
+        "qc_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\Gemma4-E4B\\main\\qc_report.json",
+        "qc_sha256": "e5038394204e731271cbe4ca814a003a0fbbee02a5f25845a8cb49e49c14c1a4",
+        "completed": 900,
+        "expected": 900,
+        "qc_status": null
+      },
+      {
+        "model": "Gemma4-12B",
+        "manifest_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\Gemma4-12B\\main\\run_manifest.json",
+        "manifest_sha256": "101e5ee2f2a58e90c20ed4ed34ba0d7ebfcda90f88f582028a8656d5199bb102",
+        "qc_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\Gemma4-12B\\main\\qc_report.json",
+        "qc_sha256": "2dd8763af55a9e6f5a833b3399f6946537195a34391845ca48dfd46defc579e1",
+        "completed": 900,
+        "expected": 900,
+        "qc_status": null
+      },
+      {
+        "model": "OLMo-Hybrid-7B",
+        "manifest_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\OLMo-Hybrid-7B\\main\\run_manifest.json",
+        "manifest_sha256": "add2351fcea03f4fa60cca6e473dc156621c5a8eeeb8c63da3a422e667dbeb72",
+        "qc_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\OLMo-Hybrid-7B\\main\\qc_report.json",
+        "qc_sha256": "4bf6e4bd38b23f2b7dd75db3d28872e37622e2a70294b27c65e3840efea3244a",
+        "completed": 600,
+        "expected": 600,
+        "qc_status": null
+      },
+      {
+        "model": "Llama3.1-8B",
+        "manifest_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\Llama3.1-8B\\main\\run_manifest.json",
+        "manifest_sha256": "29364a83fe4f8a1f0495e4d9ceb50c6832f388502c9a3a1e2d861ca9638f0275",
+        "qc_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\Llama3.1-8B\\main\\qc_report.json",
+        "qc_sha256": "782a91fd7ea85e7223998eef22a2ad1b8e774cfaf928cd527aec7c87dbf49e11",
+        "completed": 600,
+        "expected": 600,
+        "qc_status": null
+      },
+      {
+        "model": "Llama3.2-3B",
+        "manifest_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\Llama3.2-3B\\main\\run_manifest.json",
+        "manifest_sha256": "1cedf26baea182dec52820c0689fe2250616d17009d940f4978e6ff468da69ce",
+        "qc_path": "C:\\Users\\HP\\AppData\\Local\\Temp\\rniah_report_20260724\\runs\\realistic_niah_v1\\six_models_formal_20260723T194300Z\\Llama3.2-3B\\main\\qc_report.json",
+        "qc_sha256": "a1d3349b1a08d37ef20d423bc8ba211adfe20bd7256ee026cc1768163bc94d8d",
+        "completed": 600,
+        "expected": 600,
+        "qc_status": null
+      }
+    ]
+  },
+  "regression_replay": {
+    "max_absolute_log_loss_difference_vs_archived": 7.459088319228258e-08,
+    "candidate_count": 5,
+    "folds": "five leave-one-seed-out folds",
+    "ridge": 0.0001,
+    "status": "pass"
+  }
+}

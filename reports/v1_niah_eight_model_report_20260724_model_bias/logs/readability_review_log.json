@@ -1,0 +1,36 @@
+{
+  "schema_version": "realistic-niah-report-readability-review-v1",
+  "created_at_utc": "2026-07-25T05:44:35.494535+00:00",
+  "status": "pass",
+  "copied_files_from_prompt_report": 0,
+  "review": {
+    "reviewed_at_utc": "2026-07-25T05:44:35.462374+00:00",
+    "status": "pass",
+    "canonical_report_root": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\niah_eight_model_report_20260724_model_bias",
+    "merged_source_report": null,
+    "prompt_section_present": true,
+    "notation_policy": "T is canonical passage length; N is true needle count; L is not used as the length symbol in report formulas.",
+    "sample_policy": {
+      "primary_exact_accuracy": "all 6300 registered requests",
+      "absolute_error_and_signed_bias": "5385 parsed numeric outputs only"
+    },
+    "formula_cards": 7,
+    "embedded_figures": 15,
+    "captions_reviewed": 15,
+    "regenerated_figures": {
+      "fig07_unified_law_parameters.png": "a582595e9ba839ca6d3e19d2ce7bcd8f40dcef324b095e2898fddd4880cd112f",
+      "fig08_unified_law_surfaces.png": "76b7a2e15c5e3d8b566ba43d80d877e0ed1f7d04a36a37936da964cf7b12d5f1",
+      "fig15_model_bias_selected_surfaces.png": "8235993cac7863101cc5b117ed97e21eaa3ef23e8995e82553a82343523bcced"
+    },
+    "numeric_tables_modified": false,
+    "raw_or_frozen_artifacts_modified": false
+  },
+  "checks": [
+    "canonical report contains audited prompt formats",
+    "T/N notation is consistent in displayed formulas",
+    "primary and conditional samples are explicitly separated",
+    "all 15 embedded figure captions define sample and axes",
+    "figures 7, 8, and 14 regenerated from preserved CSV tables",
+    "raw requests, frozen stimuli, QC, and numeric fit tables unchanged"
+  ]
+}
