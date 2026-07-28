@@ -138,6 +138,17 @@ original 29-shard, 14,500-request formal panel. See
 for immutable revisions, smoke testing, resumable launch commands, and the
 2,000-request final audit.
 
+### Five-group native-reasoning extension
+
+The independently versioned reasoning-model extension adds switchable
+Nemotron Nano v2 9B, Nemotron 3 Nano 4B, Granite 3.3 8B, and Cogito v1
+Preview 8B checkpoints, plus the separate Ministral 3 8B Instruct/Reasoning
+pair. It reuses the same frozen 500 V2 stimuli and four prompts without
+changing the original formal panel or OLMo extension. See
+[`docs/realistic_niah_reasoning_models_extension.md`](docs/realistic_niah_reasoning_models_extension.md)
+for immutable revisions, model-specific thinking controls, the 80-request
+smoke, the resumable 20-shard launch, and the 10,000-request final audit.
+
 ## Attention-head taxonomy
 
 Use `notebooks/attention_head_taxonomy.ipynb` to screen Qwen3 heads for

@@ -27,6 +27,22 @@ QWEN_THINK_OPEN = "<think>"
 QWEN_THINK_CLOSE = "</think>"
 GEMMA_THINK_OPEN = "<|channel>thought\n"
 GEMMA_THINK_CLOSE = "<channel|>"
+MISTRAL_THINK_OPEN = "[THINK]"
+MISTRAL_THINK_CLOSE = "[/THINK]"
+MISTRAL_SPECIAL_THINK_OPEN = "<SPECIAL_34>"
+MISTRAL_SPECIAL_THINK_CLOSE = "<SPECIAL_35>"
+RESPONSE_WRAPPERS = (
+    ("<response>", "</response>"),
+    ("[RESPONSE]", "[/RESPONSE]"),
+)
+
+
+def _strip_response_wrapper(text: str) -> str:
+    stripped = text.strip()
+    for opening, closing in RESPONSE_WRAPPERS:
+        if stripped.startswith(opening) and stripped.endswith(closing):
+            return stripped[len(opening) : -len(closing)].strip()
+    return stripped
 
 
 def split_reasoning_and_final(
@@ -47,38 +63,56 @@ def split_reasoning_and_final(
             QWEN_THINK_CLOSE,
             GEMMA_THINK_OPEN,
             GEMMA_THINK_CLOSE,
+            MISTRAL_THINK_OPEN,
+            MISTRAL_THINK_CLOSE,
+            MISTRAL_SPECIAL_THINK_OPEN,
+            MISTRAL_SPECIAL_THINK_CLOSE,
         )
     )
     if not expects_reasoning and not has_reasoning_delimiter:
-        return "", raw_text.strip()
+        return "", _strip_response_wrapper(raw_text)
 
     if QWEN_THINK_OPEN in raw_text:
         after_open = raw_text.split(QWEN_THINK_OPEN, 1)[1]
         if QWEN_THINK_CLOSE not in after_open:
             return after_open.strip(), ""
         reasoning, final = after_open.rsplit(QWEN_THINK_CLOSE, 1)
-        return reasoning.strip(), final.strip()
+        return reasoning.strip(), _strip_response_wrapper(final)
     if QWEN_THINK_CLOSE in raw_text:
         # Qwen's chat template normally places the opening <think> token in
         # the prompt. Offline generation therefore returns only the reasoning
         # body, the closing token, and the final answer.
         reasoning, final = raw_text.rsplit(QWEN_THINK_CLOSE, 1)
-        return reasoning.strip(), final.strip()
+        return reasoning.strip(), _strip_response_wrapper(final)
 
     if GEMMA_THINK_OPEN in raw_text:
         after_open = raw_text.split(GEMMA_THINK_OPEN, 1)[1]
         if GEMMA_THINK_CLOSE not in after_open:
             return after_open.strip(), ""
         reasoning, final = after_open.split(GEMMA_THINK_CLOSE, 1)
-        return reasoning.strip(), final.strip()
+        return reasoning.strip(), _strip_response_wrapper(final)
     if GEMMA_THINK_CLOSE in raw_text:
         reasoning, final = raw_text.split(GEMMA_THINK_CLOSE, 1)
-        return reasoning.strip(), final.strip()
+        return reasoning.strip(), _strip_response_wrapper(final)
+
+    for opening, closing in (
+        (MISTRAL_THINK_OPEN, MISTRAL_THINK_CLOSE),
+        (MISTRAL_SPECIAL_THINK_OPEN, MISTRAL_SPECIAL_THINK_CLOSE),
+    ):
+        if opening in raw_text:
+            after_open = raw_text.split(opening, 1)[1]
+            if closing not in after_open:
+                return after_open.strip(), ""
+            reasoning, final = after_open.rsplit(closing, 1)
+            return reasoning.strip(), _strip_response_wrapper(final)
+        if closing in raw_text:
+            reasoning, final = raw_text.rsplit(closing, 1)
+            return reasoning.strip(), _strip_response_wrapper(final)
 
     # Some inference backends return an already-parsed final response with
     # the reasoning channel removed. Treat that as a final answer rather than
     # incorrectly classifying it as an unterminated thought.
-    return "", raw_text.strip()
+    return "", _strip_response_wrapper(raw_text)
 
 
 def parse_total(final_text: str) -> int | None:

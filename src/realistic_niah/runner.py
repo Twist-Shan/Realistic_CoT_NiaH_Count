@@ -75,6 +75,12 @@ def decoding_config(model_spec: ModelSpec, prompt_mode: str) -> DecodingConfig:
                 temperature=0.6,
                 top_p=0.95,
             )
+        if model_spec.family == "ministral3_reasoning":
+            return DecodingConfig(
+                max_tokens=4096,
+                temperature=0.7,
+                top_p=0.95,
+            )
         raise ValueError(
             f"No always-on reasoning decoding is registered for "
             f"{model_spec.label}"
@@ -93,6 +99,20 @@ def decoding_config(model_spec: ModelSpec, prompt_mode: str) -> DecodingConfig:
             temperature=1.0,
             top_p=0.95,
             top_k=64,
+        )
+    if model_spec.family == "nemotron3_nano":
+        return DecodingConfig(
+            max_tokens=4096,
+            temperature=1.0,
+            top_p=0.95,
+        )
+    if model_spec.family == "granite33":
+        return DecodingConfig(max_tokens=4096, temperature=0.0)
+    if model_spec.family in {"nemotron_nano_v2", "cogito_v1"}:
+        return DecodingConfig(
+            max_tokens=4096,
+            temperature=0.6,
+            top_p=0.95,
         )
     return DecodingConfig(
         max_tokens=4096,
@@ -371,6 +391,25 @@ def _sampling_params_kwargs(
     }
 
 
+def model_engine_overrides(model_spec: ModelSpec) -> dict[str, Any]:
+    """Return audited vLLM options required by a registered model family."""
+
+    if model_spec.engine_profile == "standard":
+        return {}
+    if model_spec.engine_profile == "mamba_float32":
+        return {"mamba_ssm_cache_dtype": "float32"}
+    if model_spec.engine_profile == "mistral_common":
+        return {
+            "tokenizer_mode": "mistral",
+            "config_format": "mistral",
+            "load_format": "mistral",
+        }
+    raise ValueError(
+        f"Unsupported engine profile for {model_spec.label}: "
+        f"{model_spec.engine_profile!r}"
+    )
+
+
 def _batched(
     values: list[dict[str, Any]],
     size: int,
@@ -435,6 +474,7 @@ def run_vllm_experiment(
     if require_clean_git and provenance["dirty"]:
         raise RuntimeError("Formal run requires a clean Git worktree")
     engine = engine_config or EngineConfig()
+    engine_overrides = model_engine_overrides(model_spec)
     if engine.request_batch_size <= 0:
         raise ValueError("request_batch_size must be positive")
     stimuli_file = Path(stimuli_path).resolve()
@@ -453,6 +493,10 @@ def run_vllm_experiment(
             "stimuli_sha256": existing_manifest.get("stimuli_sha256"),
             "request_ids_sha256": existing_manifest.get("request_ids_sha256"),
             "engine": existing_manifest.get("engine"),
+            "model_engine_overrides": existing_manifest.get(
+                "model_engine_overrides",
+                {},
+            ),
             "git_commit": existing_manifest.get("git", {}).get("commit"),
         }
         current = {
@@ -462,6 +506,7 @@ def run_vllm_experiment(
             "stimuli_sha256": stimuli_sha256,
             "request_ids_sha256": request_ids_sha256,
             "engine": asdict(engine),
+            "model_engine_overrides": engine_overrides,
             "git_commit": provenance["commit"],
         }
         if expected_existing != current:
@@ -505,6 +550,7 @@ def run_vllm_experiment(
             str(request["prompt_mode"]) for request in requests
         )),
         "engine": asdict(engine),
+        "model_engine_overrides": engine_overrides,
         "stimuli_path": str(stimuli_file),
         "stimuli_sha256": stimuli_sha256,
         "selected_stimulus_ids_sha256": _ordered_id_digest(
@@ -517,7 +563,13 @@ def run_vllm_experiment(
         "git": provenance,
         "hardware": _hardware_snapshot(),
         "packages": _package_versions(
-            ("torch", "transformers", "vllm", "huggingface-hub")
+            (
+                "torch",
+                "transformers",
+                "vllm",
+                "huggingface-hub",
+                "mistral-common",
+            )
         ),
     }
     if not pending:
@@ -581,6 +633,7 @@ def run_vllm_experiment(
         llm_kwargs["max_num_seqs"] = engine.max_num_seqs
     if cache_dir is not None:
         llm_kwargs["download_dir"] = str(cache_dir)
+    llm_kwargs.update(engine_overrides)
     llm = LLM(**llm_kwargs)
 
     groups: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)

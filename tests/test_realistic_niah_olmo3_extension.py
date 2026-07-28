@@ -27,6 +27,7 @@ from realistic_niah.spec import (
     EXTENSION_MODEL_REVISIONS,
     EXTENSION_MODEL_SPECS,
     MODEL_SPECS,
+    REASONING_EXTENSION_MODEL_SPECS,
 )
 
 
@@ -63,7 +64,11 @@ def test_olmo3_registry_uses_two_immutable_official_checkpoints() -> None:
     assert think.prompt_modes == ("native_thinking",)
     assert set(EXTENSION_MODEL_REVISIONS) == set(EXTENSION_MODEL_SPECS)
     assert all(len(revision) == 40 for revision in EXTENSION_MODEL_REVISIONS.values())
-    assert set(ALL_MODEL_SPECS) == set(MODEL_SPECS) | set(EXTENSION_MODEL_SPECS)
+    assert set(ALL_MODEL_SPECS) == (
+        set(MODEL_SPECS)
+        | set(EXTENSION_MODEL_SPECS)
+        | set(REASONING_EXTENSION_MODEL_SPECS)
+    )
 
 
 def test_resolver_accepts_olmo_labels_and_repo_ids() -> None:
