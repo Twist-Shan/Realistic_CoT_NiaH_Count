@@ -128,6 +128,16 @@ vLLM version used by the registered runner. On the registered Lambda image,
 invoke Python through `bash scripts/lambda_python.sh ...`; the wrapper also
 sets the persistent Hugging Face and pip cache locations.
 
+### OLMo 3 7B extension
+
+The independently versioned OLMo 3 extension adds the official 7B Instruct
+checkpoint for Direct/Index/Bullet and the official 7B Think checkpoint for
+Native Thinking. It reuses the frozen 500 V2 stimuli but does not modify the
+original 29-shard, 14,500-request formal panel. See
+[`docs/realistic_niah_olmo3_extension.md`](docs/realistic_niah_olmo3_extension.md)
+for immutable revisions, smoke testing, resumable launch commands, and the
+2,000-request final audit.
+
 ## Attention-head taxonomy
 
 Use `notebooks/attention_head_taxonomy.ipynb` to screen Qwen3 heads for

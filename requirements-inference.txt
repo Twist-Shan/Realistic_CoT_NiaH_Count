@@ -1,8 +1,8 @@
 -r requirements.txt
 
-# GLM-Z1's official template requires Transformers 4.51.3 or newer.
-transformers>=4.51.3
+# OLMo 3 requires Transformers 4.57.0 or newer (also satisfies GLM-Z1).
+transformers>=4.57.0
 
 # Pinned production inference engine for Qwen3, Gemma 4 / Gemma 4 Unified,
-# DeepSeek-R1-Qwen3, and GLM-Z1.
+# DeepSeek-R1-Qwen3, GLM-Z1, and OLMo 3.
 vllm==0.25.1

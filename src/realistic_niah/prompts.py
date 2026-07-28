@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from .spec import (
+    ALL_MODEL_SPECS,
     FORMAL_PROMPT_MODES,
-    MODEL_SPECS,
     QUERY_LAYOUT,
     THINKING_PROMPT_MODES,
     ModelSpec,
@@ -94,9 +94,9 @@ def reasoning_expected(
 
 
 def resolve_model_spec(model: str) -> ModelSpec:
-    if model in MODEL_SPECS:
-        return MODEL_SPECS[model]
-    for spec in MODEL_SPECS.values():
+    if model in ALL_MODEL_SPECS:
+        return ALL_MODEL_SPECS[model]
+    for spec in ALL_MODEL_SPECS.values():
         if spec.model_id == model:
             return spec
     raise ValueError(f"Unknown registered model: {model}")

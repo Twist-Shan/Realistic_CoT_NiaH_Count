@@ -142,6 +142,42 @@ MODEL_SPECS = {
     )
 }
 
+EXTENSION_MODEL_LABELS = (
+    "Olmo3-7B-Instruct",
+    "Olmo3-7B-Think",
+)
+EXTENSION_MODEL_REVISIONS = {
+    "Olmo3-7B-Instruct": "6e5971d9eba42665f5bd5a0fcf047f299ce1dccc",
+    "Olmo3-7B-Think": "d97e442d7cc678210054dbcc9b440894d62c89a4",
+}
+EXTENSION_MODEL_SPECS = {
+    spec.label: spec
+    for spec in (
+        ModelSpec(
+            "Olmo3-7B-Instruct",
+            "allenai/Olmo-3-7B-Instruct",
+            "olmo3",
+            False,
+            NONTHINKING_PROMPT_MODES,
+            "off_only",
+        ),
+        ModelSpec(
+            "Olmo3-7B-Think",
+            "allenai/Olmo-3-7B-Think",
+            "olmo3",
+            True,
+            REASONING_ONLY_PROMPT_MODES,
+            "always_on",
+        ),
+    )
+}
+
+# The completed V2 formal panel remains frozen in MODEL_SPECS. New checkpoint
+# families are resolved through this combined registry without changing the
+# original 29-shard / 14,500-request design.
+ALL_MODEL_SPECS = {**MODEL_SPECS, **EXTENSION_MODEL_SPECS}
+ALL_MODEL_REVISIONS = {**MODEL_REVISIONS, **EXTENSION_MODEL_REVISIONS}
+
 
 def validate_experiment_spec() -> None:
     if 0 in NEEDLE_COUNTS:
@@ -193,4 +229,29 @@ def validate_experiment_spec() -> None:
         raise ValueError(f"Invalid reasoning policies: {invalid_policies}")
 
 
+def validate_extension_spec() -> None:
+    if set(MODEL_SPECS).intersection(EXTENSION_MODEL_SPECS):
+        raise ValueError("Extension model labels must not alter the formal registry")
+    if set(EXTENSION_MODEL_LABELS) != set(EXTENSION_MODEL_SPECS):
+        raise ValueError("Extension labels must cover the extension registry")
+    if set(EXTENSION_MODEL_REVISIONS) != set(EXTENSION_MODEL_SPECS):
+        raise ValueError("Every extension model must have one immutable revision")
+    if any(
+        len(revision) != 40
+        or any(character not in "0123456789abcdef" for character in revision)
+        for revision in EXTENSION_MODEL_REVISIONS.values()
+    ):
+        raise ValueError(
+            "Extension revisions must be lowercase 40-character Git SHAs"
+        )
+    if (
+        EXTENSION_MODEL_SPECS["Olmo3-7B-Instruct"].prompt_modes
+        != NONTHINKING_PROMPT_MODES
+        or EXTENSION_MODEL_SPECS["Olmo3-7B-Think"].prompt_modes
+        != REASONING_ONLY_PROMPT_MODES
+    ):
+        raise ValueError("OLMo 3 checkpoints must use their registered mode split")
+
+
 validate_experiment_spec()
+validate_extension_spec()

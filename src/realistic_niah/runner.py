@@ -69,6 +69,12 @@ def decoding_config(model_spec: ModelSpec, prompt_mode: str) -> DecodingConfig:
                 temperature=0.6,
                 top_p=0.95,
             )
+        if model_spec.family == "olmo3":
+            return DecodingConfig(
+                max_tokens=4096,
+                temperature=0.6,
+                top_p=0.95,
+            )
         raise ValueError(
             f"No always-on reasoning decoding is registered for "
             f"{model_spec.label}"
