@@ -220,3 +220,22 @@ def test_json_config_matches_registered_extension() -> None:
         assert checkpoint["model_id"] == spec.model_id
         assert checkpoint["revision"] == EXTENSION_MODEL_REVISIONS[label]
         assert tuple(checkpoint["prompt_modes"]) == spec.prompt_modes
+
+
+def test_inference_environment_pins_compatible_olmo3_versions() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    requirements = (
+        repo_root / "requirements-inference.txt"
+    ).read_text(encoding="utf-8")
+    smoke_launcher = (
+        repo_root / "scripts" / "run_realistic_niah_olmo3_extension_smoke.sh"
+    ).read_text(encoding="utf-8")
+    formal_launcher = (
+        repo_root / "scripts" / "launch_realistic_niah_olmo3_extension.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "transformers==5.5.3" in requirements
+    assert "vllm==0.25.1" in requirements
+    for launcher in (smoke_launcher, formal_launcher):
+        assert 'version("transformers") == "5.5.3"' in launcher
+        assert 'version("vllm") == "0.25.1"' in launcher

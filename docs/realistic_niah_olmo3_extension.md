@@ -30,8 +30,12 @@ a parseable and mode-compliant response, and no length truncation.
 
 ## Environment
 
-The OLMo 3 architecture requires `transformers>=4.57.0`. Install the pinned
-inference environment before launching:
+The registered inference environment pins `transformers==5.5.3` together
+with `vllm==0.25.1`. This exact pairing is required: Transformers 5.14.1
+nests OLMo 3 RoPE parameters by attention type, while vLLM 0.25.1 expects
+the flat configuration emitted by 5.5.3 and otherwise raises
+`KeyError: rope_theta` before generating any request. Install the pinned
+environment before launching:
 
 ```bash
 python -m pip install -r requirements-inference.txt

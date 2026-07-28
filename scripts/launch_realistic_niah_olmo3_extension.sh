@@ -16,7 +16,7 @@ test -x "${python_bin}"
 test -d "${repo}/.git"
 test -z "$(git -C "${repo}" status --short)"
 "${python_bin}" -c \
-  'from importlib.metadata import version; from packaging.version import Version; import vllm; assert Version(version("transformers")) >= Version("4.57.0")'
+  'from importlib.metadata import version; import vllm; assert version("transformers") == "5.5.3"; assert version("vllm") == "0.25.1"'
 
 gpu_count="$(nvidia-smi --query-gpu=index --format=csv,noheader | wc -l)"
 if [[ "${gpu_count}" -lt 1 ]]; then

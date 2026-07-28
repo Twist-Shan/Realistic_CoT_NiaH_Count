@@ -1,7 +1,9 @@
 -r requirements.txt
 
-# OLMo 3 requires Transformers 4.57.0 or newer (also satisfies GLM-Z1).
-transformers>=4.57.0
+# vLLM 0.25.1 expects the pre-5.14 flat OLMo 3 RoPE configuration produced
+# by Transformers 5.5.3. Later 5.x releases nest parameters by attention type
+# and currently fail OLMo 3 initialization in vLLM with KeyError: rope_theta.
+transformers==5.5.3
 
 # Pinned production inference engine for Qwen3, Gemma 4 / Gemma 4 Unified,
 # DeepSeek-R1-Qwen3, GLM-Z1, and OLMo 3.
