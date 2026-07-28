@@ -24,6 +24,7 @@ esac
 test -x "${python_bin}"
 test -d "${cache}"
 test -z "$(git -C "${repo}" status --short)"
+export PATH="$(dirname "${python_bin}"):${PATH}"
 "${python_bin}" -c \
   'from importlib.metadata import version; import vllm; assert version("transformers") == "5.5.3"; assert version("vllm") == "0.25.1"'
 if ! nvidia-smi --query-gpu=index --format=csv,noheader \

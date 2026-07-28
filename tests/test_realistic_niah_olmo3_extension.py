@@ -239,3 +239,4 @@ def test_inference_environment_pins_compatible_olmo3_versions() -> None:
     for launcher in (smoke_launcher, formal_launcher):
         assert 'version("transformers") == "5.5.3"' in launcher
         assert 'version("vllm") == "0.25.1"' in launcher
+    assert 'export PATH="$(dirname "${python_bin}"):${PATH}"' in smoke_launcher
