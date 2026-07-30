@@ -30,6 +30,8 @@ cross-validation by seed, retains every attempted formula, and never edits or
 filters raw failures. See
 [`docs/realistic_niah_v3.md`](docs/realistic_niah_v3.md) for the exact matrix,
 prompts, checkpoint revisions, estimands, commands, audits, and scope boundary.
+Production V3 inference uses `requirements-inference-v3.txt`; it is separate
+from the OLMo-specific historical inference environment.
 
 ## Registered Realistic NIAH V2
 

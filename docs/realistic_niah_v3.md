@@ -277,6 +277,20 @@ Interaction candidates are ineligible when their interaction coefficient has
 
 ## 8. Reproducible workflow
 
+Create a dedicated V3 inference environment on the Linux GPU host:
+
+```bash
+python3 -m venv /home/ubuntu/venvs/realistic-niah-vllm
+/home/ubuntu/venvs/realistic-niah-vllm/bin/python -m pip install \
+  -r requirements-inference-v3.txt
+```
+
+V3 pins `transformers==5.14.1`, `vllm==0.25.1`, and
+`mistral-common>=1.8.6,<2`. V3 does not contain OLMo 3. Do not use the
+historical `requirements-inference.txt` environment for V3: its older
+Transformers pin exists only for the OLMo 3 extension and does not recognize
+the registered Gemma 4 Unified checkpoints.
+
 Create an analysis environment separately from inference:
 
 ```bash

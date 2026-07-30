@@ -14,6 +14,8 @@ python_bin="${REALISTIC_NIAH_PYTHON:-/home/ubuntu/venvs/realistic-niah-vllm/bin/
 test -x "${python_bin}"
 test -d "${repo}/.git"
 test -z "$(git -C "${repo}" status --short)"
+"${python_bin}" -c \
+  'from importlib.metadata import version; from packaging.version import Version; assert version("transformers") == "5.14.1"; assert version("vllm") == "0.25.1"; assert Version(version("mistral-common")) >= Version("1.8.6")'
 case "${run_root}" in
   */runs/realistic_niah_v3/*)
     ;;

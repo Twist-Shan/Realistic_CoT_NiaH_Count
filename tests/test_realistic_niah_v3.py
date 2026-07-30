@@ -595,3 +595,19 @@ def test_v3_html_reports_and_plots_render(tmp_path: Path) -> None:
     assert all(path.stat().st_size > 1_000 for path in empirical_plots)
     assert "MathJax" in empirical_report.read_text(encoding="utf-8")
     assert "<details" in behavior_report.read_text(encoding="utf-8")
+
+
+def test_v3_inference_environment_is_pinned() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    requirements = (
+        repo_root / "requirements-inference-v3.txt"
+    ).read_text(encoding="utf-8")
+    launcher = (
+        repo_root / "scripts" / "launch_realistic_niah_v3.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "transformers==5.14.1" in requirements
+    assert "vllm==0.25.1" in requirements
+    assert "mistral-common>=1.8.6,<2" in requirements
+    assert 'version("transformers") == "5.14.1"' in launcher
+    assert 'version("vllm") == "0.25.1"' in launcher
