@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 import random
 import re
 import shutil
@@ -43,6 +44,8 @@ class DynamicNiahV2Config:
     randomize_needle_min_separation: int = 50
     sentence_level_insertion: bool = False
     word_level_insertion: bool = False
+    text_insertion_min_fraction: float = 0.0
+    text_insertion_max_fraction: float = 1.0
     prompt_style: str = "easier"
     thinking_mode: bool = False
     output_dir: str | None = None
@@ -980,6 +983,88 @@ def _sample_text_offsets(
     return dict(zip(active_indices, selected_offsets)), sample_with_replacement
 
 
+def _validated_text_insertion_fraction_bounds(
+    cfg: DynamicNiahV2Config,
+) -> tuple[float, float]:
+    minimum = float(cfg.text_insertion_min_fraction)
+    maximum = float(cfg.text_insertion_max_fraction)
+    if (
+        not math.isfinite(minimum)
+        or not math.isfinite(maximum)
+        or minimum < 0.0
+        or maximum > 1.0
+        or minimum >= maximum
+    ):
+        raise ValueError(
+            "text insertion fractions must be finite and satisfy "
+            "0 <= min < max <= 1"
+        )
+    return minimum, maximum
+
+
+def _depth_filtered_text_offsets(
+    *,
+    base_text: str,
+    candidates: list[int],
+    needles: list[dict[str, Any]],
+    active_indices: list[int],
+    cfg: DynamicNiahV2Config,
+) -> tuple[list[int], dict[str, Any]]:
+    """Restrict candidate offsets so final character depths stay in bounds.
+
+    The bound is conservative. Each active insertion may add at most two
+    whitespace characters in addition to its decoded text. The lower bound
+    assumes all inserted characters enlarge the final denominator, while the
+    upper bound assumes all inserted characters occur before the candidate.
+    The completed passage is checked again after insertion.
+    """
+
+    minimum, maximum = _validated_text_insertion_fraction_bounds(cfg)
+    minimum_inserted_characters = sum(
+        len(str(needles[index]["inserted_decoded_text"]))
+        for index in active_indices
+    )
+    maximum_inserted_characters = sum(
+        len(str(needles[index]["inserted_decoded_text"])) + 2
+        for index in active_indices
+    )
+    base_characters = len(base_text)
+    if minimum == 0.0 and maximum == 1.0:
+        # Preserve the exact V2 behavior: the default interval is not an
+        # insertion-site filter, so candidate counts and seeded samples remain
+        # bit-for-bit unchanged.
+        return list(candidates), {}
+    maximum_final_characters = base_characters + maximum_inserted_characters
+    minimum_final_characters = base_characters + minimum_inserted_characters
+    minimum_offset = math.ceil(minimum * maximum_final_characters)
+    maximum_offset = math.floor(
+        maximum * minimum_final_characters
+        - maximum_inserted_characters
+    )
+    eligible = [
+        int(offset)
+        for offset in candidates
+        if minimum_offset <= int(offset) <= maximum_offset
+    ]
+    metadata = {
+        "text_insertion_min_fraction": minimum,
+        "text_insertion_max_fraction": maximum,
+        "text_insertion_unfiltered_candidate_count": len(candidates),
+        "text_insertion_eligible_candidate_count": len(eligible),
+        "text_insertion_conservative_min_offset": minimum_offset,
+        "text_insertion_conservative_max_offset": maximum_offset,
+        "text_insertion_minimum_added_characters": minimum_inserted_characters,
+        "text_insertion_maximum_added_characters": maximum_inserted_characters,
+    }
+    if active_indices and not eligible:
+        raise ValueError(
+            "No text insertion candidates remain within the registered "
+            f"fraction bounds [{minimum}, {maximum}]; "
+            f"base_characters={base_characters}, candidates={len(candidates)}"
+        )
+    return eligible, metadata
+
+
 def _insert_at_text_offsets(
     base_text: str,
     needles: list[dict[str, Any]],
@@ -998,6 +1083,13 @@ def _insert_at_text_offsets(
     if not active_indices:
         return base_text, []
 
+    candidates, depth_filter_metadata = _depth_filtered_text_offsets(
+        base_text=base_text,
+        candidates=candidates,
+        needles=needles,
+        active_indices=active_indices,
+        cfg=cfg,
+    )
     offset_by_needle_idx, sample_with_replacement = _sample_text_offsets(
         candidates=candidates,
         active_indices=active_indices,
@@ -1056,6 +1148,7 @@ def _insert_at_text_offsets(
             "text_insertion_offset": offset,
             "text_insertion_candidate_count": len(candidates),
             "text_insertion_sampled_with_replacement": sample_with_replacement,
+            **depth_filter_metadata,
             **span_metadata,
             "token_span_verified": True,
         }
@@ -1116,6 +1209,19 @@ def _insert_at_text_offsets(
                 ),
             }
         )
+        minimum, maximum = _validated_text_insertion_fraction_bounds(cfg)
+        if minimum != 0.0 or maximum != 1.0:
+            normalized_text_depth = float(updated["char_start"]) / max(
+                1,
+                len(out),
+            )
+            if not minimum <= normalized_text_depth <= maximum:
+                raise RuntimeError(
+                    "Final text insertion depth fell outside the registered "
+                    f"bounds: {normalized_text_depth} not in "
+                    f"[{minimum}, {maximum}]"
+                )
+            updated["normalized_text_depth"] = normalized_text_depth
         refreshed.append(updated)
     return out, refreshed
 
@@ -1420,6 +1526,7 @@ def generate_dynamic_niah_dataset_v2(
         raise ValueError(
             "sentence_level_insertion and word_level_insertion are mutually exclusive"
         )
+    _validated_text_insertion_fraction_bounds(cfg)
     _validate_num_max_needles(cfg.num_max_needles)
     counting_needle_kind = _normalize_counting_needle_kind(cfg.counting_needle_kind)
     if cfg.num_max_needles is None:
@@ -1695,6 +1802,21 @@ def generate_dynamic_niah_dataset_v2(
                     "control_switch": ex_control_switch,
                     "sentence_level_insertion": bool(ex_cfg.sentence_level_insertion),
                     "word_level_insertion": bool(ex_cfg.word_level_insertion),
+                    **(
+                        {
+                            "text_insertion_min_fraction": float(
+                                ex_cfg.text_insertion_min_fraction
+                            ),
+                            "text_insertion_max_fraction": float(
+                                ex_cfg.text_insertion_max_fraction
+                            ),
+                        }
+                        if (
+                            ex_cfg.text_insertion_min_fraction != 0.0
+                            or ex_cfg.text_insertion_max_fraction != 1.0
+                        )
+                        else {}
+                    ),
                     "prompt_style": ex_cfg.prompt_style,
                     "counting_needle_kind": counting_needle_kind,
                     "marker_text": cfg.marker_text

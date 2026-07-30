@@ -42,6 +42,20 @@ class FreezeSpec:
     haystack_dir: str = "data/haystacks/paul_graham"
     haystack_corpus_manifest: str | None = None
     haystack_corpus_manifest_sha256: str | None = None
+    insertion_depth_min_fraction: float = 0.0
+    insertion_depth_max_fraction: float = 1.0
+
+
+@dataclass(frozen=True)
+class FreezeProtocol:
+    protocol_version: str = "realistic_niah_v2"
+    stimulus_schema_version: str = "realistic_niah_master_v1"
+    manifest_schema_version: str = "realistic_niah_manifest_v1"
+    audit_schema_version: str = "realistic_niah_audit_v1"
+    stimulus_id_prefix: str = ""
+
+
+V2_FREEZE_PROTOCOL = FreezeProtocol()
 
 
 def _sha256_text(text: str) -> str:
@@ -158,7 +172,9 @@ def freeze_stimulus(
     haystack_dir: str | None = None,
     entities_path: str = "data/entities/cities.csv",
     fact_templates_path: str = "data/templates/niah_fact_single_template.txt",
+    protocol: FreezeProtocol | None = None,
 ) -> dict[str, Any]:
+    resolved_protocol = protocol or V2_FREEZE_PROTOCOL
     resolved_haystack_dir = haystack_dir or spec.haystack_dir
     initial_budget = max(
         spec.minimum_filler_tokens,
@@ -185,6 +201,12 @@ def freeze_stimulus(
                 randomize_needle_seed=seed,
                 sentence_level_insertion=True,
                 word_level_insertion=False,
+                text_insertion_min_fraction=(
+                    spec.insertion_depth_min_fraction
+                ),
+                text_insertion_max_fraction=(
+                    spec.insertion_depth_max_fraction
+                ),
                 prompt_style="vanilla_no_cue",
                 global_random_seed=seed,
                 haystack_seed=retry_seed,
@@ -222,11 +244,38 @@ def freeze_stimulus(
                     )
                     for item in row["needles"]
                 ]
+                observed_depths = [
+                    float(item["normalized_depth"])
+                    for item in compact_needles
+                ]
+                if any(
+                    depth < spec.insertion_depth_min_fraction
+                    or depth > spec.insertion_depth_max_fraction
+                    for depth in observed_depths
+                ):
+                    raise RuntimeError(
+                        "Final needle depth fell outside the registered "
+                        f"bounds [{spec.insertion_depth_min_fraction}, "
+                        f"{spec.insertion_depth_max_fraction}]: "
+                        f"{observed_depths}"
+                    )
                 stimulus_id = (
+                    f"{resolved_protocol.stimulus_id_prefix}"
                     f"T{target_passage_tokens}_N{num_needles}_seed{seed}"
                 )
                 return {
-                    "schema_version": "realistic_niah_master_v1",
+                    "schema_version": (
+                        resolved_protocol.stimulus_schema_version
+                    ),
+                    **(
+                        {
+                            "protocol_version": (
+                                resolved_protocol.protocol_version
+                            )
+                        }
+                        if resolved_protocol != V2_FREEZE_PROTOCOL
+                        else {}
+                    ),
                     "stimulus_id": stimulus_id,
                     "seed": seed,
                     "target_passage_tokens": target_passage_tokens,
@@ -252,6 +301,30 @@ def freeze_stimulus(
                     ],
                     "needles": compact_needles,
                     "realized_insertions": row["realized_insertions"],
+                    **(
+                        {
+                            "insertion_depth_policy": {
+                                "coordinate": (
+                                    "needle_char_start/"
+                                    "final_passage_characters"
+                                ),
+                                "minimum_inclusive": (
+                                    spec.insertion_depth_min_fraction
+                                ),
+                                "maximum_inclusive": (
+                                    spec.insertion_depth_max_fraction
+                                ),
+                                "candidate_filter": (
+                                    "conservative_preinsertion_then_"
+                                    "final_validation"
+                                ),
+                                "observed_minimum": min(observed_depths),
+                                "observed_maximum": max(observed_depths),
+                            }
+                        }
+                        if resolved_protocol != V2_FREEZE_PROTOCOL
+                        else {}
+                    ),
                     "haystack": {
                         key: value
                         for key, value in row["haystack"].items()
@@ -288,7 +361,9 @@ def freeze_grid(
     spec: FreezeSpec | None = None,
     require_huggingface_tokenizer: bool = True,
     overwrite: bool = False,
+    protocol: FreezeProtocol | None = None,
 ) -> dict[str, Path]:
+    resolved_protocol = protocol or V2_FREEZE_PROTOCOL
     resolved_spec = spec or FreezeSpec()
     if resolved_spec.haystack_corpus_manifest is not None:
         corpus_manifest = Path(
@@ -370,6 +445,7 @@ def freeze_grid(
                     tokenizer=tokenizer,
                     spec=resolved_spec,
                     haystack_dir=resolved_spec.haystack_dir,
+                    protocol=resolved_protocol,
                 )
                 rows.append(row)
                 print(
@@ -395,9 +471,21 @@ def freeze_grid(
         json.dumps(row, ensure_ascii=False, sort_keys=True).encode("utf-8") + b"\n"
         for row in rows
     )
+    manifest_spec = asdict(resolved_spec)
+    if resolved_protocol == V2_FREEZE_PROTOCOL:
+        manifest_spec.pop("insertion_depth_min_fraction", None)
+        manifest_spec.pop("insertion_depth_max_fraction", None)
     manifest = {
-        "schema_version": "realistic_niah_manifest_v1",
-        "spec": asdict(resolved_spec),
+        "schema_version": resolved_protocol.manifest_schema_version,
+        **(
+            {
+                "protocol_version": resolved_protocol.protocol_version,
+                "stimulus_protocol": asdict(resolved_protocol),
+            }
+            if resolved_protocol != V2_FREEZE_PROTOCOL
+            else {}
+        ),
+        "spec": manifest_spec,
         "rows": len(rows),
         "cells": len(counts),
         "rows_per_cell": expected_per_cell,
@@ -455,6 +543,7 @@ def audit_frozen_grid(
     manifest_path: str | Path | None = None,
     cache_dir: str | Path | None = None,
     require_huggingface_tokenizer: bool = True,
+    protocol: FreezeProtocol | None = None,
 ) -> dict[str, Any]:
     stimuli_file = Path(stimuli_path).resolve()
     manifest_file = (
@@ -463,6 +552,24 @@ def audit_frozen_grid(
         else stimuli_file.with_name("manifest.json")
     )
     manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    saved_protocol = manifest.get("stimulus_protocol")
+    resolved_protocol = (
+        protocol
+        or (
+            FreezeProtocol(**saved_protocol)
+            if isinstance(saved_protocol, dict)
+            else V2_FREEZE_PROTOCOL
+        )
+    )
+    if manifest.get("schema_version") != (
+        resolved_protocol.manifest_schema_version
+    ):
+        raise ValueError("Frozen manifest schema does not match the protocol")
+    if manifest.get(
+        "protocol_version",
+        V2_FREEZE_PROTOCOL.protocol_version,
+    ) != resolved_protocol.protocol_version:
+        raise ValueError("Frozen manifest protocol version mismatch")
     manifest_spec = manifest["spec"]
     tokenizer_name = str(manifest_spec["canonical_tokenizer"])
     tokenizer_revision = manifest_spec.get("canonical_tokenizer_revision")
@@ -519,6 +626,10 @@ def audit_frozen_grid(
                 raise ValueError(
                     "realized insertion count does not equal num_needles"
                 )
+            if row.get("schema_version") != (
+                resolved_protocol.stimulus_schema_version
+            ):
+                raise ValueError("stimulus schema version mismatch")
             if bool(row["length_search"]["post_insertion_truncation"]):
                 raise ValueError("post-insertion truncation is forbidden")
             if manifest_spec.get("haystack_source_mode") == (
@@ -600,11 +711,28 @@ def audit_frozen_grid(
                     raise ValueError(
                         f"{needle['needle_id']} missing or duplicated"
                     )
-                if not 0 <= float(needle["normalized_depth"]) <= 1:
+                minimum_depth = float(
+                    manifest_spec.get(
+                        "insertion_depth_min_fraction",
+                        0.0,
+                    )
+                )
+                maximum_depth = float(
+                    manifest_spec.get(
+                        "insertion_depth_max_fraction",
+                        1.0,
+                    )
+                )
+                if not minimum_depth <= float(
+                    needle["normalized_depth"]
+                ) <= maximum_depth:
                     raise ValueError(
                         f"{needle['needle_id']} normalized depth out of range"
                     )
-            expected_id = f"T{target}_N{num_needles}_seed{seed}"
+            expected_id = (
+                f"{resolved_protocol.stimulus_id_prefix}"
+                f"T{target}_N{num_needles}_seed{seed}"
+            )
             if identifier != expected_id:
                 raise ValueError(
                     f"stimulus ID mismatch: expected {expected_id}"
@@ -659,7 +787,12 @@ def audit_frozen_grid(
         errors.append("SHA256SUMS is missing")
 
     return {
-        "schema_version": "realistic_niah_audit_v1",
+        "schema_version": resolved_protocol.audit_schema_version,
+        **(
+            {"protocol_version": resolved_protocol.protocol_version}
+            if resolved_protocol != V2_FREEZE_PROTOCOL
+            else {}
+        ),
         "passed": not errors,
         "stimuli_path": str(stimuli_file),
         "stimuli_sha256": hashlib.sha256(stimuli_file.read_bytes()).hexdigest(),
