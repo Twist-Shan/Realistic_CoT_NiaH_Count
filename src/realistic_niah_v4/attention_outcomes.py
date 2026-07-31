@@ -260,6 +260,35 @@ def _validate_capture_grid(
     }
     if len(cells) != len(records):
         raise ValueError("Attention capture grid is not unique by variant/seed/count")
+    labels_by_id = labels.set_index("stimulus_id", drop=False)
+    for record in records:
+        stimulus_id = str(record["stimulus_id"])
+        encoding = encodings[stimulus_id]
+        label = labels_by_id.loc[stimulus_id]
+        expected = {
+            "design_variant": encoding.design_variant,
+            "model_label": encoding.model_label,
+            "seed": int(encoding.seed),
+            "count": int(encoding.count),
+        }
+        observed = {
+            "design_variant": str(record["design_variant"]),
+            "model_label": str(record["model_label"]),
+            "seed": int(record["seed"]),
+            "count": int(record["count"]),
+        }
+        if observed != expected:
+            raise ValueError(
+                f"Attention metadata mismatch for {stimulus_id}: "
+                f"observed={observed} expected={expected}"
+            )
+        if (
+            str(label["design_variant"]) != encoding.design_variant
+            or str(label["model_label"]) != encoding.model_label
+            or int(label["seed"]) != int(encoding.seed)
+            or int(label["gold_count"]) != int(encoding.count)
+        ):
+            raise ValueError(f"Behavior metadata mismatch for {stimulus_id}")
 
 
 def capture_pooling_metric_shards(
@@ -306,6 +335,12 @@ def capture_pooling_metric_shards(
         else:
             frames: list[pd.DataFrame] = []
             with np.load(raw_path, allow_pickle=False) as raw:
+                if int(raw["query_position"][0]) != int(encoding.query_position):
+                    raise RuntimeError(f"Raw query-position mismatch: {raw_path}")
+                if int(raw["sequence_length"][0]) != int(
+                    encoding.sequence_length
+                ):
+                    raise RuntimeError(f"Raw sequence-length mismatch: {raw_path}")
                 key_starts = np.asarray(raw["key_starts"], dtype=int)
                 layer_types = np.asarray(raw["layer_types"]).astype(str)
                 for layer in range(len(key_starts)):
