@@ -42,6 +42,7 @@ from .prompts import PromptEncoding, render_v4_prompt
 from .representation import (
     analyze_representation_captures,
     capture_representation_shards,
+    label_representation_analysis_by_generation,
 )
 from .spec import V4Config, resolve_fractional_layers, resolve_model_spec
 from .stimuli import load_stimuli
@@ -830,5 +831,18 @@ def run_labeled_attention_analysis(
         output_dir=model_output / "attention" / "analysis",
         top_k=8,
         overwrite_pooling_metrics=overwrite_pooling_metrics,
+    )
+    representation_outputs = label_representation_analysis_by_generation(
+        analysis_dir=model_output / "representation" / "analysis",
+        generation_labels_path=(
+            model_output / "behavior" / "capture" / "generation_labels.csv"
+        ),
+        output_dir=model_output / "representation" / "analysis" / "outcomes",
+    )
+    outputs.update(
+        {
+            f"representation_{key}": value
+            for key, value in representation_outputs.items()
+        }
     )
     return {key: str(value) for key, value in outputs.items()}

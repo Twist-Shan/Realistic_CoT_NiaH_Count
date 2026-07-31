@@ -745,3 +745,197 @@ def analyze_representation_captures(
         "seed_sensitivity": sensitivity_path,
         "summary": summary_path,
     }
+
+
+def label_representation_analysis_by_generation(
+    *,
+    analysis_dir: str | Path,
+    generation_labels_path: str | Path,
+    output_dir: str | Path,
+) -> dict[str, Path]:
+    """Attach actual N=10 greedy outcomes to saved representation analyses.
+
+    No hidden states are recomputed. Every occurrence point in an N=10 prompt
+    inherits that prompt's strict final-output label, allowing span-end and
+    span-mean trajectory quality to be compared descriptively by correctness.
+    """
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
+    analysis = Path(analysis_dir)
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    labels = pd.read_csv(generation_labels_path)
+    required = {
+        "stimulus_id",
+        "design_variant",
+        "model_label",
+        "seed",
+        "split",
+        "gold_count",
+        "outcome_group",
+        "is_correct",
+        "format_valid",
+        "parsed_count",
+        "count_error",
+    }
+    missing = sorted(required - set(labels.columns))
+    if missing:
+        raise ValueError(f"Generation labels are missing columns: {missing}")
+    labels = labels[labels["gold_count"].astype(int) == 10].copy()
+    if labels.empty or labels.duplicated(["design_variant", "seed"]).any():
+        raise ValueError("N=10 generation labels are empty or duplicated")
+    label_columns = [
+        "stimulus_id",
+        "design_variant",
+        "model_label",
+        "seed",
+        "split",
+        "outcome_group",
+        "is_correct",
+        "format_valid",
+        "parsed_count",
+        "count_error",
+    ]
+
+    per_seed_path = analysis / "representation_confirmation_by_seed.csv"
+    per_seed = pd.read_csv(per_seed_path)
+    labeled_seed = per_seed.merge(
+        labels[label_columns],
+        on=["model_label", "design_variant", "seed"],
+        how="left",
+        validate="many_to_one",
+    )
+    if labeled_seed["outcome_group"].isna().any():
+        raise RuntimeError("Some confirmation representation rows lack behavior labels")
+    labeled_seed_path = output / "representation_confirmation_by_seed_labeled.csv"
+    labeled_seed.to_csv(labeled_seed_path, index=False)
+    metric_columns = [
+        "probe_mae",
+        "curve_residual_rms",
+        "curve_residual_to_signal",
+    ]
+    grouped = labeled_seed.groupby(
+        ["model_label", "design_variant", "pooling", "layer", "outcome_group"],
+        as_index=False,
+        dropna=False,
+    )
+    outcome_summary = grouped.agg(
+        seeds=("seed", "nunique"),
+        **{metric: (metric, "mean") for metric in metric_columns},
+    )
+    standard = grouped[metric_columns].std(ddof=1).rename(
+        columns={metric: f"{metric}_sd" for metric in metric_columns}
+    )
+    outcome_summary = outcome_summary.merge(
+        standard,
+        on=["model_label", "design_variant", "pooling", "layer", "outcome_group"],
+        how="left",
+    )
+    outcome_summary_path = output / "representation_outcome_summary.csv"
+    outcome_summary.to_csv(outcome_summary_path, index=False)
+
+    figure_output = output / "figures"
+    figure_output.mkdir(parents=True, exist_ok=True)
+    pca_outputs: list[str] = []
+    colors = {"correct": "tab:blue", "wrong": "tab:red", "invalid": "0.5"}
+    for pca_path in sorted((analysis / "figures").glob("shared_pca_*.csv")):
+        points = pd.read_csv(pca_path)
+        labeled_points = points.merge(
+            labels[label_columns],
+            on=["design_variant", "seed", "split"],
+            how="left",
+            validate="many_to_one",
+        )
+        if labeled_points["outcome_group"].isna().any():
+            raise RuntimeError(f"PCA points lack final-output labels: {pca_path}")
+        labeled_points_path = output / f"{pca_path.stem}_labeled.csv"
+        labeled_points.to_csv(labeled_points_path, index=False)
+        confirmation = labeled_points[labeled_points["split"] == "confirmation"]
+        variants = sorted(confirmation["design_variant"].unique())
+        figure, axes = plt.subplots(2, 2, figsize=(10.5, 8.0))
+        for axis, variant in zip(axes.flat, variants):
+            frame = confirmation[confirmation["design_variant"] == variant]
+            for (_seed, outcome), trajectory in frame.groupby(
+                ["seed", "outcome_group"], sort=True
+            ):
+                trajectory = trajectory.sort_values("count_index")
+                axis.plot(
+                    trajectory["pc1"],
+                    trajectory["pc2"],
+                    color=colors[str(outcome)],
+                    alpha=0.35,
+                    linewidth=0.8,
+                )
+                axis.scatter(
+                    trajectory["pc1"],
+                    trajectory["pc2"],
+                    color=colors[str(outcome)],
+                    alpha=0.5,
+                    s=11,
+                )
+            axis.set_title(str(variant))
+            axis.set_xlabel("shared PCA component 1")
+            axis.set_ylabel("shared PCA component 2")
+            axis.grid(alpha=0.15)
+        present = [
+            outcome
+            for outcome in ("correct", "wrong", "invalid")
+            if outcome in set(confirmation["outcome_group"])
+        ]
+        figure.legend(
+            handles=[
+                Line2D([0], [0], color=colors[outcome], label=outcome)
+                for outcome in present
+            ],
+            loc="upper center",
+            ncol=max(1, len(present)),
+        )
+        pooling = str(points["pooling"].iloc[0])
+        layer = int(points["layer"].iloc[0])
+        figure.suptitle(
+            f"N=10 confirmation trajectories by actual output: "
+            f"{pooling}, layer {layer}"
+        )
+        figure.tight_layout(rect=(0, 0, 1, 0.94))
+        figure_path = figure_output / f"{pca_path.stem}_by_outcome.png"
+        figure.savefig(figure_path, dpi=180, bbox_inches="tight")
+        plt.close(figure)
+        pca_outputs.extend([str(labeled_points_path), str(figure_path)])
+
+    manifest_path = output / "representation_outcome_manifest.json"
+    _atomic_json(
+        manifest_path,
+        {
+            "schema_version": "realistic_niah_v4_representation_outcomes_v1",
+            "label_source": str(Path(generation_labels_path)),
+            "label_rule": "strict actual greedy-generated numeric answer",
+            "represented_prompt_count": len(labels),
+            "outcome_counts": {
+                str(key): int(value)
+                for key, value in labels["outcome_group"].value_counts().items()
+            },
+            "scope": (
+                "N=10 representation prompts only; each occurrence trajectory "
+                "inherits its prompt-level final-output label"
+            ),
+            "interpretation": (
+                "descriptive association between trajectory geometry and final "
+                "accuracy; not a causal classification result"
+            ),
+            "files": {
+                "confirmation_by_seed_labeled": str(labeled_seed_path),
+                "outcome_summary": str(outcome_summary_path),
+                "pca_outputs": pca_outputs,
+            },
+        },
+    )
+    return {
+        "manifest": manifest_path,
+        "confirmation_by_seed_labeled": labeled_seed_path,
+        "outcome_summary": outcome_summary_path,
+    }

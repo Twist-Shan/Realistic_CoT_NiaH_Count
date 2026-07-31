@@ -43,6 +43,7 @@ from realistic_niah_v4.prompts import (
 )
 from realistic_niah_v4.representation import (
     analyze_representation_captures,
+    label_representation_analysis_by_generation,
 )
 from realistic_niah_v4.spec import (
     DESIGN_VARIANTS,
@@ -295,6 +296,81 @@ def test_broad_candidate_ranking_requires_full_grid_visibility() -> None:
     sliding = summary[summary["head"] == 1].iloc[0]
     assert sliding["full_visibility_rate"] == pytest.approx(0.5)
     assert not bool(sliding["is_broad_candidate"])
+
+
+def test_representation_rows_inherit_actual_generation_labels(tmp_path: Path) -> None:
+    analysis = tmp_path / "representation" / "analysis"
+    figures = analysis / "figures"
+    figures.mkdir(parents=True)
+    label_rows = []
+    seed_rows = []
+    point_rows = []
+    for offset, variant in enumerate(DESIGN_VARIANTS):
+        seed = 1254 + offset
+        outcome = "correct" if offset % 2 == 0 else "wrong"
+        prediction = 10 if outcome == "correct" else 9
+        label_rows.append(
+            {
+                "stimulus_id": f"{variant}-{seed}",
+                "design_variant": variant,
+                "model_label": "toy",
+                "seed": seed,
+                "split": "confirmation",
+                "gold_count": 10,
+                "outcome_group": outcome,
+                "is_correct": outcome == "correct",
+                "format_valid": True,
+                "parsed_count": prediction,
+                "count_error": prediction - 10,
+            }
+        )
+        seed_rows.append(
+            {
+                "model_label": "toy",
+                "design_variant": variant,
+                "pooling": "span_end",
+                "layer": 1,
+                "seed": seed,
+                "probe_mae": float(offset),
+                "curve_residual_rms": float(offset + 1),
+                "curve_residual_to_signal": float(offset + 2),
+            }
+        )
+        for count_index in range(1, 11):
+            point_rows.append(
+                {
+                    "design_variant": variant,
+                    "pooling": "span_end",
+                    "layer": 1,
+                    "seed": seed,
+                    "split": "confirmation",
+                    "count_index": count_index,
+                    "pc1": float(count_index),
+                    "pc2": float(offset),
+                }
+            )
+    labels_path = tmp_path / "generation_labels.csv"
+    pd.DataFrame(label_rows).to_csv(labels_path, index=False)
+    pd.DataFrame(seed_rows).to_csv(
+        analysis / "representation_confirmation_by_seed.csv", index=False
+    )
+    pd.DataFrame(point_rows).to_csv(
+        figures / "shared_pca_span_end_layer_1.csv", index=False
+    )
+    outputs = label_representation_analysis_by_generation(
+        analysis_dir=analysis,
+        generation_labels_path=labels_path,
+        output_dir=analysis / "outcomes",
+    )
+    labeled = pd.read_csv(outputs["confirmation_by_seed_labeled"])
+    assert set(labeled["outcome_group"]) == {"correct", "wrong"}
+    assert outputs["manifest"].exists()
+    assert (
+        analysis
+        / "outcomes"
+        / "figures"
+        / "shared_pca_span_end_layer_1_by_outcome.png"
+    ).exists()
 
 
 class WhitespaceFastTokenizer:

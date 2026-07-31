@@ -113,6 +113,13 @@ decision rule is the earliest adjacent step whose increase has a positive 95%
 paired seed-bootstrap interval. With only ten confirmation seeds, intervals
 may be wide; a null call is not evidence of invariance.
 
+After deterministic behavior generation finishes, the N=10 prompt label is
+joined back to every saved span-end and span-mean trajectory by panel and
+seed. Supplemental confirmation plots mark complete PCA trajectories by the
+actual correct/wrong/invalid output, and per-seed probe/curve residual tables
+carry the same labels. This is a descriptive association; the label is not
+used to refit the PCA basis or choose the primary layer.
+
 ### Interpretation boundary
 
 In v4.1, occurrence index, content identity, and absolute position are
