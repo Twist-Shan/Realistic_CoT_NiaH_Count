@@ -14,8 +14,10 @@ from realistic_niah_v4.attention import broad_attention_metrics
 from realistic_niah_v4.causal import count_logit_metrics
 from realistic_niah_v4.modeling import (
     _attention_tensor,
+    capture_post_block_states,
     capture_span_states,
     discover_decoder_adapter,
+    query_attention_rows,
     run_last_logits,
     run_with_head_ablation,
     run_with_residual_patch,
@@ -386,6 +388,155 @@ def test_attention_tensor_accepts_single_block_query() -> None:
     assert _attention_tensor(tensor).shape == (1, 2, 1, 7)
     with pytest.raises(RuntimeError, match="more than one query cell"):
         _attention_tensor(torch.zeros(1, 2, 2, 1, 7))
+
+
+def test_tiny_transformers_architectures_support_v4_hooks() -> None:
+    transformers = pytest.importorskip("transformers")
+    if not hasattr(transformers, "AutoModelForMultimodalLM"):
+        pytest.skip("Installed Transformers predates the Gemma 4 API")
+    try:
+        from transformers import Qwen3Config, Qwen3ForCausalLM
+        from transformers.models.gemma4.configuration_gemma4 import (
+            Gemma4AudioConfig,
+            Gemma4Config,
+            Gemma4TextConfig,
+            Gemma4VisionConfig,
+        )
+        from transformers.models.gemma4.modeling_gemma4 import (
+            Gemma4ForConditionalGeneration,
+        )
+    except ImportError:
+        pytest.skip("Installed Transformers lacks a registered V4 architecture")
+
+    spans = tuple(
+        TokenSpan(index, position, position + 1, True, "needle", 1, 1)
+        for index, position in enumerate((2, 5, 8), start=1)
+    )
+    negatives = tuple(
+        TokenSpan(index, position, position + 1, False, "negative", 1, 1)
+        for index, position in enumerate((3, 6, 9), start=1)
+    )
+
+    def encoding(label: str) -> PromptEncoding:
+        return PromptEncoding(
+            stimulus_id=f"tiny_{label}",
+            design_variant="v4.1",
+            seed=1,
+            split="confirmation",
+            count=3,
+            model_label=label,
+            text="",
+            generation_prompt="",
+            input_ids=tuple(range(4, 16)),
+            attention_mask=(1,) * 12,
+            query_position=11,
+            slot_spans=spans,
+            needle_spans=spans,
+            hard_negative_spans=negatives,
+            count_candidate_token_ids=tuple(
+                (count, 20 + count) for count in range(1, 11)
+            ),
+        )
+
+    models = [
+        (
+            "qwen",
+            Qwen3ForCausalLM(
+                Qwen3Config(
+                    vocab_size=64,
+                    hidden_size=16,
+                    intermediate_size=32,
+                    num_hidden_layers=2,
+                    num_attention_heads=4,
+                    num_key_value_heads=2,
+                    head_dim=4,
+                    max_position_embeddings=128,
+                    layer_types=["full_attention", "full_attention"],
+                )
+            ),
+        ),
+        (
+            "gemma4",
+            Gemma4ForConditionalGeneration(
+                Gemma4Config(
+                    text_config=Gemma4TextConfig(
+                        vocab_size=64,
+                        hidden_size=16,
+                        intermediate_size=32,
+                        num_hidden_layers=2,
+                        num_attention_heads=4,
+                        num_key_value_heads=2,
+                        head_dim=4,
+                        global_head_dim=4,
+                        num_global_key_value_heads=2,
+                        max_position_embeddings=128,
+                        sliding_window=8,
+                        layer_types=["sliding_attention", "full_attention"],
+                        vocab_size_per_layer_input=64,
+                        hidden_size_per_layer_input=0,
+                        num_kv_shared_layers=0,
+                    ),
+                    vision_config=Gemma4VisionConfig(
+                        hidden_size=16,
+                        intermediate_size=32,
+                        num_hidden_layers=1,
+                        num_attention_heads=4,
+                        num_key_value_heads=4,
+                        head_dim=4,
+                        max_position_embeddings=128,
+                        patch_size=4,
+                        position_embedding_size=64,
+                    ),
+                    audio_config=Gemma4AudioConfig(
+                        hidden_size=16,
+                        num_hidden_layers=1,
+                        num_attention_heads=4,
+                        subsampling_conv_channels=(4, 4),
+                        output_proj_dims=16,
+                    ),
+                    boi_token_id=50,
+                    eoi_token_id=51,
+                    image_token_id=52,
+                    video_token_id=53,
+                    boa_token_id=54,
+                    eoa_token_index=55,
+                    audio_token_id=56,
+                )
+            ),
+        ),
+    ]
+    for label, model in models:
+        model.eval()
+        adapter = discover_decoder_adapter(model)
+        if label == "gemma4":
+            assert adapter.layer_container_name == "model.language_model.layers"
+        item = encoding(label)
+        baseline = run_last_logits(model, item)
+        captured = capture_span_states(model, adapter, item)
+        rows, key_starts = query_attention_rows(model, adapter, item)
+        ablated = run_with_head_ablation(
+            model, adapter, item, [(0, 0)], scope="answer_query"
+        )
+        _, states = capture_post_block_states(
+            model,
+            adapter,
+            item,
+            [item.query_position],
+            layers=[0],
+        )
+        patched = run_with_residual_patch(
+            model,
+            adapter,
+            item,
+            layer=0,
+            receiver_positions=[item.query_position],
+            donor_states=states[0] + 0.1,
+        )
+        assert captured["span_end"].shape == (2, 3, 16)
+        assert [tuple(row.shape) for row in rows] == [(4, 12), (4, 12)]
+        assert key_starts == [0, 0]
+        assert not torch.allclose(baseline, ablated)
+        assert not torch.allclose(baseline, patched)
 
 
 def test_synthetic_representation_analysis_recovers_count_curve(
