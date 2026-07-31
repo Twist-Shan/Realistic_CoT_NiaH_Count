@@ -23,6 +23,9 @@ from .spec import (
     V4Config,
 )
 
+SLOT_PREFIX = "\n\nExcerpt:\n"
+SLOT_SUFFIX = "\nEnd excerpt.\n\n"
+
 
 @dataclass(frozen=True)
 class ControlledFreezeSpec:
@@ -143,6 +146,90 @@ def _generator_config(
     )
 
 
+def _boundary_delimited_slot_text(value: str) -> str:
+    return f"{SLOT_PREFIX}{str(value).strip()}{SLOT_SUFFIX}"
+
+
+def _sample_boundary_matched_control(
+    *,
+    tokenizer: TokenizerAdapter,
+    freeze_spec: ControlledFreezeSpec,
+    item: dict[str, Any],
+    slot_index: int,
+    target_tokens: int,
+) -> tuple[str, list[Any], dict[str, Any]]:
+    control = dict(item.get("control") or {})
+    source_names = [
+        str(control["source_file"])
+        for _ in [0]
+        if control.get("source_file")
+    ]
+    source_names.extend(
+        path.name
+        for path in sorted(Path(freeze_spec.haystack_dir).glob("*.txt"))
+        if path.name not in source_names
+    )
+    if not source_names:
+        raise ValueError("No V4 haystack files are available for controls")
+    seed = _stable_seed(
+        "v4_boundary_matched_control",
+        int(control.get("seed", slot_index)),
+    )
+    rng = random.Random(seed)
+    for source_name in source_names:
+        source = Path(freeze_spec.haystack_dir) / source_name
+        normalized = " ".join(source.read_text(encoding="utf-8").split())
+        source_tokens = tokenizer.encode(normalized)
+        if not source_tokens:
+            continue
+        preferred = int(control.get("segment_start_token", 0))
+        starts = list(range(max(0, preferred - 64), min(len(source_tokens), preferred + 65)))
+        remaining = [
+            value for value in range(len(source_tokens)) if value not in set(starts)
+        ]
+        rng.shuffle(remaining)
+        starts.extend(remaining[:512])
+        inner_lengths = sorted(
+            {
+                length
+                for delta in range(-8, 9)
+                if (length := int(item["token_length"]) + delta) > 0
+            },
+            key=lambda value: (abs(value - int(item["token_length"])), value),
+        )
+        for start in starts:
+            for inner_length in inner_lengths:
+                end = int(start) + int(inner_length)
+                if end > len(source_tokens):
+                    continue
+                inner_text = tokenizer.decode(list(source_tokens[start:end]))
+                candidate_text = _boundary_delimited_slot_text(inner_text)
+                if CITY_SCORE_RE.search(candidate_text):
+                    continue
+                candidate_tokens = tokenizer.encode(candidate_text)
+                if len(candidate_tokens) != int(target_tokens):
+                    continue
+                return (
+                    candidate_text,
+                    list(candidate_tokens),
+                    {
+                        **control,
+                        "source_file": source_name,
+                        "segment_start_token": int(start),
+                        "segment_end_token": int(end),
+                        "boundary_prefix": SLOT_PREFIX,
+                        "boundary_suffix": SLOT_SUFFIX,
+                        "wrapped_token_length": len(candidate_tokens),
+                        "matching_method": "deterministic_context_stable_search",
+                        "matching_seed": int(seed),
+                    },
+                )
+    raise RuntimeError(
+        "Unable to sample a boundary-delimited, length-matched V4 control: "
+        f"slot={slot_index}, target_tokens={target_tokens}"
+    )
+
+
 def _scaffold(
     *,
     tokenizer: TokenizerAdapter,
@@ -167,9 +254,28 @@ def _scaffold(
         raise RuntimeError("V4 scaffold returned the wrong number of needles")
     if not all(bool(item["is_control"]) for item in row["needles"]):
         raise RuntimeError("V4 scaffold must use controls in every slot")
-    for item in row["needles"]:
+    for slot_index, item in enumerate(row["needles"], start=1):
         if len(item["tokens"]) != len(item["inserted_tokens"]):
             raise RuntimeError("V4 scaffold produced a non-length-matched control")
+        needle_text = _boundary_delimited_slot_text(item["decoded_text"])
+        needle_tokens = tokenizer.encode(needle_text)
+        control_text, control_tokens, control_metadata = (
+            _sample_boundary_matched_control(
+                tokenizer=tokenizer,
+                freeze_spec=freeze_spec,
+                item=item,
+                slot_index=slot_index,
+                target_tokens=len(needle_tokens),
+            )
+        )
+        item["unwrapped_decoded_text"] = item["decoded_text"]
+        item["unwrapped_inserted_decoded_text"] = item["inserted_decoded_text"]
+        item["decoded_text"] = needle_text
+        item["tokens"] = list(needle_tokens)
+        item["inserted_decoded_text"] = control_text
+        item["inserted_tokens"] = list(control_tokens)
+        item["token_length"] = len(needle_tokens)
+        item["control"] = control_metadata
     return row
 
 
