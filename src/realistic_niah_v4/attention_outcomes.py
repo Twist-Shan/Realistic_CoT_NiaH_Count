@@ -607,6 +607,23 @@ def extract_ranked_occurrence_diagnostics(
                 omission = (
                     int(omission_value) if pd.notna(omission_value) else None
                 )
+                predicted_value = label["parsed_count"]
+                predicted = (
+                    int(predicted_value) if pd.notna(predicted_value) else None
+                )
+                undercount = (
+                    predicted is not None and predicted < len(encoding.needle_spans)
+                )
+                tail_indices = (
+                    set(range(predicted, len(encoding.needle_spans)))
+                    if undercount
+                    else set()
+                )
+                bottom_indices = (
+                    set(int(index) for index in order[:omission])
+                    if omission is not None and omission > 0
+                    else set()
+                )
                 candidate_slots = (
                     [
                         int(encoding.needle_spans[index].slot_index)
@@ -614,6 +631,16 @@ def extract_ranked_occurrence_diagnostics(
                     ]
                     if omission is not None and omission > 0
                     else []
+                )
+                prefix_share = (
+                    float(ensemble_share[:predicted].mean())
+                    if undercount and predicted > 0
+                    else math.nan
+                )
+                tail_share = (
+                    float(ensemble_share[predicted:].mean())
+                    if undercount
+                    else math.nan
                 )
                 prompt_rows.append(
                     {
@@ -626,7 +653,7 @@ def extract_ranked_occurrence_diagnostics(
                         "pooling": pooling,
                         "outcome_group": str(label["outcome_group"]),
                         "is_correct": _as_bool(label["is_correct"]),
-                        "predicted_count": label["parsed_count"],
+                        "predicted_count": predicted_value,
                         "count_error": label["count_error"],
                         "omission_count": omission_value,
                         "selected_head_count": len(heads),
@@ -641,6 +668,25 @@ def extract_ranked_occurrence_diagnostics(
                         * len(ensemble_raw),
                         "minimum_normalized_share": float(ensemble_share.min()),
                         "maximum_normalized_share": float(ensemble_share.max()),
+                        "undercount_tail_prefix_mean_share": prefix_share,
+                        "undercount_tail_mean_share": tail_share,
+                        "undercount_tail_to_prefix_ratio": (
+                            tail_share / prefix_share
+                            if np.isfinite(tail_share)
+                            and np.isfinite(prefix_share)
+                            and prefix_share > 1e-12
+                            else math.nan
+                        ),
+                        "bottom_k_tail_overlap": (
+                            len(bottom_indices & tail_indices)
+                            if undercount
+                            else None
+                        ),
+                        "bottom_k_tail_overlap_fraction": (
+                            len(bottom_indices & tail_indices) / len(tail_indices)
+                            if tail_indices
+                            else math.nan
+                        ),
                         "attention_implied_missed_slot_candidates": json.dumps(
                             candidate_slots
                         ),
@@ -684,6 +730,9 @@ def extract_ranked_occurrence_diagnostics(
                                 and omission > 0
                                 and rank <= omission
                             ),
+                            "beyond_predicted_count_in_undercount": bool(
+                                undercount and occurrence_index > int(predicted)
+                            ),
                         }
                     )
         if (example_index + 1) % 25 == 0 or example_index == 0:
@@ -719,16 +768,27 @@ def extract_ranked_occurrence_diagnostics(
         how="left",
         validate="many_to_one",
     )
-    occurrences["below_correct_discovery_q10"] = (
-        occurrences["ensemble_normalized_share"]
-        < occurrences["correct_discovery_q10_share"]
+    occurrences["low_attention_threshold_available"] = occurrences[
+        "correct_discovery_q10_share"
+    ].notna()
+    occurrences["below_correct_discovery_q10"] = pd.Series(
+        pd.NA, index=occurrences.index, dtype="boolean"
+    )
+    available = occurrences["low_attention_threshold_available"]
+    occurrences.loc[available, "below_correct_discovery_q10"] = (
+        occurrences.loc[available, "ensemble_normalized_share"]
+        < occurrences.loc[available, "correct_discovery_q10_share"]
     )
     low_counts = (
         occurrences.groupby(["stimulus_id", "pooling"], as_index=False)
         .agg(
+            low_attention_threshold_available=(
+                "low_attention_threshold_available",
+                "all",
+            ),
             low_attention_occurrence_count=(
                 "below_correct_discovery_q10",
-                "sum",
+                lambda values: values.astype("Int64").sum(min_count=1),
             ),
             bottom_occurrence_share=("ensemble_normalized_share", "min"),
         )
@@ -884,7 +944,10 @@ def _plot_shared_heatmaps(summary: pd.DataFrame, output: Path) -> list[Path]:
     variants = sorted(summary["design_variant"].unique())
     paths: list[Path] = []
     for pooling in POOLINGS:
-        pool_frame = summary[summary["pooling"] == pooling]
+        pool_frame = summary[
+            (summary["pooling"] == pooling)
+            & np.isclose(summary["full_visibility_rate"], 1.0)
+        ]
         for metric in ("pool_primary", "pool_coverage", "pool_enrichment"):
             finite = pool_frame[metric].to_numpy(dtype=float)
             finite = finite[np.isfinite(finite)]
@@ -900,6 +963,20 @@ def _plot_shared_heatmaps(summary: pd.DataFrame, output: Path) -> list[Path]:
             for axis, variant in zip(axes.flat, variants):
                 frame = pool_frame[pool_frame["design_variant"] == variant]
                 heatmap = frame.pivot(index="layer", columns="head", values=metric)
+                if heatmap.empty:
+                    axis.text(0.5, 0.5, "no fully visible layer", ha="center")
+                    axis.set_axis_off()
+                    continue
+                heatmap = heatmap.reindex(
+                    index=range(
+                        int(pool_frame["layer"].min()),
+                        int(pool_frame["layer"].max()) + 1,
+                    ),
+                    columns=range(
+                        int(pool_frame["head"].min()),
+                        int(pool_frame["head"].max()) + 1,
+                    ),
+                )
                 image = axis.imshow(
                     heatmap.to_numpy(dtype=float),
                     aspect="auto",
@@ -910,7 +987,7 @@ def _plot_shared_heatmaps(summary: pd.DataFrame, output: Path) -> list[Path]:
                 )
                 axis.set_title(str(variant))
                 axis.set_xlabel("head")
-                axis.set_ylabel("layer (blank = cannot see all needles)")
+                axis.set_ylabel("layer (blank = incomplete visibility)")
                 if heatmap.shape[1] <= 32:
                     axis.set_xticks(np.arange(heatmap.shape[1]))
                     axis.set_xticklabels(heatmap.columns.astype(int), fontsize=6)
@@ -950,8 +1027,9 @@ def _pooling_comparison(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    end = summary[summary["pooling"] == "span_end"]
-    mean = summary[summary["pooling"] == "span_mean"]
+    fully_visible = summary[np.isclose(summary["full_visibility_rate"], 1.0)]
+    end = fully_visible[fully_visible["pooling"] == "span_end"]
+    mean = fully_visible[fully_visible["pooling"] == "span_mean"]
     keys = ["model_label", "design_variant", "layer", "head", "layer_type"]
     merged = end[keys + ["pool_primary"]].merge(
         mean[keys + ["pool_primary"]],
@@ -1141,6 +1219,80 @@ def _plot_occurrence_profiles(occurrences: pd.DataFrame, output: Path) -> list[P
         figure.savefig(path, dpi=180, bbox_inches="tight")
         plt.close(figure)
         paths.append(path)
+    return paths
+
+
+def _plot_omission_diagnostics(prompts: pd.DataFrame, output: Path) -> list[Path]:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    under = prompts[
+        (prompts["split"] == "confirmation")
+        & (prompts["outcome_group"] == "wrong")
+        & (prompts["omission_count"].fillna(0) > 0)
+    ].copy()
+    if under.empty:
+        return []
+    variants = sorted(under["design_variant"].unique())
+    paths: list[Path] = []
+
+    figure, axes = plt.subplots(2, 2, figsize=(10.5, 7.5), sharex=True, sharey=True)
+    for axis, variant in zip(axes.flat, variants):
+        frame = under[under["design_variant"] == variant]
+        for pooling, marker in (("span_end", "o"), ("span_mean", "x")):
+            selected = frame[
+                (frame["pooling"] == pooling)
+                & frame["low_attention_threshold_available"].astype(bool)
+            ]
+            axis.scatter(
+                selected["omission_count"],
+                selected["low_attention_occurrence_count"],
+                marker=marker,
+                alpha=0.65,
+                label=f"{pooling} (n={len(selected)})",
+            )
+        low_values = frame["low_attention_occurrence_count"].dropna()
+        low_max = float(low_values.max()) if not low_values.empty else 0.0
+        limit = int(max(float(frame["omission_count"].max()), low_max))
+        axis.plot([0, limit], [0, limit], color="black", linestyle="--", alpha=0.4)
+        axis.set_title(str(variant))
+        axis.set_xlabel("actual undercount magnitude")
+        axis.set_ylabel("occurrences below correct-discovery q10")
+        axis.grid(alpha=0.2)
+        axis.legend(fontsize=8)
+    figure.suptitle("Do low-attention occurrences track omitted counts?")
+    figure.tight_layout()
+    path = output / "omission_count_vs_low_attention_count.png"
+    figure.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(figure)
+    paths.append(path)
+
+    figure, axes = plt.subplots(2, 2, figsize=(10.5, 7.5), sharey=True)
+    for axis, variant in zip(axes.flat, variants):
+        frame = under[under["design_variant"] == variant]
+        values = [
+            frame[frame["pooling"] == pooling][
+                "undercount_tail_to_prefix_ratio"
+            ].dropna()
+            for pooling in POOLINGS
+        ]
+        if any(len(value) for value in values):
+            axis.boxplot(values, labels=list(POOLINGS), showfliers=True)
+        axis.axhline(1.0, color="black", linestyle="--", alpha=0.4)
+        axis.set_title(str(variant))
+        axis.set_xlabel("attention pooling")
+        axis.set_ylabel("mean share after predicted boundary / before boundary")
+        axis.grid(axis="y", alpha=0.2)
+    figure.suptitle(
+        "Undercount stopped-early diagnostic (ratio < 1 means weaker tail attention)"
+    )
+    figure.tight_layout()
+    path = output / "undercount_tail_to_prefix_attention.png"
+    figure.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(figure)
+    paths.append(path)
     return paths
 
 
@@ -1394,6 +1546,7 @@ def analyze_labeled_attention(
     figure_paths.append(comparison_figure)
     figure_paths.extend(_plot_outcome_curves(detail, rankings, figures))
     figure_paths.extend(_plot_occurrence_profiles(occurrences, figures))
+    figure_paths.extend(_plot_omission_diagnostics(prompts, figures))
     figure_paths.extend(
         _plot_representative_maps(
             attention_index_path=Path(attention_index_path),
