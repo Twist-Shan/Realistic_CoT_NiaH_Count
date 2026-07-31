@@ -126,6 +126,7 @@ def capture_representation_shards(
                 "stimulus_id": encoding.stimulus_id,
                 "design_variant": encoding.design_variant,
                 "model_label": encoding.model_label,
+                "answer_format": encoding.answer_format,
                 "seed": int(encoding.seed),
                 "split": encoding.split,
                 "count": int(encoding.count),
@@ -153,6 +154,9 @@ def capture_representation_shards(
             "schema_version": CAPTURE_SCHEMA_VERSION,
             "rows": len(index_rows),
             "model_labels": sorted({str(row["model_label"]) for row in index_rows}),
+            "answer_formats": sorted(
+                {str(row["answer_format"]) for row in index_rows}
+            ),
             "design_variants": sorted(
                 {str(row["design_variant"]) for row in index_rows}
             ),

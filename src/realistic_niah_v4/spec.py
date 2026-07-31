@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-PROTOCOL_VERSION = "realistic_niah_v4_nonthinking_v2"
-CONFIG_SCHEMA_VERSION = "realistic_niah_v4_config_v2"
+PROTOCOL_VERSION = "realistic_niah_v4_nonthinking_v3"
+CONFIG_SCHEMA_VERSION = "realistic_niah_v4_config_v3"
 STIMULUS_SCHEMA_VERSION = "realistic_niah_v4_stimulus_v1"
 MANIFEST_SCHEMA_VERSION = "realistic_niah_v4_manifest_v1"
 CAPTURE_SCHEMA_VERSION = "realistic_niah_v4_capture_v1"
@@ -28,6 +28,7 @@ COUNT_CANDIDATE_WORDS = (
     "nine",
     "ten",
 )
+ANSWER_FORMATS = ("numeric",)
 SEEDS = tuple(range(1234, 1264))
 DISCOVERY_SEEDS = SEEDS[:20]
 CONFIRMATION_SEEDS = SEEDS[20:]
@@ -118,7 +119,11 @@ class V4Config:
     model_labels: tuple[str, ...] = tuple(MODEL_SPECS)
     prompt_mode: str = "direct"
     answer_prefix: str = "Total:"
+    answer_formats: tuple[str, ...] = ANSWER_FORMATS
     count_candidate_words: tuple[str, ...] = COUNT_CANDIDATE_WORDS
+    candidate_separator: str = ""
+    candidate_score_reduction: str = "sum_log_probability"
+    candidate_score_include_termination: bool = True
     hidden_state_poolings: tuple[str, ...] = ("span_end", "span_mean")
     representation_count: int = 10
     pca_components: int = 3
@@ -140,7 +145,6 @@ class V4Config:
         "toggled_needle_end",
         "toggled_needle_span",
     )
-    require_single_token_count_candidates: bool = True
     require_exact_offset_mapping: bool = True
     hidden_save_dtype: str = "float16"
     model_torch_dtype: str = "bfloat16"
@@ -164,6 +168,7 @@ class V4Config:
             "design_variants",
             "model_labels",
             "hidden_state_poolings",
+            "answer_formats",
             "count_candidate_words",
             "ridge_alphas",
             "ablation_top_ns",
@@ -260,14 +265,21 @@ class V4Config:
             raise ValueError("Unknown registered V4 model label")
         if not self.answer_prefix:
             raise ValueError("answer_prefix must be non-empty")
-        if self.count_candidate_words != COUNT_CANDIDATE_WORDS:
+        if self.answer_formats != ANSWER_FORMATS:
+            raise ValueError("Registered V4 currently requires the numeric arm")
+        expected_words = COUNT_CANDIDATE_WORDS[: len(self.needle_counts)]
+        if self.count_candidate_words[: len(self.needle_counts)] != expected_words:
             raise ValueError(
                 "Registered V4 requires the lowercase one-through-ten vocabulary"
             )
-        if len(set(self.count_candidate_words)) != len(self.needle_counts):
+        if len(set(expected_words)) != len(self.needle_counts):
             raise ValueError("V4 count candidate words must be unique")
-        if not self.require_single_token_count_candidates:
-            raise ValueError("Registered V4 requires single-token count candidates")
+        if self.candidate_separator:
+            raise ValueError("Registered V4 candidates must immediately follow Total:")
+        if self.candidate_score_reduction != "sum_log_probability":
+            raise ValueError("Registered V4 requires joint sequence log-probability")
+        if not self.candidate_score_include_termination:
+            raise ValueError("Registered V4 sequence scores must include termination")
         if not self.require_exact_offset_mapping:
             raise ValueError("Registered V4 requires exact offset mappings")
         if self.hidden_save_dtype not in {"float16", "float32"}:

@@ -225,9 +225,24 @@ class WhitespaceFastTokenizer:
             self.vocabulary[token] = len(self.vocabulary) + 1
         return self.vocabulary[token]
 
-    def apply_chat_template(self, messages, **_kwargs) -> str:
-        return "\n".join(str(message["content"]) for message in messages) + (
-            "\n<assistant>"
+    def apply_chat_template(self, messages, **kwargs) -> str:
+        add_generation_prompt = bool(kwargs.get("add_generation_prompt", False))
+        if add_generation_prompt:
+            if any(message["role"] != "user" for message in messages):
+                raise ValueError("Toy generation prompts contain only the user turn")
+            return "\n".join(str(message["content"]) for message in messages) + (
+                "\n<assistant>"
+            )
+        if not messages or messages[-1]["role"] != "assistant":
+            raise ValueError("Toy completed chats must end with an assistant turn")
+        prefix = "\n".join(
+            str(message["content"]) for message in messages[:-1]
+        )
+        return (
+            prefix
+            + "\n<assistant>"
+            + str(messages[-1]["content"])
+            + "\n<eos>"
         )
 
     def __call__(
@@ -238,7 +253,9 @@ class WhitespaceFastTokenizer:
         return_offsets_mapping: bool = False,
     ):
         del add_special_tokens
-        matches = list(re.finditer(r"\S+", text))
+        # Separate punctuation and every decimal digit so appending "10" to
+        # "Total:" leaves the already-rendered prefix tokens unchanged.
+        matches = list(re.finditer(r"[A-Za-z_]+|\d|[^\w\s]", text))
         result = {
             "input_ids": [self._id(match.group(0)) for match in matches],
             "attention_mask": [1] * len(matches),
@@ -250,7 +267,7 @@ class WhitespaceFastTokenizer:
         return result
 
 
-def test_prompt_maps_spans_and_single_token_counts(
+def test_prompt_maps_spans_and_numeric_count_sequences(
     small_grid: tuple[V4Config, Path],
 ) -> None:
     config, output = small_grid
@@ -264,14 +281,20 @@ def test_prompt_maps_spans_and_single_token_counts(
         tokenizer=WhitespaceFastTokenizer(),
         model_spec=MODEL_SPECS["Qwen3-8B"],
         config=config,
+        answer_format="numeric",
     )
     assert encoding.design_variant == "v4.1"
     assert encoding.query_position == encoding.sequence_length - 1
     assert len(encoding.needle_spans) == 3
     assert len(encoding.hard_negative_spans) == 3
     assert len(dict(encoding.count_candidate_token_ids)) == 3
-    assert "one lowercase English number word" in encoding.generation_prompt
+    assert encoding.answer_format == "numeric"
+    assert "ordinary decimal digits" in encoding.generation_prompt
     assert encoding.text.endswith("Total:")
+    assert all(
+        len(scored_ids) > len(dict(encoding.count_candidate_answer_token_ids)[count])
+        for count, scored_ids in encoding.count_candidate_token_ids
+    )
     assert all(span.start < span.end for span in encoding.needle_spans)
 
 
@@ -344,6 +367,7 @@ def _toy_encoding(input_ids: tuple[int, ...]) -> PromptEncoding:
         split="confirmation",
         count=2,
         model_label="toy",
+        answer_format="numeric",
         text="toy",
         generation_prompt="toy",
         input_ids=input_ids,
@@ -352,7 +376,9 @@ def _toy_encoding(input_ids: tuple[int, ...]) -> PromptEncoding:
         slot_spans=spans,
         needle_spans=spans,
         hard_negative_spans=(),
-        count_candidate_token_ids=((1, 10), (2, 11), (3, 12)),
+        count_candidate_texts=((1, "1"), (2, "2"), (3, "3")),
+        count_candidate_answer_token_ids=((1, (10,)), (2, (11,)), (3, (12,))),
+        count_candidate_token_ids=((1, (10, 1)), (2, (11, 1)), (3, (12, 1))),
     )
 
 
@@ -480,6 +506,7 @@ def test_tiny_transformers_architectures_support_v4_hooks() -> None:
             split="confirmation",
             count=3,
             model_label=label,
+            answer_format="numeric",
             text="",
             generation_prompt="",
             input_ids=tuple(range(4, 16)),
@@ -488,8 +515,14 @@ def test_tiny_transformers_architectures_support_v4_hooks() -> None:
             slot_spans=spans,
             needle_spans=spans,
             hard_negative_spans=negatives,
+            count_candidate_texts=tuple(
+                (count, str(count)) for count in range(1, 11)
+            ),
+            count_candidate_answer_token_ids=tuple(
+                (count, (20 + count,)) for count in range(1, 11)
+            ),
             count_candidate_token_ids=tuple(
-                (count, 20 + count) for count in range(1, 11)
+                (count, (20 + count, 1)) for count in range(1, 11)
             ),
         )
 
@@ -639,6 +672,7 @@ def test_synthetic_representation_analysis_recovers_count_curve(
                     "stimulus_id": f"{variant}_{seed}",
                     "design_variant": variant,
                     "model_label": "synthetic",
+                    "answer_format": "numeric",
                     "seed": seed,
                     "split": (
                         "discovery"

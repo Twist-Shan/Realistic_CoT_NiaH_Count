@@ -9,7 +9,7 @@ from realistic_niah_v4.pipeline import (
     run_representation_analysis,
     write_runtime_provenance,
 )
-from realistic_niah_v4.spec import DESIGN_VARIANTS, MODEL_SPECS
+from realistic_niah_v4.spec import ANSWER_FORMATS, DESIGN_VARIANTS, MODEL_SPECS
 
 
 MODEL_STAGES = (
@@ -56,6 +56,11 @@ def main() -> None:
     )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--model", required=True, choices=tuple(MODEL_SPECS))
+    parser.add_argument(
+        "--answer-format",
+        default="numeric",
+        choices=ANSWER_FORMATS,
+    )
     parser.add_argument("--cache-dir")
     parser.add_argument("--device-map", default="auto")
     parser.add_argument("--variants")
@@ -72,10 +77,11 @@ def main() -> None:
         if unknown:
             parser.error(f"unknown design variants: {unknown}")
     provenance = write_runtime_provenance(
-        output_dir=Path(args.output_dir) / args.model,
+        output_dir=Path(args.output_dir) / args.model / args.answer_format,
         config_path=args.config,
         stimuli_path=args.stimuli,
         model_label=args.model,
+        answer_format=args.answer_format,
         repo_root=args.repo_root,
     )
     common = {
@@ -83,6 +89,7 @@ def main() -> None:
         "config_path": args.config,
         "output_dir": args.output_dir,
         "model_label": args.model,
+        "answer_format": args.answer_format,
         "cache_dir": args.cache_dir,
         "device_map": args.device_map,
         "variants": variants,
@@ -97,6 +104,7 @@ def main() -> None:
             config_path=args.config,
             output_dir=args.output_dir,
             model_label=args.model,
+            answer_format=args.answer_format,
         )
     elif args.stage == "all":
         # Separate model loads keep every expensive stage restartable and make
@@ -109,6 +117,7 @@ def main() -> None:
                     config_path=args.config,
                     output_dir=args.output_dir,
                     model_label=args.model,
+                    answer_format=args.answer_format,
                 )
     else:
         outputs[args.stage] = run_model_stage(stage=args.stage, **common)

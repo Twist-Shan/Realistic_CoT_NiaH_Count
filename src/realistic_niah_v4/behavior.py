@@ -21,10 +21,20 @@ def count_logit_metrics(
     )
     if values.ndim != 1:
         raise ValueError("count_logit_metrics expects one vocabulary vector")
-    candidates = sorted(
-        (int(count), int(token_id))
-        for count, token_id in encoding.count_candidate_token_ids
-    )
+    candidates: list[tuple[int, int]] = []
+    for count, token_ids in encoding.count_candidate_answer_token_ids:
+        if len(token_ids) != 1:
+            raise ValueError(
+                "count_logit_metrics is only valid for distinct single-token "
+                "answers; use joint sequence log-probabilities for numeric V4"
+            )
+        candidates.append((int(count), int(token_ids[0])))
+    candidates.sort()
+    if len({token_id for _, token_id in candidates}) != len(candidates):
+        raise ValueError(
+            "count_logit_metrics cannot distinguish candidates that share an "
+            "initial token; use joint sequence log-probabilities"
+        )
     counts = np.asarray([count for count, _ in candidates], dtype=float)
     token_ids = np.asarray([token_id for _, token_id in candidates], dtype=int)
     if int(token_ids.max()) >= len(values):

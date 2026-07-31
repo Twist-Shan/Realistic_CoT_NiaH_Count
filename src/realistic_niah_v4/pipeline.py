@@ -126,6 +126,7 @@ def write_runtime_provenance(
     config_path: str | Path,
     stimuli_path: str | Path,
     model_label: str,
+    answer_format: str,
     repo_root: str | Path,
 ) -> Path:
     import scipy
@@ -143,6 +144,7 @@ def write_runtime_provenance(
             "revision": model_spec.revision,
             "loader_class": model_spec.loader_class,
         },
+        "answer_format": str(answer_format),
         "inputs": {
             "config_path": str(Path(config_path).resolve()),
             "config_sha256": _sha256_file(Path(config_path)),
@@ -260,6 +262,7 @@ def render_encodings(
     tokenizer: Any,
     model_label: str,
     config: V4Config,
+    answer_format: str,
 ) -> Iterator[PromptEncoding]:
     model_spec = resolve_model_spec(model_label)
     for row in rows:
@@ -268,6 +271,7 @@ def render_encodings(
             tokenizer=tokenizer,
             model_spec=model_spec,
             config=config,
+            answer_format=answer_format,
         )
 
 
@@ -279,6 +283,7 @@ def preflight_report(
     representative_rows: Sequence[dict[str, Any]],
     model_label: str,
     config: V4Config,
+    answer_format: str,
     forward_smoke: bool = False,
 ) -> dict[str, Any]:
     encodings = list(
@@ -287,6 +292,7 @@ def preflight_report(
             tokenizer=tokenizer,
             model_label=model_label,
             config=config,
+            answer_format=answer_format,
         )
     )
     sequence_lengths = [encoding.sequence_length for encoding in encodings]
@@ -301,7 +307,12 @@ def preflight_report(
     if forward_smoke:
         primary = encodings[0]
         logits = run_last_logits(model, primary)
-        candidate_ids = dict(primary.count_candidate_token_ids)
+        first_candidate_ids = sorted(
+            {
+                int(token_ids[0])
+                for _, token_ids in primary.count_candidate_answer_token_ids
+            }
+        )
         attention_rows, key_starts, attention_logits = query_attention_outputs(
             model,
             adapter,
@@ -367,10 +378,10 @@ def preflight_report(
             "needle_span_patch": span_patched,
         }
         if not all(
-            bool(torch.isfinite(values[list(candidate_ids.values())]).all())
+            bool(torch.isfinite(values[first_candidate_ids]).all())
             for values in smoke_logits.values()
         ):
-            raise RuntimeError("Preflight produced a non-finite count logit")
+            raise RuntimeError("Preflight produced a non-finite first-token logit")
         forward = {
             "vocabulary_size": int(logits.numel()),
             "finite_candidate_logits": True,
@@ -385,8 +396,8 @@ def preflight_report(
             "query_cache_vs_full_candidate_logit_max_abs_delta": float(
                 torch.max(
                     torch.abs(
-                        attention_logits[list(candidate_ids.values())]
-                        - logits[list(candidate_ids.values())]
+                        attention_logits[first_candidate_ids]
+                        - logits[first_candidate_ids]
                     )
                 ).item()
             ),
@@ -411,6 +422,7 @@ def preflight_report(
     return {
         "schema_version": "realistic_niah_v4_preflight_v1",
         "model_label": model_label,
+        "answer_format": str(answer_format),
         "decoder_layer_container": adapter.layer_container_name,
         "num_layers": adapter.num_layers,
         "num_heads_by_layer": list(adapter.num_heads),
@@ -420,9 +432,16 @@ def preflight_report(
         "max_position_embeddings": (
             None if max_positions is None else int(max_positions)
         ),
-        "count_candidate_token_ids": {
-            str(count): int(token_id)
-            for count, token_id in encodings[0].count_candidate_token_ids
+        "count_candidate_texts": {
+            str(count): text for count, text in encodings[0].count_candidate_texts
+        },
+        "count_candidate_answer_token_ids": {
+            str(count): list(token_ids)
+            for count, token_ids in encodings[0].count_candidate_answer_token_ids
+        },
+        "count_candidate_scored_token_ids": {
+            str(count): list(token_ids)
+            for count, token_ids in encodings[0].count_candidate_token_ids
         },
         "query_is_last_token": all(
             encoding.query_position == encoding.sequence_length - 1
@@ -439,6 +458,7 @@ def run_model_stage(
     config_path: str | Path,
     output_dir: str | Path,
     model_label: str,
+    answer_format: str,
     cache_dir: str | Path | None = None,
     device_map: str = "auto",
     variants: Sequence[str] | None = None,
@@ -459,8 +479,11 @@ def run_model_stage(
     if stage not in allowed:
         raise ValueError(f"Unknown model stage {stage!r}; choose from {allowed}")
     config = V4Config.from_json(config_path)
+    answer_format = str(answer_format)
+    if answer_format not in config.answer_formats:
+        raise ValueError(f"Unregistered V4 answer format: {answer_format}")
     model_spec = resolve_model_spec(model_label)
-    model_output = Path(output_dir) / model_spec.label
+    model_output = Path(output_dir) / model_spec.label / answer_format
     logger = EventLogger(model_output / "events.jsonl")
     with logger.timer("model_load", model=model_spec.label):
         model, tokenizer, adapter = load_registered_model(
@@ -499,6 +522,7 @@ def run_model_stage(
             representative_rows=representative,
             model_label=model_spec.label,
             config=config,
+            answer_format=answer_format,
             forward_smoke=forward_smoke,
         )
         preflight_path = model_output / "preflight.json"
@@ -528,6 +552,7 @@ def run_model_stage(
                     tokenizer=tokenizer,
                     model_label=model_spec.label,
                     config=config,
+                    answer_format=answer_format,
                 ),
                 output_dir=model_output / "representation" / "capture",
                 save_dtype=config.hidden_save_dtype,
@@ -548,6 +573,7 @@ def run_model_stage(
                     tokenizer=tokenizer,
                     model_label=model_spec.label,
                     config=config,
+                    answer_format=answer_format,
                 ),
                 output_dir=model_output / "attention" / "capture",
                 save_raw_rows=config.save_raw_attention_rows,
@@ -578,6 +604,7 @@ def run_model_stage(
             tokenizer=tokenizer,
             model_label=model_spec.label,
             config=config,
+            answer_format=answer_format,
         )
     )
     if stage == "ablation":
@@ -718,10 +745,14 @@ def run_representation_analysis(
     config_path: str | Path,
     output_dir: str | Path,
     model_label: str,
+    answer_format: str,
 ) -> dict[str, str]:
     config = V4Config.from_json(config_path)
     model_spec = resolve_model_spec(model_label)
-    model_output = Path(output_dir) / model_spec.label
+    answer_format = str(answer_format)
+    if answer_format not in config.answer_formats:
+        raise ValueError(f"Unregistered V4 answer format: {answer_format}")
+    model_output = Path(output_dir) / model_spec.label / answer_format
     outputs = analyze_representation_captures(
         capture_index_path=(
             model_output / "representation" / "capture" / "capture_index.jsonl"

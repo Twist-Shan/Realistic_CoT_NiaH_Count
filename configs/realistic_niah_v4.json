@@ -1,6 +1,6 @@
 {
-  "schema_version": "realistic_niah_v4_config_v2",
-  "protocol_version": "realistic_niah_v4_nonthinking_v2",
+  "schema_version": "realistic_niah_v4_config_v3",
+  "protocol_version": "realistic_niah_v4_nonthinking_v3",
   "target_passage_tokens": 10000,
   "needle_counts": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
   "seeds": [
@@ -89,6 +89,7 @@
   "model_labels": ["Qwen3-8B", "Gemma4-E4B"],
   "prompt_mode": "direct",
   "answer_prefix": "Total:",
+  "answer_formats": ["numeric"],
   "count_candidate_words": [
     "one",
     "two",
@@ -101,6 +102,9 @@
     "nine",
     "ten"
   ],
+  "candidate_separator": "",
+  "candidate_score_reduction": "sum_log_probability",
+  "candidate_score_include_termination": true,
   "hidden_state_poolings": ["span_end", "span_mean"],
   "representation_count": 10,
   "pca_components": 3,
@@ -116,7 +120,6 @@
     "toggled_needle_end",
     "toggled_needle_span"
   ],
-  "require_single_token_count_candidates": true,
   "require_exact_offset_mapping": true,
   "hidden_save_dtype": "float16",
   "model_torch_dtype": "bfloat16",
