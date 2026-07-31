@@ -147,7 +147,27 @@ def _collect_attention_encoding(
         adapter,
         encoding,
     )
-    behavior = count_logit_metrics(query_logits, encoding)
+    first_tokens = [
+        int(token_ids[0])
+        for _, token_ids in encoding.count_candidate_answer_token_ids
+        if token_ids
+    ]
+    single_token_distinct = (
+        len(first_tokens) == len(encoding.count_candidate_answer_token_ids)
+        and all(
+            len(token_ids) == 1
+            for _, token_ids in encoding.count_candidate_answer_token_ids
+        )
+        and len(set(first_tokens)) == len(first_tokens)
+    )
+    behavior = (
+        count_logit_metrics(query_logits, encoding) if single_token_distinct else {}
+    )
+    behavior_status = (
+        "single_token_candidate_softmax"
+        if single_token_distinct
+        else "deferred_joint_sequence_probability"
+    )
     rows: list[dict[str, Any]] = []
     for layer, (layer_rows, key_start) in enumerate(zip(attention_rows, key_starts)):
         for head in range(layer_rows.shape[0]):
@@ -171,6 +191,7 @@ def _collect_attention_encoding(
                     "layer": layer,
                     "head": head,
                     "layer_type": adapter.layer_types[layer],
+                    "answer_behavior_status": behavior_status,
                     **behavior,
                     **metrics,
                 }
@@ -355,6 +376,7 @@ def capture_attention_shards(
                 "raw_attention_bytes": (
                     int(raw_shard.stat().st_size) if save_raw_rows else 0
                 ),
+                "answer_behavior_status": str(first["answer_behavior_status"]),
                 **{
                     column: (
                         int(first[column])
@@ -374,6 +396,7 @@ def capture_attention_shards(
                         else str(first[column])
                     )
                     for column in BEHAVIOR_COLUMNS
+                    if column in frame.columns
                 },
             }
         )
