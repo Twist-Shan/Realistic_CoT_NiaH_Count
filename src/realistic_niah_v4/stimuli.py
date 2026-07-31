@@ -449,9 +449,28 @@ def _compact_stimulus(
     passage = tokenizer.decode(final_tokens)
     actual_ids, offsets = tokenizer.encode_with_offsets(passage)
     if list(actual_ids) != list(final_tokens):
+        mismatch = next(
+            (
+                index
+                for index, (expected, actual) in enumerate(
+                    zip(final_tokens, actual_ids)
+                )
+                if expected != actual
+            ),
+            min(len(final_tokens), len(actual_ids)),
+        )
+        window_start = max(0, mismatch - 4)
+        window_end = mismatch + 5
         raise RuntimeError(
             "Canonical decode/re-encode changed token identities; refusing "
-            "approximate V4 alignment"
+            "approximate V4 alignment. "
+            f"variant={variant}, seed={seed}, count={active_count}, "
+            f"first_mismatch={mismatch}, expected_length={len(final_tokens)}, "
+            f"actual_length={len(actual_ids)}, "
+            f"expected_ids={list(final_tokens[window_start:window_end])}, "
+            f"actual_ids={list(actual_ids[window_start:window_end])}, "
+            f"expected_window={tokenizer.decode(list(final_tokens[window_start:window_end]))!r}, "
+            f"actual_window={tokenizer.decode(list(actual_ids[window_start:window_end]))!r}"
         )
     if len(actual_ids) != config.target_passage_tokens:
         raise RuntimeError(
