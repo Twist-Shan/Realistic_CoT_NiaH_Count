@@ -5,11 +5,20 @@ from typing import Any
 
 from realistic_niah.prompts import (
     build_messages,
+    query_block,
     render_generation_prompt,
 )
 from realistic_niah_v3.spec import resolve_model_spec as resolve_v3_model_spec
 
 from .spec import V4Config, V4ModelSpec
+
+
+V4_DIRECT_QUERY_BLOCK = """\
+How many city-score audit records are in the passage?
+Do not explain, reason aloud, quote, or list any records.
+Write the count as exactly one lowercase English number word from one through ten.
+Your entire response must be exactly one line:
+Total: <number word>"""
 
 
 @dataclass(frozen=True)
@@ -121,14 +130,17 @@ def _count_candidate_ids(
     tokenizer: Any,
     model_text: str,
     counts: tuple[int, ...],
+    candidate_words: tuple[str, ...],
     *,
     require_single_token: bool,
 ) -> tuple[tuple[int, int], ...]:
+    if len(counts) != len(candidate_words):
+        raise ValueError("Count/candidate-word length mismatch")
     prefix_ids = _encode_ids(tokenizer, model_text)
     result: list[tuple[int, int]] = []
     seen: set[int] = set()
-    for count in counts:
-        full_ids = _encode_ids(tokenizer, model_text + f" {int(count)}")
+    for count, word in zip(counts, candidate_words):
+        full_ids = _encode_ids(tokenizer, model_text + f" {word}")
         if full_ids[: len(prefix_ids)] != prefix_ids:
             raise RuntimeError(
                 "Count continuation retokenized the answer prefix; change the "
@@ -170,6 +182,15 @@ def render_v4_prompt(
     messages = build_messages(
         str(stimulus["passage"]),
         prompt_mode=config.prompt_mode,
+    )
+    registered_query = query_block(config.prompt_mode)
+    if len(messages) != 1 or not str(messages[0]["content"]).endswith(
+        registered_query
+    ):
+        raise RuntimeError("Unexpected base prompt layout for registered V4")
+    messages[0]["content"] = (
+        str(messages[0]["content"])[: -len(registered_query)]
+        + V4_DIRECT_QUERY_BLOCK
     )
     generation_prompt = render_generation_prompt(
         tokenizer,
@@ -245,6 +266,7 @@ def render_v4_prompt(
         tokenizer,
         model_text,
         config.needle_counts,
+        config.count_candidate_words,
         require_single_token=config.require_single_token_count_candidates,
     )
     return PromptEncoding(

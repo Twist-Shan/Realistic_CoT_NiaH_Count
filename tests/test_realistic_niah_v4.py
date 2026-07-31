@@ -270,6 +270,8 @@ def test_prompt_maps_spans_and_single_token_counts(
     assert len(encoding.needle_spans) == 3
     assert len(encoding.hard_negative_spans) == 3
     assert len(dict(encoding.count_candidate_token_ids)) == 3
+    assert "one lowercase English number word" in encoding.generation_prompt
+    assert encoding.text.endswith("Total:")
     assert all(span.start < span.end for span in encoding.needle_spans)
 
 

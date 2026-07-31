@@ -1,6 +1,6 @@
 {
-  "schema_version": "realistic_niah_v4_config_v1",
-  "protocol_version": "realistic_niah_v4_nonthinking",
+  "schema_version": "realistic_niah_v4_config_v2",
+  "protocol_version": "realistic_niah_v4_nonthinking_v2",
   "target_passage_tokens": 10000,
   "needle_counts": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
   "seeds": [
@@ -89,6 +89,18 @@
   "model_labels": ["Qwen3-8B", "Gemma4-E4B"],
   "prompt_mode": "direct",
   "answer_prefix": "Total:",
+  "count_candidate_words": [
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten"
+  ],
   "hidden_state_poolings": ["span_end", "span_mean"],
   "representation_count": 10,
   "pca_components": 3,
