@@ -186,6 +186,11 @@ uses a seed-cluster bootstrap for count-adjusted wrong-minus-correct effects.
 For an undercount of `k`, the bottom-`k` occurrences in the selected-head
 ensemble are reported only as *attention-implied missed candidates*: a scalar
 answer does not reveal which particular record was internally omitted.
+The nested family gives a second, more targeted diagnostic: N-1 to N toggles
+exactly the Nth slot into a needle, so the analysis compares attention to this
+new occurrence when the greedy prediction does versus does not increment by
+one. This tests a missed-new-evidence hypothesis without claiming that
+attention alone establishes the internal cause of an error.
 Full-sequence attention matrices and full Q/K/V tensors are not materialized.
 
 ## Causal tests

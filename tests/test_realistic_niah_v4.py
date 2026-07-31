@@ -24,6 +24,7 @@ from realistic_niah_v4.attention_outcomes import (
     POOL_METRICS,
     discovery_seed_bootstrap_stability,
     layer_pooling_metrics,
+    nested_increment_diagnostics,
     rank_broad_candidates,
 )
 from realistic_niah_v4.causal import count_logit_metrics
@@ -377,6 +378,82 @@ def test_representation_rows_inherit_actual_generation_labels(tmp_path: Path) ->
         / "figures"
         / "shared_pca_span_end_layer_1_by_outcome.png"
     ).exists()
+
+
+def test_nested_increment_diagnostic_targets_newly_activated_needle() -> None:
+    prompts = pd.DataFrame(
+        [
+            {
+                "stimulus_id": "n1",
+                "model_label": "toy",
+                "design_variant": "v4.1",
+                "seed": 11,
+                "pooling": "span_end",
+                "split": "confirmation",
+                "count": 1,
+                "predicted_count": 1,
+            },
+            {
+                "stimulus_id": "n2",
+                "model_label": "toy",
+                "design_variant": "v4.1",
+                "seed": 11,
+                "pooling": "span_end",
+                "split": "confirmation",
+                "count": 2,
+                "predicted_count": 1,
+            },
+        ]
+    )
+    occurrences = pd.DataFrame(
+        [
+            {
+                "stimulus_id": "n1",
+                "pooling": "span_end",
+                "count": 1,
+                "occurrence_index": 1,
+                "slot_index": 1,
+                "normalized_depth": 0.2,
+                "ensemble_raw_attention": 0.4,
+                "ensemble_normalized_share": 1.0,
+                "low_attention_rank": 1,
+                "correct_discovery_q10_share": 0.5,
+                "below_correct_discovery_q10": False,
+            },
+            {
+                "stimulus_id": "n2",
+                "pooling": "span_end",
+                "count": 2,
+                "occurrence_index": 1,
+                "slot_index": 1,
+                "normalized_depth": 0.2,
+                "ensemble_raw_attention": 0.4,
+                "ensemble_normalized_share": 1.8,
+                "low_attention_rank": 2,
+                "correct_discovery_q10_share": 0.5,
+                "below_correct_discovery_q10": False,
+            },
+            {
+                "stimulus_id": "n2",
+                "pooling": "span_end",
+                "count": 2,
+                "occurrence_index": 2,
+                "slot_index": 2,
+                "normalized_depth": 0.8,
+                "ensemble_raw_attention": 0.02,
+                "ensemble_normalized_share": 0.2,
+                "low_attention_rank": 1,
+                "correct_discovery_q10_share": 0.5,
+                "below_correct_discovery_q10": True,
+            },
+        ]
+    )
+    diagnostics, summary = nested_increment_diagnostics(occurrences, prompts)
+    row = diagnostics[diagnostics["count"] == 2].iloc[0]
+    assert row["increment_status"] == "failed_to_increment"
+    assert row["new_needle_normalized_share"] == pytest.approx(0.2)
+    assert bool(row["new_needle_below_correct_discovery_q10"])
+    assert summary.iloc[0]["transitions"] == 1
 
 
 class WhitespaceFastTokenizer:

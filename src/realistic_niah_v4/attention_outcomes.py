@@ -1380,6 +1380,161 @@ def _plot_omission_diagnostics(prompts: pd.DataFrame, output: Path) -> list[Path
     return paths
 
 
+def nested_increment_diagnostics(
+    occurrences: pd.DataFrame,
+    prompts: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Test whether a newly activated needle receives attention when count advances.
+
+    V4 families are nested: moving N-1 to N toggles exactly the Nth slot from a
+    matched control to a needle. A failed +1 prediction transition therefore
+    supplies a more targeted missed-evidence diagnostic than a scalar
+    undercount alone.
+    """
+
+    groups = ["model_label", "design_variant", "seed", "pooling"]
+    ordered = prompts.sort_values([*groups, "count"]).copy()
+    ordered["previous_predicted_count"] = ordered.groupby(groups)[
+        "predicted_count"
+    ].shift(1)
+    valid_pair = (
+        ordered["count"].astype(int) >= 2
+    ) & ordered["predicted_count"].notna() & ordered[
+        "previous_predicted_count"
+    ].notna()
+    ordered["prediction_increment"] = np.where(
+        valid_pair,
+        ordered["predicted_count"] - ordered["previous_predicted_count"],
+        np.nan,
+    )
+    ordered["increment_status"] = "invalid_pair"
+    ordered.loc[
+        valid_pair & (ordered["prediction_increment"] == 1), "increment_status"
+    ] = "registered_plus_one"
+    ordered.loc[
+        valid_pair & (ordered["prediction_increment"] < 1), "increment_status"
+    ] = "failed_to_increment"
+    ordered.loc[
+        valid_pair & (ordered["prediction_increment"] > 1), "increment_status"
+    ] = "overshot_increment"
+
+    newly_active = occurrences[
+        occurrences["occurrence_index"].astype(int)
+        == occurrences["count"].astype(int)
+    ][
+        [
+            "stimulus_id",
+            "pooling",
+            "occurrence_index",
+            "slot_index",
+            "normalized_depth",
+            "ensemble_raw_attention",
+            "ensemble_normalized_share",
+            "low_attention_rank",
+            "correct_discovery_q10_share",
+            "below_correct_discovery_q10",
+        ]
+    ].rename(
+        columns={
+            "ensemble_raw_attention": "new_needle_raw_attention",
+            "ensemble_normalized_share": "new_needle_normalized_share",
+            "low_attention_rank": "new_needle_low_attention_rank",
+            "correct_discovery_q10_share": "new_needle_correct_discovery_q10_share",
+            "below_correct_discovery_q10": "new_needle_below_correct_discovery_q10",
+        }
+    )
+    diagnostics = ordered.merge(
+        newly_active,
+        on=["stimulus_id", "pooling"],
+        how="left",
+        validate="one_to_one",
+    )
+    if diagnostics["new_needle_normalized_share"].isna().any():
+        raise RuntimeError("A nested V4 prompt lacks its newly activated occurrence")
+    summary = (
+        diagnostics[diagnostics["count"].astype(int) >= 2]
+        .groupby(
+            [
+                "model_label",
+                "design_variant",
+                "pooling",
+                "split",
+                "increment_status",
+            ],
+            as_index=False,
+            dropna=False,
+        )
+        .agg(
+            transitions=("stimulus_id", "count"),
+            seeds=("seed", "nunique"),
+            mean_new_needle_normalized_share=(
+                "new_needle_normalized_share",
+                "mean",
+            ),
+            mean_new_needle_raw_attention=("new_needle_raw_attention", "mean"),
+            low_attention_rate=(
+                "new_needle_below_correct_discovery_q10",
+                "mean",
+            ),
+        )
+    )
+    return diagnostics, summary
+
+
+def _plot_nested_increment_diagnostics(
+    diagnostics: pd.DataFrame,
+    output: Path,
+) -> list[Path]:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    frame = diagnostics[
+        (diagnostics["split"] == "confirmation")
+        & diagnostics["increment_status"].isin(
+            ["registered_plus_one", "failed_to_increment"]
+        )
+    ]
+    if frame.empty:
+        return []
+    variants = sorted(frame["design_variant"].unique())
+    paths: list[Path] = []
+    for pooling in POOLINGS:
+        figure, axes = plt.subplots(2, 2, figsize=(10.5, 7.5), sharey=True)
+        for axis, variant in zip(axes.flat, variants):
+            selected = frame[
+                (frame["design_variant"] == variant)
+                & (frame["pooling"] == pooling)
+            ]
+            statuses = ["registered_plus_one", "failed_to_increment"]
+            values = [
+                selected[selected["increment_status"] == status][
+                    "new_needle_normalized_share"
+                ].dropna()
+                for status in statuses
+            ]
+            if any(len(value) for value in values):
+                axis.boxplot(
+                    values,
+                    labels=["+1 registered", "failed +1"],
+                    showfliers=True,
+                )
+            axis.axhline(1.0, color="black", linestyle="--", alpha=0.4)
+            axis.set_title(str(variant))
+            axis.set_ylabel("newly activated needle share (uniform = 1)")
+            axis.grid(axis="y", alpha=0.2)
+        figure.suptitle(
+            f"Nested N-1→N transition: newly activated needle attention, {pooling}"
+        )
+        figure.tight_layout()
+        path = output / f"nested_increment_new_needle_{pooling}.png"
+        figure.savefig(path, dpi=180, bbox_inches="tight")
+        plt.close(figure)
+        paths.append(path)
+    return paths
+
+
 def _binned_attention(
     row: np.ndarray,
     *,
@@ -1613,6 +1768,11 @@ def analyze_labeled_attention(
         rankings=rankings,
         output_dir=tables,
     )
+    nested, nested_summary = nested_increment_diagnostics(occurrences, prompts)
+    nested_path = tables / "nested_increment_diagnostics.csv"
+    nested_summary_path = tables / "nested_increment_summary.csv"
+    nested.to_csv(nested_path, index=False)
+    nested_summary.to_csv(nested_summary_path, index=False)
     labels = _label_table(Path(generation_labels_path))
     behavior_summary = (
         labels.groupby(
@@ -1638,6 +1798,7 @@ def analyze_labeled_attention(
     figure_paths.extend(_plot_outcome_curves(detail, rankings, figures))
     figure_paths.extend(_plot_occurrence_profiles(occurrences, figures))
     figure_paths.extend(_plot_omission_diagnostics(prompts, figures))
+    figure_paths.extend(_plot_nested_increment_diagnostics(nested, figures))
     figure_paths.extend(
         _plot_representative_maps(
             attention_index_path=Path(attention_index_path),
@@ -1695,6 +1856,12 @@ def analyze_labeled_attention(
                 "missed. Bottom-k attention occurrences are therefore labeled "
                 "attention-implied missed candidates, not ground-truth omissions."
             ),
+            "nested_increment_diagnostic": (
+                "Within each nested panel/seed family, N-1 to N activates exactly "
+                "one new needle. The analysis compares attention to that newly "
+                "activated occurrence when the generated prediction does versus "
+                "does not increment by one; association is not causal proof."
+            ),
             "files": {
                 "pooling_metric_index": str(pooling_index),
                 "pooling_detail": str(detail_path),
@@ -1707,6 +1874,8 @@ def analyze_labeled_attention(
                 "behavior_summary": str(behavior_summary_path),
                 "occurrence_attention": str(tables / "occurrence_attention.csv.gz"),
                 "omission_diagnostics": str(tables / "omission_diagnostics.csv"),
+                "nested_increment_diagnostics": str(nested_path),
+                "nested_increment_summary": str(nested_summary_path),
                 "rankings": [str(path) for path in ranking_paths],
                 "figures": [str(path) for path in figure_paths],
             },
@@ -1721,6 +1890,7 @@ def analyze_labeled_attention(
         "outcome_effects": effects_path,
         "seed_stability": seed_stability_path,
         "omission_diagnostics": tables / "omission_diagnostics.csv",
+        "nested_increment_diagnostics": nested_path,
         "occurrence_attention": tables / "occurrence_attention.csv.gz",
         "behavior_summary": behavior_summary_path,
     }
