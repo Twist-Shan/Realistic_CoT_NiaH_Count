@@ -169,6 +169,12 @@ export PYTHONPATH=src
 The registered grid has two models (`Qwen3-8B`, `Gemma4-E4B`), count 1-10,
 10,000 canonical passage tokens, and 30 seeds. Its four cumulative panels are:
 
+V4 scores the ten counts using the lowercase single-token answer vocabulary
+`one` through `ten` after a teacher-forced `Total:` prefix. Decimal `10` is
+two tokens in both registered tokenizers, so numeric strings cannot support
+a valid ten-way single-position logit comparison; the GPU preflight enforces
+the registered word-token boundary for both exact model revisions.
+
 | Panel | Position | City-score order | City-score content |
 | --- | --- | --- | --- |
 | v4.1 | fixed | fixed | fixed |

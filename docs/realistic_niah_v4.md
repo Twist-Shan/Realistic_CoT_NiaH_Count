@@ -27,10 +27,19 @@ measurement of the internal counting algorithm.
 | Confirmation split | 1254 through 1263 (10) |
 | Prompt | direct, non-thinking |
 | Answer query | last token of a teacher-forced `Total:` prefix |
+| Answer vocabulary | single-token lowercase words `one` through `ten` |
 | Representation sites | needle-span end; mean over the full needle span |
 
 The exact model and tokenizer revisions are immutable SHAs in
 `src/realistic_niah_v4/spec.py`.
+
+The answer vocabulary is deliberately word-based. With both registered
+tokenizers, the decimal string `10` is two tokens and shares its first token
+with `1`, so ten-way logits at one answer-query position would not be
+well-defined. On the complete rendered prompt, `" one"` through `" ten"` are
+ten distinct single-token continuations after `Total:` for both models. The
+V4 prompt explicitly requests exactly one lowercase English number word;
+preflight rechecks prefix stability, single-token length, and uniqueness.
 
 ## Four cumulative control panels
 
@@ -149,7 +158,8 @@ For every prompt, the complete answer-query row from every head is retained
 as an uncompressed float16 NPZ shard. Each layer is a separate array because
 Gemma 4 local and global layers have different key-axis lengths. The shard
 also records absolute key starts, layer types, query position, and sequence
-length. Candidate-count logits and probabilities from the same cached query
+length. Candidate-count logits and probabilities over the registered
+`one`-through-`ten` tokens from the same cached query
 forward are saved in the metric shard and summarized as a behavioral sanity
 check. Full-sequence attention matrices and full Q/K/V tensors are not
 materialized.
@@ -163,7 +173,7 @@ the input to the attention output projection. The primary intervention
 affects only the answer-query position. Each set is compared with three
 deterministic, layer-matched random-head sets on confirmation seeds. Saved
 outcomes include the correct-count logit margin, candidate-only accuracy,
-and expected count over the registered 1–10 candidate tokens.
+and expected numeric count over the registered `one`–`ten` candidate tokens.
 
 Ablation can demonstrate necessity but can also introduce distribution shift.
 The layer-matched controls and top-N dose response are required for
