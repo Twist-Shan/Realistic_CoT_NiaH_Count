@@ -533,7 +533,12 @@ def test_tiny_transformers_architectures_support_v4_hooks() -> None:
             donor_states=states[0] + 0.1,
         )
         assert captured["span_end"].shape == (2, 3, 16)
-        assert [tuple(row.shape) for row in rows] == [(4, 12), (4, 12)]
+        expected_attention_shapes = (
+            [(4, 8), (4, 12)]
+            if label == "gemma4"
+            else [(4, 12), (4, 12)]
+        )
+        assert [tuple(row.shape) for row in rows] == expected_attention_shapes
         assert key_starts == [0, 0]
         assert not torch.allclose(baseline, ablated)
         assert not torch.allclose(baseline, patched)

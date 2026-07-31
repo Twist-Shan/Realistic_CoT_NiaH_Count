@@ -587,12 +587,12 @@ def _attention_tensor(value: Any) -> torch.Tensor:
 
 
 @torch.inference_mode()
-def query_attention_rows(
+def query_attention_outputs(
     model: nn.Module,
     adapter: DecoderAdapter,
     encoding: PromptEncoding,
-) -> tuple[list[torch.Tensor], list[int]]:
-    """Return only the final answer-query row from every decoder layer.
+) -> tuple[list[torch.Tensor], list[int], torch.Tensor]:
+    """Return answer-query attention rows, absolute key starts, and logits.
 
     The long prefix is evaluated with the configured efficient backend and a
     KV cache. Only the one-token query step switches to eager attention, so the
@@ -658,4 +658,16 @@ def query_attention_rows(
             raise RuntimeError(f"Layer {layer} attention key axis is too long")
         rows.append(row)
         key_starts.append(key_start)
+    return rows, key_starts, _last_logits(query_output)
+
+
+@torch.inference_mode()
+def query_attention_rows(
+    model: nn.Module,
+    adapter: DecoderAdapter,
+    encoding: PromptEncoding,
+) -> tuple[list[torch.Tensor], list[int]]:
+    """Return only the final answer-query attention row from every layer."""
+
+    rows, key_starts, _logits = query_attention_outputs(model, adapter, encoding)
     return rows, key_starts
