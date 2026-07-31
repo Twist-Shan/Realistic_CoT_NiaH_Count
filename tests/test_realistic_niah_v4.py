@@ -15,6 +15,10 @@ from realistic_niah_v4.attention import (
     _write_raw_attention_shard,
     broad_attention_metrics,
 )
+from realistic_niah_v4.behavior import (
+    label_generated_completion,
+    parse_numeric_completion,
+)
 from realistic_niah_v4.causal import count_logit_metrics
 from realistic_niah_v4.modeling import (
     _attention_tensor,
@@ -214,6 +218,27 @@ def test_broad_metric_rewards_uniform_span_coverage() -> None:
     assert broad["broad_coverage"] == pytest.approx(1.0)
     assert broad["broad_primary"] > narrow["broad_primary"]
     assert broad["broad_contrast"] > 0
+
+
+def test_numeric_generation_labels_use_actual_strict_completion() -> None:
+    ten = label_generated_completion("10\n", gold_count=10)
+    assert ten["outcome_group"] == "correct"
+    assert ten["parsed_count"] == 10
+    assert ten["count_error"] == 0
+
+    under = label_generated_completion("8", gold_count=10)
+    assert under["outcome_group"] == "wrong"
+    assert under["error_direction"] == "undercount"
+    assert under["omission_count"] == 2
+
+    verbose = label_generated_completion("The answer is 10.", gold_count=10)
+    assert verbose["outcome_group"] == "invalid"
+    assert verbose["parsed_count"] is None
+    assert verbose["extracted_count"] == 10
+
+    out_of_range = parse_numeric_completion("11")
+    assert not out_of_range["format_valid"]
+    assert out_of_range["parsed_count"] is None
 
 
 class WhitespaceFastTokenizer:

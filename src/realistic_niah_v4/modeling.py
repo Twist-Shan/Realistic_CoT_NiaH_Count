@@ -211,6 +211,23 @@ def load_registered_model(
     return model, tokenizer, adapter
 
 
+def load_registered_tokenizer(
+    model_spec: V4ModelSpec,
+    *,
+    cache_dir: str | Path | None = None,
+) -> Any:
+    """Load only the pinned tokenizer for CPU-side V4 analysis."""
+
+    import transformers
+
+    return transformers.AutoTokenizer.from_pretrained(
+        model_spec.model_id,
+        revision=model_spec.revision,
+        cache_dir=str(cache_dir) if cache_dir is not None else None,
+        trust_remote_code=False,
+    )
+
+
 def _tensor_from_output(output: Any) -> torch.Tensor:
     if isinstance(output, torch.Tensor):
         return output
@@ -281,6 +298,89 @@ def run_last_logits(model: nn.Module, encoding: PromptEncoding) -> torch.Tensor:
         **_bounded_logits_kwargs(model),
     )
     return _last_logits(output)
+
+
+@torch.inference_mode()
+def generate_answer_completion(
+    model: nn.Module,
+    tokenizer: Any,
+    encoding: PromptEncoding,
+    *,
+    max_new_tokens: int = 16,
+) -> dict[str, Any]:
+    """Greedily generate the actual continuation after the final ``Total:``.
+
+    This is behavioral evaluation, not candidate-probability scoring. The
+    returned text excludes the prompt and is decoded both with and without
+    special tokens so strict answer parsing remains auditable.
+    """
+
+    if int(max_new_tokens) < 1:
+        raise ValueError("max_new_tokens must be positive")
+    input_ids, attention_mask = _encoding_tensors(model, encoding)
+    generation_config = getattr(model, "generation_config", None)
+    eos_value = (
+        getattr(generation_config, "eos_token_id", None)
+        if generation_config is not None
+        else None
+    )
+    if eos_value is None:
+        eos_value = getattr(tokenizer, "eos_token_id", None)
+    if eos_value is None:
+        eos_ids: list[int] = []
+    elif isinstance(eos_value, (tuple, list, set)):
+        eos_ids = [int(value) for value in eos_value]
+    else:
+        eos_ids = [int(eos_value)]
+    pad_token_id = getattr(tokenizer, "pad_token_id", None)
+    if pad_token_id is None and eos_ids:
+        pad_token_id = eos_ids[0]
+    kwargs: dict[str, Any] = {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "do_sample": False,
+        "max_new_tokens": int(max_new_tokens),
+        "use_cache": True,
+    }
+    if pad_token_id is not None:
+        kwargs["pad_token_id"] = int(pad_token_id)
+    generated = model.generate(**kwargs)
+    if not isinstance(generated, torch.Tensor) or generated.ndim != 2:
+        sequences = getattr(generated, "sequences", None)
+        if not isinstance(sequences, torch.Tensor) or sequences.ndim != 2:
+            raise RuntimeError("Model.generate did not return [batch, time] sequences")
+        generated = sequences
+    if generated.shape[0] != 1 or generated.shape[1] < input_ids.shape[1]:
+        raise RuntimeError("Unexpected generated sequence shape")
+    continuation = [
+        int(value)
+        for value in generated[0, input_ids.shape[1] :].detach().cpu().tolist()
+    ]
+    if not continuation:
+        raise RuntimeError("Greedy V4 generation returned an empty continuation")
+    stopped_on_eos = bool(eos_ids and continuation[-1] in set(eos_ids))
+    raw_text = tokenizer.decode(
+        continuation,
+        skip_special_tokens=False,
+        clean_up_tokenization_spaces=False,
+    )
+    clean_text = tokenizer.decode(
+        continuation,
+        skip_special_tokens=True,
+        clean_up_tokenization_spaces=False,
+    )
+    return {
+        "generated_token_ids": continuation,
+        "generated_token_count": len(continuation),
+        "generation_eos_token_ids": eos_ids,
+        "stopped_on_eos": stopped_on_eos,
+        "generation_truncated": bool(
+            len(continuation) >= int(max_new_tokens) and not stopped_on_eos
+        ),
+        "completion_text_raw": str(raw_text),
+        "completion_text": str(clean_text),
+        "full_answer_text": "Total:" + str(clean_text),
+    }
 
 
 def _normalized_layer_indices(

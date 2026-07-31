@@ -20,6 +20,7 @@ from .attention import (
     load_attention_shards,
     load_head_ranking,
 )
+from .behavior import capture_generation_labels
 from .causal import (
     compare_head_ablation_to_random,
     run_head_ablation_experiment,
@@ -466,11 +467,13 @@ def run_model_stage(
     counts: Sequence[int] | None = None,
     overwrite: bool = False,
     forward_smoke: bool = False,
+    generation_max_new_tokens: int = 16,
 ) -> dict[str, Any]:
     """Run one GPU-facing V4 stage for one registered model."""
 
     allowed = {
         "preflight",
+        "behavior",
         "representation-capture",
         "attention",
         "ablation",
@@ -533,6 +536,35 @@ def run_model_stage(
         )
     if stage == "preflight":
         return {"preflight": str(preflight_path)}
+
+    if stage == "behavior":
+        with logger.timer(
+            "behavior_generation",
+            rows=len(selected),
+            decoding="greedy",
+            max_new_tokens=int(generation_max_new_tokens),
+        ):
+            behavior_outputs = capture_generation_labels(
+                model,
+                tokenizer,
+                list(
+                    render_encodings(
+                        selected,
+                        tokenizer=tokenizer,
+                        model_label=model_spec.label,
+                        config=config,
+                        answer_format=answer_format,
+                    )
+                ),
+                output_dir=model_output / "behavior" / "capture",
+                valid_counts=tuple(int(value) for value in config.needle_counts),
+                max_new_tokens=int(generation_max_new_tokens),
+                overwrite=overwrite,
+            )
+        return {
+            "preflight": str(preflight_path),
+            **{key: str(value) for key, value in behavior_outputs.items()},
+        }
 
     if stage == "representation-capture":
         representation_rows = [

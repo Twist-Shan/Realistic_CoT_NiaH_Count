@@ -14,6 +14,7 @@ from realistic_niah_v4.spec import ANSWER_FORMATS, DESIGN_VARIANTS, MODEL_SPECS
 
 MODEL_STAGES = (
     "preflight",
+    "behavior",
     "representation-capture",
     "attention",
     "ablation",
@@ -68,6 +69,15 @@ def main() -> None:
     parser.add_argument("--counts")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--forward-smoke", action="store_true")
+    parser.add_argument(
+        "--generation-max-new-tokens",
+        type=int,
+        default=16,
+        help=(
+            "Maximum continuation length for deterministic behavior labeling; "
+            "the registered numeric answers need at most two answer tokens."
+        ),
+    )
     parser.add_argument("--repo-root", default=".")
     args = parser.parse_args()
 
@@ -97,6 +107,7 @@ def main() -> None:
         "counts": _csv_ints(args.counts),
         "overwrite": args.overwrite,
         "forward_smoke": args.forward_smoke,
+        "generation_max_new_tokens": args.generation_max_new_tokens,
     }
     outputs: dict[str, object] = {"provenance": str(provenance)}
     if args.stage == "representation-analyze":
