@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
-from typing import Any, Iterable
-
+from typing import Any
 
 PROTOCOL_VERSION = "realistic_niah_v4_nonthinking_v3"
 CONFIG_SCHEMA_VERSION = "realistic_niah_v4_config_v3"
@@ -132,6 +132,7 @@ class V4Config:
     ablation_top_ns: tuple[int, ...] = (1, 2, 4, 8)
     ablation_random_replicates: int = 3
     ablation_scope: str = "answer_query"
+    ablation_scopes: tuple[str, ...] = ("answer_query", "global")
     causal_layer_fractions: tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0)
     patch_count_pairs: tuple[tuple[int, int], ...] = (
         (1, 2),
@@ -145,6 +146,29 @@ class V4Config:
         "toggled_needle_end",
         "toggled_needle_span",
     )
+    residual_patch_protocols: tuple[str, ...] = (
+        "single_layer",
+        "cumulative_from_layer",
+    )
+    steering_count_pairs: tuple[tuple[int, int], ...] = (
+        (1, 2),
+        (3, 4),
+        (5, 6),
+        (7, 8),
+        (9, 10),
+        (1, 3),
+        (3, 6),
+        (5, 10),
+    )
+    steering_methods: tuple[str, ...] = (
+        "centroid_transplant",
+        "centroid_delta",
+        "chord",
+        "polyline",
+    )
+    steering_alphas: tuple[float, ...] = (0.25, 0.5, 0.75, 1.0)
+    steering_random_replicates: int = 1
+    causal_bootstrap_repetitions: int = 10_000
     require_exact_offset_mapping: bool = True
     hidden_save_dtype: str = "float16"
     model_torch_dtype: str = "bfloat16"
@@ -153,7 +177,7 @@ class V4Config:
     attention_save_dtype: str = "float16"
 
     @classmethod
-    def from_mapping(cls, payload: dict[str, Any]) -> "V4Config":
+    def from_mapping(cls, payload: dict[str, Any]) -> V4Config:
         valid = {field.name for field in fields(cls)}
         unknown = sorted(set(payload) - valid)
         if unknown:
@@ -172,8 +196,12 @@ class V4Config:
             "count_candidate_words",
             "ridge_alphas",
             "ablation_top_ns",
+            "ablation_scopes",
             "causal_layer_fractions",
             "patch_sites",
+            "residual_patch_protocols",
+            "steering_methods",
+            "steering_alphas",
         }
         for name in tuple_fields:
             if name in values:
@@ -183,12 +211,17 @@ class V4Config:
                 tuple(int(item) for item in pair)
                 for pair in values["patch_count_pairs"]
             )
+        if "steering_count_pairs" in values:
+            values["steering_count_pairs"] = tuple(
+                tuple(int(item) for item in pair)
+                for pair in values["steering_count_pairs"]
+            )
         config = cls(**values)
         config.validate()
         return config
 
     @classmethod
-    def from_json(cls, path: str | Path) -> "V4Config":
+    def from_json(cls, path: str | Path) -> V4Config:
         return cls.from_mapping(json.loads(Path(path).read_text(encoding="utf-8")))
 
     def to_dict(self) -> dict[str, Any]:
@@ -243,6 +276,15 @@ class V4Config:
         if self.ablation_scope not in {"answer_query", "global"}:
             raise ValueError("ablation_scope must be answer_query or global")
         if (
+            not self.ablation_scopes
+            or any(
+                scope not in {"answer_query", "global"}
+                for scope in self.ablation_scopes
+            )
+            or len(set(self.ablation_scopes)) != len(self.ablation_scopes)
+        ):
+            raise ValueError("ablation_scopes must be unique registered scopes")
+        if (
             not self.ablation_top_ns
             or any(int(value) <= 0 for value in self.ablation_top_ns)
             or tuple(sorted(set(self.ablation_top_ns))) != self.ablation_top_ns
@@ -261,6 +303,36 @@ class V4Config:
             "toggled_needle_span",
         ):
             raise ValueError("Registered V4 requires all three patch sites")
+        if self.residual_patch_protocols != (
+            "single_layer",
+            "cumulative_from_layer",
+        ):
+            raise ValueError("Registered V4 requires both residual patch protocols")
+        registered_steering_methods = {
+            "centroid_transplant",
+            "centroid_delta",
+            "chord",
+            "polyline",
+        }
+        if (
+            not self.steering_methods
+            or set(self.steering_methods) != registered_steering_methods
+            or len(set(self.steering_methods)) != len(self.steering_methods)
+        ):
+            raise ValueError("Registered V4 requires all geometric steering methods")
+        if (
+            not self.steering_alphas
+            or tuple(sorted(set(self.steering_alphas))) != self.steering_alphas
+            or any(not 0.0 < float(alpha) <= 1.0 for alpha in self.steering_alphas)
+            or 1.0 not in self.steering_alphas
+        ):
+            raise ValueError(
+                "steering_alphas must be unique, increasing, and include 1"
+            )
+        if self.steering_random_replicates < 0:
+            raise ValueError("steering_random_replicates must be nonnegative")
+        if self.causal_bootstrap_repetitions <= 0:
+            raise ValueError("causal_bootstrap_repetitions must be positive")
         if any(label not in MODEL_SPECS for label in self.model_labels):
             raise ValueError("Unknown registered V4 model label")
         if not self.answer_prefix:
@@ -299,6 +371,13 @@ class V4Config:
                 or high not in self.needle_counts
             ):
                 raise ValueError(f"Invalid V4 patch pair: {(low, high)}")
+        for low, high in self.steering_count_pairs:
+            if (
+                low >= high
+                or low not in self.needle_counts
+                or high not in self.needle_counts
+            ):
+                raise ValueError(f"Invalid V4 steering pair: {(low, high)}")
 
 
 def resolve_model_spec(label_or_id: str) -> V4ModelSpec:
@@ -321,7 +400,7 @@ def resolve_fractional_layers(
         value = float(fraction)
         if not 0.0 <= value <= 1.0:
             raise ValueError(f"Layer fraction is outside [0, 1]: {value}")
-        resolved.add(int(round(value * (num_layers - 1))))
+        resolved.add(round(value * (num_layers - 1)))
     return tuple(sorted(resolved))
 
 

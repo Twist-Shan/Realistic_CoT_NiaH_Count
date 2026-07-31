@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 import torch
 from torch import nn
@@ -500,6 +501,362 @@ def capture_post_block_states(
     if missing:
         raise RuntimeError(f"Failed to capture decoder layers: {sorted(missing)}")
     return _last_logits(output), captured
+
+
+@torch.inference_mode()
+def capture_query_head_outputs(
+    model: nn.Module,
+    adapter: DecoderAdapter,
+    encoding: PromptEncoding,
+    *,
+    layers: Iterable[int] | None = None,
+) -> tuple[torch.Tensor, dict[int, torch.Tensor]]:
+    """Capture pre-``o_proj`` head slices at the final prompt query.
+
+    The returned tensors have shape ``[query_heads, head_dim]``.  This is the
+    same representation that position-local head ablation and head-output
+    patching edit, so capture and intervention remain representation matched.
+    """
+
+    selected_layers = _normalized_layer_indices(adapter, layers)
+    captured: dict[int, torch.Tensor] = {}
+    handles = []
+
+    def make_hook(layer: int):
+        num_heads = int(adapter.num_heads[layer])
+        head_dim = int(adapter.head_dims[layer])
+
+        def hook(_module: nn.Module, args: tuple[Any, ...]) -> None:
+            if not args or not isinstance(args[0], torch.Tensor):
+                raise RuntimeError(
+                    "Attention output projection did not receive a positional tensor"
+                )
+            value = args[0]
+            expected_width = num_heads * head_dim
+            if value.ndim != 3 or value.shape[-1] != expected_width:
+                raise RuntimeError(
+                    "Expected [batch, time, query_heads * head_dim] at o_proj"
+                )
+            query = int(encoding.query_position)
+            if not 0 <= query < value.shape[1]:
+                raise RuntimeError("Answer query is outside attention output")
+            captured[layer] = (
+                value[0, query]
+                .reshape(num_heads, head_dim)
+                .detach()
+                .float()
+                .cpu()
+            )
+
+        return hook
+
+    for layer in selected_layers:
+        handles.append(
+            adapter.output_projections[layer].register_forward_pre_hook(
+                make_hook(layer)
+            )
+        )
+    try:
+        input_ids, attention_mask = _encoding_tensors(model, encoding)
+        output = model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            use_cache=False,
+            **_bounded_logits_kwargs(model),
+        )
+    finally:
+        for handle in handles:
+            handle.remove()
+    missing = set(selected_layers) - set(captured)
+    if missing:
+        raise RuntimeError(f"Failed to capture head outputs: {sorted(missing)}")
+    return _last_logits(output), captured
+
+
+def _validate_heads(
+    adapter: DecoderAdapter,
+    heads: Sequence[tuple[int, int]],
+) -> dict[int, tuple[int, ...]]:
+    by_layer: dict[int, list[int]] = {}
+    for raw_layer, raw_head in heads:
+        layer = int(raw_layer)
+        head = int(raw_head)
+        if not 0 <= layer < adapter.num_layers:
+            raise ValueError(f"Invalid intervention layer: {layer}")
+        if not 0 <= head < adapter.num_heads[layer]:
+            raise ValueError(f"Invalid head L{layer}H{head}")
+        by_layer.setdefault(layer, []).append(head)
+    return {
+        layer: tuple(sorted(set(layer_heads)))
+        for layer, layer_heads in by_layer.items()
+    }
+
+
+def _is_prompt_prefill(value: torch.Tensor, encoding: PromptEncoding) -> bool:
+    """Return whether a generation hook is seeing the original full prompt."""
+
+    return value.ndim == 3 and int(value.shape[1]) == int(encoding.sequence_length)
+
+
+@torch.inference_mode()
+def generate_with_head_ablation(
+    model: nn.Module,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    encoding: PromptEncoding,
+    heads: Sequence[tuple[int, int]],
+    *,
+    scope: str = "answer_query",
+    max_new_tokens: int = 16,
+) -> dict[str, Any]:
+    """Greedily generate after zeroing selected attention-head outputs.
+
+    ``answer_query`` is a one-shot, position-local intervention on the final
+    prompt row. ``global`` also masks every prompt and decoding row, matching
+    the global-head necessity test in synthetic V10.
+    """
+
+    if scope not in {"answer_query", "global"}:
+        raise ValueError("scope must be answer_query or global")
+    by_layer = _validate_heads(adapter, heads)
+    if not by_layer:
+        return generate_answer_completion(
+            model, tokenizer, encoding, max_new_tokens=max_new_tokens
+        )
+    applied = {layer: 0 for layer in by_layer}
+    handles = []
+    for layer, layer_heads in by_layer.items():
+        head_dim = int(adapter.head_dims[layer])
+        expected_width = int(adapter.num_heads[layer]) * head_dim
+
+        def hook(
+            _module: nn.Module,
+            args: tuple[Any, ...],
+            *,
+            layer: int = layer,
+            layer_heads: tuple[int, ...] = layer_heads,
+            head_dim: int = head_dim,
+            expected_width: int = expected_width,
+        ) -> tuple[Any, ...] | None:
+            if not args or not isinstance(args[0], torch.Tensor):
+                raise RuntimeError(
+                    "Attention output projection did not receive a positional tensor"
+                )
+            value = args[0]
+            if value.ndim != 3 or int(value.shape[-1]) != expected_width:
+                raise RuntimeError(
+                    "Expected [batch, time, query_heads * head_dim] at o_proj"
+                )
+            if scope == "answer_query" and not _is_prompt_prefill(value, encoding):
+                return None
+            patched = value.clone()
+            positions: slice | list[int] = (
+                slice(None)
+                if scope == "global"
+                else [int(encoding.query_position)]
+            )
+            for head in layer_heads:
+                start = int(head) * head_dim
+                patched[:, positions, start : start + head_dim] = 0
+            applied[layer] += 1
+            return (patched, *args[1:])
+
+        handles.append(
+            adapter.output_projections[layer].register_forward_pre_hook(hook)
+        )
+    try:
+        result = generate_answer_completion(
+            model, tokenizer, encoding, max_new_tokens=max_new_tokens
+        )
+    finally:
+        for handle in handles:
+            handle.remove()
+    missing = sorted(layer for layer, count in applied.items() if count == 0)
+    if missing:
+        raise RuntimeError(f"Head ablation never reached layers: {missing}")
+    return {
+        **result,
+        "intervention_hook_applications": {
+            str(layer): int(count) for layer, count in sorted(applied.items())
+        },
+    }
+
+
+@torch.inference_mode()
+def generate_with_head_patch(
+    model: nn.Module,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    encoding: PromptEncoding,
+    heads: Sequence[tuple[int, int]],
+    donor_head_outputs: dict[int, torch.Tensor],
+    *,
+    max_new_tokens: int = 16,
+) -> dict[str, Any]:
+    """Patch donor pre-``o_proj`` head slices at the receiver answer query."""
+
+    by_layer = _validate_heads(adapter, heads)
+    if not by_layer:
+        raise ValueError("At least one head is required for head-output patching")
+    missing_donors = sorted(set(by_layer) - set(donor_head_outputs))
+    if missing_donors:
+        raise KeyError(f"Missing donor head outputs for layers: {missing_donors}")
+    applied = {layer: 0 for layer in by_layer}
+    handles = []
+    for layer, layer_heads in by_layer.items():
+        num_heads = int(adapter.num_heads[layer])
+        head_dim = int(adapter.head_dims[layer])
+        expected_width = num_heads * head_dim
+        donor = donor_head_outputs[layer]
+        if tuple(donor.shape) != (num_heads, head_dim):
+            raise ValueError(
+                f"Donor L{layer} head-output shape {tuple(donor.shape)} does not "
+                f"match {(num_heads, head_dim)}"
+            )
+
+        def hook(
+            _module: nn.Module,
+            args: tuple[Any, ...],
+            *,
+            layer: int = layer,
+            layer_heads: tuple[int, ...] = layer_heads,
+            head_dim: int = head_dim,
+            expected_width: int = expected_width,
+            donor: torch.Tensor = donor,
+        ) -> tuple[Any, ...] | None:
+            if not args or not isinstance(args[0], torch.Tensor):
+                raise RuntimeError(
+                    "Attention output projection did not receive a positional tensor"
+                )
+            value = args[0]
+            if value.ndim != 3 or int(value.shape[-1]) != expected_width:
+                raise RuntimeError(
+                    "Expected [batch, time, query_heads * head_dim] at o_proj"
+                )
+            if not _is_prompt_prefill(value, encoding):
+                return None
+            patched = value.clone()
+            query = int(encoding.query_position)
+            donor_value = donor.to(device=value.device, dtype=value.dtype)
+            for head in layer_heads:
+                start = int(head) * head_dim
+                patched[:, query, start : start + head_dim] = donor_value[
+                    int(head)
+                ]
+            applied[layer] += 1
+            return (patched, *args[1:])
+
+        handles.append(
+            adapter.output_projections[layer].register_forward_pre_hook(hook)
+        )
+    try:
+        result = generate_answer_completion(
+            model, tokenizer, encoding, max_new_tokens=max_new_tokens
+        )
+    finally:
+        for handle in handles:
+            handle.remove()
+    missing = sorted(layer for layer, count in applied.items() if count != 1)
+    if missing:
+        raise RuntimeError(
+            "Answer-query head patch must apply exactly once per selected layer; "
+            f"violations={missing}"
+        )
+    return {
+        **result,
+        "intervention_hook_applications": {
+            str(layer): int(count) for layer, count in sorted(applied.items())
+        },
+    }
+
+
+@torch.inference_mode()
+def generate_with_residual_interventions(
+    model: nn.Module,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    encoding: PromptEncoding,
+    interventions: dict[int, tuple[Sequence[int], torch.Tensor]],
+    *,
+    max_new_tokens: int = 16,
+) -> dict[str, Any]:
+    """Greedily generate after one-shot post-block residual replacements.
+
+    Each selected layer may replace one or more semantic prompt positions.
+    Hooks deliberately skip single-token decoding forwards, so this implements
+    a prefill-state intervention rather than repeatedly clamping generation.
+    Supplying several layers implements the cumulative-from-layer protocol.
+    """
+
+    if not interventions:
+        raise ValueError("At least one residual intervention is required")
+    normalized: dict[int, tuple[tuple[int, ...], torch.Tensor]] = {}
+    for raw_layer, (raw_positions, raw_states) in interventions.items():
+        layer = int(raw_layer)
+        if not 0 <= layer < adapter.num_layers:
+            raise ValueError(f"Invalid residual intervention layer: {layer}")
+        positions = tuple(int(position) for position in raw_positions)
+        if not positions or len(set(positions)) != len(positions):
+            raise ValueError("Residual intervention positions must be unique")
+        states = raw_states
+        if states.ndim == 1:
+            states = states.unsqueeze(0)
+        if states.ndim != 2 or int(states.shape[0]) != len(positions):
+            raise ValueError(
+                "Residual states must have shape [number_of_positions, hidden_size]"
+            )
+        normalized[layer] = (positions, states)
+    applied = {layer: 0 for layer in normalized}
+    handles = []
+    for layer, (positions, states) in normalized.items():
+
+        def hook(
+            _module: nn.Module,
+            _args: tuple[Any, ...],
+            output: Any,
+            *,
+            layer: int = layer,
+            positions: tuple[int, ...] = positions,
+            states: torch.Tensor = states,
+        ) -> Any:
+            hidden = _tensor_from_output(output)
+            if not _is_prompt_prefill(hidden, encoding):
+                return output
+            if any(
+                position < 0 or position >= hidden.shape[1]
+                for position in positions
+            ):
+                raise RuntimeError(
+                    "A residual patch position is outside prefill output"
+                )
+            replacement = states.to(device=hidden.device, dtype=hidden.dtype)
+            if int(replacement.shape[-1]) != int(hidden.shape[-1]):
+                raise RuntimeError("Residual replacement hidden width mismatch")
+            patched = hidden.clone()
+            patched[:, list(positions), :] = replacement.unsqueeze(0)
+            applied[layer] += 1
+            return _replace_output_tensor(output, patched)
+
+        handles.append(adapter.layers[layer].register_forward_hook(hook))
+    try:
+        result = generate_answer_completion(
+            model, tokenizer, encoding, max_new_tokens=max_new_tokens
+        )
+    finally:
+        for handle in handles:
+            handle.remove()
+    violations = sorted(layer for layer, count in applied.items() if count != 1)
+    if violations:
+        raise RuntimeError(
+            "Residual intervention must apply exactly once per selected layer; "
+            f"violations={violations}"
+        )
+    return {
+        **result,
+        "intervention_hook_applications": {
+            str(layer): int(count) for layer, count in sorted(applied.items())
+        },
+    }
 
 
 @torch.inference_mode()

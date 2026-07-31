@@ -6,9 +6,10 @@ import platform
 import subprocess
 import sys
 import time
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -16,16 +17,29 @@ import torch
 
 from .attention import (
     capture_attention_shards,
-    load_head_ranking,
 )
 from .attention_outcomes import analyze_labeled_attention
 from .behavior import capture_generation_labels
-from .causal import (
-    compare_head_ablation_to_random,
-    run_head_ablation_experiment,
-    run_hidden_patching_experiment,
-    summarize_head_ablation,
-    summarize_hidden_patching,
+from .causal_generation import (
+    compare_ranked_ablation_to_random,
+    compare_ranked_head_patching_to_random,
+    load_broad_rankings,
+    load_generation_labels,
+    run_generation_head_ablation,
+    run_generation_head_patching,
+    run_generation_residual_patching,
+    summarize_generation_head_ablation,
+    summarize_generation_head_patching,
+    summarize_generation_residual_patching,
+)
+from .geometric_steering import (
+    capture_query_residual_shard,
+    centroid_geometry_tables,
+    compare_geometric_to_random,
+    fit_count_centroids,
+    run_generation_geometric_steering,
+    save_centroid_bundle,
+    summarize_generation_geometric_steering,
 )
 from .modeling import (
     DecoderAdapter,
@@ -453,6 +467,113 @@ def preflight_report(
     }
 
 
+def _directed_count_pairs(
+    pairs: Sequence[Sequence[int]],
+) -> tuple[tuple[int, int], ...]:
+    directed: list[tuple[int, int]] = []
+    for pair in pairs:
+        if len(pair) != 2:
+            raise ValueError(f"Count pair must have length two: {pair}")
+        low, high = (int(pair[0]), int(pair[1]))
+        if low >= high:
+            raise ValueError(f"Registered count pairs must be low-to-high: {pair}")
+        directed.extend(((low, high), (high, low)))
+    if len(set(directed)) != len(directed):
+        raise ValueError("Directed causal count pairs contain duplicates")
+    return tuple(directed)
+
+
+def _validate_generation_causal_shard(
+    frame: pd.DataFrame,
+    *,
+    expected_variant: str | None = None,
+    expected_seed: int | None = None,
+    expected_stimulus_id: str | None = None,
+) -> None:
+    required = {
+        "model_label",
+        "design_variant",
+        "baseline_outcome",
+        "patched_outcome",
+        "patched_completion_text",
+        "patched_generated_token_ids",
+        "behavior_metric",
+    }
+    missing = sorted(required - set(frame.columns))
+    if frame.empty or missing:
+        raise RuntimeError(
+            f"Invalid complete-generation causal shard; missing={missing}"
+        )
+    if expected_variant is not None and set(frame["design_variant"].astype(str)) != {
+        str(expected_variant)
+    }:
+        raise RuntimeError("Causal shard design variant mismatch")
+    if expected_seed is not None and set(frame["seed"].astype(int)) != {
+        int(expected_seed)
+    }:
+        raise RuntimeError("Causal shard seed mismatch")
+    if expected_stimulus_id is not None and set(
+        frame["stimulus_id"].astype(str)
+    ) != {str(expected_stimulus_id)}:
+        raise RuntimeError("Causal shard stimulus mismatch")
+
+
+def _write_causal_tables(
+    *,
+    detail: pd.DataFrame,
+    detail_path: Path,
+    summary: pd.DataFrame,
+    summary_path: Path,
+) -> None:
+    _write_csv_gzip_atomic(detail, detail_path)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = summary_path.with_name(summary_path.name + ".tmp")
+    summary.to_csv(temporary, index=False)
+    temporary.replace(summary_path)
+
+
+def _causal_design_root(
+    causal_output: Path,
+    family: str,
+    settings: dict[str, Any],
+) -> Path:
+    payload = {
+        "schema_version": "realistic_niah_v4_causal_design_v1",
+        "family": str(family),
+        **settings,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    design_id = hashlib.sha256(encoded).hexdigest()[:12]
+    root = causal_output / str(family) / f"design_{design_id}"
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "design.json"
+    if path.exists():
+        observed = json.loads(path.read_text(encoding="utf-8"))
+        if observed != payload:
+            raise RuntimeError(f"Causal design hash collision at {path}")
+    else:
+        temporary = path.with_name(path.name + ".tmp")
+        temporary.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(path)
+    return root
+
+
+def _ranking_design_payload(
+    rankings: dict[tuple[str, str], Sequence[tuple[int, int]]],
+) -> dict[str, list[list[int]]]:
+    return {
+        f"{variant}:{pooling}": [
+            [int(layer), int(head)] for layer, head in heads
+        ]
+        for (variant, pooling), heads in sorted(rankings.items())
+    }
+
+
 def run_model_stage(
     *,
     stage: str,
@@ -469,6 +590,15 @@ def run_model_stage(
     overwrite: bool = False,
     forward_smoke: bool = False,
     generation_max_new_tokens: int = 16,
+    causal_layers: Sequence[int] | None = None,
+    causal_top_ns: Sequence[int] | None = None,
+    causal_random_replicates: int | None = None,
+    causal_count_pairs: Sequence[Sequence[int]] | None = None,
+    ablation_scopes: Sequence[str] | None = None,
+    steering_count_pairs: Sequence[Sequence[int]] | None = None,
+    steering_methods: Sequence[str] | None = None,
+    steering_alphas: Sequence[float] | None = None,
+    steering_random_replicates: int | None = None,
 ) -> dict[str, Any]:
     """Run one GPU-facing V4 stage for one registered model."""
 
@@ -478,7 +608,9 @@ def run_model_stage(
         "representation-capture",
         "attention",
         "ablation",
+        "head-patching",
         "patching",
+        "geometric-steering",
     }
     if stage not in allowed:
         raise ValueError(f"Unknown model stage {stage!r}; choose from {allowed}")
@@ -620,7 +752,20 @@ def run_model_stage(
             ),
         }
 
-    confirmation_rows = [row for row in selected if row["split"] == "confirmation"]
+    if stage in {"head-patching", "patching", "geometric-steering"}:
+        confirmation_rows = select_stimuli(
+            stimuli_path,
+            variants=variants,
+            seeds=seeds,
+            counts=None,
+            split="confirmation",
+        )
+    else:
+        confirmation_rows = [
+            row for row in selected if row["split"] == "confirmation"
+        ]
+    if not confirmation_rows:
+        raise ValueError("The causal stage selected no confirmation rows")
     confirmation_encodings = list(
         render_encodings(
             confirmation_rows,
@@ -630,21 +775,152 @@ def run_model_stage(
             answer_format=answer_format,
         )
     )
-    if stage == "ablation":
-        observed_variants = sorted(
-            {encoding.design_variant for encoding in confirmation_encodings}
+    baseline_labels = load_generation_labels(
+        model_output / "behavior" / "capture" / "generation_labels.csv"
+    )
+    observed_variants = sorted(
+        {encoding.design_variant for encoding in confirmation_encodings}
+    )
+    selected_layers = (
+        tuple(sorted({int(layer) for layer in causal_layers}))
+        if causal_layers is not None
+        else resolve_fractional_layers(
+            adapter.num_layers, config.causal_layer_fractions
         )
-        rankings = {
-            variant: load_head_ranking(
-                model_output
-                / "attention"
-                / f"head_ranking_{variant.replace('.', '_')}.json"
-            )
-            for variant in observed_variants
-        }
-        capture_root = model_output / "causal" / "head_ablation_capture"
+    )
+    if (
+        not selected_layers
+        or selected_layers[0] < 0
+        or selected_layers[-1] >= adapter.num_layers
+    ):
+        raise ValueError(
+            f"Causal layers {selected_layers} are invalid for "
+            f"{adapter.num_layers} layers"
+        )
+    resolved_top_ns = (
+        tuple(sorted({int(value) for value in causal_top_ns}))
+        if causal_top_ns is not None
+        else config.ablation_top_ns
+    )
+    if not resolved_top_ns or resolved_top_ns[0] <= 0:
+        raise ValueError("Causal top-N values must be positive")
+    resolved_random_replicates = (
+        int(causal_random_replicates)
+        if causal_random_replicates is not None
+        else int(config.ablation_random_replicates)
+    )
+    if resolved_random_replicates <= 0:
+        raise ValueError("Causal head random replicates must be positive")
+    resolved_ablation_scopes = (
+        tuple(str(value) for value in ablation_scopes)
+        if ablation_scopes is not None
+        else config.ablation_scopes
+    )
+    if (
+        not resolved_ablation_scopes
+        or len(set(resolved_ablation_scopes)) != len(resolved_ablation_scopes)
+        or any(
+            scope not in {"answer_query", "global"}
+            for scope in resolved_ablation_scopes
+        )
+    ):
+        raise ValueError(f"Invalid ablation scopes: {resolved_ablation_scopes}")
+    resolved_patch_pairs = (
+        tuple(tuple(int(item) for item in pair) for pair in causal_count_pairs)
+        if causal_count_pairs is not None
+        else config.patch_count_pairs
+    )
+    resolved_steering_pairs = (
+        tuple(tuple(int(item) for item in pair) for pair in steering_count_pairs)
+        if steering_count_pairs is not None
+        else config.steering_count_pairs
+    )
+    valid_counts = {int(value) for value in config.needle_counts}
+    for name, pairs in (
+        ("causal_count_pairs", resolved_patch_pairs),
+        ("steering_count_pairs", resolved_steering_pairs),
+    ):
+        if not pairs or any(
+            len(pair) != 2
+            or int(pair[0]) >= int(pair[1])
+            or int(pair[0]) not in valid_counts
+            or int(pair[1]) not in valid_counts
+            for pair in pairs
+        ):
+            raise ValueError(f"Invalid {name}: {pairs}")
+    resolved_steering_methods = (
+        tuple(str(value) for value in steering_methods)
+        if steering_methods is not None
+        else config.steering_methods
+    )
+    invalid_methods = sorted(
+        set(resolved_steering_methods) - set(config.steering_methods)
+    )
+    if (
+        not resolved_steering_methods
+        or len(set(resolved_steering_methods)) != len(resolved_steering_methods)
+        or invalid_methods
+    ):
+        raise ValueError(f"Invalid steering methods: {invalid_methods}")
+    resolved_steering_alphas = (
+        tuple(sorted({float(value) for value in steering_alphas}))
+        if steering_alphas is not None
+        else config.steering_alphas
+    )
+    if not resolved_steering_alphas or any(
+        not 0.0 < alpha <= 1.0 for alpha in resolved_steering_alphas
+    ):
+        raise ValueError("Steering alphas must lie in (0, 1]")
+    resolved_steering_random_replicates = (
+        int(steering_random_replicates)
+        if steering_random_replicates is not None
+        else int(config.steering_random_replicates)
+    )
+    if resolved_steering_random_replicates < 0:
+        raise ValueError("Steering random replicates must be nonnegative")
+    causal_output = model_output / "causal"
+    causal_output.mkdir(parents=True, exist_ok=True)
+    behavior_metric = "strict_greedy_complete_numeric_generation"
+    selection_payload = {
+        "stimuli_sha256": _sha256_file(Path(stimuli_path)),
+        "model_label": model_spec.label,
+        "answer_format": answer_format,
+        "confirmation_variants": observed_variants,
+        "confirmation_seeds": sorted(
+            {int(encoding.seed) for encoding in confirmation_encodings}
+        ),
+        "confirmation_counts": sorted(
+            {int(encoding.count) for encoding in confirmation_encodings}
+        ),
+        "generation_max_new_tokens": int(generation_max_new_tokens),
+        "behavior_metric": behavior_metric,
+    }
+
+    if stage in {"ablation", "head-patching"}:
+        rankings = load_broad_rankings(
+            model_output / "attention" / "analysis" / "rankings",
+            variants=observed_variants,
+        )
+
+    if stage == "ablation":
+        stage_root = _causal_design_root(
+            causal_output,
+            "generation_head_ablation_v1",
+            {
+                **selection_payload,
+                "rankings": _ranking_design_payload(rankings),
+                "top_ns": list(resolved_top_ns),
+                "random_replicates": resolved_random_replicates,
+                "scopes": list(resolved_ablation_scopes),
+            },
+        )
+        capture_root = stage_root / "capture"
         index_rows: list[dict[str, Any]] = []
-        with logger.timer("head_ablation", rows=len(confirmation_encodings)):
+        with logger.timer(
+            "generation_head_ablation",
+            rows=len(confirmation_encodings),
+            scopes=list(resolved_ablation_scopes),
+        ):
             for encoding in confirmation_encodings:
                 relative = (
                     Path("shards")
@@ -654,20 +930,23 @@ def run_model_stage(
                 shard = capture_root / relative
                 if shard.exists() and not overwrite:
                     frame = pd.read_csv(shard, compression="gzip")
-                    if frame.empty or set(frame["stimulus_id"]) != {
-                        encoding.stimulus_id
-                    }:
-                        raise RuntimeError(f"Invalid head-ablation shard: {shard}")
+                    _validate_generation_causal_shard(
+                        frame, expected_stimulus_id=encoding.stimulus_id
+                    )
                 else:
-                    frame = run_head_ablation_experiment(
+                    frame = run_generation_head_ablation(
                         model,
+                        tokenizer,
                         adapter,
                         [encoding],
+                        baseline_labels=baseline_labels,
                         rankings=rankings,
-                        top_ns=config.ablation_top_ns,
-                        random_replicates=config.ablation_random_replicates,
-                        scope=config.ablation_scope,
+                        top_ns=resolved_top_ns,
+                        random_replicates=resolved_random_replicates,
+                        scopes=resolved_ablation_scopes,
+                        max_new_tokens=generation_max_new_tokens,
                     )
+                    frame["behavior_metric"] = behavior_metric
                     _write_csv_gzip_atomic(frame, shard)
                 index_rows.append(
                     {
@@ -679,39 +958,284 @@ def run_model_stage(
                         "shard_path": relative.as_posix(),
                     }
                 )
-        index_path = capture_root / "head_ablation_capture_index.jsonl"
+        index_path = capture_root / "capture_index.jsonl"
         _write_shard_index(index_rows, index_path)
         detail = _load_csv_gzip_shards(index_rows, root=capture_root)
-        causal_output = model_output / "causal"
-        causal_output.mkdir(parents=True, exist_ok=True)
-        detail_path = causal_output / "head_ablation_detail.csv"
-        summary_path = causal_output / "head_ablation_summary.csv"
-        comparison_path = causal_output / "head_ablation_broad_vs_random.csv"
-        detail.to_csv(detail_path, index=False)
-        summarize_head_ablation(detail).to_csv(summary_path, index=False)
-        compare_head_ablation_to_random(detail).to_csv(comparison_path, index=False)
+        detail_path = stage_root / "detail.csv.gz"
+        summary_path = stage_root / "summary.csv"
+        comparison_path = stage_root / "broad_vs_layer_matched_random.csv"
+        _write_causal_tables(
+            detail=detail,
+            detail_path=detail_path,
+            summary=summarize_generation_head_ablation(detail),
+            summary_path=summary_path,
+        )
+        compare_ranked_ablation_to_random(
+            detail,
+            bootstrap_repetitions=config.causal_bootstrap_repetitions,
+        ).to_csv(comparison_path, index=False)
         return {
             "preflight": str(preflight_path),
+            "design": str(stage_root / "design.json"),
             "capture_index": str(index_path),
             "detail": str(detail_path),
             "summary": str(summary_path),
             "broad_vs_random": str(comparison_path),
         }
 
-    selected_layers = resolve_fractional_layers(
-        adapter.num_layers, config.causal_layer_fractions
-    )
-    patch_capture_root = model_output / "causal" / "hidden_patching_capture"
-    patch_index_rows: list[dict[str, Any]] = []
     grouped_encodings: dict[tuple[str, int], list[PromptEncoding]] = {}
     for encoding in confirmation_encodings:
         grouped_encodings.setdefault(
             (encoding.design_variant, int(encoding.seed)), []
         ).append(encoding)
+
+    if stage == "head-patching":
+        directed_pairs = _directed_count_pairs(resolved_patch_pairs)
+        stage_root = _causal_design_root(
+            causal_output,
+            "generation_head_patching_v1",
+            {
+                **selection_payload,
+                "rankings": _ranking_design_payload(rankings),
+                "top_ns": list(resolved_top_ns),
+                "random_replicates": resolved_random_replicates,
+                "directed_count_pairs": [list(pair) for pair in directed_pairs],
+                "site": "answer_query_pre_o_proj_head_output",
+            },
+        )
+        capture_root = stage_root / "capture"
+        index_rows = []
+        with logger.timer(
+            "generation_head_patching",
+            families=len(grouped_encodings),
+            count_pairs=[list(pair) for pair in directed_pairs],
+        ):
+            for (variant, seed), family_encodings in sorted(
+                grouped_encodings.items()
+            ):
+                relative = (
+                    Path("shards")
+                    / variant
+                    / f"{variant.replace('.', '_')}_seed{seed}.csv.gz"
+                )
+                shard = capture_root / relative
+                if shard.exists() and not overwrite:
+                    frame = pd.read_csv(shard, compression="gzip")
+                    _validate_generation_causal_shard(
+                        frame, expected_variant=variant, expected_seed=seed
+                    )
+                else:
+                    frame = run_generation_head_patching(
+                        model,
+                        tokenizer,
+                        adapter,
+                        family_encodings,
+                        baseline_labels=baseline_labels,
+                        rankings=rankings,
+                        count_pairs=directed_pairs,
+                        top_ns=resolved_top_ns,
+                        random_replicates=resolved_random_replicates,
+                        max_new_tokens=generation_max_new_tokens,
+                    )
+                    frame["behavior_metric"] = behavior_metric
+                    _write_csv_gzip_atomic(frame, shard)
+                index_rows.append(
+                    {
+                        "design_variant": variant,
+                        "seed": int(seed),
+                        "rows": len(frame),
+                        "shard_path": relative.as_posix(),
+                    }
+                )
+        index_path = capture_root / "capture_index.jsonl"
+        _write_shard_index(index_rows, index_path)
+        detail = _load_csv_gzip_shards(index_rows, root=capture_root)
+        detail_path = stage_root / "detail.csv.gz"
+        summary_path = stage_root / "summary.csv"
+        comparison_path = stage_root / "broad_vs_layer_matched_random.csv"
+        _write_causal_tables(
+            detail=detail,
+            detail_path=detail_path,
+            summary=summarize_generation_head_patching(detail),
+            summary_path=summary_path,
+        )
+        compare_ranked_head_patching_to_random(
+            detail,
+            bootstrap_repetitions=config.causal_bootstrap_repetitions,
+        ).to_csv(comparison_path, index=False)
+        return {
+            "preflight": str(preflight_path),
+            "design": str(stage_root / "design.json"),
+            "capture_index": str(index_path),
+            "detail": str(detail_path),
+            "summary": str(summary_path),
+            "broad_vs_random": str(comparison_path),
+        }
+
+    if stage == "patching":
+        directed_pairs = _directed_count_pairs(resolved_patch_pairs)
+        stage_root = _causal_design_root(
+            causal_output,
+            "generation_residual_patching_v1",
+            {
+                **selection_payload,
+                "layers": list(selected_layers),
+                "directed_count_pairs": [list(pair) for pair in directed_pairs],
+                "sites": list(config.patch_sites),
+                "needle_protocols": list(config.residual_patch_protocols),
+            },
+        )
+        capture_root = stage_root / "capture"
+        index_rows = []
+        with logger.timer(
+            "generation_residual_patching",
+            families=len(grouped_encodings),
+            layers=list(selected_layers),
+            sites=list(config.patch_sites),
+            protocols=list(config.residual_patch_protocols),
+        ):
+            for (variant, seed), family_encodings in sorted(
+                grouped_encodings.items()
+            ):
+                relative = (
+                    Path("shards")
+                    / variant
+                    / f"{variant.replace('.', '_')}_seed{seed}.csv.gz"
+                )
+                shard = capture_root / relative
+                if shard.exists() and not overwrite:
+                    frame = pd.read_csv(shard, compression="gzip")
+                    _validate_generation_causal_shard(
+                        frame[frame["status"] == "ok"],
+                        expected_variant=variant,
+                        expected_seed=seed,
+                    )
+                else:
+                    frame = run_generation_residual_patching(
+                        model,
+                        tokenizer,
+                        adapter,
+                        family_encodings,
+                        baseline_labels=baseline_labels,
+                        count_pairs=directed_pairs,
+                        start_layers=selected_layers,
+                        sites=config.patch_sites,
+                        needle_protocols=config.residual_patch_protocols,
+                        max_new_tokens=generation_max_new_tokens,
+                    )
+                    frame["behavior_metric"] = behavior_metric
+                    _write_csv_gzip_atomic(frame, shard)
+                index_rows.append(
+                    {
+                        "design_variant": variant,
+                        "seed": int(seed),
+                        "rows": len(frame),
+                        "successful_rows": int((frame["status"] == "ok").sum()),
+                        "skipped_rows": int((frame["status"] != "ok").sum()),
+                        "shard_path": relative.as_posix(),
+                    }
+                )
+        index_path = capture_root / "capture_index.jsonl"
+        _write_shard_index(index_rows, index_path)
+        detail = _load_csv_gzip_shards(index_rows, root=capture_root)
+        detail_path = stage_root / "detail.csv.gz"
+        summary_path = stage_root / "summary.csv"
+        _write_causal_tables(
+            detail=detail,
+            detail_path=detail_path,
+            summary=summarize_generation_residual_patching(detail),
+            summary_path=summary_path,
+        )
+        return {
+            "preflight": str(preflight_path),
+            "design": str(stage_root / "design.json"),
+            "capture_index": str(index_path),
+            "detail": str(detail_path),
+            "summary": str(summary_path),
+        }
+
+    if stage != "geometric-steering":
+        raise AssertionError(f"Unhandled V4 stage: {stage}")
+    discovery_rows = select_stimuli(
+        stimuli_path,
+        variants=observed_variants,
+        seeds=config.discovery_seeds,
+        counts=config.needle_counts,
+        split="discovery",
+    )
+    discovery_encodings = render_encodings(
+        discovery_rows,
+        tokenizer=tokenizer,
+        model_label=model_spec.label,
+        config=config,
+        answer_format=answer_format,
+    )
+    directed_pairs = _directed_count_pairs(resolved_steering_pairs)
+    stage_root = _causal_design_root(
+        causal_output,
+        "geometric_steering_v1",
+        {
+            **selection_payload,
+            "discovery_seeds": list(config.discovery_seeds),
+            "layers": list(selected_layers),
+            "directed_count_pairs": [list(pair) for pair in directed_pairs],
+            "methods": list(resolved_steering_methods),
+            "alphas": list(resolved_steering_alphas),
+            "orthogonal_random_replicates": (
+                resolved_steering_random_replicates
+            ),
+        },
+    )
+    discovery_capture_root = stage_root / "discovery_capture"
+    discovery_index_rows: list[dict[str, Any]] = []
     with logger.timer(
-        "hidden_patching",
-        rows=len(confirmation_encodings),
+        "geometric_steering_discovery_capture",
+        rows=len(discovery_rows),
         layers=list(selected_layers),
+    ):
+        for encoding in discovery_encodings:
+            relative = (
+                Path("shards")
+                / encoding.design_variant
+                / f"{encoding.stimulus_id}.npz"
+            )
+            metadata = capture_query_residual_shard(
+                model,
+                adapter,
+                encoding,
+                layers=selected_layers,
+                path=discovery_capture_root / relative,
+                save_dtype=config.hidden_save_dtype,
+                overwrite=overwrite,
+            )
+            discovery_index_rows.append(
+                {**metadata, "shard_path": relative.as_posix()}
+            )
+    discovery_index_path = discovery_capture_root / "capture_index.jsonl"
+    _write_shard_index(discovery_index_rows, discovery_index_path)
+    centroids = fit_count_centroids(
+        discovery_index_rows,
+        capture_root=discovery_capture_root,
+        variants=observed_variants,
+        layers=selected_layers,
+        counts=config.needle_counts,
+        discovery_seeds=config.discovery_seeds,
+    )
+    centroid_path = save_centroid_bundle(centroids, stage_root / "centroids.npz")
+    geometry_summary, geometry_adjacent = centroid_geometry_tables(centroids)
+    geometry_summary_path = stage_root / "centroid_geometry_summary.csv"
+    geometry_adjacent_path = stage_root / "centroid_adjacent_steps.csv"
+    geometry_summary.to_csv(geometry_summary_path, index=False)
+    geometry_adjacent.to_csv(geometry_adjacent_path, index=False)
+
+    evaluation_root = stage_root / "confirmation_capture"
+    evaluation_index_rows: list[dict[str, Any]] = []
+    with logger.timer(
+        "geometric_steering_confirmation_generation",
+        families=len(grouped_encodings),
+        layers=list(selected_layers),
+        methods=list(resolved_steering_methods),
+        alphas=list(resolved_steering_alphas),
     ):
         for (variant, seed), family_encodings in sorted(grouped_encodings.items()):
             relative = (
@@ -719,26 +1243,30 @@ def run_model_stage(
                 / variant
                 / f"{variant.replace('.', '_')}_seed{seed}.csv.gz"
             )
-            shard = patch_capture_root / relative
+            shard = evaluation_root / relative
             if shard.exists() and not overwrite:
                 frame = pd.read_csv(shard, compression="gzip")
-                if (
-                    frame.empty
-                    or set(frame["design_variant"]) != {variant}
-                    or set(frame["seed"].astype(int)) != {seed}
-                ):
-                    raise RuntimeError(f"Invalid hidden-patching shard: {shard}")
+                _validate_generation_causal_shard(
+                    frame, expected_variant=variant, expected_seed=seed
+                )
             else:
-                frame = run_hidden_patching_experiment(
+                frame = run_generation_geometric_steering(
                     model,
+                    tokenizer,
                     adapter,
                     family_encodings,
+                    baseline_labels=baseline_labels,
+                    centroids=centroids,
+                    count_pairs=directed_pairs,
                     layers=selected_layers,
-                    count_pairs=config.patch_count_pairs,
-                    sites=config.patch_sites,
+                    methods=resolved_steering_methods,
+                    alphas=resolved_steering_alphas,
+                    random_replicates=resolved_steering_random_replicates,
+                    max_new_tokens=generation_max_new_tokens,
                 )
+                frame["behavior_metric"] = behavior_metric
                 _write_csv_gzip_atomic(frame, shard)
-            patch_index_rows.append(
+            evaluation_index_rows.append(
                 {
                     "design_variant": variant,
                     "seed": int(seed),
@@ -746,20 +1274,35 @@ def run_model_stage(
                     "shard_path": relative.as_posix(),
                 }
             )
-    patch_index_path = patch_capture_root / "hidden_patching_capture_index.jsonl"
-    _write_shard_index(patch_index_rows, patch_index_path)
-    detail = _load_csv_gzip_shards(patch_index_rows, root=patch_capture_root)
-    causal_output = model_output / "causal"
-    causal_output.mkdir(parents=True, exist_ok=True)
-    detail_path = causal_output / "hidden_patching_detail.csv"
-    summary_path = causal_output / "hidden_patching_summary.csv"
-    detail.to_csv(detail_path, index=False)
-    summarize_hidden_patching(detail).to_csv(summary_path, index=False)
+    evaluation_index_path = evaluation_root / "capture_index.jsonl"
+    _write_shard_index(evaluation_index_rows, evaluation_index_path)
+    detail = _load_csv_gzip_shards(
+        evaluation_index_rows, root=evaluation_root
+    )
+    detail_path = stage_root / "detail.csv.gz"
+    summary_path = stage_root / "summary.csv"
+    comparison_path = stage_root / "geometric_vs_random.csv"
+    _write_causal_tables(
+        detail=detail,
+        detail_path=detail_path,
+        summary=summarize_generation_geometric_steering(detail),
+        summary_path=summary_path,
+    )
+    compare_geometric_to_random(
+        detail,
+        bootstrap_repetitions=config.causal_bootstrap_repetitions,
+    ).to_csv(comparison_path, index=False)
     return {
         "preflight": str(preflight_path),
-        "capture_index": str(patch_index_path),
+        "design": str(stage_root / "design.json"),
+        "discovery_capture_index": str(discovery_index_path),
+        "centroids": str(centroid_path),
+        "centroid_geometry_summary": str(geometry_summary_path),
+        "centroid_adjacent_steps": str(geometry_adjacent_path),
+        "confirmation_capture_index": str(evaluation_index_path),
         "detail": str(detail_path),
         "summary": str(summary_path),
+        "geometric_vs_random": str(comparison_path),
     }
 
 

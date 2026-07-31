@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import replace
+from itertools import pairwise
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,10 +18,6 @@ from realistic_niah_v4.attention import (
     _write_raw_attention_shard,
     broad_attention_metrics,
 )
-from realistic_niah_v4.behavior import (
-    label_generated_completion,
-    parse_numeric_completion,
-)
 from realistic_niah_v4.attention_outcomes import (
     POOL_METRICS,
     discovery_seed_bootstrap_stability,
@@ -27,16 +25,42 @@ from realistic_niah_v4.attention_outcomes import (
     nested_increment_diagnostics,
     rank_broad_candidates,
 )
+from realistic_niah_v4.behavior import (
+    label_generated_completion,
+    parse_numeric_completion,
+)
 from realistic_niah_v4.causal import count_logit_metrics
+from realistic_niah_v4.causal_generation import (
+    RESIDUAL_PATCH_SITES,
+    _residual_site_states,
+    intervention_outcome,
+)
+from realistic_niah_v4.geometric_steering import (
+    CountCentroidBundle,
+    centroid_geometry_tables,
+    chord_point,
+    fit_count_centroids,
+    load_centroid_bundle,
+    polyline_point,
+    save_centroid_bundle,
+)
 from realistic_niah_v4.modeling import (
     _attention_tensor,
     capture_post_block_states,
+    capture_query_head_outputs,
     capture_span_states,
     discover_decoder_adapter,
+    generate_with_head_ablation,
+    generate_with_head_patch,
+    generate_with_residual_interventions,
     query_attention_rows,
     run_last_logits,
     run_with_head_ablation,
     run_with_residual_patch,
+)
+from realistic_niah_v4.pipeline import (
+    _causal_design_root,
+    run_labeled_attention_analysis,
 )
 from realistic_niah_v4.prompts import (
     PromptEncoding,
@@ -73,6 +97,7 @@ def _small_config() -> V4Config:
         randomized_position_min_separation_tokens=20,
         representation_count=3,
         patch_count_pairs=((1, 2), (2, 3)),
+        steering_count_pairs=((1, 2), (2, 3)),
     )
     config.validate()
     return config
@@ -127,6 +152,79 @@ def test_registered_v4_grid_accounting() -> None:
         == 1_200
     )
     assert set(config.model_labels) == {"Qwen3-8B", "Gemma4-E4B"}
+
+
+def test_labeled_attention_pipeline_reaches_analysis(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import realistic_niah_v4.pipeline as pipeline
+
+    config = V4Config()
+    monkeypatch.setattr(
+        pipeline.V4Config,
+        "from_json",
+        classmethod(lambda _cls, _path: config),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "resolve_model_spec",
+        lambda _label: SimpleNamespace(label="Qwen3-8B"),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "load_registered_tokenizer",
+        lambda *_a, **_k: object(),
+    )
+    monkeypatch.setattr(pipeline, "select_stimuli", lambda *_a, **_k: [{"row": 1}])
+    monkeypatch.setattr(
+        pipeline,
+        "render_encodings",
+        lambda *_a, **_k: iter(["encoded"]),
+    )
+    observed: dict[str, object] = {}
+
+    def fake_attention(**kwargs):
+        observed.update(kwargs)
+        return {"table": tmp_path / "attention.csv"}
+
+    monkeypatch.setattr(pipeline, "analyze_labeled_attention", fake_attention)
+    monkeypatch.setattr(
+        pipeline,
+        "label_representation_analysis_by_generation",
+        lambda **_kwargs: {"labels": tmp_path / "labels.csv"},
+    )
+    result = run_labeled_attention_analysis(
+        stimuli_path=tmp_path / "stimuli.jsonl",
+        config_path=tmp_path / "config.json",
+        output_dir=tmp_path / "run",
+        model_label="Qwen3-8B",
+        answer_format="numeric",
+    )
+    assert list(observed["encodings"]) == ["encoded"]
+    assert result["table"].endswith("attention.csv")
+    assert result["representation_labels"].endswith("labels.csv")
+
+
+def test_causal_design_hash_separates_smoke_and_formal(tmp_path: Path) -> None:
+    first = _causal_design_root(
+        tmp_path,
+        "generation_head_ablation_v1",
+        {"layers": [0], "top_ns": [1]},
+    )
+    repeated = _causal_design_root(
+        tmp_path,
+        "generation_head_ablation_v1",
+        {"layers": [0], "top_ns": [1]},
+    )
+    formal = _causal_design_root(
+        tmp_path,
+        "generation_head_ablation_v1",
+        {"layers": [0, 8, 16], "top_ns": [1, 2, 4, 8]},
+    )
+    assert first == repeated
+    assert first != formal
+    assert json.loads((first / "design.json").read_text())["top_ns"] == [1]
 
 
 def test_four_panel_freeze_contract_and_audit(
@@ -189,7 +287,7 @@ def test_four_panel_freeze_contract_and_audit(
         family["nested_token_identity_outside_toggled_slot"] is True
         for family in families
     )
-    for lower, higher in zip(family_rows, family_rows[1:]):
+    for lower, higher in pairwise(family_rows):
         toggled = higher["slots"][higher["gold_count"] - 1]
         start = int(toggled["canonical_span_start"])
         end = int(toggled["canonical_span_end"])
@@ -595,6 +693,14 @@ class ToyLM(nn.Module):
         return SimpleNamespace(logits=logits)
 
 
+class FixedNumericDecodeTokenizer:
+    pad_token_id = 0
+    eos_token_id = 1
+
+    def decode(self, _token_ids, **_kwargs):
+        return "2"
+
+
 def _toy_encoding(input_ids: tuple[int, ...]) -> PromptEncoding:
     spans = (
         TokenSpan(1, 1, 2, True, "needle", 1, 1),
@@ -666,6 +772,243 @@ def test_decoder_hooks_ablation_and_residual_patch() -> None:
         metrics["gold_count"],
     }.issubset({1, 2, 3})
     assert 0.0 <= metrics["correct_count_probability"] <= 1.0
+
+
+def test_complete_generation_intervention_hooks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import realistic_niah_v4.modeling as modeling
+
+    model = ToyLM().eval()
+    adapter = discover_decoder_adapter(model)
+    receiver = _toy_encoding((1, 2, 3, 4))
+    donor = replace(
+        _toy_encoding((5, 6, 7, 8)),
+        stimulus_id="toy_donor",
+        count=3,
+    )
+
+    def fake_generation(
+        fake_model,
+        _tokenizer,
+        encoding,
+        *,
+        max_new_tokens=16,
+    ):
+        del max_new_tokens
+        input_ids = torch.tensor([encoding.input_ids], dtype=torch.long)
+        attention_mask = torch.tensor([encoding.attention_mask], dtype=torch.long)
+        output = fake_model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            use_cache=True,
+        )
+        return {
+            "completion_text": "10",
+            "completion_text_raw": "10",
+            "generated_token_ids": [31, 30],
+            "generation_truncated": False,
+            "probe_logits": output.logits[0, -1].detach().clone(),
+        }
+
+    monkeypatch.setattr(modeling, "generate_answer_completion", fake_generation)
+    baseline = fake_generation(model, None, receiver)["probe_logits"]
+    ablated = generate_with_head_ablation(
+        model,
+        None,
+        adapter,
+        receiver,
+        [(0, 0)],
+        scope="answer_query",
+    )
+    assert not torch.allclose(baseline, ablated["probe_logits"])
+
+    _donor_logits, donor_heads = capture_query_head_outputs(model, adapter, donor)
+    patched_heads = generate_with_head_patch(
+        model,
+        None,
+        adapter,
+        receiver,
+        [(0, 0)],
+        donor_heads,
+    )
+    assert not torch.allclose(baseline, patched_heads["probe_logits"])
+
+    _donor_logits, donor_states = capture_post_block_states(
+        model,
+        adapter,
+        donor,
+        [donor.query_position],
+        layers=[0],
+    )
+    patched_residual = generate_with_residual_interventions(
+        model,
+        None,
+        adapter,
+        receiver,
+        {0: ([receiver.query_position], donor_states[0])},
+    )
+    assert not torch.allclose(baseline, patched_residual["probe_logits"])
+    after = fake_generation(model, None, receiver)["probe_logits"]
+    assert torch.allclose(baseline, after)
+
+
+def test_complete_numeric_outcome_handles_multitoken_ten() -> None:
+    encoding = replace(
+        _toy_encoding((1, 2, 3, 4)),
+        stimulus_id="toy_ten",
+        count=10,
+    )
+    baseline = {
+        "model_label": "toy",
+        "design_variant": "v4.1",
+        "seed": 1,
+        "gold_count": 10,
+        "outcome_group": "wrong",
+        "is_correct": False,
+        "format_valid": True,
+        "parsed_count": 9,
+        "count_error": -1,
+    }
+    outcome = intervention_outcome(
+        {
+            "completion_text": "10",
+            "completion_text_raw": "10",
+            "generated_token_ids": [31, 30],
+            "generation_truncated": False,
+        },
+        encoding,
+        baseline,
+    )
+    assert outcome["patched_predicted_count"] == 10
+    assert outcome["patched_is_correct"] is True
+    assert outcome["generated_count_shift"] == 1
+    assert json.loads(outcome["patched_generated_token_ids"]) == [31, 30]
+
+
+def test_geometric_chord_and_polyline_are_distinct(tmp_path: Path) -> None:
+    centroids = np.asarray(
+        [[[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]]]], dtype=np.float32
+    )
+    bundle = CountCentroidBundle(
+        variants=("v4.1",),
+        layers=(0,),
+        counts=(1, 2, 3),
+        centroids=centroids,
+        sample_counts=np.asarray([[2, 2, 2]], dtype=np.int32),
+        discovery_seeds=(11, 12),
+    )
+    bundle.validate()
+    chord, chord_count = chord_point(
+        bundle,
+        variant="v4.1",
+        layer=0,
+        receiver_count=1,
+        target_count=3,
+        alpha=0.5,
+    )
+    curve, curve_count = polyline_point(
+        bundle,
+        variant="v4.1",
+        layer=0,
+        receiver_count=1,
+        target_count=3,
+        alpha=0.5,
+    )
+    assert torch.allclose(chord, torch.tensor([0.5, 0.5]))
+    assert torch.allclose(curve, torch.tensor([1.0, 0.0]))
+    assert chord_count == curve_count == 2.0
+
+    path = save_centroid_bundle(bundle, tmp_path / "centroids.npz")
+    loaded = load_centroid_bundle(path)
+    assert np.array_equal(loaded.centroids, bundle.centroids)
+    summary, adjacent = centroid_geometry_tables(loaded)
+    assert len(summary) == 1
+    assert len(adjacent) == 2
+    assert summary.iloc[0]["path_tortuosity"] == pytest.approx(2**0.5)
+
+
+def test_count_centroids_require_complete_discovery_grid(tmp_path: Path) -> None:
+    root = tmp_path / "capture"
+    rows = []
+    for seed in (11, 12):
+        for count in (1, 2, 3):
+            relative = Path("shards") / f"seed{seed}_count{count}.npz"
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            np.savez_compressed(
+                path,
+                layer_indices=np.asarray([0], dtype=np.int64),
+                query_states=np.asarray(
+                    [[float(count), float(seed - 10)]], dtype=np.float16
+                ),
+            )
+            rows.append(
+                {
+                    "stimulus_id": f"seed{seed}_count{count}",
+                    "design_variant": "v4.1",
+                    "seed": seed,
+                    "split": "discovery",
+                    "count": count,
+                    "shard_path": relative.as_posix(),
+                }
+            )
+    bundle = fit_count_centroids(
+        rows,
+        capture_root=root,
+        variants=("v4.1",),
+        layers=(0,),
+        counts=(1, 2, 3),
+        discovery_seeds=(11, 12),
+    )
+    assert torch.allclose(bundle.state("v4.1", 0, 2), torch.tensor([2.0, 1.5]))
+    with pytest.raises(ValueError, match="discovery grid mismatch"):
+        fit_count_centroids(
+            rows[:-1],
+            capture_root=root,
+            variants=("v4.1",),
+            layers=(0,),
+            counts=(1, 2, 3),
+            discovery_seeds=(11, 12),
+        )
+
+
+def test_residual_span_patch_uses_token_states_not_span_mean() -> None:
+    assert RESIDUAL_PATCH_SITES == (
+        "answer_query",
+        "toggled_needle_end",
+        "toggled_needle_span",
+    )
+    donor = {0: torch.tensor([[9.0, 9.0], [1.0, 2.0], [3.0, 4.0]])}
+    receiver = {0: torch.tensor([[8.0, 8.0], [5.0, 6.0], [7.0, 8.0]])}
+    positions, states, ok, reason = _residual_site_states(
+        site="toggled_needle_span",
+        donor_states=donor,
+        receiver_states=receiver,
+        donor_span_offset=1,
+        donor_span_length=2,
+        receiver_span_offset=1,
+        receiver_span_length=2,
+        receiver_positions=[10, 20, 21],
+        layer=0,
+    )
+    assert ok is True and reason == ""
+    assert positions == (20, 21)
+    assert torch.equal(states, donor[0][1:3])
+
+    _positions, _states, ok, reason = _residual_site_states(
+        site="toggled_needle_span",
+        donor_states=donor,
+        receiver_states={0: torch.tensor([[8.0, 8.0], [5.0, 6.0]])},
+        donor_span_offset=1,
+        donor_span_length=2,
+        receiver_span_offset=1,
+        receiver_span_length=1,
+        receiver_positions=[10, 20],
+        layer=0,
+    )
+    assert ok is False
+    assert reason == "model_token_length_mismatch"
 
 
 def test_raw_answer_query_attention_round_trip(tmp_path: Path) -> None:
@@ -860,6 +1203,34 @@ def test_tiny_transformers_architectures_support_v4_hooks() -> None:
             receiver_positions=[item.query_position],
             donor_states=states[0] + 0.1,
         )
+        _head_logits, head_outputs = capture_query_head_outputs(
+            model, adapter, item, layers=[0]
+        )
+        generated_ablation = generate_with_head_ablation(
+            model,
+            FixedNumericDecodeTokenizer(),
+            adapter,
+            item,
+            [(0, 0)],
+            max_new_tokens=1,
+        )
+        generated_head_patch = generate_with_head_patch(
+            model,
+            FixedNumericDecodeTokenizer(),
+            adapter,
+            item,
+            [(0, 0)],
+            head_outputs,
+            max_new_tokens=1,
+        )
+        generated_residual_patch = generate_with_residual_interventions(
+            model,
+            FixedNumericDecodeTokenizer(),
+            adapter,
+            item,
+            {0: ([item.query_position], states[0] + 0.1)},
+            max_new_tokens=1,
+        )
         assert captured["span_end"].shape == (2, 3, 16)
         expected_attention_shapes = (
             [(4, 8), (4, 12)] if label == "gemma4" else [(4, 12), (4, 12)]
@@ -868,6 +1239,13 @@ def test_tiny_transformers_architectures_support_v4_hooks() -> None:
         assert key_starts == ([4, 0] if label == "gemma4" else [0, 0])
         assert not torch.allclose(baseline, ablated)
         assert not torch.allclose(baseline, patched)
+        assert generated_ablation["completion_text"] == "2"
+        assert generated_head_patch["completion_text"] == "2"
+        assert generated_residual_patch["completion_text"] == "2"
+        assert generated_head_patch["intervention_hook_applications"] == {"0": 1}
+        assert generated_residual_patch["intervention_hook_applications"] == {
+            "0": 1
+        }
 
 
 def test_synthetic_representation_analysis_recovers_count_curve(

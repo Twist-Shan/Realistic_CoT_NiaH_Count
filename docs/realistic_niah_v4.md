@@ -195,41 +195,78 @@ Full-sequence attention matrices and full Q/K/V tensors are not materialized.
 
 ## Causal tests
 
-The current numeric presentation run stops before these interventions. The
-older single-token candidate-logit outcome is not valid for decimal `10` and
-must not be used. When causal work resumes, intervention success must be
-defined from the actual generated answer (or another explicitly registered
-multi-token outcome), with the choice recorded separately from the descriptive
-attention analysis below.
+All registered causal outcomes use the actual deterministic continuation after
+the same final `Total:` query. The strict parser records the generated integer,
+correct/wrong/invalid label, signed count shift, absolute-error change, target
+hit, and raw generated token IDs. This handles multi-token `10` without a
+single-token approximation. Candidate probability and first-token logits are
+not causal outcome labels.
+
+Discovery seeds select heads and fit steering centroids. All intervention
+effect estimates use confirmation seeds and are stratified by the receiver's
+baseline greedy outcome. Every expensive stage writes restartable per-example
+or per-family shards before producing aggregate tables.
 
 ### Head ablation
 
-For each panel, the top 1, 2, 4, and 8 discovery-ranked heads are zeroed at
-the input to the attention output projection. The primary intervention
-affects only the answer-query position. Each set is compared with three
-deterministic, layer-matched random-head sets on confirmation seeds. Saved
-outcomes include the correct-count logit margin, candidate-only accuracy,
-and expected numeric count over the registered `one`–`ten` candidate tokens.
+For each panel and each `span_end`/`span_mean` broad-head ranking, the top 1,
+2, 4, and 8 discovery-ranked pre-`o_proj` head slices are zeroed. Two scopes
+are registered: the one-shot final prompt query and the global head across
+prompt prefill plus decoding. Each set is compared with three deterministic,
+same-layer random-head sets on confirmation seeds. The top-N dose response and
+paired seed-cluster bootstrap are saved separately for baseline-correct and
+baseline-wrong prompts.
 
 Ablation can demonstrate necessity but can also introduce distribution shift.
 The layer-matched controls and top-N dose response are required for
 interpretation.
 
-### Residual-stream patching
+### Answer-query head-output patching
 
-For paired counts `(1→2, 3→4, 5→6, 7→8, 9→10)`, donor post-block states are
-patched into the lower-count receiver at five preregistered relative depths.
-Three sites are tested:
+For same-seed nested donor/receiver pairs, the selected donor head slices are
+captured immediately before `o_proj` and substituted at the receiver's final
+answer query. Ranked top-N sets are compared with the same deterministic
+layer-matched controls as ablation. Both directions are run, so a causal head
+must support count increases and decreases rather than merely inducing a
+generic output change. Reported endpoints include target-hit rate, movement
+toward donor gold and donor baseline prediction, and count-transport slope.
 
-1. the answer-query state;
-2. the end token of the newly activated needle slot;
-3. every token in that slot when donor and receiver model-token lengths are
-   equal.
+### Residual-stream patching, removal, and restoration
 
-Full-span patches with unequal model-token lengths are explicitly recorded as
-skipped. Primary outcomes are the change in
-`logit(donor count) - logit(receiver count)`, expected-count shift, and
-recovery fraction relative to the paired donor baseline.
+Adjacent same-seed prompts differ at one known nested slot. A higher-count
+donor supplies an active needle for insertion/restoration; a lower-count donor
+supplies the matched inactive hard-negative state for removal/ablation. Three
+sites are registered:
+
+1. the final answer-query residual, patched at one layer;
+2. the toggled needle's final token;
+3. the complete toggled token sequence, copied token by token.
+
+Needle-end and full-span interventions are evaluated both at one layer and by
+clamping the matched donor states at every layer from a selected start layer
+through the final block. Full-span patches require equal donor/receiver model
+token lengths; mismatches are retained as explicit skipped rows. `span_mean`
+is a descriptive representation summary and is not broadcast back into token
+states.
+
+### Geometric steering
+
+At five registered decoder depths, discovery-only centroids
+`mu[variant, layer, count]` are fit from the post-block residual at the final
+answer query. Confirmation receivers are tested with four V10-style maps:
+
+- full centroid transplant: `h' = mu_target`;
+- residual-preserving delta: `h' = h + mu_target - mu_receiver`;
+- straight centroid chord interpolation;
+- adjacent-centroid polyline interpolation normalized by arc length.
+
+The latter two use `alpha = 0.25, 0.5, 0.75, 1`. Alongside adjacent pairs,
+registered non-adjacent pairs test whether the representation follows a
+smooth count curve rather than a local binary boundary. Each geometric
+perturbation has an orthogonal, norm-matched random-direction control.
+Centroid step norms, successive-step cosine, path tortuosity, monotonicity,
+greedy count-transport slope, target/path hit rate, and paired geometric-minus-
+random effects are saved.
 
 ## Workflow
 
@@ -314,7 +351,21 @@ for MODEL in Qwen3-8B Gemma4-E4B; do
     --cache-dir "${HF_CACHE}"
 
   PYTHONPATH=src python scripts/run_realistic_niah_v4.py \
+    --stage head-patching \
+    --stimuli "${RUN_ROOT}/dataset/stimuli.jsonl" \
+    --output-dir "${RUN_ROOT}" \
+    --model "${MODEL}" \
+    --cache-dir "${HF_CACHE}"
+
+  PYTHONPATH=src python scripts/run_realistic_niah_v4.py \
     --stage patching \
+    --stimuli "${RUN_ROOT}/dataset/stimuli.jsonl" \
+    --output-dir "${RUN_ROOT}" \
+    --model "${MODEL}" \
+    --cache-dir "${HF_CACHE}"
+
+  PYTHONPATH=src python scripts/run_realistic_niah_v4.py \
+    --stage geometric-steering \
     --stimuli "${RUN_ROOT}/dataset/stimuli.jsonl" \
     --output-dir "${RUN_ROOT}" \
     --model "${MODEL}" \
@@ -323,8 +374,35 @@ done
 ```
 
 Use `--variants`, `--seeds`, and `--counts` only for smoke tests or explicitly
-labelled partial runs. Full representation analysis requires all four panels
-and all 30 seeds. Ablation requires previously generated discovery rankings.
+labelled partial runs. Pair-based patching stages automatically load all ten
+counts for each selected confirmation seed. Geometric steering also loads the
+complete discovery split for centroid fitting, even when confirmation seeds
+are filtered. Full representation analysis requires all four panels and all
+30 seeds. Head ablation and head patching require completed discovery
+broad-head rankings.
+
+For an explicit GPU smoke, causal designs can be narrowed without editing the
+registered JSON. For example:
+
+```bash
+PYTHONPATH=src python scripts/run_realistic_niah_v4.py \
+  --stage geometric-steering \
+  --stimuli "${RUN_ROOT}/dataset/stimuli.jsonl" \
+  --output-dir "${RUN_ROOT}" \
+  --model Qwen3-8B \
+  --cache-dir "${HF_CACHE}" \
+  --variants v4.1 --seeds 1254 \
+  --causal-layers 0 \
+  --steering-count-pairs 1:2 \
+  --steering-methods centroid_delta \
+  --steering-alphas 1 \
+  --steering-random-replicates 1
+```
+
+Related overrides are `--causal-top-ns`,
+`--causal-random-replicates`, `--causal-count-pairs`, and
+`--ablation-scopes`. Because the resolved settings are hashed into the design
+directory, smoke and formal shards cannot collide.
 
 ## Outputs
 
@@ -361,10 +439,30 @@ actual greedy outputs and strict labels. `attention/analysis/` contains
 restartable span-end/span-mean pooling shards, discovery rankings, held-out
 correct/wrong effects, occurrence-level omission diagnostics, and figures.
 
+Within `causal/`, each intervention family has a versioned directory. Each
+resolved CLI/config selection is isolated under `design_<12-char SHA>/`, whose
+`design.json` records the exact layers, pairs, heads, controls, seeds, and
+generation bound. This prevents a partial smoke shard from being silently
+reused in a formal design. Every design directory has a restartable `capture/`
+tree, `detail.csv.gz`, and `summary.csv`:
+
+- `generation_head_ablation_v1/` also saves the paired broad-vs-random table;
+- `generation_head_patching_v1/` saves donor/receiver transport and controls;
+- `generation_residual_patching_v1/` retains successful and explicitly
+  skipped full-span rows;
+- `geometric_steering_v1/` contains discovery query-state shards,
+  `centroids.npz`, centroid-geometry tables, confirmation generations, and the
+  paired geometric-vs-random table.
+
+Every causal detail row includes the strict greedy completion, generated token
+IDs, baseline label, intervention label, and
+`behavior_metric=strict_greedy_complete_numeric_generation`.
+
 ## Validation status required before formal inference
 
 CPU tests cover configuration, four-panel randomization contracts, exact
-nesting, prompt spans, broad-attention metrics, adapter hooks, causal metric
+nesting, prompt spans, broad-attention metrics, actual-generation intervention
+hooks, multi-token `10`, centroid chord/polyline geometry, causal metric
 accounting, and synthetic representation recovery. Before a formal run, both
 registered checkpoints still require one GPU preflight that confirms:
 
@@ -374,8 +472,10 @@ registered checkpoints still require one GPU preflight that confirms:
 - query-only eager attention output shape for every layer;
 - agreement diagnostics between the cached eager query and full SDPA logits;
 - pre-output-projection head layout;
-- answer-query head ablation;
-- answer-query, needle-end, and full-span residual patches.
+- answer-query and global head ablation under generation;
+- answer-query head-output patching;
+- answer-query, needle-end, and full-span residual generation patches;
+- one discovery-centroid and confirmation steering smoke family.
 
 Passing that smoke test establishes implementation compatibility, not
 scientific validity.

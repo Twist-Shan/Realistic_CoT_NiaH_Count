@@ -194,10 +194,16 @@ PYTHONPATH=src python scripts/freeze_realistic_niah_v4.py \
 
 Then invoke `scripts/run_realistic_niah_v4.py` once per model and stage:
 `preflight`, `behavior`, `representation-capture`, `representation-analyze`,
-`attention`, and `attention-analyze`. The `attention` stage only captures
-restartable raw query rows; `attention-analyze` joins strict greedy labels and
-runs span-end/span-mean broad-head, correct/wrong, and omission-candidate
-diagnostics on CPU. Ablation and patching remain separate later stages. See
+`attention`, and `attention-analyze`. Causal stages are `ablation`,
+`head-patching`, `patching`, and `geometric-steering`. The `attention` stage
+only captures restartable raw query rows; `attention-analyze` joins strict
+greedy labels and runs span-end/span-mean broad-head, correct/wrong, and
+omission-candidate diagnostics on CPU. Causal stages likewise score the actual
+complete greedy numeric continuation, including multi-token `10`; they do not
+use a first-token candidate softmax. Residual patching copies either the
+needle-end state or the complete equal-length token-state sequence—never a
+broadcast span mean. Geometric count centroids are fit on discovery seeds and
+evaluated on held-out confirmation seeds with norm-matched random controls. See
 [`docs/realistic_niah_v4.md`](docs/realistic_niah_v4.md) for exact estimands,
 discovery/confirmation separation, formulas, commands, outputs, and
 interpretation limits.

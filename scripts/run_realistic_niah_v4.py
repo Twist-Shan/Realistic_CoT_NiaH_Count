@@ -12,14 +12,15 @@ from realistic_niah_v4.pipeline import (
 )
 from realistic_niah_v4.spec import ANSWER_FORMATS, DESIGN_VARIANTS, MODEL_SPECS
 
-
 MODEL_STAGES = (
     "preflight",
     "behavior",
     "representation-capture",
     "attention",
     "ablation",
+    "head-patching",
     "patching",
+    "geometric-steering",
 )
 
 
@@ -33,6 +34,30 @@ def _csv_ints(value: str | None) -> tuple[int, ...] | None:
     if value is None:
         return None
     return tuple(int(item) for item in value.split(",") if item.strip())
+
+
+def _csv_floats(value: str | None) -> tuple[float, ...] | None:
+    if value is None:
+        return None
+    return tuple(float(item) for item in value.split(",") if item.strip())
+
+
+def _count_pairs(value: str | None) -> tuple[tuple[int, int], ...] | None:
+    if value is None:
+        return None
+    result: list[tuple[int, int]] = []
+    for item in value.split(","):
+        if not item.strip():
+            continue
+        parts = item.split(":")
+        if len(parts) != 2:
+            raise argparse.ArgumentTypeError(
+                "count pairs must use LOW:HIGH comma-separated syntax"
+            )
+        result.append((int(parts[0]), int(parts[1])))
+    if not result:
+        raise argparse.ArgumentTypeError("at least one count pair is required")
+    return tuple(result)
 
 
 def main() -> None:
@@ -80,6 +105,49 @@ def main() -> None:
             "the registered numeric answers need at most two answer tokens."
         ),
     )
+    parser.add_argument(
+        "--causal-layers",
+        help="Explicit comma-separated decoder layers; overrides layer fractions.",
+    )
+    parser.add_argument(
+        "--causal-top-ns",
+        help="Comma-separated top-N head set sizes for ablation/head patching.",
+    )
+    parser.add_argument(
+        "--causal-random-replicates",
+        type=int,
+        help="Same-layer random-head control replicates.",
+    )
+    parser.add_argument(
+        "--causal-count-pairs",
+        type=_count_pairs,
+        help="Canonical LOW:HIGH pairs for head/residual patching.",
+    )
+    parser.add_argument(
+        "--ablation-scopes",
+        help="Comma-separated subset of answer_query,global.",
+    )
+    parser.add_argument(
+        "--steering-count-pairs",
+        type=_count_pairs,
+        help="Canonical LOW:HIGH pairs for geometric steering.",
+    )
+    parser.add_argument(
+        "--steering-methods",
+        help=(
+            "Comma-separated subset of centroid_transplant,centroid_delta,"
+            "chord,polyline."
+        ),
+    )
+    parser.add_argument(
+        "--steering-alphas",
+        help="Comma-separated interpolation fractions in (0,1].",
+    )
+    parser.add_argument(
+        "--steering-random-replicates",
+        type=int,
+        help="Orthogonal norm-matched steering controls; zero disables them.",
+    )
     parser.add_argument("--repo-root", default=".")
     args = parser.parse_args()
 
@@ -110,6 +178,15 @@ def main() -> None:
         "overwrite": args.overwrite,
         "forward_smoke": args.forward_smoke,
         "generation_max_new_tokens": args.generation_max_new_tokens,
+        "causal_layers": _csv_ints(args.causal_layers),
+        "causal_top_ns": _csv_ints(args.causal_top_ns),
+        "causal_random_replicates": args.causal_random_replicates,
+        "causal_count_pairs": args.causal_count_pairs,
+        "ablation_scopes": _csv_strings(args.ablation_scopes),
+        "steering_count_pairs": args.steering_count_pairs,
+        "steering_methods": _csv_strings(args.steering_methods),
+        "steering_alphas": _csv_floats(args.steering_alphas),
+        "steering_random_replicates": args.steering_random_replicates,
     }
     outputs: dict[str, object] = {"provenance": str(provenance)}
     if args.stage == "representation-analyze":
