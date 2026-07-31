@@ -447,6 +447,8 @@ def run_model_stage(
                     config=config,
                 ),
                 output_dir=model_output / "attention" / "capture",
+                save_raw_rows=config.save_raw_attention_rows,
+                save_dtype=config.attention_save_dtype,
                 overwrite=overwrite,
             )
         with logger.timer("attention_analyze"):

@@ -132,6 +132,8 @@ class V4Config:
     hidden_save_dtype: str = "float16"
     model_torch_dtype: str = "bfloat16"
     attention_prefix_backend: str = "sdpa"
+    save_raw_attention_rows: bool = True
+    attention_save_dtype: str = "float16"
 
     @classmethod
     def from_mapping(cls, payload: dict[str, Any]) -> "V4Config":
@@ -254,6 +256,10 @@ class V4Config:
             raise ValueError("Unsupported V4 model_torch_dtype")
         if self.attention_prefix_backend not in {"sdpa", "flash_attention_2"}:
             raise ValueError("Unsupported V4 attention_prefix_backend")
+        if not isinstance(self.save_raw_attention_rows, bool):
+            raise ValueError("save_raw_attention_rows must be boolean")
+        if self.attention_save_dtype not in {"float16", "float32"}:
+            raise ValueError("attention_save_dtype must be float16 or float32")
         for low, high in self.patch_count_pairs:
             if (
                 low >= high

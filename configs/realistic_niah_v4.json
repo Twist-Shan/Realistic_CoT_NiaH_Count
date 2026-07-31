@@ -108,5 +108,7 @@
   "require_exact_offset_mapping": true,
   "hidden_save_dtype": "float16",
   "model_torch_dtype": "bfloat16",
-  "attention_prefix_backend": "sdpa"
+  "attention_prefix_backend": "sdpa",
+  "save_raw_attention_rows": true,
+  "attention_save_dtype": "float16"
 }

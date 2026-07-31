@@ -10,11 +10,23 @@ import numpy as np
 import pandas as pd
 import torch
 
-from .modeling import DecoderAdapter, query_attention_rows
+from .behavior import count_logit_metrics
+from .modeling import DecoderAdapter, query_attention_outputs
 from .prompts import PromptEncoding, TokenSpan
 
 
 Head = tuple[int, int]
+BEHAVIOR_COLUMNS = (
+    "gold_count",
+    "predicted_count_among_candidates",
+    "correct_count_logit",
+    "correct_count_margin",
+    "correct_count_probability",
+    "expected_count",
+    "candidate_counts",
+    "candidate_logits",
+    "candidate_probabilities",
+)
 
 
 def _span_mass(
@@ -115,45 +127,152 @@ def broad_attention_metrics(
     }
 
 
+def _attention_numpy_dtype(name: str) -> np.dtype[Any]:
+    dtype = np.dtype(str(name))
+    if dtype not in (np.dtype("float16"), np.dtype("float32")):
+        raise ValueError("V4 attention_save_dtype must be float16 or float32")
+    return dtype
+
+
+@torch.inference_mode()
+def _collect_attention_encoding(
+    model: Any,
+    adapter: DecoderAdapter,
+    encoding: PromptEncoding,
+    *,
+    example_index: int,
+) -> tuple[pd.DataFrame, list[torch.Tensor], list[int]]:
+    attention_rows, key_starts, query_logits = query_attention_outputs(
+        model,
+        adapter,
+        encoding,
+    )
+    behavior = count_logit_metrics(query_logits, encoding)
+    rows: list[dict[str, Any]] = []
+    for layer, (layer_rows, key_start) in enumerate(
+        zip(attention_rows, key_starts)
+    ):
+        for head in range(layer_rows.shape[0]):
+            metrics = broad_attention_metrics(
+                layer_rows[head],
+                encoding.needle_spans,
+                encoding.hard_negative_spans,
+                key_start=key_start,
+            )
+            rows.append(
+                {
+                    "example_index": int(example_index),
+                    "stimulus_id": encoding.stimulus_id,
+                    "design_variant": encoding.design_variant,
+                    "model_label": encoding.model_label,
+                    "seed": encoding.seed,
+                    "split": encoding.split,
+                    "count": encoding.count,
+                    "sequence_length": encoding.sequence_length,
+                    "query_position": encoding.query_position,
+                    "layer": layer,
+                    "head": head,
+                    "layer_type": adapter.layer_types[layer],
+                    **behavior,
+                    **metrics,
+                }
+            )
+    if not rows:
+        raise ValueError("No V4 attention rows were collected")
+    return pd.DataFrame(rows), attention_rows, key_starts
+
+
 @torch.inference_mode()
 def collect_attention_rows(
     model: Any,
     adapter: DecoderAdapter,
     encodings: Iterable[PromptEncoding],
 ) -> pd.DataFrame:
-    rows: list[dict[str, Any]] = []
-    for example_index, encoding in enumerate(encodings):
-        attention_rows, key_starts = query_attention_rows(model, adapter, encoding)
-        for layer, (layer_rows, key_start) in enumerate(
-            zip(attention_rows, key_starts)
-        ):
-            for head in range(layer_rows.shape[0]):
-                metrics = broad_attention_metrics(
-                    layer_rows[head],
-                    encoding.needle_spans,
-                    encoding.hard_negative_spans,
-                    key_start=key_start,
-                )
-                rows.append(
-                    {
-                        "example_index": example_index,
-                        "stimulus_id": encoding.stimulus_id,
-                        "design_variant": encoding.design_variant,
-                        "model_label": encoding.model_label,
-                        "seed": encoding.seed,
-                        "split": encoding.split,
-                        "count": encoding.count,
-                        "sequence_length": encoding.sequence_length,
-                        "query_position": encoding.query_position,
-                        "layer": layer,
-                        "head": head,
-                        "layer_type": adapter.layer_types[layer],
-                        **metrics,
-                    }
-                )
-    if not rows:
+    frames = [
+        _collect_attention_encoding(
+            model,
+            adapter,
+            encoding,
+            example_index=example_index,
+        )[0]
+        for example_index, encoding in enumerate(encodings)
+    ]
+    if not frames:
         raise ValueError("No V4 attention rows were collected")
-    return pd.DataFrame(rows)
+    return pd.concat(frames, ignore_index=True)
+
+
+def _write_raw_attention_shard(
+    path: Path,
+    *,
+    attention_rows: Sequence[torch.Tensor],
+    key_starts: Sequence[int],
+    adapter: DecoderAdapter,
+    encoding: PromptEncoding,
+    save_dtype: str,
+) -> None:
+    dtype = _attention_numpy_dtype(save_dtype)
+    if len(attention_rows) != adapter.num_layers:
+        raise RuntimeError("Raw attention capture has the wrong layer count")
+    arrays: dict[str, np.ndarray] = {
+        "key_starts": np.asarray(key_starts, dtype=np.int64),
+        "query_position": np.asarray([encoding.query_position], dtype=np.int64),
+        "sequence_length": np.asarray([encoding.sequence_length], dtype=np.int64),
+        "layer_types": np.asarray(adapter.layer_types),
+    }
+    for layer, row in enumerate(attention_rows):
+        values = row.detach().cpu().numpy().astype(dtype, copy=False)
+        if values.ndim != 2 or values.shape[0] != adapter.num_heads[layer]:
+            raise RuntimeError(
+                f"Invalid raw attention shape at layer {layer}: {values.shape}"
+            )
+        if not np.isfinite(values).all():
+            raise RuntimeError(f"Non-finite raw attention at layer {layer}")
+        arrays[f"layer_{layer:03d}"] = values
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    with temporary.open("wb") as handle:
+        # Deliberately uncompressed: float16 query rows are already compact,
+        # and compression would make the 1,200-prompt capture CPU-bound.
+        np.savez(handle, **arrays)
+    temporary.replace(path)
+
+
+def _validate_raw_attention_shard(
+    path: Path,
+    *,
+    adapter: DecoderAdapter,
+    encoding: PromptEncoding,
+) -> None:
+    expected = {
+        "key_starts",
+        "query_position",
+        "sequence_length",
+        "layer_types",
+        *(f"layer_{layer:03d}" for layer in range(adapter.num_layers)),
+    }
+    with np.load(path, allow_pickle=False) as saved:
+        if set(saved.files) != expected:
+            raise RuntimeError(f"Incomplete V4 raw-attention shard: {path}")
+        if int(saved["query_position"][0]) != int(encoding.query_position):
+            raise RuntimeError(f"Raw-attention query mismatch: {path}")
+        if int(saved["sequence_length"][0]) != int(encoding.sequence_length):
+            raise RuntimeError(f"Raw-attention length mismatch: {path}")
+        key_starts = np.asarray(saved["key_starts"], dtype=int)
+        if key_starts.shape != (adapter.num_layers,):
+            raise RuntimeError(f"Raw-attention key-start mismatch: {path}")
+        for layer in range(adapter.num_layers):
+            values = np.asarray(saved[f"layer_{layer:03d}"])
+            if (
+                values.ndim != 2
+                or values.shape[0] != adapter.num_heads[layer]
+                or values.shape[1]
+                != int(encoding.query_position) + 1 - int(key_starts[layer])
+                or not np.isfinite(values).all()
+            ):
+                raise RuntimeError(
+                    f"Invalid raw-attention layer {layer} in {path}"
+                )
 
 
 @torch.inference_mode()
@@ -163,11 +282,14 @@ def capture_attention_shards(
     encodings: Iterable[PromptEncoding],
     *,
     output_dir: str | Path,
+    save_raw_rows: bool = True,
+    save_dtype: str = "float16",
     overwrite: bool = False,
 ) -> Path:
-    """Capture restartable per-prompt attention-metric shards."""
+    """Capture restartable per-prompt metrics and raw answer-query rows."""
 
     output = Path(output_dir)
+    _attention_numpy_dtype(save_dtype)
     index_rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     for example_index, encoding in enumerate(encodings):
@@ -178,12 +300,30 @@ def capture_attention_shards(
             Path("shards") / encoding.design_variant / f"{encoding.stimulus_id}.csv.gz"
         )
         shard = output / relative
-        if shard.exists() and not overwrite:
+        raw_relative = (
+            Path("raw_shards")
+            / encoding.design_variant
+            / f"{encoding.stimulus_id}.npz"
+        )
+        raw_shard = output / raw_relative
+        complete = shard.exists() and (not save_raw_rows or raw_shard.exists())
+        if complete and not overwrite:
             frame = pd.read_csv(shard, compression="gzip")
             if frame.empty or set(frame["stimulus_id"]) != {encoding.stimulus_id}:
                 raise RuntimeError(f"Invalid V4 attention shard: {shard}")
+            if save_raw_rows:
+                _validate_raw_attention_shard(
+                    raw_shard,
+                    adapter=adapter,
+                    encoding=encoding,
+                )
         else:
-            frame = collect_attention_rows(model, adapter, [encoding])
+            frame, raw_rows, key_starts = _collect_attention_encoding(
+                model,
+                adapter,
+                encoding,
+                example_index=example_index,
+            )
             frame["example_index"] = int(example_index)
             shard.parent.mkdir(parents=True, exist_ok=True)
             temporary = shard.with_name(shard.name + ".tmp")
@@ -193,6 +333,16 @@ def capture_attention_shards(
                 compression="gzip",
             )
             temporary.replace(shard)
+            if save_raw_rows:
+                _write_raw_attention_shard(
+                    raw_shard,
+                    attention_rows=raw_rows,
+                    key_starts=key_starts,
+                    adapter=adapter,
+                    encoding=encoding,
+                    save_dtype=save_dtype,
+                )
+        first = frame.iloc[0]
         index_rows.append(
             {
                 "stimulus_id": encoding.stimulus_id,
@@ -203,6 +353,34 @@ def capture_attention_shards(
                 "count": int(encoding.count),
                 "rows": int(len(frame)),
                 "shard_path": relative.as_posix(),
+                "raw_attention_saved": bool(save_raw_rows),
+                "raw_attention_dtype": str(save_dtype) if save_raw_rows else None,
+                "raw_attention_shard_path": (
+                    raw_relative.as_posix() if save_raw_rows else None
+                ),
+                "raw_attention_bytes": (
+                    int(raw_shard.stat().st_size) if save_raw_rows else 0
+                ),
+                **{
+                    column: (
+                        int(first[column])
+                        if column
+                        in {
+                            "gold_count",
+                            "predicted_count_among_candidates",
+                        }
+                        else float(first[column])
+                        if column
+                        in {
+                            "correct_count_logit",
+                            "correct_count_margin",
+                            "correct_count_probability",
+                            "expected_count",
+                        }
+                        else str(first[column])
+                    )
+                    for column in BEHAVIOR_COLUMNS
+                },
             }
         )
         print(
@@ -418,6 +596,58 @@ def analyze_attention_table(
     summary.to_csv(summary_path, index=False)
     by_count.to_csv(by_count_path, index=False)
 
+    missing_behavior = sorted(set(BEHAVIOR_COLUMNS) - set(detail.columns))
+    if missing_behavior:
+        raise ValueError(
+            f"Attention table is missing answer-query outcomes: {missing_behavior}"
+        )
+    behavior = (
+        detail.sort_values(["design_variant", "seed", "count", "layer", "head"])
+        .drop_duplicates("stimulus_id")
+        [
+            [
+                "stimulus_id",
+                "design_variant",
+                "model_label",
+                "seed",
+                "split",
+                "count",
+                "sequence_length",
+                "query_position",
+                *BEHAVIOR_COLUMNS,
+            ]
+        ]
+        .copy()
+    )
+    behavior["candidate_correct"] = (
+        behavior["predicted_count_among_candidates"].astype(int)
+        == behavior["gold_count"].astype(int)
+    ).astype(float)
+    behavior["expected_count_absolute_error"] = np.abs(
+        behavior["expected_count"].astype(float)
+        - behavior["gold_count"].astype(float)
+    )
+    behavior_path = output / "answer_query_behavior.csv"
+    behavior.to_csv(behavior_path, index=False)
+    behavior_groups = ["model_label", "design_variant", "split", "count"]
+    behavior_summary = behavior.groupby(
+        behavior_groups,
+        as_index=False,
+    ).agg(
+        examples=("stimulus_id", "count"),
+        seeds=("seed", "nunique"),
+        candidate_accuracy=("candidate_correct", "mean"),
+        mean_correct_count_probability=("correct_count_probability", "mean"),
+        mean_correct_count_margin=("correct_count_margin", "mean"),
+        mean_expected_count=("expected_count", "mean"),
+        mean_expected_count_absolute_error=(
+            "expected_count_absolute_error",
+            "mean",
+        ),
+    )
+    behavior_summary_path = output / "answer_query_behavior_by_count.csv"
+    behavior_summary.to_csv(behavior_summary_path, index=False)
+
     # N=1 has coverage identically equal to one and cannot identify broad
     # aggregation. Discovery rankings therefore average N=2..10 only.
     ranking_detail = detail[
@@ -469,6 +699,34 @@ def analyze_attention_table(
         figure.savefig(figure_path, dpi=180, bbox_inches="tight")
         plt.close(figure)
         figure_paths.append(str(figure_path))
+
+    figure, axes = plt.subplots(2, 2, figsize=(12, 8), sharex=True, sharey=True)
+    for axis, variant in zip(axes.flat, variants):
+        frame = behavior_summary[behavior_summary["design_variant"] == variant]
+        for split, color in (("discovery", "#4C78A8"), ("confirmation", "#E45756")):
+            selected = frame[frame["split"] == split].sort_values("count")
+            if not selected.empty:
+                axis.plot(
+                    selected["count"],
+                    selected["mean_expected_count"],
+                    marker="o",
+                    color=color,
+                    label=split,
+                )
+        counts = sorted(int(value) for value in frame["count"].unique())
+        if counts:
+            axis.plot(counts, counts, color="black", linestyle="--", alpha=0.45)
+        axis.set_title(variant)
+        axis.set_xlabel("gold count")
+        axis.set_ylabel("candidate-softmax expected count")
+        axis.grid(alpha=0.15)
+        axis.legend()
+    figure.suptitle("Non-thinking answer-query behavior")
+    figure.tight_layout()
+    behavior_figure_path = output / "answer_query_expected_count.png"
+    figure.savefig(behavior_figure_path, dpi=180, bbox_inches="tight")
+    plt.close(figure)
+    figure_paths.append(str(behavior_figure_path))
 
     # Show whether each top head is broad over all ten spans on held-out seeds.
     figure, axes = plt.subplots(2, 2, figsize=(12, 8), sharex=True)
@@ -538,6 +796,8 @@ def analyze_attention_table(
                 "require_positive_contrast": True,
                 "rankings": ranking_paths,
                 "figures": figure_paths,
+                "answer_query_behavior": str(behavior_path),
+                "answer_query_behavior_by_count": str(behavior_summary_path),
                 "confirmation_use": (
                     "visualization and causal validation only; never head selection"
                 ),
@@ -552,6 +812,8 @@ def analyze_attention_table(
         "detail": detail_path,
         "summary": summary_path,
         "by_count": by_count_path,
+        "behavior": behavior_path,
+        "behavior_by_count": behavior_summary_path,
         "rankings": rankings,
         "ranking_paths": ranking_paths,
         "stability": stability_path,
