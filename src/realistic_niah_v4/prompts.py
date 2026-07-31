@@ -184,13 +184,10 @@ def render_v4_prompt(
         prompt_mode=config.prompt_mode,
     )
     registered_query = query_block(config.prompt_mode)
-    if len(messages) != 1 or not str(messages[0]["content"]).endswith(
-        registered_query
-    ):
+    if len(messages) != 1 or not str(messages[0]["content"]).endswith(registered_query):
         raise RuntimeError("Unexpected base prompt layout for registered V4")
     messages[0]["content"] = (
-        str(messages[0]["content"])[: -len(registered_query)]
-        + V4_DIRECT_QUERY_BLOCK
+        str(messages[0]["content"])[: -len(registered_query)] + V4_DIRECT_QUERY_BLOCK
     )
     generation_prompt = render_generation_prompt(
         tokenizer,
