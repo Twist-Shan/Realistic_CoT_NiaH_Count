@@ -23,8 +23,8 @@ from .spec import (
     V4Config,
 )
 
-SLOT_PREFIX = "\n\nExcerpt:\n"
-SLOT_SUFFIX = "\nEnd excerpt.\n\n"
+SLOT_PREFIX = "\u2029Excerpt:\n"
+SLOT_SUFFIX = "\nEnd excerpt.\u2029"
 
 
 @dataclass(frozen=True)
@@ -159,11 +159,7 @@ def _sample_boundary_matched_control(
     target_tokens: int,
 ) -> tuple[str, list[Any], dict[str, Any]]:
     control = dict(item.get("control") or {})
-    source_names = [
-        str(control["source_file"])
-        for _ in [0]
-        if control.get("source_file")
-    ]
+    source_names = [str(control["source_file"])] if control.get("source_file") else []
     source_names.extend(
         path.name
         for path in sorted(Path(freeze_spec.haystack_dir).glob("*.txt"))
@@ -183,9 +179,17 @@ def _sample_boundary_matched_control(
         if not source_tokens:
             continue
         preferred = int(control.get("segment_start_token", 0))
-        starts = list(range(max(0, preferred - 64), min(len(source_tokens), preferred + 65)))
+        starts = list(
+            range(
+                max(0, preferred - 64),
+                min(len(source_tokens), preferred + 65),
+            )
+        )
+        preferred_starts = set(starts)
         remaining = [
-            value for value in range(len(source_tokens)) if value not in set(starts)
+            value
+            for value in range(len(source_tokens))
+            if value not in preferred_starts
         ]
         rng.shuffle(remaining)
         starts.extend(remaining[:512])
@@ -567,6 +571,8 @@ def _compact_stimulus(
         )
         window_start = max(0, mismatch - 4)
         window_end = mismatch + 5
+        expected_window = tokenizer.decode(list(final_tokens[window_start:window_end]))
+        actual_window = tokenizer.decode(list(actual_ids[window_start:window_end]))
         raise RuntimeError(
             "Canonical decode/re-encode changed token identities; refusing "
             "approximate V4 alignment. "
@@ -575,8 +581,8 @@ def _compact_stimulus(
             f"actual_length={len(actual_ids)}, "
             f"expected_ids={list(final_tokens[window_start:window_end])}, "
             f"actual_ids={list(actual_ids[window_start:window_end])}, "
-            f"expected_window={tokenizer.decode(list(final_tokens[window_start:window_end]))!r}, "
-            f"actual_window={tokenizer.decode(list(actual_ids[window_start:window_end]))!r}"
+            f"expected_window={expected_window!r}, "
+            f"actual_window={actual_window!r}"
         )
     if len(actual_ids) != config.target_passage_tokens:
         raise RuntimeError(
@@ -693,6 +699,36 @@ def _compact_stimulus(
     }
 
 
+def _verify_nested_family_token_identity(
+    stimuli: Sequence[dict[str, Any]],
+    *,
+    tokenizer: TokenizerAdapter,
+) -> None:
+    ordered = sorted(stimuli, key=lambda row: int(row["num_needles"]))
+    for lower, higher in zip(ordered, ordered[1:]):
+        lower_count = int(lower["num_needles"])
+        higher_count = int(higher["num_needles"])
+        if higher_count != lower_count + 1:
+            raise RuntimeError("V4 nested family has a non-adjacent count pair")
+        lower_ids = tokenizer.encode(str(lower["passage"]))
+        higher_ids = tokenizer.encode(str(higher["passage"]))
+        if len(lower_ids) != len(higher_ids):
+            raise RuntimeError("V4 nested family token lengths differ")
+        toggled = higher["slots"][higher_count - 1]
+        start = int(toggled["canonical_span_start"])
+        end = int(toggled["canonical_span_end"])
+        if lower_ids[:start] != higher_ids[:start]:
+            raise RuntimeError(
+                "V4 nested replacement changed prefix tokens outside the "
+                f"toggled slot: N={lower_count}->{higher_count}, start={start}"
+            )
+        if lower_ids[end:] != higher_ids[end:]:
+            raise RuntimeError(
+                "V4 nested replacement changed suffix tokens outside the "
+                f"toggled slot: N={lower_count}->{higher_count}, end={end}"
+            )
+
+
 def build_controlled_family(
     *,
     variant: str,
@@ -774,6 +810,7 @@ def build_controlled_family(
         )
         for count in config.needle_counts
     ]
+    _verify_nested_family_token_identity(stimuli, tokenizer=tokenizer)
     metadata = {
         "design_variant": variant,
         "seed": int(seed),
@@ -785,6 +822,7 @@ def build_controlled_family(
         "catalog_set_fingerprint": sorted(item["text_sha256"] for item in catalog),
         "catalog_order_fingerprint": [item["text_sha256"] for item in catalog],
         "haystack_seed": int(seed),
+        "nested_token_identity_outside_toggled_slot": True,
         **DESIGN_VARIANT_CONTROLS[variant],
     }
     return stimuli, metadata
@@ -906,7 +944,10 @@ def freeze_v4_grid(
         )
 
     jsonl = b"".join(
-        json.dumps(row, ensure_ascii=False, sort_keys=True).encode("utf-8") + b"\n"
+        # JSON Lines permits only LF as a record delimiter. Escaping non-ASCII
+        # also prevents U+2028/U+2029 slot boundaries from being interpreted as
+        # line breaks by Python's splitlines() or downstream line-oriented tools.
+        json.dumps(row, ensure_ascii=True, sort_keys=True).encode("utf-8") + b"\n"
         for row in rows
     )
     fixed_catalog = _catalog_metadata(
@@ -987,7 +1028,10 @@ def freeze_v4_grid(
 def load_stimuli(path: str | Path) -> list[dict[str, Any]]:
     return [
         json.loads(line)
-        for line in Path(path).read_text(encoding="utf-8").splitlines()
+        # Deliberately split on the JSONL delimiter, not every Unicode line
+        # boundary. Newly frozen files escape U+2028/U+2029, and this also makes
+        # the reader robust to older files that may contain those characters.
+        for line in Path(path).read_text(encoding="utf-8").split("\n")
         if line.strip()
     ]
 
@@ -1024,6 +1068,7 @@ def audit_v4_grid(
         (str(item["design_variant"]), int(item["seed"])): item
         for item in manifest["families"]
     }
+    rows_by_family: dict[tuple[str, int], list[dict[str, Any]]] = {}
     for row in rows:
         identifier = str(row.get("stimulus_id", "<missing>"))
         try:
@@ -1046,6 +1091,7 @@ def audit_v4_grid(
             count = int(row["num_needles"])
             seed = int(row["seed"])
             cells.setdefault((variant, count), set()).add(seed)
+            rows_by_family.setdefault((variant, seed), []).append(row)
             family = family_by_key[(variant, seed)]
             slots = row["slots"]
             if len(slots) != max(config.needle_counts):
@@ -1077,6 +1123,20 @@ def audit_v4_grid(
                     raise ValueError("hard-negative length mismatch")
         except Exception as exc:
             errors.append(f"{identifier}: {type(exc).__name__}: {exc}")
+
+    for family_key, family_rows in sorted(rows_by_family.items()):
+        try:
+            family = family_by_key[family_key]
+            if family.get("nested_token_identity_outside_toggled_slot") is not True:
+                raise ValueError("nested token-identity claim is missing")
+            _verify_nested_family_token_identity(
+                family_rows,
+                tokenizer=tokenizer,
+            )
+        except Exception as exc:
+            errors.append(
+                f"{family_key}: nested token identity: {type(exc).__name__}: {exc}"
+            )
 
     for variant in config.design_variants:
         for count in config.needle_counts:

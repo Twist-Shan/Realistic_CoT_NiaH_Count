@@ -170,6 +170,20 @@ def test_four_panel_freeze_contract_and_audit(
         assert [slot["active"] for slot in row["slots"]] == [
             index < row["gold_count"] for index in range(3)
         ]
+        assert row["passage"].count("Excerpt:") == 3
+        assert row["passage"].count("End excerpt.") == 3
+    assert all(
+        family["nested_token_identity_outside_toggled_slot"] is True
+        for family in families
+    )
+    for lower, higher in zip(family_rows, family_rows[1:]):
+        toggled = higher["slots"][higher["gold_count"] - 1]
+        start = int(toggled["canonical_span_start"])
+        end = int(toggled["canonical_span_end"])
+        lower_tokens = lower["passage"].split()
+        higher_tokens = higher["passage"].split()
+        assert lower_tokens[:start] == higher_tokens[:start]
+        assert lower_tokens[end:] == higher_tokens[end:]
 
     audit = audit_v4_grid(
         stimuli_path=output / "stimuli.jsonl",
