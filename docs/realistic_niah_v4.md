@@ -27,19 +27,20 @@ measurement of the internal counting algorithm.
 | Confirmation split | 1254 through 1263 (10) |
 | Prompt | direct, non-thinking |
 | Answer query | last token of a teacher-forced `Total:` prefix |
-| Answer vocabulary | single-token lowercase words `one` through `ten` |
+| Answer vocabulary | decimal strings `1` through `10` |
 | Representation sites | needle-span end; mean over the full needle span |
 
 The exact model and tokenizer revisions are immutable SHAs in
 `src/realistic_niah_v4/spec.py`.
 
-The answer vocabulary is deliberately word-based. With both registered
-tokenizers, the decimal string `10` is two tokens and shares its first token
-with `1`, so ten-way logits at one answer-query position would not be
-well-defined. On the complete rendered prompt, `" one"` through `" ten"` are
-ten distinct single-token continuations after `Total:` for both models. The
-V4 prompt explicitly requests exactly one lowercase English number word;
-preflight rechecks prefix stability, single-token length, and uniqueness.
+The prompt requests ordinary decimal digits. With both registered tokenizers,
+`1` through `9` are one answer token while `10` is two and shares its first
+token with `1`. Therefore V4 does not use a ten-way softmax at one position to
+label behavior. It greedily generates the actual continuation after the
+already-present `Total:` prefix and applies a strict parser: after removal of
+special tokens, the continuation must be exactly one in-range decimal integer
+apart from surrounding whitespace. Verbose, truncated, or otherwise malformed
+outputs are retained as `invalid`, separate from valid wrong counts.
 
 ## Four cumulative control panels
 
@@ -123,11 +124,18 @@ establishes decodability, not causal use.
 ## Answer-query attention
 
 Let `a(t)` be one head's answer-query attention row, and let `S_i` be active
-needle span `i`. The registered per-span mass is
+needle span `i`. Two occurrence-level evidence definitions are analyzed:
 
 ```text
-m_i = sum_{t in S_i} a(t)
+span-end:  m_i = a(last token of S_i)
+span-mean: m_i = mean_{t in S_i} a(t)
 ```
+
+Span-end asks whether the query reads the same token sites whose hidden states
+formed the cleanest occurrence-index trajectories. Span-mean asks whether it
+reads information distributed across the complete realistic record and
+normalizes away model-token span length. Full-span total attention mass is
+also retained as a descriptive quantity.
 
 For N active spans, define
 
@@ -143,10 +151,13 @@ one span dominates. The analysis also saves length-normalized coverage,
 coefficient of variation, effective number of attended spans, and per-token
 contrast against ten length-matched hard-negative spans.
 
-Discovery heads are ranked by mean `broad primary` over N=2 through N=10,
-with positive hard-negative contrast preferred. N=1 is excluded from ranking
-because its coverage is identically one. Confirmation seeds are used for
-locked visualization and causal tests, never head selection.
+Discovery heads are ranked by mean `broad primary` over N=2 through N=10.
+Eligibility requires that the layer can see every needle and matched hard
+negative on the complete discovery grid, mean needle-minus-negative density is
+positive, and needle density exceeds the head's prompt-wide baseline. There is
+no fallback to negative-contrast heads. N=1 is excluded because its coverage
+is identically one. Confirmation seeds are used for locked correct/wrong
+comparisons, never head selection.
 
 The 10k-token prefix is evaluated once with an efficient KV cache. Only the
 single final answer-query token is evaluated with eager attention. The code
@@ -158,13 +169,24 @@ For every prompt, the complete answer-query row from every head is retained
 as an uncompressed float16 NPZ shard. Each layer is a separate array because
 Gemma 4 local and global layers have different key-axis lengths. The shard
 also records absolute key starts, layer types, query position, and sequence
-length. Candidate-count logits and probabilities over the registered
-`one`-through-`ten` tokens from the same cached query
-forward are saved in the metric shard and summarized as a behavioral sanity
-check. Full-sequence attention matrices and full Q/K/V tensors are not
-materialized.
+length. The raw capture is outcome-agnostic. A separate greedy pass saves
+actual continuations, token IDs, strict correct/wrong/invalid labels, signed
+count error, and decoding provenance. `attention-analyze` joins those labels
+by `stimulus_id`, compares discovery-selected heads on confirmation seeds, and
+uses a seed-cluster bootstrap for count-adjusted wrong-minus-correct effects.
+For an undercount of `k`, the bottom-`k` occurrences in the selected-head
+ensemble are reported only as *attention-implied missed candidates*: a scalar
+answer does not reveal which particular record was internally omitted.
+Full-sequence attention matrices and full Q/K/V tensors are not materialized.
 
 ## Causal tests
+
+The current numeric presentation run stops before these interventions. The
+older single-token candidate-logit outcome is not valid for decimal `10` and
+must not be used. When causal work resumes, intervention success must be
+defined from the actual generated answer (or another explicitly registered
+multi-token outcome), with the choice recorded separately from the descriptive
+attention analysis below.
 
 ### Head ablation
 
@@ -236,6 +258,14 @@ for MODEL in Qwen3-8B Gemma4-E4B; do
     --forward-smoke
 
   PYTHONPATH=src python scripts/run_realistic_niah_v4.py \
+    --stage behavior \
+    --stimuli "${RUN_ROOT}/dataset/stimuli.jsonl" \
+    --output-dir "${RUN_ROOT}" \
+    --model "${MODEL}" \
+    --cache-dir "${HF_CACHE}" \
+    --generation-max-new-tokens 16
+
+  PYTHONPATH=src python scripts/run_realistic_niah_v4.py \
     --stage representation-capture \
     --stimuli "${RUN_ROOT}/dataset/stimuli.jsonl" \
     --output-dir "${RUN_ROOT}" \
@@ -250,6 +280,13 @@ for MODEL in Qwen3-8B Gemma4-E4B; do
 
   PYTHONPATH=src python scripts/run_realistic_niah_v4.py \
     --stage attention \
+    --stimuli "${RUN_ROOT}/dataset/stimuli.jsonl" \
+    --output-dir "${RUN_ROOT}" \
+    --model "${MODEL}" \
+    --cache-dir "${HF_CACHE}"
+
+  PYTHONPATH=src python scripts/run_realistic_niah_v4.py \
+    --stage attention-analyze \
     --stimuli "${RUN_ROOT}/dataset/stimuli.jsonl" \
     --output-dir "${RUN_ROOT}" \
     --model "${MODEL}" \
@@ -305,9 +342,10 @@ CUDA visibility, model revision, and Git state.
 
 Within each model's `attention/` directory, `capture/shards/` contains
 per-head metrics and `capture/raw_shards/` contains the complete float16
-answer-query rows. `answer_query_behavior.csv` and
-`answer_query_behavior_by_count.csv` contain the prompt-level behavioral
-sanity checks derived from the same query forwards.
+answer-query rows. `behavior/capture/generation_labels.csv` contains the
+actual greedy outputs and strict labels. `attention/analysis/` contains
+restartable span-end/span-mean pooling shards, discovery rankings, held-out
+correct/wrong effects, occurrence-level omission diagnostics, and figures.
 
 ## Validation status required before formal inference
 
@@ -317,7 +355,7 @@ accounting, and synthetic representation recovery. Before a formal run, both
 registered checkpoints still require one GPU preflight that confirms:
 
 - model loading with the pinned Transformers build;
-- single-token count continuations;
+- exact numeric continuation boundaries, including the two-token `10`;
 - finite count logits at 10k context;
 - query-only eager attention output shape for every layer;
 - agreement diagnostics between the cached eager query and full SDPA logits;

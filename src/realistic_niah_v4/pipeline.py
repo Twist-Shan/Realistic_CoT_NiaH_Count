@@ -15,11 +15,10 @@ import pandas as pd
 import torch
 
 from .attention import (
-    analyze_attention_table,
     capture_attention_shards,
-    load_attention_shards,
     load_head_ranking,
 )
+from .attention_outcomes import analyze_labeled_attention
 from .behavior import capture_generation_labels
 from .causal import (
     compare_head_ablation_to_random,
@@ -33,6 +32,7 @@ from .modeling import (
     capture_post_block_states,
     capture_span_states,
     load_registered_model,
+    load_registered_tokenizer,
     query_attention_outputs,
     run_last_logits,
     run_with_head_ablation,
@@ -547,14 +547,12 @@ def run_model_stage(
             behavior_outputs = capture_generation_labels(
                 model,
                 tokenizer,
-                list(
-                    render_encodings(
-                        selected,
-                        tokenizer=tokenizer,
-                        model_label=model_spec.label,
-                        config=config,
-                        answer_format=answer_format,
-                    )
+                render_encodings(
+                    selected,
+                    tokenizer=tokenizer,
+                    model_label=model_spec.label,
+                    config=config,
+                    answer_format=answer_format,
                 ),
                 output_dir=model_output / "behavior" / "capture",
                 valid_counts=tuple(int(value) for value in config.needle_counts),
@@ -612,21 +610,13 @@ def run_model_stage(
                 save_dtype=config.attention_save_dtype,
                 overwrite=overwrite,
             )
-        with logger.timer("attention_analyze"):
-            detail = load_attention_shards(attention_index)
-            outputs = analyze_attention_table(
-                detail,
-                output_dir=model_output / "attention",
-                metric=config.attention_primary_metric,
-            )
         return {
             "preflight": str(preflight_path),
             "capture_index": str(attention_index),
-            **{
-                key: (value if isinstance(value, dict) else str(value))
-                for key, value in outputs.items()
-                if key != "rankings"
-            },
+            "analysis_status": (
+                "run the CPU-side attention-analyze stage after greedy behavior "
+                "labels are complete"
+            ),
         }
 
     confirmation_rows = [row for row in selected if row["split"] == "confirmation"]
@@ -791,5 +781,54 @@ def run_representation_analysis(
         ),
         output_dir=model_output / "representation" / "analysis",
         config=config,
+    )
+    return {key: str(value) for key, value in outputs.items()}
+
+
+def run_labeled_attention_analysis(
+    *,
+    stimuli_path: str | Path,
+    config_path: str | Path,
+    output_dir: str | Path,
+    model_label: str,
+    answer_format: str,
+    cache_dir: str | Path | None = None,
+    variants: Sequence[str] | None = None,
+    seeds: Sequence[int] | None = None,
+    counts: Sequence[int] | None = None,
+    overwrite_pooling_metrics: bool = False,
+) -> dict[str, str]:
+    """Run CPU-side behavior-stratified analysis of saved attention rows."""
+
+    config = V4Config.from_json(config_path)
+    model_spec = resolve_model_spec(model_label)
+    answer_format = str(answer_format)
+    if answer_format not in config.answer_formats:
+        raise ValueError(f"Unregistered V4 answer format: {answer_format}")
+    model_output = Path(output_dir) / model_spec.label / answer_format
+    tokenizer = load_registered_tokenizer(model_spec, cache_dir=cache_dir)
+    selected = select_stimuli(
+        stimuli_path,
+        variants=variants,
+        seeds=seeds,
+        counts=counts,
+    )
+    outputs = analyze_labeled_attention(
+        attention_index_path=(
+            model_output / "attention" / "capture" / "attention_capture_index.jsonl"
+        ),
+        generation_labels_path=(
+            model_output / "behavior" / "capture" / "generation_labels.csv"
+        ),
+        encodings=render_encodings(
+            selected,
+            tokenizer=tokenizer,
+            model_label=model_spec.label,
+            config=config,
+            answer_format=answer_format,
+        ),
+        output_dir=model_output / "attention" / "analysis",
+        top_k=8,
+        overwrite_pooling_metrics=overwrite_pooling_metrics,
     )
     return {key: str(value) for key, value in outputs.items()}

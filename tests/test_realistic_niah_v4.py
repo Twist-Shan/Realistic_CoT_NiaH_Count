@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 from torch import nn
@@ -18,6 +19,11 @@ from realistic_niah_v4.attention import (
 from realistic_niah_v4.behavior import (
     label_generated_completion,
     parse_numeric_completion,
+)
+from realistic_niah_v4.attention_outcomes import (
+    POOL_METRICS,
+    layer_pooling_metrics,
+    rank_broad_candidates,
 )
 from realistic_niah_v4.causal import count_logit_metrics
 from realistic_niah_v4.modeling import (
@@ -239,6 +245,56 @@ def test_numeric_generation_labels_use_actual_strict_completion() -> None:
     out_of_range = parse_numeric_completion("11")
     assert not out_of_range["format_valid"]
     assert out_of_range["parsed_count"] is None
+
+
+def test_span_end_and_span_mean_attention_metrics_are_distinct() -> None:
+    needles = (
+        TokenSpan(1, 2, 4, True, "needle", 2, 2),
+        TokenSpan(2, 6, 8, True, "needle", 2, 2),
+    )
+    negatives = (
+        TokenSpan(1, 0, 2, False, "hard_negative", 2, 2),
+        TokenSpan(2, 8, 10, False, "hard_negative", 2, 2),
+    )
+    rows = np.zeros((2, 12), dtype=np.float32)
+    rows[0, [2, 3, 6, 7]] = [0.01, 0.20, 0.01, 0.20]
+    rows[1, [2, 3, 6, 7]] = [0.20, 0.01, 0.20, 0.01]
+    rows[:, [0, 1, 8, 9]] = 0.001
+    metrics = layer_pooling_metrics(rows, needles, negatives, key_start=0)
+    assert metrics["span_end"]["pool_sum"][0] == pytest.approx(0.4)
+    assert metrics["span_end"]["pool_sum"][1] == pytest.approx(0.02)
+    assert metrics["span_mean"]["pool_sum"][0] == pytest.approx(0.21)
+    assert metrics["span_mean"]["pool_sum"][1] == pytest.approx(0.21)
+    assert np.allclose(metrics["span_mean"]["pool_coverage"], 1.0)
+
+
+def test_broad_candidate_ranking_requires_full_grid_visibility() -> None:
+    rows = []
+    for head in (0, 1):
+        for seed, visible in ((11, True), (12, head == 0)):
+            row = {
+                "stimulus_id": f"s{seed}h{head}",
+                "model_label": "toy",
+                "design_variant": "v4.1",
+                "pooling": "span_end",
+                "split": "discovery",
+                "count": 2,
+                "seed": seed,
+                "layer": 0,
+                "head": head,
+                "layer_type": "full_attention" if head == 0 else "sliding_attention",
+                "all_needles_visible": visible,
+                "all_hard_negatives_visible": visible,
+            }
+            row.update({metric: 0.5 for metric in POOL_METRICS})
+            row["pool_contrast"] = 0.1
+            row["pool_enrichment"] = 2.0
+            rows.append(row)
+    summary, rankings = rank_broad_candidates(pd.DataFrame(rows), top_k=8)
+    assert rankings[("v4.1", "span_end")] == [(0, 0)]
+    sliding = summary[summary["head"] == 1].iloc[0]
+    assert sliding["full_visibility_rate"] == pytest.approx(0.5)
+    assert not bool(sliding["is_broad_candidate"])
 
 
 class WhitespaceFastTokenizer:

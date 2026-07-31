@@ -153,7 +153,7 @@ environment.
 V4 uses Transformers directly rather than vLLM because it requires selective
 hidden-state hooks, query-row attention, head ablation, and activation
 patching. Formal attention runs retain complete float16 answer-query rows
-for every layer and head, together with prompt-level candidate-count logits;
+for every layer and head, together with separately generated greedy answers;
 they never materialize a 10k-by-10k matrix or full-sequence Q/K/V:
 
 ```bash
@@ -169,11 +169,12 @@ export PYTHONPATH=src
 The registered grid has two models (`Qwen3-8B`, `Gemma4-E4B`), count 1-10,
 10,000 canonical passage tokens, and 30 seeds. Its four cumulative panels are:
 
-V4 scores the ten counts using the lowercase single-token answer vocabulary
-`one` through `ten` after a teacher-forced `Total:` prefix. Decimal `10` is
-two tokens in both registered tokenizers, so numeric strings cannot support
-a valid ten-way single-position logit comparison; the GPU preflight enforces
-the registered word-token boundary for both exact model revisions.
+V4 requests decimal answers `Total:1` through `Total:10`. The answer-query
+state and attention row are measured at the final token of the rendered
+`Total:` prefix. Correct/wrong labels come from a separate deterministic
+greedy generation pass over the identical prompt, not a one-position
+candidate softmax. This matters because decimal `10` is two tokens in both
+registered tokenizers and shares its first token with `1`.
 
 | Panel | Position | City-score order | City-score content |
 | --- | --- | --- | --- |
@@ -192,8 +193,11 @@ PYTHONPATH=src python scripts/freeze_realistic_niah_v4.py \
 ```
 
 Then invoke `scripts/run_realistic_niah_v4.py` once per model and stage:
-`preflight`, `representation-capture`, `representation-analyze`, `attention`,
-`ablation`, and `patching`. See
+`preflight`, `behavior`, `representation-capture`, `representation-analyze`,
+`attention`, and `attention-analyze`. The `attention` stage only captures
+restartable raw query rows; `attention-analyze` joins strict greedy labels and
+runs span-end/span-mean broad-head, correct/wrong, and omission-candidate
+diagnostics on CPU. Ablation and patching remain separate later stages. See
 [`docs/realistic_niah_v4.md`](docs/realistic_niah_v4.md) for exact estimands,
 discovery/confirmation separation, formulas, commands, outputs, and
 interpretation limits.

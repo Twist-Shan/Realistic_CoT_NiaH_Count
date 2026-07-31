@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from realistic_niah_v4.pipeline import (
+    run_labeled_attention_analysis,
     run_model_stage,
     run_representation_analysis,
     write_runtime_provenance,
@@ -47,6 +48,7 @@ def main() -> None:
         choices=(
             *MODEL_STAGES,
             "representation-analyze",
+            "attention-analyze",
             "all",
         ),
     )
@@ -117,6 +119,19 @@ def main() -> None:
             model_label=args.model,
             answer_format=args.answer_format,
         )
+    elif args.stage == "attention-analyze":
+        outputs[args.stage] = run_labeled_attention_analysis(
+            stimuli_path=args.stimuli,
+            config_path=args.config,
+            output_dir=args.output_dir,
+            model_label=args.model,
+            answer_format=args.answer_format,
+            cache_dir=args.cache_dir,
+            variants=variants,
+            seeds=_csv_ints(args.seeds),
+            counts=_csv_ints(args.counts),
+            overwrite_pooling_metrics=args.overwrite,
+        )
     elif args.stage == "all":
         # Separate model loads keep every expensive stage restartable and make
         # failure provenance unambiguous. For cluster jobs, invoke each stage
@@ -129,6 +144,19 @@ def main() -> None:
                     output_dir=args.output_dir,
                     model_label=args.model,
                     answer_format=args.answer_format,
+                )
+            if stage == "attention":
+                outputs["attention-analyze"] = run_labeled_attention_analysis(
+                    stimuli_path=args.stimuli,
+                    config_path=args.config,
+                    output_dir=args.output_dir,
+                    model_label=args.model,
+                    answer_format=args.answer_format,
+                    cache_dir=args.cache_dir,
+                    variants=variants,
+                    seeds=_csv_ints(args.seeds),
+                    counts=_csv_ints(args.counts),
+                    overwrite_pooling_metrics=args.overwrite,
                 )
     else:
         outputs[args.stage] = run_model_stage(stage=args.stage, **common)
