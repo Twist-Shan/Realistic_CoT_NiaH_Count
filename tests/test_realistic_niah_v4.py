@@ -22,6 +22,7 @@ from realistic_niah_v4.behavior import (
 )
 from realistic_niah_v4.attention_outcomes import (
     POOL_METRICS,
+    discovery_seed_bootstrap_stability,
     layer_pooling_metrics,
     rank_broad_candidates,
 )
@@ -296,6 +297,11 @@ def test_broad_candidate_ranking_requires_full_grid_visibility() -> None:
     sliding = summary[summary["head"] == 1].iloc[0]
     assert sliding["full_visibility_rate"] == pytest.approx(0.5)
     assert not bool(sliding["is_broad_candidate"])
+    stability = discovery_seed_bootstrap_stability(
+        pd.DataFrame(rows), summary, top_k=1, replicates=20
+    )
+    assert len(stability) == 1
+    assert stability.iloc[0]["top_k_selection_frequency"] == pytest.approx(1.0)
 
 
 def test_representation_rows_inherit_actual_generation_labels(tmp_path: Path) -> None:

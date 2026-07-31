@@ -1112,6 +1112,90 @@ def _ranking_stability(
     return pd.DataFrame(rows)
 
 
+def discovery_seed_bootstrap_stability(
+    detail: pd.DataFrame,
+    summary: pd.DataFrame,
+    *,
+    top_k: int,
+    replicates: int = 500,
+    seed: int = 77231,
+) -> pd.DataFrame:
+    """Measure how often discovery-seed bootstraps recover each top head."""
+
+    rows: list[dict[str, Any]] = []
+    base_rng = np.random.default_rng(int(seed))
+    for (variant, pooling), candidates in summary[
+        summary["is_broad_candidate"]
+    ].groupby(["design_variant", "pooling"], sort=True):
+        candidate_keys = [
+            (int(row.layer), int(row.head))
+            for row in candidates.sort_values("candidate_rank").itertuples(index=False)
+        ]
+        if not candidate_keys:
+            continue
+        frame = detail[
+            (detail["split"] == "discovery")
+            & (detail["count"] >= 2)
+            & (detail["design_variant"] == variant)
+            & (detail["pooling"] == pooling)
+        ]
+        per_seed = frame.groupby(["seed", "layer", "head"], as_index=False)[
+            "pool_primary"
+        ].mean()
+        pivot = per_seed.pivot(
+            index="seed", columns=["layer", "head"], values="pool_primary"
+        )
+        pivot = pivot.reindex(columns=pd.MultiIndex.from_tuples(candidate_keys))
+        if pivot.isna().any().any():
+            raise RuntimeError(
+                f"Incomplete discovery seed/head matrix for {variant} {pooling}"
+            )
+        values = pivot.to_numpy(dtype=float)
+        selections = np.zeros(values.shape[1], dtype=int)
+        rank_sum = np.zeros(values.shape[1], dtype=float)
+        rank_square_sum = np.zeros(values.shape[1], dtype=float)
+        local_seed = int(base_rng.integers(0, 2**31 - 1))
+        rng = np.random.default_rng(local_seed)
+        for _ in range(int(replicates)):
+            sampled = rng.integers(0, values.shape[0], size=values.shape[0])
+            scores = values[sampled].mean(axis=0)
+            order = np.argsort(-scores, kind="stable")
+            ranks = np.empty(len(order), dtype=float)
+            ranks[order] = np.arange(1, len(order) + 1, dtype=float)
+            selected = order[: min(int(top_k), len(order))]
+            selections[selected] += 1
+            rank_sum += ranks
+            rank_square_sum += ranks**2
+        for index, (layer, head) in enumerate(candidate_keys):
+            mean_rank = rank_sum[index] / int(replicates)
+            variance = max(
+                0.0,
+                rank_square_sum[index] / int(replicates) - mean_rank**2,
+            )
+            global_row = candidates[
+                (candidates["layer"] == int(layer))
+                & (candidates["head"] == int(head))
+            ].iloc[0]
+            rows.append(
+                {
+                    "design_variant": str(variant),
+                    "pooling": str(pooling),
+                    "layer": int(layer),
+                    "head": int(head),
+                    "global_candidate_rank": int(global_row["candidate_rank"]),
+                    "discovery_seeds": values.shape[0],
+                    "bootstrap_replicates": int(replicates),
+                    "top_k": int(top_k),
+                    "top_k_selection_frequency": float(
+                        selections[index] / int(replicates)
+                    ),
+                    "bootstrap_mean_rank": float(mean_rank),
+                    "bootstrap_rank_sd": float(math.sqrt(variance)),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 def _plot_outcome_curves(
     detail: pd.DataFrame,
     rankings: Mapping[tuple[str, str], Sequence[Head]],
@@ -1514,6 +1598,13 @@ def analyze_labeled_attention(
     stability = _ranking_stability(rankings, top_k=int(top_k))
     stability_path = tables / "head_ranking_stability.csv"
     stability.to_csv(stability_path, index=False)
+    seed_stability = discovery_seed_bootstrap_stability(
+        detail,
+        summary,
+        top_k=int(top_k),
+    )
+    seed_stability_path = tables / "discovery_seed_bootstrap_head_stability.csv"
+    seed_stability.to_csv(seed_stability_path, index=False)
 
     occurrences, prompts = extract_ranked_occurrence_diagnostics(
         attention_index_path=attention_index_path,
@@ -1611,6 +1702,7 @@ def analyze_labeled_attention(
                 "head_outcomes_by_count": str(outcome_summary_path),
                 "confirmation_effects": str(effects_path),
                 "ranking_stability": str(stability_path),
+                "discovery_seed_bootstrap_stability": str(seed_stability_path),
                 "pooling_comparison": str(comparison_table),
                 "behavior_summary": str(behavior_summary_path),
                 "occurrence_attention": str(tables / "occurrence_attention.csv.gz"),
@@ -1627,6 +1719,7 @@ def analyze_labeled_attention(
         "head_summary": summary_path,
         "outcome_summary": outcome_summary_path,
         "outcome_effects": effects_path,
+        "seed_stability": seed_stability_path,
         "omission_diagnostics": tables / "omission_diagnostics.csv",
         "occurrence_attention": tables / "occurrence_attention.csv.gz",
         "behavior_summary": behavior_summary_path,

@@ -164,7 +164,9 @@ negative on the complete discovery grid, mean needle-minus-negative density is
 positive, and needle density exceeds the head's prompt-wide baseline. There is
 no fallback to negative-contrast heads. N=1 is excluded because its coverage
 is identically one. Confirmation seeds are used for locked correct/wrong
-comparisons, never head selection.
+comparisons, never head selection. A discovery-seed bootstrap additionally
+reports each candidate's top-k selection frequency and rank variability, while
+cross-panel and cross-pooling top-k Jaccard scores quantify rank stability.
 
 The 10k-token prefix is evaluated once with an efficient KV cache. Only the
 single final answer-query token is evaluated with eager attention. The code
