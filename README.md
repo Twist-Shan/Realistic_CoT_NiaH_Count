@@ -1,19 +1,22 @@
 # Realistic CoT NIAH Count
 
 Reproducible experiments for studying exact counting in long
-needle-in-a-haystack (NIAH) passages. The repository contains two related,
+needle-in-a-haystack (NIAH) passages. The repository contains three related,
 but scientifically distinct, research tracks:
 
 1. **Realistic NIAH behavior experiments** compare direct answers,
    enumeration, and native reasoning across registered model checkpoints.
-2. **Dynamic NIAH mechanism experiments** generate tokenizer-aware controlled
+2. **Realistic NIAH V4 mechanisms** test non-thinking representations,
+   answer-query attention, head ablation, and activation patching.
+3. **Dynamic NIAH mechanism experiments** generate tokenizer-aware controlled
    examples for hidden-state, Q/K attention, probing, steering, ablation, and
    activation-restoration analyses.
 
-The current registered behavior protocol is **Realistic NIAH V3**. It covers
-behavior comparison and empirical-law search only; it does not make
-mechanistic or causal claims. Mechanistic questions belong to the Dynamic
-NIAH analysis stack and require separate interventions and evidence.
+The current registered behavior protocol is **Realistic NIAH V3**. The
+registered mechanistic extension is **Realistic NIAH V4**, a two-model,
+non-thinking analysis at 10k tokens. V4 separates four progressively relaxed
+control panels (v4.1-v4.4), prompt-reading representations, answer-query
+attention, and causal interventions. V3 remains behavior-only.
 
 The repository was consolidated non-destructively from
 `NIAH_repo_and_local_runs_001` and `NIAH_repo_and_local_runs_002`. The original
@@ -28,6 +31,7 @@ Remote: <https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git>
 
 | Goal | Primary entry point | Detailed specification |
 | --- | --- | --- |
+| Run the Realistic NIAH V4 mechanism study | `scripts/freeze_realistic_niah_v4.py`, `scripts/run_realistic_niah_v4.py` | [`docs/realistic_niah_v4.md`](docs/realistic_niah_v4.md) |
 | Run or audit Realistic NIAH V3 | `scripts/freeze_realistic_niah_v3.py`, `scripts/launch_realistic_niah_v3.sh` | [`docs/realistic_niah_v3.md`](docs/realistic_niah_v3.md) |
 | Inspect the executable V3 registry | `src/realistic_niah_v3/spec.py`, `configs/realistic_niah_v3.json` | `tests/test_realistic_niah_v3.py` |
 | Reproduce the completed V2 protocol | `src/realistic_niah/spec.py`, `src/realistic_niah/sharding.py` | [`docs/realistic_niah_v2.md`](docs/realistic_niah_v2.md) |
@@ -84,6 +88,11 @@ Reusable logic belongs in `src/`. Scripts should remain command-line
 orchestration layers, and notebooks should call tested functions rather than
 become the only implementation of an analysis.
 
+`src/realistic_niah_v4/` is the registered V4 package. It keeps controlled
+stimulus freezing, exact prompt-span mapping, selective hooks, representation
+statistics, attention scoring, and causal interventions separate. V4 outputs
+belong under an external `runs/realistic_niah_v4/` root.
+
 ## Environments
 
 The repository is imported with `PYTHONPATH=src`; it is not installed as a
@@ -138,6 +147,46 @@ python -m pip install -r requirements-analysis.txt
 Inference and analysis are intentionally separate: the former is a
 model-serving environment, while the latter is a smaller CPU statistical
 environment.
+
+### Registered V4 mechanisms
+
+V4 uses Transformers directly rather than vLLM because it requires selective
+hidden-state hooks, query-row attention, head ablation, and activation
+patching:
+
+```bash
+python3 -m venv /path/to/venvs/realistic-niah-v4
+. /path/to/venvs/realistic-niah-v4/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-mechanistic-v4.txt
+export PYTHONPATH=src
+```
+
+The registered grid has two models (`Qwen3-8B`, `Gemma4-E4B`), count 1-10,
+10,000 canonical passage tokens, and 30 seeds. Its four cumulative panels are:
+
+| Panel | Position | City-score order | City-score content |
+| --- | --- | --- | --- |
+| v4.1 | fixed | fixed | fixed |
+| v4.2 | varied | fixed | fixed |
+| v4.3 | varied | varied | fixed set |
+| v4.4 | varied | varied | varied |
+
+Freeze and audit the 1,200 shared stimuli before any model run:
+
+```bash
+PYTHONPATH=src python scripts/freeze_realistic_niah_v4.py \
+  --config configs/realistic_niah_v4.json \
+  --output-dir /path/to/runs/realistic_niah_v4/run_YYYYMMDD/dataset \
+  --cache-dir /path/to/hf-cache
+```
+
+Then invoke `scripts/run_realistic_niah_v4.py` once per model and stage:
+`preflight`, `representation-capture`, `representation-analyze`, `attention`,
+`ablation`, and `patching`. See
+[`docs/realistic_niah_v4.md`](docs/realistic_niah_v4.md) for exact estimands,
+discovery/confirmation separation, formulas, commands, outputs, and
+interpretation limits.
 
 ## Registered Realistic NIAH V3
 
@@ -398,6 +447,8 @@ PYTHONPATH=src python -m pytest \
   tests/test_realistic_niah_sharding.py
 
 PYTHONPATH=src python -m pytest tests/test_realistic_niah_v3.py
+
+PYTHONPATH=src python -m pytest tests/test_realistic_niah_v4.py
 
 PYTHONPATH=src python -m pytest \
   tests/test_dynamic_niah_v2_controls.py \
