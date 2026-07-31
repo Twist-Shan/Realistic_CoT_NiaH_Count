@@ -152,12 +152,16 @@ environment.
 
 V4 uses Transformers directly rather than vLLM because it requires selective
 hidden-state hooks, query-row attention, head ablation, and activation
-patching:
+patching. Formal attention runs retain complete float16 answer-query rows
+for every layer and head, together with prompt-level candidate-count logits;
+they never materialize a 10k-by-10k matrix or full-sequence Q/K/V:
 
 ```bash
 python3 -m venv /path/to/venvs/realistic-niah-v4
 . /path/to/venvs/realistic-niah-v4/bin/activate
 python -m pip install --upgrade pip
+python -m pip install torch==2.7.0 torchvision==0.22.0 \
+  --index-url https://download.pytorch.org/whl/cu128
 python -m pip install -r requirements-mechanistic-v4.txt
 export PYTHONPATH=src
 ```

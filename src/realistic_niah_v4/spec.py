@@ -257,7 +257,7 @@ class V4Config:
         if self.attention_prefix_backend not in {"sdpa", "flash_attention_2"}:
             raise ValueError("Unsupported V4 attention_prefix_backend")
         if not isinstance(self.save_raw_attention_rows, bool):
-            raise ValueError("save_raw_attention_rows must be boolean")
+            raise TypeError("save_raw_attention_rows must be boolean")
         if self.attention_save_dtype not in {"float16", "float32"}:
             raise ValueError("attention_save_dtype must be float16 or float32")
         for low, high in self.patch_count_pairs:

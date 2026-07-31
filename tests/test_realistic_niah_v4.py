@@ -10,7 +10,11 @@ import pytest
 import torch
 from torch import nn
 
-from realistic_niah_v4.attention import broad_attention_metrics
+from realistic_niah_v4.attention import (
+    _validate_raw_attention_shard,
+    _write_raw_attention_shard,
+    broad_attention_metrics,
+)
 from realistic_niah_v4.causal import count_logit_metrics
 from realistic_niah_v4.modeling import (
     _attention_tensor,
@@ -375,12 +379,47 @@ def test_decoder_hooks_ablation_and_residual_patch() -> None:
     assert not torch.allclose(baseline, patched)
 
     metrics = count_logit_metrics(baseline, encoding)
-    assert set(
-        [
-            metrics["predicted_count_among_candidates"],
-            metrics["gold_count"],
-        ]
-    ).issubset({1, 2, 3})
+    assert {
+        metrics["predicted_count_among_candidates"],
+        metrics["gold_count"],
+    }.issubset({1, 2, 3})
+    assert 0.0 <= metrics["correct_count_probability"] <= 1.0
+
+
+def test_raw_answer_query_attention_round_trip(tmp_path: Path) -> None:
+    model = ToyLM().eval()
+    adapter = discover_decoder_adapter(model)
+    encoding = _toy_encoding((1, 2, 3, 4))
+    raw_rows = [
+        torch.softmax(
+            torch.arange(
+                adapter.num_heads[layer] * encoding.sequence_length,
+                dtype=torch.float32,
+            ).reshape(adapter.num_heads[layer], encoding.sequence_length),
+            dim=-1,
+        )
+        for layer in range(adapter.num_layers)
+    ]
+    shard = tmp_path / "raw_attention.npz"
+    _write_raw_attention_shard(
+        shard,
+        attention_rows=raw_rows,
+        key_starts=[0] * adapter.num_layers,
+        adapter=adapter,
+        encoding=encoding,
+        save_dtype="float16",
+    )
+    _validate_raw_attention_shard(
+        shard,
+        adapter=adapter,
+        encoding=encoding,
+    )
+    with np.load(shard, allow_pickle=False) as saved:
+        assert saved["layer_000"].dtype == np.float16
+        assert saved["layer_000"].shape == (
+            adapter.num_heads[0],
+            encoding.sequence_length,
+        )
 
 
 def test_attention_tensor_accepts_single_block_query() -> None:
@@ -534,12 +573,10 @@ def test_tiny_transformers_architectures_support_v4_hooks() -> None:
         )
         assert captured["span_end"].shape == (2, 3, 16)
         expected_attention_shapes = (
-            [(4, 8), (4, 12)]
-            if label == "gemma4"
-            else [(4, 12), (4, 12)]
+            [(4, 8), (4, 12)] if label == "gemma4" else [(4, 12), (4, 12)]
         )
         assert [tuple(row.shape) for row in rows] == expected_attention_shapes
-        assert key_starts == [0, 0]
+        assert key_starts == ([4, 0] if label == "gemma4" else [0, 0])
         assert not torch.allclose(baseline, ablated)
         assert not torch.allclose(baseline, patched)
 

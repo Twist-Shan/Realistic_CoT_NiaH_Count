@@ -37,13 +37,9 @@ def count_logit_metrics(
     other = np.delete(candidate_logits, correct_index)
     return {
         "gold_count": int(encoding.count),
-        "predicted_count_among_candidates": int(
-            counts[int(candidate_logits.argmax())]
-        ),
+        "predicted_count_among_candidates": int(counts[int(candidate_logits.argmax())]),
         "correct_count_logit": float(candidate_logits[correct_index]),
-        "correct_count_margin": float(
-            candidate_logits[correct_index] - other.max()
-        ),
+        "correct_count_margin": float(candidate_logits[correct_index] - other.max()),
         "correct_count_probability": float(probabilities[correct_index]),
         "expected_count": float(np.sum(probabilities * counts)),
         "candidate_counts": ",".join(str(int(value)) for value in counts),

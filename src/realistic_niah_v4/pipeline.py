@@ -29,8 +29,13 @@ from .causal import (
 )
 from .modeling import (
     DecoderAdapter,
+    capture_post_block_states,
+    capture_span_states,
     load_registered_model,
+    query_attention_outputs,
     run_last_logits,
+    run_with_head_ablation,
+    run_with_residual_patch,
 )
 from .prompts import PromptEncoding, render_v4_prompt
 from .representation import (
@@ -294,17 +299,115 @@ def preflight_report(
         )
     forward = None
     if forward_smoke:
-        logits = run_last_logits(model, encodings[0])
-        candidate_ids = dict(encodings[0].count_candidate_token_ids)
+        primary = encodings[0]
+        logits = run_last_logits(model, primary)
+        candidate_ids = dict(primary.count_candidate_token_ids)
+        attention_rows, key_starts, attention_logits = query_attention_outputs(
+            model,
+            adapter,
+            primary,
+        )
+        smoke_layers = sorted({0, adapter.num_layers - 1})
+        first_span = primary.needle_spans[0]
+        captured = capture_span_states(
+            model,
+            adapter,
+            primary,
+            spans=[first_span],
+            layers=smoke_layers,
+        )
+        ablated_logits = run_with_head_ablation(
+            model,
+            adapter,
+            primary,
+            [(0, 0)],
+            scope="answer_query",
+        )
+        donor_positions = [primary.query_position] + list(
+            range(first_span.start, first_span.end)
+        )
+        _donor_logits, donor_states = capture_post_block_states(
+            model,
+            adapter,
+            primary,
+            donor_positions,
+            layers=smoke_layers,
+        )
+        first_layer = smoke_layers[0]
+        last_layer = smoke_layers[-1]
+        query_patched = run_with_residual_patch(
+            model,
+            adapter,
+            primary,
+            layer=last_layer,
+            receiver_positions=[primary.query_position],
+            donor_states=donor_states[last_layer][0:1] + 0.01,
+        )
+        end_patched = run_with_residual_patch(
+            model,
+            adapter,
+            primary,
+            layer=first_layer,
+            receiver_positions=[first_span.end - 1],
+            donor_states=donor_states[first_layer][-1:] + 0.01,
+        )
+        span_patched = run_with_residual_patch(
+            model,
+            adapter,
+            primary,
+            layer=first_layer,
+            receiver_positions=list(range(first_span.start, first_span.end)),
+            donor_states=donor_states[first_layer][1:] + 0.01,
+        )
+        smoke_logits = {
+            "baseline": logits,
+            "head_ablation": ablated_logits,
+            "query_patch": query_patched,
+            "needle_end_patch": end_patched,
+            "needle_span_patch": span_patched,
+        }
+        if not all(
+            bool(torch.isfinite(values[list(candidate_ids.values())]).all())
+            for values in smoke_logits.values()
+        ):
+            raise RuntimeError("Preflight produced a non-finite count logit")
         forward = {
             "vocabulary_size": int(logits.numel()),
-            "finite_candidate_logits": all(
-                bool(torch.isfinite(logits[token_id]))
-                for token_id in candidate_ids.values()
+            "finite_candidate_logits": True,
+            "query_attention_shapes": [
+                [int(value) for value in row.shape] for row in attention_rows
+            ],
+            "query_attention_key_starts": [int(value) for value in key_starts],
+            "query_attention_row_sum_range": [
+                float(min(row.sum(dim=-1).min().item() for row in attention_rows)),
+                float(max(row.sum(dim=-1).max().item() for row in attention_rows)),
+            ],
+            "query_cache_vs_full_candidate_logit_max_abs_delta": float(
+                torch.max(
+                    torch.abs(
+                        attention_logits[list(candidate_ids.values())]
+                        - logits[list(candidate_ids.values())]
+                    )
+                ).item()
+            ),
+            "span_capture_shapes": {
+                key: [int(value) for value in tensor.shape]
+                for key, tensor in captured.items()
+            },
+            "smoke_layers": smoke_layers,
+            "head_ablation_max_abs_logit_delta": float(
+                torch.max(torch.abs(ablated_logits - logits)).item()
+            ),
+            "query_patch_max_abs_logit_delta": float(
+                torch.max(torch.abs(query_patched - logits)).item()
+            ),
+            "needle_end_patch_max_abs_logit_delta": float(
+                torch.max(torch.abs(end_patched - logits)).item()
+            ),
+            "needle_span_patch_max_abs_logit_delta": float(
+                torch.max(torch.abs(span_patched - logits)).item()
             ),
         }
-        if not forward["finite_candidate_logits"]:
-            raise RuntimeError("Preflight produced a non-finite count logit")
     return {
         "schema_version": "realistic_niah_v4_preflight_v1",
         "model_label": model_label,

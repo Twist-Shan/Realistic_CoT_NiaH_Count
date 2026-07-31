@@ -145,6 +145,15 @@ therefore materializes an `heads × 1 × key_length` row per layer, never a
 10,000 × 10,000 attention matrix. Local-attention layers are scored over
 their realized key window and record that window's absolute start.
 
+For every prompt, the complete answer-query row from every head is retained
+as an uncompressed float16 NPZ shard. Each layer is a separate array because
+Gemma 4 local and global layers have different key-axis lengths. The shard
+also records absolute key starts, layer types, query position, and sequence
+length. Candidate-count logits and probabilities from the same cached query
+forward are saved in the metric shard and summarized as a behavioral sanity
+check. Full-sequence attention matrices and full Q/K/V tensors are not
+materialized.
+
 ## Causal tests
 
 ### Head ablation
@@ -185,6 +194,8 @@ because it needs hooks, KV-cache access, and eager attention rows.
 python3 -m venv /path/to/venvs/realistic-niah-v4
 . /path/to/venvs/realistic-niah-v4/bin/activate
 python -m pip install --upgrade pip
+python -m pip install torch==2.7.0 torchvision==0.22.0 \
+  --index-url https://download.pytorch.org/whl/cu128
 python -m pip install -r requirements-mechanistic-v4.txt
 export PYTHONPATH=src
 ```
@@ -282,6 +293,12 @@ should remain outside Git. `events.jsonl` records model load and stage
 durations. `runtime_provenance.json` records exact inputs, package versions,
 CUDA visibility, model revision, and Git state.
 
+Within each model's `attention/` directory, `capture/shards/` contains
+per-head metrics and `capture/raw_shards/` contains the complete float16
+answer-query rows. `answer_query_behavior.csv` and
+`answer_query_behavior_by_count.csv` contain the prompt-level behavioral
+sanity checks derived from the same query forwards.
+
 ## Validation status required before formal inference
 
 CPU tests cover configuration, four-panel randomization contracts, exact
@@ -293,8 +310,10 @@ registered checkpoints still require one GPU preflight that confirms:
 - single-token count continuations;
 - finite count logits at 10k context;
 - query-only eager attention output shape for every layer;
+- agreement diagnostics between the cached eager query and full SDPA logits;
 - pre-output-projection head layout;
-- one end-token and one full-span residual patch.
+- answer-query head ablation;
+- answer-query, needle-end, and full-span residual patches.
 
 Passing that smoke test establishes implementation compatibility, not
 scientific validity.

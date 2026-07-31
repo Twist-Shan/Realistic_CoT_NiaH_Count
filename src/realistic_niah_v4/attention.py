@@ -149,9 +149,7 @@ def _collect_attention_encoding(
     )
     behavior = count_logit_metrics(query_logits, encoding)
     rows: list[dict[str, Any]] = []
-    for layer, (layer_rows, key_start) in enumerate(
-        zip(attention_rows, key_starts)
-    ):
+    for layer, (layer_rows, key_start) in enumerate(zip(attention_rows, key_starts)):
         for head in range(layer_rows.shape[0]):
             metrics = broad_attention_metrics(
                 layer_rows[head],
@@ -270,9 +268,7 @@ def _validate_raw_attention_shard(
                 != int(encoding.query_position) + 1 - int(key_starts[layer])
                 or not np.isfinite(values).all()
             ):
-                raise RuntimeError(
-                    f"Invalid raw-attention layer {layer} in {path}"
-                )
+                raise RuntimeError(f"Invalid raw-attention layer {layer} in {path}")
 
 
 @torch.inference_mode()
@@ -301,9 +297,7 @@ def capture_attention_shards(
         )
         shard = output / relative
         raw_relative = (
-            Path("raw_shards")
-            / encoding.design_variant
-            / f"{encoding.stimulus_id}.npz"
+            Path("raw_shards") / encoding.design_variant / f"{encoding.stimulus_id}.npz"
         )
         raw_shard = output / raw_relative
         complete = shard.exists() and (not save_raw_rows or raw_shard.exists())
@@ -351,7 +345,7 @@ def capture_attention_shards(
                 "seed": int(encoding.seed),
                 "split": encoding.split,
                 "count": int(encoding.count),
-                "rows": int(len(frame)),
+                "rows": len(frame),
                 "shard_path": relative.as_posix(),
                 "raw_attention_saved": bool(save_raw_rows),
                 "raw_attention_dtype": str(save_dtype) if save_raw_rows else None,
@@ -603,8 +597,7 @@ def analyze_attention_table(
         )
     behavior = (
         detail.sort_values(["design_variant", "seed", "count", "layer", "head"])
-        .drop_duplicates("stimulus_id")
-        [
+        .drop_duplicates("stimulus_id")[
             [
                 "stimulus_id",
                 "design_variant",
@@ -624,8 +617,7 @@ def analyze_attention_table(
         == behavior["gold_count"].astype(int)
     ).astype(float)
     behavior["expected_count_absolute_error"] = np.abs(
-        behavior["expected_count"].astype(float)
-        - behavior["gold_count"].astype(float)
+        behavior["expected_count"].astype(float) - behavior["gold_count"].astype(float)
     )
     behavior_path = output / "answer_query_behavior.csv"
     behavior.to_csv(behavior_path, index=False)
