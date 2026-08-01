@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 
 
@@ -293,3 +294,75 @@ def test_core_figures_define_axes_and_accessibility_text() -> None:
     assert "confirmation R²" in representation_svg
     assert "R²=0" in representation_svg
     assert "<title" in representation_svg and "<desc" in representation_svg
+
+
+def test_every_static_figure_caption_is_self_contained() -> None:
+    report = _load_report_module()
+    captions = re.findall(
+        r"<figcaption>(.*?)</figcaption>", report.REPORT_TEMPLATE, flags=re.DOTALL
+    )
+    # The four B2-F3b cards are emitted by _static_figure_html rather than
+    # stored literally in REPORT_TEMPLATE; the template itself has 16 figures.
+    assert len(captions) == 16
+    for caption in captions:
+        assert any(marker in caption for marker in ("横轴", "横向"))
+        assert any(marker in caption for marker in ("纵轴", "纵向", "上排"))
+    template = report.REPORT_TEMPLATE
+    assert "靛蓝、紫、青、粉四条线依次表示 V4.1、V4.2、V4.3、V4.4" in template
+    assert "粉线是 seed compactness C=1/(1+R<sub>LOO</sub>)" in template
+    assert "灰色虚线连接 V4.1" in template
+    assert "粉色为负值" in template and "绿色为正值" in template
+    assert "灰线只连接 chance 与 observed" in template
+    assert "右侧文字重复 estimate [CI]" in template
+    assert "图 B2-F3a · Interactive prompt-reading counter trajectory" in template
+
+
+def test_layer_sweep_and_forest_layouts_reserve_annotation_space() -> None:
+    report = _load_report_module()
+    sweep_rows = []
+    for model in report.MODELS:
+        for pooling in report.POOLINGS:
+            for layer in (0, 1):
+                sweep_rows.append(
+                    {
+                        "model": model,
+                        "pooling": pooling,
+                        "layer": layer,
+                        "full_space_discovery_cv_r2": 0.8 + 0.1 * layer,
+                        "pca_evr_pc1_3": 0.5 + 0.1 * layer,
+                        "count_signal_capture_pc1_3": 0.6 + 0.1 * layer,
+                        "discovery_compactness": 0.7 + 0.1 * layer,
+                        "probe_optimal": layer == 1,
+                        "manifold_display": layer == 0,
+                    }
+                )
+    sweep = report._layer_sweep_svg(sweep_rows)
+    assert 'viewBox="0 0 1180 850"' in sweep
+    assert "seed compactness C" in sweep
+    assert "P · probe-optimal" in sweep and "M · manifold-display" in sweep
+
+    forest = report._forest_svg(
+        [
+            {
+                "model": "Qwen3-8B",
+                "estimate": 0.1,
+                "low": -0.1,
+                "high": 0.3,
+            },
+            {
+                "model": "Gemma4-E4B",
+                "estimate": 0.2,
+                "low": 0.0,
+                "high": 0.4,
+            },
+        ],
+        estimate_key="estimate",
+        low_key="low",
+        high_key="high",
+        title="Layout audit",
+        axis_label="paired effect",
+        label=lambda row: row["model"],
+    )
+    assert 'viewBox="0 0 1280 ' in forest
+    assert 'x="1262"' in forest and 'text-anchor="end"' in forest
+    assert "Qwen3-8B" in forest and "Gemma4-E4B" in forest
