@@ -50,30 +50,161 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     report = _load_report_module()
     template = report.REPORT_TEMPLATE
     section_ids = (
-        "overview",
-        "design",
-        "definitions",
         "behavior",
-        "metrics",
-        "counter",
-        "attention-heads",
-        "span-end-attention",
-        "causal",
-        "synthesis",
-        "limits",
-        "reproducibility",
+        "counter-representation",
+        "attention-representation",
+        "head-ablation",
+        "geometry-steering",
     )
+    assert template.count('<section id="') == 5
     for section_id in section_ids:
         assert f'<section id="{section_id}">' in template
-    assert template.count('class="section-conclusion"') >= len(section_ids)
+    for block in range(1, 6):
+        assert f"Block {block} / 5" in template
+    assert template.count('class="section-conclusion"') >= 5
     assert "broad evidence aggregation" in template
     assert "late executable query state" in template
     assert "@@BEHAVIOR_ACCURACY_SVG@@" in template
     assert "@@REPRESENTATION_R2_SVG@@" in template
+    assert "@@LAYER_SWEEP_SVG@@" in template
+    assert "@@ANSWER_QUERY_COUNTER_SVG@@" in template
+    assert "@@ATTENTION_HEAD_ATLAS_SVG@@" in template
+    assert "@@ATTENTION_HEAD_PROFILE_SVG@@" in template
+    assert "@@ATTENTION_OUTCOME_EFFECT_SVG@@" in template
     assert "@@ATTENTION_BREADTH_SVG@@" in template
     assert "@@CAUSAL_ABLATION_SVG@@" in template
     assert "@@ANSWER_QUERY_ADOPTION_SVG@@" in template
     assert "@@CAUSAL_STEERING_SVG@@" in template
+    assert 'id="layer-select"' in template
+    assert "Discovery / confirmation" in template
+    assert "Centroid transplant" in template
+    assert "Donor-state replacement" in template
+    assert "N<sub>eff,H</sub>" in template
+    assert "N<sub>eff,2</sub>" in template
+    assert "Full-attention visibility" in template
+    assert "Count-adjusted wrong−correct" in template
+    assert "controls.layer.value=String(defaultLayer??layers[0])" in template
+    assert "previous!==null" not in template
+
+
+def test_attention_phenotype_rules_are_ordered_and_explicit() -> None:
+    report = _load_report_module()
+    shared = {
+        "dominant_share": 0.2,
+        "winner_frequency": 0.4,
+        "winner_mode": 4,
+        "first_share": 0.1,
+        "winner_is_first": 0.1,
+        "local_count": 1.0,
+        "local_effective_fraction": 0.2,
+        "dominant_quarter_mass": 0.3,
+        "span_mean_effective_number": 2.0,
+        "span_mean_dominant_share": 0.5,
+    }
+    assert report._classify_attention_phenotype(
+        effective_number=6.0, **shared
+    ) == "global_endpoint_aggregator"
+    assert report._classify_attention_phenotype(
+        effective_number=3.0,
+        **{
+            **shared,
+            "local_count": 2.0,
+            "local_effective_fraction": 0.8,
+            "dominant_quarter_mass": 0.5,
+        },
+    ) == "partition_local_endpoint_aggregator"
+    assert report._classify_attention_phenotype(
+        effective_number=2.0,
+        **{
+            **shared,
+            "dominant_share": 0.9,
+            "winner_frequency": 0.8,
+            "winner_mode": 1,
+            "first_share": 0.8,
+            "winner_is_first": 0.9,
+        },
+    ) == "first_needle_locator"
+    assert report._classify_attention_phenotype(
+        effective_number=2.0,
+        **{
+            **shared,
+            "dominant_share": 0.8,
+            "winner_frequency": 0.8,
+            "winner_mode": 7,
+        },
+    ) == "targeted_occurrence_retriever"
+    assert report._classify_attention_phenotype(
+        effective_number=3.0,
+        **{
+            **shared,
+            "span_mean_effective_number": 6.0,
+            "span_mean_dominant_share": 0.25,
+        },
+    ) == "broad_span_mean_only"
+
+
+def test_manifold_layer_selection_applies_the_decodability_gate() -> None:
+    report = _load_report_module()
+    rows = [
+        {
+            "layer": 0,
+            "full_space_discovery_cv_r2": 0.99,
+            "manifold_fidelity_m3": 0.30,
+        },
+        {
+            "layer": 1,
+            "full_space_discovery_cv_r2": 0.98,
+            "manifold_fidelity_m3": 0.50,
+        },
+        {
+            "layer": 2,
+            "full_space_discovery_cv_r2": 0.80,
+            "manifold_fidelity_m3": 0.95,
+        },
+    ]
+    assert report._select_manifold_layer(rows) == 1
+
+
+def test_answer_query_counter_is_a_separate_layered_figure() -> None:
+    report = _load_report_module()
+    projections = {}
+    layers = {
+        "Qwen3-8B": (9, 18, 26),
+        "Gemma4-E4B": (10, 20, 31),
+    }
+    for model, model_layers in layers.items():
+        for layer in model_layers:
+            rows = []
+            for variant in ("v4.1", "v4.4"):
+                for seed in (1234, 1235):
+                    for count in range(1, 11):
+                        rows.append(
+                            [
+                                variant,
+                                seed,
+                                count,
+                                float(count),
+                                float(count * count + seed % 2),
+                                0.0,
+                                0.0,
+                                0.0,
+                                0.0,
+                            ]
+                        )
+            projections[f"{model}|{layer}"] = {
+                "model": model,
+                "layer": layer,
+                "explained_variance_ratio": [0.4, 0.3, 0.1, 0.1, 0.05, 0.05],
+                "rows": rows,
+            }
+    svg = report._answer_query_counter_svg(projections)
+    assert "Answer-query count manifolds" in svg
+    assert "PC1 score" in svg and "PC2 score" in svg
+    for model, model_layers in layers.items():
+        assert model in svg
+        for layer in model_layers:
+            assert f"L{layer}" in svg
+    assert "<title" in svg and "<desc" in svg
 
 
 def test_core_figures_define_axes_and_accessibility_text() -> None:

@@ -262,23 +262,43 @@ PYTHONPATH=src python scripts/build_realistic_niah_v4_representation_report.py \
   --repo-root .
 ```
 
-The report is the unified V4 result artifact. It starts from the full
-confirmation behavior boundary, then follows the evidence from span-end versus
-span-mean representation geometry, the exhaustive Qwen attention-head
-phenotype bank, undercount/omission diagnostics, and finally matched-control
-causal tests. Every section states its current conclusion and limits; every
-figure defines its axes and estimand; new quantities such as effective number,
-tail alignment, donor adoption, and direction-aligned shift are defined with
-their calculation rules.
+The report is the unified V4 result artifact and contains exactly five main
+evidence blocks: (1) behavior, (2) prompt-reading and answer-query counter
+representations, (3) answer-query attention representations, (4) head-bank
+ablation, and (5) geometry steering. Experimental design, definitions,
+mechanistic synthesis, limitations, and provenance are explicit preamble or
+appendix material rather than extra result blocks. Every major subsection ends
+with the strongest conclusion licensed by that evidence and the boundary that
+remains untested.
 
-The report includes Aurora-native 2D audit panels and a draggable, zoomable 3D
-counter. Within each model/pooling panel, PCA is fit on v4.1 discovery at the
-registered primary layer and reused for all variants; PC1--PC6, split, variant,
-and actual greedy correct/wrong strata are switchable. The causal section
-reports seed-cluster intervals for broad-head ablation, exact span-end residual
-transport, answer-query donor-state transport, and centroid steering. It
-preserves all five Gemma strict-invalid `11` continuations rather than silently
-dropping them. See
+The counter block includes an all-layer discovery sweep. It distinguishes the
+`probe-optimal` layer, selected by grouped-seed full-space CV R², from the
+`manifold-display` layer, selected only after a decodability gate using 3-PC
+explained variance, count-centroid signal capture, and leave-one-seed-out
+compactness. The Aurora 3D prompt counter exposes every captured post-block
+layer, PC1--PC6, split, panel, and actual greedy outcome; a separate figure
+shows answer-query counter geometry. Exact needle-end and exact answer-query
+donor-state patching remain in this block because they test whether the two
+representations are transportable.
+
+The attention block now recomputes raw N=10 discovery profiles for both models.
+It contains an all-head layer×head atlas, frozen rules for global broad,
+partition-local broad, first-needle locator, other targeted retrieval,
+span-mean-only breadth, and mixed candidates, a count-adjusted correct/wrong
+comparison, and both omitted-tail and exact nested-new-needle diagnostics.
+Machine-readable outputs are written beside the HTML as
+`realistic_niah_v4_head_atlas.csv`,
+`realistic_niah_v4_head_phenotypes.csv`, and
+`realistic_niah_v4_attention_outcome_effects.csv`.
+
+The two causal blocks report seed-cluster intervals for matched head-bank
+ablation and centroid-delta steering. The report explicitly distinguishes
+sample-wise full donor-state replacement (`h'=h_d`), the unrun centroid
+transplant (`h'=mu_target`), and the completed full-dimensional centroid delta
+(`h'=h+mu_target-mu_receiver`); the last establishes directional
+manipulability, not full-state sufficiency. All five Gemma strict-invalid `11`
+continuations remain in the conservative denominator rather than being
+silently dropped. See
 [`docs/realistic_niah_v4_causal_screen_20260801.md`](docs/realistic_niah_v4_causal_screen_20260801.md)
 for the complete estimands, results, audit, and limitations.
 

@@ -8,6 +8,7 @@ import json
 import math
 import subprocess
 import sys
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
+from sklearn.linear_model import Ridge
+from sklearn.metrics import r2_score
+from sklearn.model_selection import GroupKFold
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 
 REPO_SRC = Path(__file__).resolve().parents[1] / "src"
@@ -27,6 +33,9 @@ from realistic_niah_v4.causal_audit import (  # noqa: E402
 )
 from realistic_niah_v4.answer_query_patching import (  # noqa: E402
     audit_answer_query_patching,
+)
+from realistic_niah_v4.partitioned_attention import (  # noqa: E402
+    partition_sample_metrics,
 )
 
 
@@ -87,8 +96,14 @@ COUNT_COLORS = (
 PHENOTYPE_COLORS = {
     "global_endpoint_aggregator": AURORA["aurora_green"],
     "partition_local_endpoint_aggregator": AURORA["ice_cyan"],
+    "first_needle_locator": AURORA["aurora_yellow"],
+    "targeted_occurrence_retriever": AURORA["sunset_pink"],
     "occurrence_endpoint_selector": AURORA["sunset_pink"],
     "other": AURORA["frost_gray"],
+}
+MODEL_HEAD_GRIDS = {
+    "Qwen3-8B": (36, 32),
+    "Gemma4-E4B": (42, 8),
 }
 
 
@@ -147,6 +162,223 @@ def _primary_layers(model_root: Path) -> dict[str, int]:
         str(pooling): int(layer)
         for pooling, layer in payload["primary_layer_selection"]["layers"].items()
     }
+
+
+def _grouped_pca_ridge_cv(
+    x: np.ndarray,
+    y: np.ndarray,
+    groups: np.ndarray,
+    *,
+    alphas: tuple[float, ...] = (0.1, 1.0, 10.0, 100.0, 1000.0),
+) -> tuple[float, float]:
+    """Discovery-only grouped-seed ridge CV in an already fitted PCA space.
+
+    PCA is deliberately fitted once on all discovery states because this metric
+    diagnoses how much of the discovery count signal is visible in the plotted
+    coordinates.  It is not reported as a held-out confirmation estimate.
+    """
+
+    splitter = GroupKFold(n_splits=min(5, len(np.unique(groups))))
+    scores: list[tuple[float, float]] = []
+    for alpha in alphas:
+        fold_scores: list[float] = []
+        for train, validation in splitter.split(x, y, groups):
+            estimator = make_pipeline(
+                StandardScaler(), Ridge(alpha=float(alpha), solver="lsqr")
+            )
+            estimator.fit(x[train], y[train])
+            fold_scores.append(
+                float(r2_score(y[validation], estimator.predict(x[validation])))
+            )
+        scores.append((float(alpha), float(np.mean(fold_scores))))
+    return max(scores, key=lambda item: item[1])
+
+
+def _select_manifold_layer(
+    rows: list[dict[str, Any]],
+    *,
+    cv_tolerance: float = 0.02,
+) -> int:
+    """Choose a discovery-only 3D display layer without confirmation leakage.
+
+    First retain layers whose full-space grouped-seed CV-R2 is within
+    ``cv_tolerance`` of the probe optimum.  Among those layers, maximize the
+    multiplicative 3D manifold-fidelity score
+
+        M3 = EVR3 * signal_capture3 * 1 / (1 + LOO_noise_to_signal).
+
+    The gate prevents a visually compact but weakly count-decodable layer from
+    winning.  The product requires all three descriptive properties rather than
+    allowing one large term to compensate additively for a failed term.
+    """
+
+    if not rows:
+        raise ValueError("Cannot select a manifold layer from an empty sweep")
+    maximum_cv = max(float(row["full_space_discovery_cv_r2"]) for row in rows)
+    candidates = [
+        row
+        for row in rows
+        if float(row["full_space_discovery_cv_r2"])
+        >= maximum_cv - float(cv_tolerance)
+    ]
+    selected = sorted(
+        candidates,
+        key=lambda row: (-float(row["manifold_fidelity_m3"]), int(row["layer"])),
+    )[0]
+    return int(selected["layer"])
+
+
+def _layer_sweep(
+    model_root: Path,
+    *,
+    model: str,
+    probe_layers: dict[str, int],
+) -> tuple[
+    list[dict[str, Any]],
+    dict[str, int],
+    dict[str, dict[int, PCA]],
+]:
+    """Compute discovery-only PCA/manifold diagnostics for every decoder block."""
+
+    capture_root = model_root / "representation" / "capture"
+    records = [
+        record
+        for record in _read_jsonl(capture_root / "capture_index.jsonl")
+        if str(record["design_variant"]) == "v4.1"
+        and str(record["split"]) == "discovery"
+    ]
+    records.sort(key=lambda record: int(record["seed"]))
+    if len(records) != 20:
+        raise RuntimeError(
+            f"{model}: expected 20 v4.1 discovery representation shards"
+        )
+    metrics = pd.read_csv(model_root / "representation" / "analysis" /
+                          "representation_layer_metrics.csv")
+    all_rows: list[dict[str, Any]] = []
+    display_layers: dict[str, int] = {}
+    pca_models: dict[str, dict[int, PCA]] = {pooling: {} for pooling in POOLINGS}
+    for pooling in POOLINGS:
+        arrays: list[np.ndarray] = []
+        layer_indices: np.ndarray | None = None
+        seeds: list[int] = []
+        for record in records:
+            shard = capture_root / str(record["shard_path"])
+            with np.load(shard, allow_pickle=False) as payload:
+                current_layers = np.asarray(payload["layer_indices"], dtype=int)
+                if layer_indices is None:
+                    layer_indices = current_layers
+                elif not np.array_equal(layer_indices, current_layers):
+                    raise RuntimeError(f"{model}/{pooling}: inconsistent layer grid")
+                arrays.append(np.asarray(payload[pooling]))
+            seeds.append(int(record["seed"]))
+        assert layer_indices is not None
+        states = np.stack(arrays, axis=0)
+        count_labels = np.tile(np.arange(1, 11, dtype=float), len(states))
+        seed_labels = np.repeat(np.asarray(seeds, dtype=int), 10)
+        pooling_rows: list[dict[str, Any]] = []
+        for layer_axis, layer in enumerate(layer_indices):
+            layer_states = np.asarray(states[:, layer_axis], dtype=np.float32)
+            flat = layer_states.reshape(-1, layer_states.shape[-1])
+            pca = PCA(n_components=6, svd_solver="randomized", random_state=0)
+            projected = pca.fit_transform(flat)
+            pca_models[pooling][int(layer)] = pca
+            pca_alpha, pca3_cv_r2 = _grouped_pca_ridge_cv(
+                projected[:, :3], count_labels, seed_labels
+            )
+            centroids = np.stack(
+                [flat[count_labels == count].mean(axis=0) for count in range(1, 11)]
+            )
+            grand = centroids.mean(axis=0, keepdims=True)
+            centered_centroids = centroids - grand
+            full_signal = float(np.sum(centered_centroids * centered_centroids))
+            projected_signal = float(
+                np.sum((centered_centroids @ pca.components_[:3].T) ** 2)
+            )
+            signal_capture = (
+                projected_signal / full_signal if full_signal > 0 else math.nan
+            )
+            seed_sum = layer_states.sum(axis=0, dtype=np.float64)
+            leave_one_out_centroids = (
+                seed_sum[None, :, :] - layer_states.astype(np.float64)
+            ) / (len(layer_states) - 1)
+            leave_one_out_residual = (
+                layer_states.astype(np.float64) - leave_one_out_centroids
+            )
+            noise_rms = float(
+                np.sqrt(np.mean(np.sum(leave_one_out_residual**2, axis=-1)))
+            )
+            signal_rms = float(
+                np.sqrt(np.mean(np.sum(centered_centroids**2, axis=-1)))
+            )
+            noise_to_signal = (
+                noise_rms / signal_rms if signal_rms > 0 else math.nan
+            )
+            compactness = (
+                1.0 / (1.0 + noise_to_signal)
+                if math.isfinite(noise_to_signal)
+                else math.nan
+            )
+            metric = metrics[
+                (metrics["design_variant"] == "v4.1")
+                & (metrics["pooling"] == pooling)
+                & (pd.to_numeric(metrics["layer"]).astype(int) == int(layer))
+            ]
+            if len(metric) != 1:
+                raise RuntimeError(
+                    f"{model}/{pooling}/L{layer}: missing unique layer metric"
+                )
+            metric_row = metric.iloc[0]
+            evr = np.asarray(pca.explained_variance_ratio_, dtype=float)
+            row = {
+                "model": model,
+                "pooling": pooling,
+                "layer": int(layer),
+                "full_space_discovery_cv_r2": float(
+                    metric_row["discovery_group_cv_r2"]
+                ),
+                "pca3_discovery_cv_r2": float(pca3_cv_r2),
+                "pca3_ridge_alpha": float(pca_alpha),
+                "pca_evr_pc1": float(evr[0]),
+                "pca_evr_pc1_2": float(evr[:2].sum()),
+                "pca_evr_pc1_3": float(evr[:3].sum()),
+                "pca_evr_pc1_6": float(evr[:6].sum()),
+                "count_signal_capture_pc1_3": float(signal_capture),
+                "discovery_loo_noise_to_signal": float(noise_to_signal),
+                "discovery_compactness": float(compactness),
+                "centroid_step_cv": float(
+                    metric_row["centroid_adjacent_step_cv"]
+                ),
+                "centroid_path_to_chord": float(
+                    metric_row["centroid_path_to_chord_ratio"]
+                ),
+                "centroid_successive_cosine": float(
+                    metric_row["centroid_adjacent_direction_cosine"]
+                ),
+            }
+            row["manifold_fidelity_m3"] = float(
+                row["pca_evr_pc1_3"]
+                * row["count_signal_capture_pc1_3"]
+                * row["discovery_compactness"]
+            )
+            pooling_rows.append(row)
+        selected_layer = _select_manifold_layer(pooling_rows)
+        display_layers[pooling] = selected_layer
+        maximum_cv = max(
+            float(row["full_space_discovery_cv_r2"]) for row in pooling_rows
+        )
+        for row in pooling_rows:
+            row["within_decodability_gate"] = bool(
+                float(row["full_space_discovery_cv_r2"]) >= maximum_cv - 0.02
+            )
+            row["probe_optimal"] = bool(
+                int(row["layer"]) == int(probe_layers[pooling])
+            )
+            row["manifold_display"] = bool(
+                int(row["layer"]) == int(selected_layer)
+            )
+        all_rows.extend(pooling_rows)
+        del states
+    return all_rows, display_layers, pca_models
 
 
 def _n10_labels(
@@ -255,6 +487,188 @@ def _load_projection(
         ],
         "rows": rows,
     }
+
+
+def _load_prompt_projection_layers(
+    model_root: Path,
+    *,
+    model: str,
+    labels: dict[tuple[str, int], dict[str, Any]],
+    pca_models: dict[str, dict[int, PCA]],
+    layer_rows: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Project every captured post-block layer for the interactive viewer."""
+
+    capture_root = model_root / "representation" / "capture"
+    records = _read_jsonl(capture_root / "capture_index.jsonl")
+    projections: dict[str, dict[str, Any]] = {}
+    for pooling in POOLINGS:
+        tensors: dict[str, list[tuple[int, str, np.ndarray]]] = {
+            variant: [] for variant in VARIANTS
+        }
+        layer_indices: np.ndarray | None = None
+        for record in records:
+            variant = str(record["design_variant"])
+            if variant not in tensors:
+                continue
+            shard = capture_root / str(record["shard_path"])
+            with np.load(shard, allow_pickle=False) as payload:
+                current_layers = np.asarray(payload["layer_indices"], dtype=int)
+                if layer_indices is None:
+                    layer_indices = current_layers
+                elif not np.array_equal(layer_indices, current_layers):
+                    raise RuntimeError(f"{model}/{pooling}: inconsistent layer grid")
+                states = np.asarray(payload[pooling])
+            tensors[variant].append(
+                (int(record["seed"]), str(record["split"]), states)
+            )
+        assert layer_indices is not None
+        for variant in VARIANTS:
+            tensors[variant].sort(key=lambda item: item[0])
+            if len(tensors[variant]) != 30:
+                raise RuntimeError(
+                    f"{model}/{pooling}/{variant}: expected 30 seed captures"
+                )
+        layer_lookup = {
+            int(row["layer"]): row
+            for row in layer_rows
+            if row["model"] == model and row["pooling"] == pooling
+        }
+        for layer_axis, layer in enumerate(layer_indices):
+            pca = pca_models[pooling][int(layer)]
+            rows: list[list[Any]] = []
+            for variant in VARIANTS:
+                for seed, split, states_by_layer in tensors[variant]:
+                    states = np.asarray(
+                        states_by_layer[int(layer_axis)], dtype=np.float32
+                    )
+                    projected = pca.transform(states)
+                    label = labels.get((variant, seed))
+                    if label is None:
+                        raise RuntimeError(
+                            f"Missing final-output label for {model}/{variant}/seed{seed}"
+                        )
+                    for count_index, point in enumerate(projected, start=1):
+                        rows.append(
+                            [
+                                variant,
+                                int(seed),
+                                split,
+                                label["outcome"],
+                                label["parsed_count"],
+                                label["count_error"],
+                                int(count_index),
+                                *[round(float(value), 6) for value in point],
+                            ]
+                        )
+            diagnostic = layer_lookup[int(layer)]
+            key = f"{model}|{pooling}|{int(layer)}"
+            projections[key] = {
+                "model": model,
+                "pooling": pooling,
+                "layer": int(layer),
+                "fit_variant": "v4.1",
+                "fit_split": "discovery",
+                "probe_optimal": bool(diagnostic["probe_optimal"]),
+                "manifold_display": bool(diagnostic["manifold_display"]),
+                "manifold_fidelity_m3": round(
+                    float(diagnostic["manifold_fidelity_m3"]), 8
+                ),
+                "explained_variance_ratio": [
+                    round(float(value), 8)
+                    for value in pca.explained_variance_ratio_
+                ],
+                "rows": rows,
+            }
+        del tensors
+    return projections
+
+
+def _answer_query_projection_data(
+    run_root: Path,
+) -> dict[str, dict[str, Any]]:
+    """PCA of saved discovery answer-query states at causal-screen layers."""
+
+    result: dict[str, dict[str, Any]] = {}
+    for model in MODELS:
+        family_root = (
+            run_root
+            / model
+            / "numeric"
+            / "causal"
+            / "geometric_steering_v1"
+        )
+        candidates: list[Path] = []
+        for candidate in sorted(family_root.glob("design_*")):
+            design_path = candidate / "design.json"
+            if not design_path.exists():
+                continue
+            design = _read_json(design_path)
+            if design.get("methods") == ["centroid_delta"]:
+                candidates.append(candidate)
+        if len(candidates) != 1:
+            raise RuntimeError(
+                f"{model}: expected one completed centroid-delta steering design"
+            )
+        capture_root = candidates[0] / "discovery_capture"
+        records = _read_jsonl(capture_root / "capture_index.jsonl")
+        metadata: list[tuple[str, int, int]] = []
+        state_rows: list[np.ndarray] = []
+        layer_indices: np.ndarray | None = None
+        for record in records:
+            shard = capture_root / str(record["shard_path"])
+            with np.load(_native_open_path(shard), allow_pickle=False) as payload:
+                current_layers = np.asarray(payload["layer_indices"], dtype=int)
+                if layer_indices is None:
+                    layer_indices = current_layers
+                elif not np.array_equal(layer_indices, current_layers):
+                    raise RuntimeError(f"{model}: query-state layer grid changed")
+                states = np.asarray(payload["query_states"], dtype=np.float32)
+            state_rows.append(states)
+            metadata.append(
+                (
+                    str(record["design_variant"]),
+                    int(record["seed"]),
+                    int(record["count"]),
+                )
+            )
+        assert layer_indices is not None
+        states = np.stack(state_rows, axis=0)
+        if states.shape[:2] != (800, len(layer_indices)):
+            raise RuntimeError(
+                f"{model}: unexpected answer-query discovery shape {states.shape}"
+            )
+        for layer_axis, layer in enumerate(layer_indices):
+            reference_mask = np.asarray(
+                [variant == "v4.1" for variant, _seed, _count in metadata]
+            )
+            pca = PCA(n_components=6, svd_solver="randomized", random_state=0)
+            pca.fit(states[reference_mask, int(layer_axis)])
+            projected = pca.transform(states[:, int(layer_axis)])
+            rows: list[list[Any]] = []
+            for (variant, seed, count), point in zip(metadata, projected):
+                rows.append(
+                    [
+                        variant,
+                        int(seed),
+                        int(count),
+                        *[round(float(value), 6) for value in point],
+                    ]
+                )
+            result[f"{model}|{int(layer)}"] = {
+                "model": model,
+                "layer": int(layer),
+                "position": "answer_query",
+                "fit_variant": "v4.1",
+                "fit_split": "discovery",
+                "explained_variance_ratio": [
+                    round(float(value), 8)
+                    for value in pca.explained_variance_ratio_
+                ],
+                "rows": rows,
+            }
+        del states
+    return result
 
 
 def _metric_rows(
@@ -788,6 +1202,344 @@ def _representation_r2_svg(rows: list[dict[str, Any]]) -> str:
     return "".join(parts)
 
 
+def _layer_row(
+    rows: list[dict[str, Any]],
+    *,
+    model: str,
+    pooling: str,
+    selection: str,
+) -> dict[str, Any]:
+    matches = [
+        row
+        for row in rows
+        if row["model"] == model
+        and row["pooling"] == pooling
+        and bool(row[selection])
+    ]
+    if len(matches) != 1:
+        raise RuntimeError(f"Expected one {selection} row for {model}/{pooling}")
+    return matches[0]
+
+
+def _table_layer_selection_html(rows: list[dict[str, Any]]) -> str:
+    rendered: list[str] = []
+    for model in MODELS:
+        for pooling in POOLINGS:
+            probe = _layer_row(
+                rows,
+                model=model,
+                pooling=pooling,
+                selection="probe_optimal",
+            )
+            display = _layer_row(
+                rows,
+                model=model,
+                pooling=pooling,
+                selection="manifold_display",
+            )
+            rendered.append(
+                "<tr>"
+                f"<td>{html.escape(model)}</td>"
+                f"<td><code>{html.escape(pooling)}</code></td>"
+                f"<td>L{int(probe['layer'])}</td>"
+                f"<td>{_number(probe['full_space_discovery_cv_r2'])}</td>"
+                f"<td>{_number(probe['pca_evr_pc1_3'])}</td>"
+                f"<td>{_number(probe['count_signal_capture_pc1_3'])}</td>"
+                f"<td>{_number(probe['discovery_loo_noise_to_signal'])}</td>"
+                f"<td>L{int(display['layer'])}</td>"
+                f"<td>{_number(display['full_space_discovery_cv_r2'])}</td>"
+                f"<td>{_number(display['pca_evr_pc1_3'])}</td>"
+                f"<td>{_number(display['count_signal_capture_pc1_3'])}</td>"
+                f"<td>{_number(display['pca3_discovery_cv_r2'])}</td>"
+                f"<td>{_number(display['discovery_loo_noise_to_signal'])}</td>"
+                f"<td>{_number(display['manifold_fidelity_m3'])}</td>"
+                "</tr>"
+            )
+    return "".join(rendered)
+
+
+def _layer_sweep_svg(rows: list[dict[str, Any]]) -> str:
+    width, height = 1120, 760
+    panel_width, panel_height = 405, 235
+    positions = ((95, 95), (635, 95), (95, 445), (635, 445))
+    metrics = (
+        ("full_space_discovery_cv_r2", "full-space CV R²", AURORA["polar_violet"]),
+        ("pca_evr_pc1_3", "PC1–3 total EVR", AURORA["ice_cyan"]),
+        (
+            "count_signal_capture_pc1_3",
+            "PC1–3 count-signal capture",
+            AURORA["aurora_green"],
+        ),
+        ("discovery_compactness", "seed compactness", AURORA["sunset_pink"]),
+    )
+    parts = [
+        f'<svg class="stat-svg" viewBox="0 0 {width} {height}" role="img" '
+        'aria-labelledby="layer-sweep-title layer-sweep-desc">',
+        '<title id="layer-sweep-title">Discovery-only decoder-layer sweep for PCA manifold selection</title>',
+        '<desc id="layer-sweep-desc">Each panel compares full-space count decodability, three-component PCA variance, three-component count-signal capture, and leave-one-seed-out compactness. Dashed brown marks the original probe-optimal layer; solid indigo marks the manifold display layer.</desc>',
+        f'<rect width="{width}" height="{height}" fill="{AURORA["snow_white"]}"/>',
+        f'<g font-family="Aptos,Segoe UI,system-ui,sans-serif" fill="{AURORA["night_black"]}">',
+    ]
+    legend_x = 110
+    for _key, label, color in metrics:
+        parts.extend(
+            [
+                f'<line x1="{legend_x}" y1="34" x2="{legend_x+30}" y2="34" stroke="{color}" stroke-width="4"/>',
+                f'<text x="{legend_x+38}" y="38" font-size="11">{html.escape(label)}</text>',
+            ]
+        )
+        legend_x += 230
+    parts.extend(
+        [
+            f'<line x1="110" y1="64" x2="140" y2="64" stroke="{AURORA["warm_brown"]}" stroke-width="2" stroke-dasharray="6 4"/>',
+            '<text x="148" y="68" font-size="11">probe-optimal</text>',
+            f'<line x1="285" y1="64" x2="315" y2="64" stroke="{AURORA["midnight_indigo"]}" stroke-width="3"/>',
+            '<text x="323" y="68" font-size="11">manifold-display</text>',
+        ]
+    )
+    panel_index = 0
+    for model in MODELS:
+        for pooling in POOLINGS:
+            left, top = positions[panel_index]
+            panel_index += 1
+            selected = sorted(
+                [
+                    row
+                    for row in rows
+                    if row["model"] == model and row["pooling"] == pooling
+                ],
+                key=lambda row: int(row["layer"]),
+            )
+            maximum_layer = max(int(row["layer"]) for row in selected)
+
+            def x_position(layer: int) -> float:
+                return left + int(layer) / max(maximum_layer, 1) * panel_width
+
+            def y_position(value: float) -> float:
+                return top + panel_height - max(0.0, min(1.0, float(value))) * panel_height
+
+            parts.append(
+                f'<text x="{left}" y="{top-17}" font-size="15" font-weight="700">'
+                f'{html.escape(model)} · {html.escape(pooling.replace("_", "-"))}</text>'
+            )
+            for tick in (0.0, 0.25, 0.5, 0.75, 1.0):
+                y = y_position(tick)
+                parts.extend(
+                    [
+                        f'<line x1="{left}" y1="{y:.1f}" x2="{left+panel_width}" y2="{y:.1f}" stroke="{AURORA["frost_gray"]}" opacity=".25"/>',
+                        f'<text x="{left-10}" y="{y+4:.1f}" text-anchor="end" font-size="10" fill="{AURORA["frost_gray"]}">{tick:.2f}</text>',
+                    ]
+                )
+            for layer_tick in sorted({0, maximum_layer // 2, maximum_layer}):
+                x = x_position(layer_tick)
+                parts.extend(
+                    [
+                        f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{top+panel_height}" stroke="{AURORA["frost_gray"]}" opacity=".16"/>',
+                        f'<text x="{x:.1f}" y="{top+panel_height+20}" text-anchor="middle" font-size="10" fill="{AURORA["frost_gray"]}">L{layer_tick}</text>',
+                    ]
+                )
+            probe = _layer_row(
+                rows,
+                model=model,
+                pooling=pooling,
+                selection="probe_optimal",
+            )
+            display = _layer_row(
+                rows,
+                model=model,
+                pooling=pooling,
+                selection="manifold_display",
+            )
+            for layer, color, dash, label in (
+                (
+                    int(probe["layer"]),
+                    AURORA["warm_brown"],
+                    ' stroke-dasharray="6 4"',
+                    "P",
+                ),
+                (
+                    int(display["layer"]),
+                    AURORA["midnight_indigo"],
+                    "",
+                    "M",
+                ),
+            ):
+                x = x_position(layer)
+                parts.extend(
+                    [
+                        f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{top+panel_height}" stroke="{color}" stroke-width="{3 if label == "M" else 2}"{dash}/>',
+                        f'<text x="{x+4:.1f}" y="{top+13}" font-size="10" font-weight="700" fill="{color}">{label}:L{layer}</text>',
+                    ]
+                )
+            for key, _label, color in metrics:
+                points = [
+                    (x_position(int(row["layer"])), y_position(float(row[key])))
+                    for row in selected
+                ]
+                path = " ".join(
+                    ("M" if index == 0 else "L") + f" {x:.2f} {y:.2f}"
+                    for index, (x, y) in enumerate(points)
+                )
+                parts.append(
+                    f'<path d="{path}" fill="none" stroke="{color}" stroke-width="2.2" opacity=".9"/>'
+                )
+            parts.extend(
+                [
+                    f'<text x="{left+panel_width/2:.1f}" y="{top+panel_height+42}" text-anchor="middle" font-size="11">post-block decoder layer index</text>',
+                    f'<text transform="translate({left-50} {top+panel_height/2:.1f}) rotate(-90)" text-anchor="middle" font-size="11">discovery-only score</text>',
+                ]
+            )
+    parts.append("</g></svg>")
+    return "".join(parts)
+
+
+def _layer_selection_conclusion_html(rows: list[dict[str, Any]]) -> str:
+    statements: list[str] = []
+    for model in MODELS:
+        selections: list[str] = []
+        for pooling in POOLINGS:
+            probe = _layer_row(
+                rows,
+                model=model,
+                pooling=pooling,
+                selection="probe_optimal",
+            )
+            display = _layer_row(
+                rows,
+                model=model,
+                pooling=pooling,
+                selection="manifold_display",
+            )
+            selections.append(
+                f"{pooling.replace('_', '-')} L{int(probe['layer'])}→L{int(display['layer'])}"
+            )
+        statements.append(f"{html.escape(model)}：" + "；".join(selections))
+    return (
+        '<div class="section-conclusion"><span>本节结论 · 层选择已拆分</span><p>'
+        + "。".join(statements)
+        + "。旧层只回答‘full residual space 中哪层最容易线性解码’，不能保证前三个 PC 能完整展示 manifold。新的 3D/PC1–PC2 图使用 discovery-only manifold-display 层；原 probe-optimal 层仍保留用于预注册的 held-out Ridge 结果，两者不再混称为同一个 primary layer。这个 post-hoc display 规则没有查看 confirmation 标签，因此不会把测试集外观反向用于选层。</p></div>"
+    )
+
+
+def _answer_query_counter_svg(
+    projections: dict[str, dict[str, Any]],
+) -> str:
+    """Six-panel PC1/PC2 audit of saved answer-query count manifolds."""
+
+    width, height = 1120, 760
+    panel_width, panel_height = 270, 235
+    lefts = (95, 430, 765)
+    tops = (105, 445)
+    parts = [
+        f'<svg class="stat-svg" viewBox="0 0 {width} {height}" role="img" '
+        'aria-labelledby="answer-query-counter-title answer-query-counter-desc">',
+        '<title id="answer-query-counter-title">Answer-query count manifolds at the geometric-steering capture layers</title>',
+        '<desc id="answer-query-counter-desc">Each row is a model and each column is one saved post-block answer-query layer. Pale points show v4.4 discovery seeds. Dashed gray paths are v4.1 count centroids and solid dark paths are v4.4 centroids.</desc>',
+        f'<rect width="{width}" height="{height}" fill="{AURORA["snow_white"]}"/>',
+        f'<g font-family="Aptos,Segoe UI,system-ui,sans-serif" fill="{AURORA["night_black"]}">',
+        f'<line x1="690" y1="38" x2="725" y2="38" stroke="{AURORA["frost_gray"]}" stroke-width="2" stroke-dasharray="6 4"/>',
+        '<text x="733" y="42" font-size="11">v4.1 centroid</text>',
+        f'<line x1="880" y1="38" x2="915" y2="38" stroke="{AURORA["night_black"]}" stroke-width="3"/>',
+        '<text x="923" y="42" font-size="11">v4.4 centroid</text>',
+    ]
+    for model_index, model in enumerate(MODELS):
+        model_layers = sorted(
+            int(key.rsplit("|", 1)[1])
+            for key in projections
+            if key.startswith(model + "|")
+        )
+        if len(model_layers) != 3:
+            raise RuntimeError(f"{model}: expected three answer-query PCA layers")
+        top = tops[model_index]
+        parts.append(
+            f'<text x="30" y="{top+panel_height/2:.1f}" transform="rotate(-90 30 {top+panel_height/2:.1f})" text-anchor="middle" font-size="16" font-weight="700">{html.escape(model)}</text>'
+        )
+        for column, layer in enumerate(model_layers):
+            left = lefts[column]
+            data = projections[f"{model}|{layer}"]
+            rows = [row for row in data["rows"] if row[0] in {"v4.1", "v4.4"}]
+            x_values = np.asarray([float(row[3]) for row in rows])
+            y_values = np.asarray([float(row[4]) for row in rows])
+            x_low, x_high = np.quantile(x_values, [0.005, 0.995])
+            y_low, y_high = np.quantile(y_values, [0.005, 0.995])
+            x_margin = max(1e-8, float(x_high - x_low) * 0.08)
+            y_margin = max(1e-8, float(y_high - y_low) * 0.08)
+            x_low, x_high = float(x_low - x_margin), float(x_high + x_margin)
+            y_low, y_high = float(y_low - y_margin), float(y_high + y_margin)
+
+            def project(row: list[Any]) -> tuple[float, float]:
+                x = left + (float(row[3]) - x_low) / (x_high - x_low) * panel_width
+                y = top + panel_height - (
+                    (float(row[4]) - y_low) / (y_high - y_low) * panel_height
+                )
+                return x, y
+
+            evr = data["explained_variance_ratio"]
+            parts.extend(
+                [
+                    f'<rect x="{left}" y="{top}" width="{panel_width}" height="{panel_height}" fill="{AURORA["snow_white"]}" stroke="{AURORA["frost_gray"]}" stroke-opacity=".42"/>',
+                    f'<text x="{left}" y="{top-18}" font-size="14" font-weight="700">L{layer}</text>',
+                    f'<text x="{left+panel_width}" y="{top-18}" text-anchor="end" font-size="10" fill="{AURORA["frost_gray"]}">PC1+PC2 EVR {100*(float(evr[0])+float(evr[1])):.1f}%</text>',
+                ]
+            )
+            for fraction in (0.25, 0.5, 0.75):
+                x = left + fraction * panel_width
+                y = top + fraction * panel_height
+                parts.extend(
+                    [
+                        f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{top+panel_height}" stroke="{AURORA["frost_gray"]}" opacity=".14"/>',
+                        f'<line x1="{left}" y1="{y:.1f}" x2="{left+panel_width}" y2="{y:.1f}" stroke="{AURORA["frost_gray"]}" opacity=".14"/>',
+                    ]
+                )
+            for row in rows:
+                if row[0] != "v4.4":
+                    continue
+                x, y = project(row)
+                parts.append(
+                    f'<circle cx="{x:.2f}" cy="{y:.2f}" r="1.9" fill="{COUNT_COLORS[int(row[2])-1]}" opacity=".30"/>'
+                )
+            for variant, color, dash, opacity in (
+                ("v4.1", AURORA["frost_gray"], ' stroke-dasharray="6 4"', 0.8),
+                ("v4.4", AURORA["night_black"], "", 1.0),
+            ):
+                selected = [row for row in rows if row[0] == variant]
+                centroids: list[list[Any]] = []
+                for count in range(1, 11):
+                    group = [row for row in selected if int(row[2]) == count]
+                    if not group:
+                        raise RuntimeError(
+                            f"{model}/L{layer}/{variant}: incomplete count grid"
+                        )
+                    centroid = group[0].copy()
+                    centroid[3] = float(np.mean([float(row[3]) for row in group]))
+                    centroid[4] = float(np.mean([float(row[4]) for row in group]))
+                    centroids.append(centroid)
+                points = [project(row) for row in centroids]
+                path = " ".join(
+                    ("M" if index == 0 else "L") + f" {x:.2f} {y:.2f}"
+                    for index, (x, y) in enumerate(points)
+                )
+                parts.append(
+                    f'<path d="{path}" fill="none" stroke="{color}" stroke-width="{2.6 if variant == "v4.4" else 1.8}" opacity="{opacity}"{dash}/>'
+                )
+                if variant == "v4.4":
+                    for count, (x, y) in enumerate(points, start=1):
+                        parts.extend(
+                            [
+                                f'<circle cx="{x:.2f}" cy="{y:.2f}" r="4.3" fill="{COUNT_COLORS[count-1]}" stroke="{AURORA["night_black"]}" stroke-width=".8"/>',
+                                f'<text x="{x+6:.2f}" y="{y-5:.2f}" font-size="9">{count}</text>',
+                            ]
+                        )
+            parts.extend(
+                [
+                    f'<text x="{left+panel_width/2:.1f}" y="{top+panel_height+24}" text-anchor="middle" font-size="10">PC1 score</text>',
+                    f'<text transform="translate({left-34} {top+panel_height/2:.1f}) rotate(-90)" text-anchor="middle" font-size="10">PC2 score</text>',
+                ]
+            )
+    parts.append("</g></svg>")
+    return "".join(parts)
+
+
 def _representation_conclusion_html(
     rows: list[dict[str, Any]], sensitivity_rows: list[dict[str, Any]]
 ) -> str:
@@ -878,6 +1630,428 @@ def _attention_top_rows(run_root: Path) -> list[dict[str, Any]]:
     )
 
 
+def _attention_head_atlas_rows(run_root: Path) -> list[dict[str, Any]]:
+    """Return every discovery full-attention head used by the atlas."""
+
+    rows: list[dict[str, Any]] = []
+    for model in MODELS:
+        path = (
+            run_root
+            / model
+            / "numeric"
+            / "attention"
+            / "analysis"
+            / "tables"
+            / "discovery_head_summary.csv"
+        )
+        frame = pd.read_csv(path)
+        for row in frame.to_dict("records"):
+            rows.append(
+                {
+                    "model": model,
+                    "variant": str(row["design_variant"]),
+                    "pooling": str(row["pooling"]),
+                    "layer": int(row["layer"]),
+                    "head": int(row["head"]),
+                    "layer_type": str(row["layer_type"]),
+                    "examples": int(row["examples"]),
+                    "seeds": int(row["seeds"]),
+                    "pool_sum": float(row["pool_sum"]),
+                    "pool_coverage": float(row["pool_coverage"]),
+                    "pool_primary": float(row["pool_primary"]),
+                    "pool_enrichment": float(row["pool_enrichment"]),
+                    "pool_effective_number": float(
+                        row["pool_effective_number"]
+                    ),
+                    "positive_contrast": _bool(
+                        row["positive_needle_control_contrast"]
+                    ),
+                    "density_enrichment_gt_one": _bool(
+                        row["needle_density_enrichment_gt_one"]
+                    ),
+                    "is_broad_candidate": _bool(row["is_broad_candidate"]),
+                    "candidate_rank": (
+                        None
+                        if pd.isna(row["candidate_rank"])
+                        else int(float(row["candidate_rank"]))
+                    ),
+                }
+            )
+    return rows
+
+
+def _normalized_profile(values: np.ndarray) -> np.ndarray:
+    values = np.asarray(values, dtype=np.float64)
+    total = float(values.sum())
+    if total <= 0:
+        return np.zeros_like(values)
+    return values / total
+
+
+def _classify_attention_phenotype(
+    *,
+    effective_number: float,
+    dominant_share: float,
+    winner_frequency: float,
+    winner_mode: int,
+    first_share: float,
+    winner_is_first: float,
+    local_count: float,
+    local_effective_fraction: float,
+    dominant_quarter_mass: float,
+    span_mean_effective_number: float,
+    span_mean_dominant_share: float,
+) -> str:
+    """Apply the frozen discovery-only retrieval phenotype thresholds.
+
+    The order is part of the definition: global breadth has priority over
+    local breadth, local breadth over endpoint selection, and endpoint
+    phenotypes over the span-mean-only fallback.
+    """
+
+    global_broad = effective_number >= 6.0 and dominant_share <= 0.25
+    selector = effective_number <= 2.0 and winner_frequency >= 0.80
+    local_broad = (
+        not global_broad
+        and local_count >= 2.0
+        and local_effective_fraction >= 0.80
+        and dominant_quarter_mass >= 0.50
+    )
+    first_locator = (
+        selector
+        and winner_mode == 1
+        and first_share >= 0.80
+        and winner_is_first >= 0.90
+    )
+    span_mean_broad = (
+        span_mean_effective_number >= 6.0
+        and span_mean_dominant_share <= 0.25
+    )
+    if global_broad:
+        return "global_endpoint_aggregator"
+    if local_broad:
+        return "partition_local_endpoint_aggregator"
+    if first_locator:
+        return "first_needle_locator"
+    if selector:
+        return "targeted_occurrence_retriever"
+    if span_mean_broad:
+        return "broad_span_mean_only"
+    return "mixed"
+
+
+def _attention_head_phenotypes(run_root: Path) -> list[dict[str, Any]]:
+    """Classify discovery-selected heads from raw N=10 answer-query rows.
+
+    Selection and classification use only discovery seeds.  The raw row is
+    needed because the standard summary stores breadth but not which exact
+    occurrence a selector retrieves.  The result therefore separates global
+    breadth, depth-partition-local breadth, a strict first-needle locator, and
+    other stable occurrence-targeted retrieval.
+    """
+
+    results: list[dict[str, Any]] = []
+    for model in MODELS:
+        model_root = run_root / model / "numeric"
+        summary = pd.read_csv(
+            model_root
+            / "attention"
+            / "analysis"
+            / "tables"
+            / "discovery_head_summary.csv"
+        )
+        candidates = summary[
+            (summary["pooling"] == "span_end")
+            & summary["is_broad_candidate"].map(_bool)
+        ].copy()
+        candidate_lookup = {
+            (str(row.design_variant), int(row.layer), int(row.head)): row
+            for row in candidates.itertuples()
+        }
+        occurrence = pd.read_csv(
+            model_root
+            / "attention"
+            / "analysis"
+            / "tables"
+            / "occurrence_attention.csv.gz"
+        )
+        occurrence = occurrence[
+            (occurrence["split"] == "discovery")
+            & (occurrence["count"].astype(int) == 10)
+            & (occurrence["pooling"] == "span_end")
+        ].copy()
+        spans: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+        for stimulus_id, frame in occurrence.groupby("stimulus_id", sort=False):
+            frame = frame.sort_values("occurrence_index")
+            if len(frame) != 10:
+                raise RuntimeError(f"{model}/{stimulus_id}: expected ten spans")
+            spans[str(stimulus_id)] = (
+                frame["span_start"].to_numpy(dtype=int),
+                frame["span_end"].to_numpy(dtype=int),
+                frame["normalized_depth"].to_numpy(dtype=float),
+            )
+        index_path = (
+            model_root
+            / "attention"
+            / "capture"
+            / "attention_capture_index.jsonl"
+        )
+        index_records = [
+            record
+            for record in _read_jsonl(index_path)
+            if str(record["split"]) == "discovery"
+            and int(record["count"]) == 10
+        ]
+        if len(index_records) != len(VARIANTS) * 20:
+            raise RuntimeError(
+                f"{model}: expected 80 N=10 discovery attention rows"
+            )
+        capture_root = index_path.parent
+        accumulators: dict[tuple[str, int, int], dict[str, Any]] = defaultdict(
+            lambda: {
+                "samples": 0,
+                "endpoint_profile": np.zeros(10, dtype=np.float64),
+                "span_mean_profile": np.zeros(10, dtype=np.float64),
+                "winner_counts": np.zeros(10, dtype=np.int64),
+                "effective_number": 0.0,
+                "span_mean_effective_number": 0.0,
+                "first_share": 0.0,
+                "winner_is_first": 0.0,
+                "local_count": 0.0,
+                "local_effective_fraction": 0.0,
+                "quarter_mass": np.zeros(4, dtype=np.float64),
+            }
+        )
+        for record in index_records:
+            stimulus_id = str(record["stimulus_id"])
+            variant = str(record["design_variant"])
+            starts, ends, depths = spans[stimulus_id]
+            selected = candidates[candidates["design_variant"] == variant]
+            by_layer = {
+                int(layer): frame.sort_values("head")
+                for layer, frame in selected.groupby("layer", sort=True)
+            }
+            raw_path = capture_root / str(record["raw_attention_shard_path"])
+            with np.load(_native_open_path(raw_path), allow_pickle=False) as raw:
+                key_starts = np.asarray(raw["key_starts"], dtype=int)
+                for layer, layer_candidates in by_layer.items():
+                    rows = np.asarray(raw[f"layer_{layer:03d}"], dtype=np.float32)
+                    head_indices = layer_candidates["head"].to_numpy(dtype=int)
+                    key_start = int(key_starts[layer])
+                    local_starts = starts - key_start
+                    local_ends = ends - key_start
+                    if (
+                        np.any(local_starts < 0)
+                        or np.any(local_ends > rows.shape[1])
+                        or np.any(local_ends <= local_starts)
+                    ):
+                        raise RuntimeError(
+                            f"{model}/{stimulus_id}/L{layer}: needle not visible"
+                        )
+                    head_rows = rows[head_indices]
+                    endpoint_values = head_rows[:, local_ends - 1]
+                    span_values = np.stack(
+                        [
+                            head_rows[:, start:end].mean(axis=1)
+                            for start, end in zip(local_starts, local_ends)
+                        ],
+                        axis=1,
+                    )
+                    edges = np.linspace(0, rows.shape[1], 5, dtype=int)
+                    quarter_values = np.stack(
+                        [
+                            head_rows[:, edges[index] : edges[index + 1]].sum(
+                                axis=1, dtype=np.float64
+                            )
+                            for index in range(4)
+                        ],
+                        axis=1,
+                    )
+                    quarter_totals = quarter_values.sum(axis=1, keepdims=True)
+                    quarter_profiles = np.divide(
+                        quarter_values,
+                        quarter_totals,
+                        out=np.zeros_like(quarter_values),
+                        where=quarter_totals > 0,
+                    )
+                    for axis, head in enumerate(head_indices):
+                        key = (variant, layer, int(head))
+                        endpoint = np.asarray(endpoint_values[axis], dtype=float)
+                        span_mean = np.asarray(span_values[axis], dtype=float)
+                        metrics = partition_sample_metrics(
+                            endpoint,
+                            depths,
+                            partitions=4,
+                        )
+                        endpoint_profile = _normalized_profile(endpoint)
+                        span_mean_profile = _normalized_profile(span_mean)
+                        span_denominator = float(np.square(span_mean_profile).sum())
+                        accumulator = accumulators[key]
+                        accumulator["samples"] += 1
+                        accumulator["endpoint_profile"] += endpoint_profile
+                        accumulator["span_mean_profile"] += span_mean_profile
+                        winner = int(metrics["winner_occurrence_index"]) - 1
+                        accumulator["winner_counts"][winner] += 1
+                        accumulator["effective_number"] += float(
+                            metrics["effective_number"]
+                        )
+                        accumulator["span_mean_effective_number"] += (
+                            1.0 / span_denominator
+                            if span_denominator > 0
+                            else 0.0
+                        )
+                        accumulator["first_share"] += float(
+                            metrics["first_occurrence_share"]
+                        )
+                        accumulator["winner_is_first"] += float(
+                            metrics["winner_is_first"]
+                        )
+                        accumulator["local_count"] += float(
+                            metrics["local_needle_count"]
+                        )
+                        accumulator["local_effective_fraction"] += float(
+                            metrics["local_effective_fraction"]
+                        )
+                        accumulator["quarter_mass"] += quarter_profiles[axis]
+        for key, source in sorted(accumulators.items()):
+            variant, layer, head = key
+            samples = int(source["samples"])
+            if samples != 20:
+                raise RuntimeError(
+                    f"{model}/{variant}/L{layer}H{head}: {samples} discovery rows"
+                )
+            endpoint_profile = source["endpoint_profile"] / samples
+            span_mean_profile = source["span_mean_profile"] / samples
+            winner_counts = np.asarray(source["winner_counts"], dtype=int)
+            winner_mode = int(np.argmax(winner_counts)) + 1
+            winner_frequency = float(winner_counts.max() / samples)
+            effective = float(source["effective_number"] / samples)
+            dominant_share = float(endpoint_profile.max())
+            first_share = float(source["first_share"] / samples)
+            winner_is_first = float(source["winner_is_first"] / samples)
+            local_count = float(source["local_count"] / samples)
+            local_fraction = float(
+                source["local_effective_fraction"] / samples
+            )
+            quarter_profile = source["quarter_mass"] / samples
+            dominant_quarter_mass = float(quarter_profile.max())
+            span_effective = float(
+                source["span_mean_effective_number"] / samples
+            )
+            span_dominant_share = float(span_mean_profile.max())
+            selector = bool(
+                effective <= 2.0 and winner_frequency >= 0.80
+            )
+            phenotype = _classify_attention_phenotype(
+                effective_number=effective,
+                dominant_share=dominant_share,
+                winner_frequency=winner_frequency,
+                winner_mode=winner_mode,
+                first_share=first_share,
+                winner_is_first=winner_is_first,
+                local_count=local_count,
+                local_effective_fraction=local_fraction,
+                dominant_quarter_mass=dominant_quarter_mass,
+                span_mean_effective_number=span_effective,
+                span_mean_dominant_share=span_dominant_share,
+            )
+            candidate = candidate_lookup[key]
+            results.append(
+                {
+                    "model": model,
+                    "variant": variant,
+                    "layer": layer,
+                    "head": head,
+                    "candidate_rank": int(float(candidate.candidate_rank)),
+                    "pool_primary": float(candidate.pool_primary),
+                    "pool_sum": float(candidate.pool_sum),
+                    "pool_coverage": float(candidate.pool_coverage),
+                    "pool_enrichment": float(candidate.pool_enrichment),
+                    "samples": samples,
+                    "effective_number_mean": effective,
+                    "dominant_occurrence": int(np.argmax(endpoint_profile)) + 1,
+                    "dominant_occurrence_mean_share": dominant_share,
+                    "winner_occurrence_mode": winner_mode,
+                    "winner_occurrence_mode_frequency": winner_frequency,
+                    "first_occurrence_share_mean": first_share,
+                    "winner_is_first_mean": winner_is_first,
+                    "local_needle_count_mean": local_count,
+                    "local_effective_fraction_mean": local_fraction,
+                    "row_dominant_quarter": int(np.argmax(quarter_profile)) + 1,
+                    "row_dominant_quarter_mass": dominant_quarter_mass,
+                    "span_mean_effective_number_mean": span_effective,
+                    "span_mean_dominant_occurrence_mean_share": span_dominant_share,
+                    "phenotype": phenotype,
+                    "target_occurrence": winner_mode if selector else None,
+                    "endpoint_profile": [
+                        float(value) for value in endpoint_profile
+                    ],
+                    "span_mean_profile": [
+                        float(value) for value in span_mean_profile
+                    ],
+                }
+            )
+
+        # The earlier Qwen partition analysis used the same discovery rules.
+        # Requiring agreement for the two broad classes guards the generic
+        # two-model implementation against silent indexing errors.
+        if model == "Qwen3-8B":
+            existing_path = (
+                model_root
+                / "attention"
+                / "analysis"
+                / "partitioning"
+                / "all_candidate_head_phenotypes_by_split.csv"
+            )
+            existing = pd.read_csv(existing_path)
+            existing = existing[existing["split"] == "discovery"]
+            current = [row for row in results if row["model"] == model]
+            for phenotype in (
+                "global_endpoint_aggregator",
+                "partition_local_endpoint_aggregator",
+            ):
+                old_set = {
+                    (str(row.design_variant), int(row.layer), int(row.head))
+                    for row in existing[existing["phenotype"] == phenotype].itertuples()
+                }
+                new_set = {
+                    (str(row["variant"]), int(row["layer"]), int(row["head"]))
+                    for row in current
+                    if row["phenotype"] == phenotype
+                }
+                if old_set != new_set:
+                    raise RuntimeError(
+                        f"Qwen {phenotype} audit mismatch: "
+                        f"old={len(old_set)} new={len(new_set)}"
+                    )
+    return sorted(
+        results,
+        key=lambda row: (
+            MODELS.index(str(row["model"])),
+            VARIANTS.index(str(row["variant"])),
+            int(row["candidate_rank"]),
+        ),
+    )
+
+
+def _attention_outcome_effect_rows(run_root: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for model in MODELS:
+        path = (
+            run_root
+            / model
+            / "numeric"
+            / "attention"
+            / "analysis"
+            / "tables"
+            / "confirmation_wrong_minus_correct_effects.csv"
+        )
+        frame = pd.read_csv(path)
+        for row in frame.to_dict("records"):
+            rows.append({"model": model, **row})
+    return rows
+
+
 def _qwen_partition_summary(run_root: Path) -> dict[str, Any]:
     root = (
         run_root
@@ -893,7 +2067,11 @@ def _qwen_partition_summary(run_root: Path) -> dict[str, Any]:
     assessment = _read_json(root / "partition_hypothesis_assessment.json")
     manifest = _read_json(root / "partition_analysis_manifest.json")
 
-    key_phenotypes = tuple(PHENOTYPE_COLORS)[:-1]
+    key_phenotypes = (
+        "global_endpoint_aggregator",
+        "partition_local_endpoint_aggregator",
+        "occurrence_endpoint_selector",
+    )
     count_lookup = {
         (str(row.design_variant), str(row.phenotype)): int(row.heads)
         for row in counts.itertuples()
@@ -991,6 +2169,472 @@ def _table_partition_bank_html(rows: list[dict[str, Any]]) -> str:
             f"<td>{_number(row['mean_bank_mass'], 5)}</td>"
             "</tr>"
         )
+    return "".join(rendered)
+
+
+def _mix_hex(left: str, right: str, fraction: float) -> str:
+    fraction = max(0.0, min(1.0, float(fraction)))
+    left_rgb = tuple(int(left[index : index + 2], 16) for index in (1, 3, 5))
+    right_rgb = tuple(int(right[index : index + 2], 16) for index in (1, 3, 5))
+    values = tuple(
+        round(a + fraction * (b - a)) for a, b in zip(left_rgb, right_rgb)
+    )
+    return "#" + "".join(f"{value:02X}" for value in values)
+
+
+def _aurora_sequential(value: float) -> str:
+    value = max(0.0, min(1.0, float(value)))
+    anchors = (
+        AURORA["midnight_indigo"],
+        AURORA["polar_violet"],
+        AURORA["ice_cyan"],
+        AURORA["aurora_yellow"],
+    )
+    scaled = value * (len(anchors) - 1)
+    index = min(int(scaled), len(anchors) - 2)
+    return _mix_hex(anchors[index], anchors[index + 1], scaled - index)
+
+
+def _attention_head_atlas_svg(
+    atlas_rows: list[dict[str, Any]],
+    phenotypes: list[dict[str, Any]],
+) -> str:
+    """Layer-by-head atlas of discovery span-end broad-retrieval score."""
+
+    width, height = 1260, 900
+    panel_width, panel_height = 230, 300
+    lefts = (115, 405, 695, 985)
+    tops = (130, 535)
+    phenotype_lookup = {
+        (
+            str(row["model"]),
+            str(row["variant"]),
+            int(row["layer"]),
+            int(row["head"]),
+        ): row
+        for row in phenotypes
+    }
+    span_end = [row for row in atlas_rows if row["pooling"] == "span_end"]
+    scales: dict[str, tuple[float, float]] = {}
+    for model in MODELS:
+        values = np.asarray(
+            [
+                float(row["pool_primary"])
+                for row in span_end
+                if row["model"] == model and float(row["pool_primary"]) > 0
+            ],
+            dtype=float,
+        )
+        logs = np.log10(values)
+        low, high = np.quantile(logs, [0.01, 0.995])
+        scales[model] = (float(low), float(max(high, low + 1e-9)))
+    parts = [
+        f'<svg class="stat-svg" viewBox="0 0 {width} {height}" role="img" '
+        'aria-labelledby="head-atlas-title head-atlas-desc">',
+        '<title id="head-atlas-title">All-head answer-query span-end attention atlas</title>',
+        '<desc id="head-atlas-desc">Every captured full-attention head is placed by decoder layer and head index. Color is discovery log broad-retrieval primary score, and symbols mark discovery-only head phenotypes.</desc>',
+        f'<rect width="{width}" height="{height}" fill="{AURORA["snow_white"]}"/>',
+        f'<g font-family="Aptos,Segoe UI,system-ui,sans-serif" fill="{AURORA["night_black"]}">',
+        '<text x="115" y="28" font-size="13" font-weight="700">color: log₁₀[(needle endpoint mass) × entropy coverage]</text>',
+    ]
+    for index in range(120):
+        x = 460 + index * 3.3
+        parts.append(
+            f'<rect x="{x:.1f}" y="16" width="3.5" height="16" fill="{_aurora_sequential(index/119)}"/>'
+        )
+    parts.extend(
+        [
+            '<text x="450" y="53" text-anchor="start" font-size="10">low within model</text>',
+            '<text x="866" y="53" text-anchor="end" font-size="10">99.5% clipped</text>',
+            f'<circle cx="875" cy="24" r="6" fill="none" stroke="{PHENOTYPE_COLORS["global_endpoint_aggregator"]}" stroke-width="2"/>',
+            '<text x="886" y="28" font-size="10">global broad</text>',
+            f'<rect x="966" y="18" width="12" height="12" fill="none" stroke="{PHENOTYPE_COLORS["partition_local_endpoint_aggregator"]}" stroke-width="2"/>',
+            '<text x="984" y="28" font-size="10">local broad</text>',
+            f'<circle cx="1065" cy="24" r="4" fill="{PHENOTYPE_COLORS["first_needle_locator"]}" stroke="{AURORA["night_black"]}" stroke-width=".7"/>',
+            '<text x="1074" y="28" font-size="10">first locator</text>',
+            f'<circle cx="1152" cy="24" r="4" fill="{PHENOTYPE_COLORS["targeted_occurrence_retriever"]}" stroke="{AURORA["night_black"]}" stroke-width=".7"/>',
+            '<text x="1161" y="28" font-size="10">targeted</text>',
+        ]
+    )
+    for model_index, model in enumerate(MODELS):
+        max_layers, max_heads = MODEL_HEAD_GRIDS[model]
+        top = tops[model_index]
+        low, high = scales[model]
+        parts.append(
+            f'<text x="26" y="{top+panel_height/2:.1f}" transform="rotate(-90 26 {top+panel_height/2:.1f})" text-anchor="middle" font-size="17" font-weight="700">{html.escape(model)}</text>'
+        )
+        for variant_index, variant in enumerate(VARIANTS):
+            left = lefts[variant_index]
+            cell_width = panel_width / max_heads
+            cell_height = panel_height / max_layers
+            parts.extend(
+                [
+                    f'<text x="{left+panel_width/2:.1f}" y="{top-22}" text-anchor="middle" font-size="14" font-weight="700">{variant}</text>',
+                    f'<rect x="{left}" y="{top}" width="{panel_width}" height="{panel_height}" fill="{AURORA["frost_gray"]}" opacity=".12" stroke="{AURORA["frost_gray"]}"/>',
+                ]
+            )
+            panel = [
+                row
+                for row in span_end
+                if row["model"] == model and row["variant"] == variant
+            ]
+            for row in panel:
+                layer, head = int(row["layer"]), int(row["head"])
+                value = max(float(row["pool_primary"]), 10**low)
+                score = (math.log10(value) - low) / (high - low)
+                x = left + head * cell_width
+                y = top + layer * cell_height
+                key = (model, variant, layer, head)
+                phenotype = phenotype_lookup.get(key)
+                tooltip = (
+                    f"{model} {variant} L{layer}H{head}; primary="
+                    f"{float(row['pool_primary']):.6g}; N_eff="
+                    f"{float(row['pool_effective_number']):.3f}"
+                )
+                parts.append(
+                    f'<rect x="{x:.2f}" y="{y:.2f}" width="{cell_width+.08:.2f}" height="{cell_height+.08:.2f}" fill="{_aurora_sequential(score)}"><title>{html.escape(tooltip)}</title></rect>'
+                )
+                if phenotype is None:
+                    continue
+                label = str(phenotype["phenotype"])
+                center_x, center_y = x + cell_width / 2, y + cell_height / 2
+                radius = max(1.4, min(cell_width, cell_height) * 0.34)
+                if label == "global_endpoint_aggregator":
+                    parts.append(
+                        f'<circle cx="{center_x:.2f}" cy="{center_y:.2f}" r="{radius:.2f}" fill="none" stroke="{PHENOTYPE_COLORS[label]}" stroke-width="1.25"/>'
+                    )
+                elif label == "partition_local_endpoint_aggregator":
+                    parts.append(
+                        f'<rect x="{x+.8:.2f}" y="{y+.8:.2f}" width="{max(0.5,cell_width-1.6):.2f}" height="{max(0.5,cell_height-1.6):.2f}" fill="none" stroke="{PHENOTYPE_COLORS[label]}" stroke-width="1.25"/>'
+                    )
+                elif label in {"first_needle_locator", "targeted_occurrence_retriever"}:
+                    color = PHENOTYPE_COLORS[label]
+                    parts.append(
+                        f'<circle cx="{center_x:.2f}" cy="{center_y:.2f}" r="{max(1.2,radius*.62):.2f}" fill="{color}" stroke="{AURORA["night_black"]}" stroke-width=".45"/>'
+                    )
+            for layer_tick in sorted({0, max_layers // 2, max_layers - 1}):
+                y = top + (layer_tick + 0.5) * cell_height
+                parts.append(
+                    f'<text x="{left-7}" y="{y+3:.1f}" text-anchor="end" font-size="9" fill="{AURORA["frost_gray"]}">L{layer_tick}</text>'
+                )
+            for head_tick in sorted({0, max_heads // 2, max_heads - 1}):
+                x = left + (head_tick + 0.5) * cell_width
+                parts.append(
+                    f'<text x="{x:.1f}" y="{top+panel_height+16}" text-anchor="middle" font-size="9" fill="{AURORA["frost_gray"]}">H{head_tick}</text>'
+                )
+            parts.extend(
+                [
+                    f'<text x="{left+panel_width/2:.1f}" y="{top+panel_height+38}" text-anchor="middle" font-size="10">attention head index</text>',
+                    f'<text transform="translate({left-43} {top+panel_height/2:.1f}) rotate(-90)" text-anchor="middle" font-size="10">post-block layer</text>',
+                ]
+            )
+    parts.append("</g></svg>")
+    return "".join(parts)
+
+
+def _table_head_phenotype_counts_html(rows: list[dict[str, Any]]) -> str:
+    order = (
+        "global_endpoint_aggregator",
+        "partition_local_endpoint_aggregator",
+        "first_needle_locator",
+        "targeted_occurrence_retriever",
+        "broad_span_mean_only",
+        "mixed",
+    )
+    rendered: list[str] = []
+    for model in MODELS:
+        for variant in VARIANTS:
+            selected = [
+                row
+                for row in rows
+                if row["model"] == model and row["variant"] == variant
+            ]
+            counts = {
+                phenotype: sum(
+                    row["phenotype"] == phenotype for row in selected
+                )
+                for phenotype in order
+            }
+            rendered.append(
+                "<tr>"
+                f"<td>{html.escape(model)}</td><td>{variant}</td>"
+                + "".join(f"<td>{counts[key]}</td>" for key in order)
+                + f"<td>{len(selected)}</td></tr>"
+            )
+    return "".join(rendered)
+
+
+def _table_head_representatives_html(rows: list[dict[str, Any]]) -> str:
+    categories = (
+        "global_endpoint_aggregator",
+        "partition_local_endpoint_aggregator",
+        "first_needle_locator",
+        "targeted_occurrence_retriever",
+    )
+    labels = {
+        "global_endpoint_aggregator": "global broad",
+        "partition_local_endpoint_aggregator": "local broad",
+        "first_needle_locator": "first-needle locator",
+        "targeted_occurrence_retriever": "targeted retrieval",
+    }
+    rendered: list[str] = []
+    for model in MODELS:
+        for variant in VARIANTS:
+            for category in categories:
+                selected = sorted(
+                    [
+                        row
+                        for row in rows
+                        if row["model"] == model
+                        and row["variant"] == variant
+                        and row["phenotype"] == category
+                    ],
+                    key=lambda row: (
+                        -float(row["pool_primary"]),
+                        int(row["candidate_rank"]),
+                    ),
+                )
+                if not selected:
+                    continue
+                row = selected[0]
+                target = (
+                    f"needle {int(row['target_occurrence'])}"
+                    if row["target_occurrence"] is not None
+                    else "—"
+                )
+                rendered.append(
+                    "<tr>"
+                    f"<td>{html.escape(model)}</td><td>{variant}</td>"
+                    f"<td>{html.escape(labels[category])}</td>"
+                    f"<td>L{int(row['layer'])}H{int(row['head'])}</td>"
+                    f"<td>{target}</td>"
+                    f"<td>{_number(row['effective_number_mean'], 2)}</td>"
+                    f"<td>{_number(row['pool_sum'], 6)}</td>"
+                    f"<td>{_number(row['pool_coverage'], 3)}</td>"
+                    f"<td>{_number(row['row_dominant_quarter_mass'], 3)}</td>"
+                    "</tr>"
+                )
+    return "".join(rendered)
+
+
+def _representative_head_profiles_svg(rows: list[dict[str, Any]]) -> str:
+    width, height = 1220, 660
+    panel_width, panel_height = 225, 205
+    lefts = (105, 395, 685, 975)
+    tops = (105, 405)
+    categories = (
+        "global_endpoint_aggregator",
+        "partition_local_endpoint_aggregator",
+        "first_needle_locator",
+        "targeted_occurrence_retriever",
+    )
+    labels = ("global broad", "local broad", "first locator", "targeted other")
+    parts = [
+        f'<svg class="stat-svg" viewBox="0 0 {width} {height}" role="img" aria-labelledby="profile-title profile-desc">',
+        '<title id="profile-title">Representative discovery attention profiles by head phenotype</title>',
+        '<desc id="profile-desc">For v4.1, each panel shows the highest-primary discovery candidate in one phenotype. The x axis is needle occurrence one through ten and the y axis is mean endpoint attention share.</desc>',
+        f'<rect width="{width}" height="{height}" fill="{AURORA["snow_white"]}"/>',
+        f'<g font-family="Aptos,Segoe UI,system-ui,sans-serif" fill="{AURORA["night_black"]}">',
+    ]
+    for column, label in enumerate(labels):
+        parts.append(
+            f'<text x="{lefts[column]+panel_width/2:.1f}" y="35" text-anchor="middle" font-size="13" font-weight="700">{label}</text>'
+        )
+    for model_index, model in enumerate(MODELS):
+        top = tops[model_index]
+        parts.append(
+            f'<text x="25" y="{top+panel_height/2:.1f}" transform="rotate(-90 25 {top+panel_height/2:.1f})" text-anchor="middle" font-size="16" font-weight="700">{html.escape(model)}</text>'
+        )
+        for column, category in enumerate(categories):
+            left = lefts[column]
+            selected = sorted(
+                [
+                    row
+                    for row in rows
+                    if row["model"] == model
+                    and row["variant"] == "v4.1"
+                    and row["phenotype"] == category
+                ],
+                key=lambda row: -float(row["pool_primary"]),
+            )
+            parts.append(
+                f'<rect x="{left}" y="{top}" width="{panel_width}" height="{panel_height}" fill="{AURORA["snow_white"]}" stroke="{AURORA["frost_gray"]}" stroke-opacity=".45"/>'
+            )
+            for tick in (0.0, 0.5, 1.0):
+                y = top + panel_height - tick * panel_height
+                parts.extend(
+                    [
+                        f'<line x1="{left}" y1="{y:.1f}" x2="{left+panel_width}" y2="{y:.1f}" stroke="{AURORA["frost_gray"]}" opacity=".18"/>',
+                        f'<text x="{left-7}" y="{y+4:.1f}" text-anchor="end" font-size="9" fill="{AURORA["frost_gray"]}">{tick:.1f}</text>',
+                    ]
+                )
+            if not selected:
+                parts.append(
+                    f'<text x="{left+panel_width/2:.1f}" y="{top+panel_height/2:.1f}" text-anchor="middle" font-size="12" fill="{AURORA["frost_gray"]}">no discovery candidate</text>'
+                )
+                continue
+            row = selected[0]
+            profile = np.asarray(row["endpoint_profile"], dtype=float)
+            color = PHENOTYPE_COLORS[category]
+            points: list[tuple[float, float]] = []
+            for index, value in enumerate(profile):
+                x = left + (index + 0.5) / 10 * panel_width
+                y = top + panel_height - float(value) * panel_height
+                points.append((x, y))
+            path = " ".join(
+                ("M" if index == 0 else "L") + f" {x:.2f} {y:.2f}"
+                for index, (x, y) in enumerate(points)
+            )
+            parts.append(
+                f'<path d="{path}" fill="none" stroke="{color}" stroke-width="2.8"/>'
+            )
+            for occurrence, (x, y) in enumerate(points, start=1):
+                parts.extend(
+                    [
+                        f'<circle cx="{x:.2f}" cy="{y:.2f}" r="3.8" fill="{color}" stroke="{AURORA["night_black"]}" stroke-width=".6"/>',
+                        f'<text x="{x:.2f}" y="{top+panel_height+16}" text-anchor="middle" font-size="8">{occurrence}</text>',
+                    ]
+                )
+            target_text = (
+                f" · target {int(row['target_occurrence'])}"
+                if row["target_occurrence"] is not None
+                else ""
+            )
+            parts.append(
+                f'<text x="{left+panel_width/2:.1f}" y="{top-11}" text-anchor="middle" font-size="10">L{int(row["layer"])}H{int(row["head"])} · N_eff {float(row["effective_number_mean"]):.2f}{target_text}</text>'
+            )
+            parts.extend(
+                [
+                    f'<text x="{left+panel_width/2:.1f}" y="{top+panel_height+35}" text-anchor="middle" font-size="10">needle occurrence index</text>',
+                    f'<text transform="translate({left-43} {top+panel_height/2:.1f}) rotate(-90)" text-anchor="middle" font-size="10">mean endpoint share</text>',
+                ]
+            )
+    parts.append("</g></svg>")
+    return "".join(parts)
+
+
+def _attention_outcome_effect_svg(rows: list[dict[str, Any]]) -> str:
+    selected = [
+        row
+        for row in rows
+        if row["pooling"] == "span_end"
+        and row["metric"] == "pool_coverage"
+    ]
+    width, height = 1220, 690
+    panel_width, panel_height = 220, 215
+    lefts = (110, 400, 690, 980)
+    tops = (105, 420)
+    maximum = max(
+        0.05,
+        float(
+            np.quantile(
+                np.abs(
+                    [
+                        float(row["wrong_minus_correct_count_adjusted"])
+                        for row in selected
+                        if math.isfinite(
+                            float(row["wrong_minus_correct_count_adjusted"])
+                        )
+                    ]
+                ),
+                0.98,
+            )
+        ),
+    )
+    parts = [
+        f'<svg class="stat-svg" viewBox="0 0 {width} {height}" role="img" aria-labelledby="outcome-head-title outcome-head-desc">',
+        '<title id="outcome-head-title">Count-adjusted correct versus wrong attention breadth for ranked heads</title>',
+        '<desc id="outcome-head-desc">Each cell is wrong minus correct entropy coverage at the same gold counts for one discovery-ranked head. Pink is narrower attention in wrong outputs; green is broader. A dark outline means the seed bootstrap interval excludes zero.</desc>',
+        f'<rect width="{width}" height="{height}" fill="{AURORA["snow_white"]}"/>',
+        f'<g font-family="Aptos,Segoe UI,system-ui,sans-serif" fill="{AURORA["night_black"]}">',
+        f'<rect x="470" y="19" width="35" height="15" fill="{AURORA["sunset_pink"]}"/><text x="512" y="31" font-size="10">wrong narrower</text>',
+        f'<rect x="635" y="19" width="35" height="15" fill="{AURORA["snow_white"]}" stroke="{AURORA["frost_gray"]}"/><text x="677" y="31" font-size="10">no difference</text>',
+        f'<rect x="790" y="19" width="35" height="15" fill="{AURORA["aurora_green"]}"/><text x="832" y="31" font-size="10">wrong broader</text>',
+    ]
+    for model_index, model in enumerate(MODELS):
+        top = tops[model_index]
+        parts.append(
+            f'<text x="27" y="{top+panel_height/2:.1f}" transform="rotate(-90 27 {top+panel_height/2:.1f})" text-anchor="middle" font-size="16" font-weight="700">{html.escape(model)}</text>'
+        )
+        for variant_index, variant in enumerate(VARIANTS):
+            left = lefts[variant_index]
+            panel = sorted(
+                [
+                    row
+                    for row in selected
+                    if row["model"] == model and row["design_variant"] == variant
+                ],
+                key=lambda row: int(row["head_rank"]),
+            )
+            if len(panel) != 8:
+                raise RuntimeError(
+                    f"{model}/{variant}: expected eight span-end outcome heads"
+                )
+            cell_height = panel_height / 8
+            parts.extend(
+                [
+                    f'<text x="{left+panel_width/2:.1f}" y="{top-16}" text-anchor="middle" font-size="14" font-weight="700">{variant}</text>',
+                    f'<rect x="{left}" y="{top}" width="{panel_width}" height="{panel_height}" fill="{AURORA["snow_white"]}" stroke="{AURORA["frost_gray"]}" stroke-opacity=".45"/>',
+                ]
+            )
+            for index, row in enumerate(panel):
+                value = float(row["wrong_minus_correct_count_adjusted"])
+                scaled = max(-1.0, min(1.0, value / maximum))
+                color = (
+                    _mix_hex(AURORA["snow_white"], AURORA["aurora_green"], scaled)
+                    if scaled >= 0
+                    else _mix_hex(AURORA["snow_white"], AURORA["sunset_pink"], -scaled)
+                )
+                y = top + index * cell_height
+                significant = bool(
+                    float(row["bootstrap_ci_low"]) > 0
+                    or float(row["bootstrap_ci_high"]) < 0
+                )
+                parts.extend(
+                    [
+                        f'<rect x="{left}" y="{y:.2f}" width="{panel_width}" height="{cell_height:.2f}" fill="{color}" stroke="{AURORA["night_black"] if significant else AURORA["snow_white"]}" stroke-width="{1.8 if significant else .7}"><title>{html.escape(model)} {variant} rank {int(row["head_rank"])} L{int(row["layer"])}H{int(row["head"])}; wrong-correct coverage={value:.4f}; CI [{float(row["bootstrap_ci_low"]):.4f},{float(row["bootstrap_ci_high"]):.4f}]</title></rect>',
+                        f'<text x="{left+7}" y="{y+cell_height*.68:.2f}" font-size="9">#{int(row["head_rank"])} · L{int(row["layer"])}H{int(row["head"])}</text>',
+                        f'<text x="{left+panel_width-7}" y="{y+cell_height*.68:.2f}" text-anchor="end" font-size="9">{value:+.3f}</text>',
+                    ]
+                )
+            parts.extend(
+                [
+                    f'<text x="{left+panel_width/2:.1f}" y="{top+panel_height+22}" text-anchor="middle" font-size="10">discovery rank 1→8</text>',
+                    f'<text transform="translate({left-39} {top+panel_height/2:.1f}) rotate(-90)" text-anchor="middle" font-size="10">wrong − correct coverage</text>',
+                ]
+            )
+    parts.append("</g></svg>")
+    return "".join(parts)
+
+
+def _table_attention_outcome_summary_html(rows: list[dict[str, Any]]) -> str:
+    rendered: list[str] = []
+    for model in MODELS:
+        for metric in (
+            "pool_primary",
+            "pool_coverage",
+            "pool_enrichment",
+            "pool_min_to_mean",
+        ):
+            selected = [
+                row
+                for row in rows
+                if row["model"] == model
+                and row["pooling"] == "span_end"
+                and row["metric"] == metric
+                and math.isfinite(float(row["wrong_minus_correct_count_adjusted"]))
+            ]
+            negative = sum(float(row["bootstrap_ci_high"]) < 0 for row in selected)
+            positive = sum(float(row["bootstrap_ci_low"]) > 0 for row in selected)
+            values = [float(row["wrong_minus_correct_count_adjusted"]) for row in selected]
+            rendered.append(
+                "<tr>"
+                f"<td>{html.escape(model)}</td><td><code>{metric}</code></td>"
+                f"<td>{len(selected)}</td><td>{negative}</td><td>{positive}</td>"
+                f"<td>{_number(np.median(values), 4, signed=True)}</td>"
+                f"<td>[{_number(min(values), 4, signed=True)}, {_number(max(values), 4, signed=True)}]</td>"
+                "</tr>"
+            )
     return "".join(rendered)
 
 
@@ -1574,6 +3218,16 @@ def _answer_query_onset_rows(
             raise RuntimeError(f"No significant answer-query transport onset for {model}")
         rows.append(candidates.iloc[0].to_dict())
     return rows
+
+
+def _native_open_path(path: Path) -> str | Path:
+    """Return a Windows extended-length path when an artifact path is long."""
+
+    resolved = path.resolve()
+    rendered = str(resolved)
+    if sys.platform == "win32" and len(rendered) >= 240:
+        return "\\\\?\\" + rendered
+    return resolved
 
 
 def _all_generation_labels(model_root: Path) -> pd.DataFrame:
@@ -2618,7 +4272,7 @@ def _static_figure_html(projections: dict[str, dict[str, Any]]) -> str:
                 '<article class="figure-card">'
                 f'<div class="figure-kicker">{html.escape(model)} · {html.escape(pooling.replace("_", "-"))} · L{int(projection["layer"])}</div>'
                 f"{_projection_2d_svg(projection)}"
-                '<p class="figure-caption"><strong>图：共享 PC1–PC2 轨迹。</strong>'
+                '<p class="figure-caption"><strong>图 B2-F3：共享 PC1–PC2 轨迹。</strong>'
                 "横轴和纵轴分别是以 v4.1 discovery occurrence states 拟合的 PC1、PC2 score；四个 panel 使用同一坐标范围。"
                 "淡点是单个 seed×occurrence，节点和连线是 index 1→10 的 split centroid；虚线为 discovery，实线为 confirmation。"
                 f"PC1/PC2 分别解释 {100*float(evr[0]):.1f}%/{100*float(evr[1]):.1f}% 的 v4.1 discovery variance。PCA 符号本身任意，应该比较顺序、间距和跨 seed 散布，而不是正负号。</p>"
@@ -2658,6 +4312,14 @@ nav a { color:var(--midnight); text-decoration:none; white-space:nowrap; font-we
 nav a:hover { color:var(--violet); }
 main { max-width:1240px; margin:auto; padding:38px 24px 88px; }
 section { margin:0 0 64px; padding-top:4px; scroll-margin-top:62px; }
+.report-preamble,.report-appendix { margin:0 0 56px; padding-top:4px; scroll-margin-top:62px; }
+.report-preamble { padding-bottom:34px; border-bottom:1px solid var(--line); }
+.report-appendix { padding:30px 0 8px; border-top:1px solid var(--line); }
+main>section { padding-top:34px; border-top:5px solid var(--midnight); }
+main>section:nth-of-type(2) { border-top-color:var(--violet); }
+main>section:nth-of-type(3) { border-top-color:var(--cyan); }
+main>section:nth-of-type(4) { border-top-color:var(--teal); }
+main>section:nth-of-type(5) { border-top-color:var(--pink); }
 .section-kicker { display:block; margin-bottom:8px; color:var(--violet); font:740 11px/1.2 "Cascadia Mono",Consolas,monospace; letter-spacing:.13em; text-transform:uppercase; }
 h2 { max-width:980px; margin:0 0 11px; font:760 clamp(27px,3.2vw,38px)/1.13 "Aptos Display","Segoe UI Variable Display","Segoe UI",sans-serif; letter-spacing:-.025em; }
 h3 { margin:28px 0 9px; font-size:18px; line-height:1.3; }
@@ -2750,10 +4412,10 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
     <span class="pill">Qwen3-8B + Gemma4-E4B</span><span class="pill">10,000 canonical passage tokens</span><span class="pill">numeric counts 1–10</span><span class="pill">30 paired seeds / panel</span><span class="pill">commit @@COMMIT@@</span>
   </div>
 </header>
-<nav><a href="#overview">结论总览</a><a href="#design">实验设定</a><a href="#definitions">指标定义</a><a href="#behavior">Behavior</a><a href="#metrics">Representation</a><a href="#attention-heads">Attention</a><a href="#span-end-attention">错误诊断</a><a href="#causal">Causal effects</a><a href="#synthesis">机制综合</a><a href="#limits">缺口与下一步</a></nav>
+<nav><a href="#behavior">1 · Behavior</a><a href="#counter-representation">2 · Counter representation</a><a href="#attention-representation">3 · Attention representation</a><a href="#head-ablation">4 · Head ablation</a><a href="#geometry-steering">5 · Geometry steering</a><a href="#appendix">定义与复现</a></nav>
 <main>
-<section id="overview">
-  <span class="section-kicker">01 · Executive synthesis</span>
+<div class="report-preamble" id="overview">
+  <span class="section-kicker">Executive synthesis · 不计入五个证据块</span>
   <h2>当前最小机制：分布式 evidence aggregation，在后层写入可执行的 answer-query count state</h2>
   <p class="lede">最符合全部结果的工作模型不是“每个 needle 末尾独立保存一个可直接搬运的整数”，也不是“一个最强 head 均匀数完所有 needles”。更窄、也更可检验的模型是：多个 attention heads 在 <code>Total:</code> query 聚合 occurrence evidence；该聚合对最终 count magnitude 因果必要；随后在模型后段形成一个能够决定首个答案 token 的 query residual state。</p>
   <div class="mechanism-flow" aria-label="V4 mechanism summary">
@@ -2770,9 +4432,9 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
     <div class="ledger-row"><div><span class="evidence-tag">Manipulable</span>Late query geometry moves output</div><div>Geometric-minus-random aligned shift：Qwen L26 +0.958；Gemma L31 +1.388。</div></div>
   </div>
   <div class="section-conclusion"><span>本节结论</span><p>目前可以主张“broad evidence aggregation → late executable query state”这条 bank-level 机制链；还不能主张存在唯一 scalar counter、单一 broad head、固定 partition circuit，或能够精确设定任意 target count 的线性控制方向。</p></div>
-</section>
-<section id="design">
-  <span class="section-kicker">02 · Experimental design</span>
+</div>
+<div class="report-preamble" id="design">
+  <span class="section-kicker">Experimental design · 全部五块共享</span>
   <h2>实验设定：用四级 controlled relaxation 定位 seed sensitivity 的来源</h2>
   <p class="lede">两个模型都以 non-thinking mode 直接回答数字。每个 panel 包含 30 个 paired seeds × 10 个 gold counts；seed 1234–1253 仅用于 discovery、模型/层/head/方向选择，seed 1254–1263 仅用于 confirmation。所有 correctness、wrong/undercount 与 causal effect 标签都来自 <code>Total:</code> 后完整 deterministic greedy continuation；数字 10 按完整多-token sequence 解析，不使用 first-token probability。</p>
   <div class="grid4">
@@ -2797,57 +4459,68 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   </tbody></table></div>
   <div class="callout"><strong>解释规则。</strong>v4.1 的干净曲线仍可能只是固定 identity、位置或记录顺序编码。只有 signal 在 v4.3/v4.4 仍可跨 seed 解码，才支持相对 content-independent 的 count representation；即便如此，representation 仍不等于机制。</div>
   <div class="section-conclusion"><span>本节结论</span><p>V4.1→V4.4 是逐项释放 nuisance factors 的 paired ladder，而不是四个无关数据集。后续所有 discovery selection 与 confirmation inference 严格分离；实验数据、raw attention、hidden states 和 causal detail rows 均完整，因此报告中的差异可以解释为控制项释放与干预效应，而不是样本缺失。</p></div>
-</section>
+</div>
 
-<section id="definitions">
-  <span class="section-kicker">03 · Definitions and estimands</span>
+<div class="report-preamble" id="definitions">
+  <span class="section-kicker">Definitions and estimands · 全部五块共享</span>
   <h2>新概念与计算方法：先定义“看见了什么”，再讨论“是否因果”</h2>
   <div class="metric-defs">
-    <div class="definition"><strong>Ridge count probe 与 held-out R²</strong><p>对 occurrence state <em>h</em> 拟合 <em>ŷ=wᵀz(h)+b</em>。α 由 discovery seeds 的 5-fold GroupKFold 选择；primary layer 仅由 v4.1 discovery CV-R² 选择。每个 panel 的 probe weights 在该 panel discovery 上拟合，再在同 panel confirmation 上评估。R²=1−Σ(y−ŷ)²/Σ(y−ȳ)²；MAE=mean|y−ŷ|。</p></div>
+    <div class="definition"><strong>Discovery / confirmation</strong><p><em>Discovery</em> 固定为 seeds 1234–1253（20 个 paired seeds），只用于选择 layer/head、拟合 PCA basis、Ridge α/weights、count centroids 与 steering vector。<em>Confirmation</em> 固定为不相交的 seeds 1254–1263（10 个），只用于最终 behavior、held-out probe、attention-error 与 causal effect 估计。对 prompt-reading representation，一个 discovery cell 是 seed×occurrence index；对 answer-query representation，一个 cell 是 variant×seed×gold count。任何使用 confirmation 的 post-hoc 图都会明确标注，且不参与模型选择。</p></div>
+    <div class="definition"><strong>Hidden-state 位置与 layer 编号</strong><p>这里的 L0 不是 embedding：所有状态都由 decoder block 的 forward hook 在该 block 输出之后捕获。Qwen 有 L0–L35，Gemma 有 L0–L41，均为 zero-based post-block residual。Prompt-reading counter 在 needle tokens 上取 <code>span_end</code> 或 <code>span_mean</code>；answer-query counter 在 prompt 末尾 <code>Total:</code> query token、生成第一个答案 token 之前取整条 residual vector。</p></div>
+    <div class="definition"><strong>Ridge count probe 与 held-out R²</strong><p>对 occurrence state <em>h</em> 拟合 <em>ŷ=wᵀz(h)+b</em>。α 由 discovery seeds 的 5-fold GroupKFold 选择；<em>probe-optimal layer</em> 仅按 v4.1 discovery full-space CV-R² 最大化。每个 panel 的 probe weights 在该 panel discovery 上拟合，再在同 panel confirmation 上评估。R²=1−Σ(y−ŷ)²/Σ(y−ȳ)²；MAE=mean|y−ŷ|。</p></div>
+    <div class="definition"><strong>PCA explained variance 与 count-signal capture</strong><p>EVR₃=Σ<sub>k=1..3</sub>λₖ/Σλ 衡量前三个 PC 对 discovery 全部样本方差的解释比例；它可能被 content/position nuisance 主导。为单独衡量 count manifold，定义 F₃=Σᵢ||P₃(μᵢ−μ̄)||²/Σᵢ||μᵢ−μ̄||²，其中 P₃ 投影到前三个 PC；F₃=1 表示 count-centroid 的全部 between-count variation 都留在 3D 中。</p></div>
+    <div class="definition"><strong>Manifold-display layer</strong><p>先保留 full-space discovery CV-R² 距该 pooling 最优值不超过 0.02 的层，再最大化 M₃=EVR₃×F₃×C，其中 discovery compactness C=1/(1+R<sub>LOO</sub>)，R<sub>LOO</sub> 是每个 seed 相对其余 19 seeds count centroid 的 noise/signal RMS。该规则只为选择忠实的 3D 展示层，属于 discovery-only post-hoc 描述，不替代预注册 probe-optimal 层。</p></div>
     <div class="definition"><strong>Noise / signal ratio</strong><p>discovery count centroid 为 μ₁,…,μ₁₀，grand mean 为 μ̄。signal RMS=[meanᵢ||μᵢ−μ̄||²]¹ᐟ²；confirmation noise RMS=[meanⱼ||hⱼ−μ<sub>yⱼ</sub>||²]¹ᐟ²；ratio=noise RMS/signal RMS，越小表示跨 seed 散点相对 count separation 越紧。</p></div>
     <div class="definition"><strong>Geometry stability</strong><p>Linear CKA 比较 discovery 与 confirmation 的 10×10 centered centroid Gram geometry；distance correlation 是两套 centroid pairwise Euclidean distances 的 Pearson correlation。二者越接近 1，跨 split 相对几何越稳定，但不要求坐标轴方向相同。</p></div>
-    <div class="definition"><strong>Attention mass、coverage 与 N<sub>eff</sub></strong><p>对第 i 个 needle span 的 attention mass 记作 mᵢ，pᵢ=mᵢ/Σm。entropy coverage=exp[−Σpᵢlog pᵢ]/N；effective number N<sub>eff</sub>=N×coverage。Primary score=(Σmᵢ)×coverage，因此同时要求总 mass 高且在 needles 间分布广。</p></div>
-    <div class="definition"><strong>Head-bank effective number</strong><p>对 occurrence profile q 计算 inverse-participation N<sub>eff</sub>=1/Σqᵢ²。Equal-head 版本先把每个 head profile 归一化后等权相加；raw-attention 版本保留真实 attention magnitude。前者高、后者低表示“覆盖潜力存在，但被少数高-mass selector 压过”。</p></div>
+    <div class="definition"><strong>Attention mass、entropy coverage 与 N<sub>eff,H</sub></strong><p>对第 i 个 needle endpoint/span 的 attention 记作 mᵢ，M=Σmᵢ，M&gt;0 时 pᵢ=mᵢ/M。Entropy coverage C<sub>H</sub>=exp[−Σpᵢlog pᵢ]/N，entropy effective number N<sub>eff,H</sub>=exp[−Σpᵢlog pᵢ]=N×C<sub>H</sub>，此时范围为 1–N；当 M 数值上为 0 时，代码约定 C<sub>H</sub>=N<sub>eff,H</sub>=0。Primary score S=M×C<sub>H</sub>，因此同时奖励总 needle mass 与跨 needles 的广度。S 用于 discovery ranking/atlas，不用于证明 causal necessity。</p></div>
+    <div class="definition"><strong>Participation effective number N<sub>eff,2</sub></strong><p>对归一化 occurrence profile q，N<sub>eff,2</sub>=1/Σqᵢ²。它比 entropy effective number 更强调 dominant occurrence，本报告只用它定义 global/local/selector phenotype 与 bank coverage。N<sub>eff,H</sub> 和 N<sub>eff,2</sub> 都在 1–N，但公式、阈值与用途不同，表图不会把二者简写成同一个无下标 N<sub>eff</sub>。</p></div>
+    <div class="definition"><strong>Full-attention visibility 与灰色 atlas cell</strong><p>一个 head 只有在其 key range 覆盖全部 N=10 needle spans 时，才进入全局 retrieval atlas 与 phenotype 分析。Qwen 36 层均为 full attention；Gemma 只有 L5,11,17,23,29,35,41 的 global-attention layers 满足条件，其余 sliding layers 不能观察远距 needles。灰色表示 estimand 不可定义，不表示 attention=0。</p></div>
+    <div class="definition"><strong>Count-adjusted wrong−correct attention effect</strong><p>对每个 gold count c 且 correct/wrong 两组都存在时，先算 Δ<sub>c</sub>=mean(metric|wrong,c)−mean(metric|correct,c)，再以 w<sub>c</sub>=2n<sub>w,c</sub>n<sub>r,c</sub>/(n<sub>w,c</sub>+n<sub>r,c</sub>) 加权。该 harmonic-overlap 权重在任一组稀少时自动降权；CI 以 confirmation seed 为 cluster。它消除一阶 count composition 差异，但仍是相关 estimand。</p></div>
     <div class="definition"><strong>Causal effect labels</strong><p><em>Changed</em>：patch/ablation 后 parsed count 与 receiver baseline 不同。<em>Moved</em>：到 donor gold/target 的距离严格变小。<em>Aligned shift</em>=(patched−receiver)×sign(target−receiver)。Query patch 的 primary outcome 是在 receiver/donor baseline predictions 不同的 eligible rows 中，patched prediction 是否等于 donor prediction。</p></div>
+    <div class="definition"><strong>三种 residual intervention 不等价</strong><p><em>Donor-state replacement</em>：h′<sub>r</sub>=h<sub>d</sub>，把一个 donor prompt 在同层同位置的全部 d<sub>model</sub> 维状态复制给 receiver；answer-query patching 已执行这一操作。<em>Centroid transplant</em>：h′<sub>r</sub>=μ<sub>target</sub>，复制 discovery target-count 的全维均值状态。<em>Centroid delta</em>：h′<sub>r</sub>=h<sub>r</sub>+(μ<sub>target</sub>−μ<sub>receiver</sub>)，在全部 d<sub>model</sub> 维上做平移，但保留 receiver 相对其 count centroid 的 residual。完成的 <code>screen_8h_v1</code> 只运行了 centroid-delta；没有运行 centroid-transplant，因此不能把图 12 的结果称为“整个 hidden state 搬运”。</p></div>
   </div>
   <div class="method-strip">
     <div><strong>Uncertainty</strong>先在每个 confirmation seed 内平均 panels/pairs，再对 10 个完整 seeds 做 20,000 次 percentile bootstrap。</div>
     <div><strong>Testing</strong>paired seed contrast 使用 two-sided exact sign-flip test；每个 intervention family 内用 Holm correction。</div>
     <div><strong>Evidence hierarchy</strong>PCA/probe=descriptive availability；attention-error alignment=correlation；ablation=necessity；patching=sufficiency；steering=manipulability。</div>
-    <div><strong>Index convention</strong>layer/head 均为 zero-based；<code>L29H3</code> 表示 layer 29、head 3。</div>
+    <div><strong>Index convention</strong>layer/head 均为 zero-based；<code>L29H3</code> 表示第 30 个 decoder block 的 post-block residual 与其中第 4 个 attention head。</div>
   </div>
   <div class="section-conclusion"><span>本节结论</span><p>报告不会把高 R²、漂亮 PCA 或高 attention mass 直接称为“模型真的在用的 counter”。只有 matched-control ablation、跨 prompt patching 和 held-out steering 能把描述性表示推进到不同层级的因果结论。</p></div>
-</section>
+</div>
 
 <section id="behavior">
-  <span class="section-kicker">04 · Behavioral boundary</span>
+  <span class="section-kicker">Block 1 / 5 · Behavior analysis</span>
   <h2>Behavior：主要失败边界随 count 增大出现，而不是由某一个 V4 panel 单独触发</h2>
   <p class="lede">图中横轴是真实 needle count N，纵轴是完整 greedy numeric sequence 的 exact-match accuracy；每条线对应一个 V4 panel，每个点包含 10 个 confirmation seeds。黄色背景从 N=5 开始，仅用于帮助观察中高 count 区间，不参与统计。</p>
-  <div class="stat-grid"><figure class="stat-figure">@@BEHAVIOR_ACCURACY_SVG@@<figcaption><strong>图 1 · Confirmation accuracy by count。</strong>横轴：gold count 1–10；纵轴：parsed full-sequence exact-match accuracy（0–1）。颜色：V4.1–V4.4 controlled panels。两模型在小 count 上接近饱和，在 count 4–6 附近进入快速下降区；9–10 几乎全部 undercount。</figcaption></figure></div>
+  <div class="stat-grid"><figure class="stat-figure">@@BEHAVIOR_ACCURACY_SVG@@<figcaption><strong>图 B1-F1 · Confirmation accuracy by count。</strong>横轴：gold count 1–10；纵轴：parsed full-sequence exact-match accuracy（0–1）。颜色：V4.1–V4.4 controlled panels。两模型在小 count 上接近饱和，在 count 4–6 附近进入快速下降区；9–10 几乎全部 undercount。</figcaption></figure></div>
   <h3>Panel-level confirmation summary</h3>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>correct / 100</th><th>accuracy</th><th>mean prediction</th><th>MAE</th><th>undercount</th><th>format valid</th></tr></thead><tbody>@@BEHAVIOR_PANEL_ROWS@@</tbody></table></div>
   <details><summary>展开：跨 panel pooling 后每个 count 的完整数值</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>gold N</th><th>correct / 40</th><th>accuracy</th><th>mean prediction</th><th>undercount</th></tr></thead><tbody>@@BEHAVIOR_COUNT_ROWS@@</tbody></table></div></details>
   @@BEHAVIOR_CONCLUSION@@
 </section>
 
-<section id="metrics">
-  <span class="section-kicker">05 · Representation I</span>
-  <h2>Prompt-reading representation：span-end signal 跨 v4.4 仍可解码，span-mean 则依赖固定记录结构</h2>
-  <p class="lede">每个 model×pooling 只用 v4.1 discovery 的 grouped-seed CV-R² 选择 primary layer：Qwen span-end L1、span-mean L0；Gemma span-end L22、span-mean L0。选层之后，每个 V4 panel 的 ridge weights 与 α 只在该 panel discovery seeds 上拟合，再在同 panel confirmation seeds 上评估；confirmation 从不参与选层、调 α 或拟合。</p>
-  <div class="stat-grid"><figure class="stat-figure">@@REPRESENTATION_R2_SVG@@<figcaption><strong>图 2 · Held-out count decoding。</strong>横轴：V4 controlled relaxation；纵轴：confirmation R²。实线/圆点是 span-end，虚线/圆点是 span-mean。R²=0 水平线表示不优于用 confirmation mean 预测。span-end 随控制释放逐渐变差但仍保持强正值；span-mean 在 v4.3 释放 city-score order 后明显崩溃。</figcaption></figure></div>
+<section id="counter-representation">
+  <span class="section-kicker">Block 2 / 5 · Counter representation</span>
+  <h2>Counter representation：prompt 读取过程与 <code>Total:</code> query 的状态必须分开定位</h2>
+  <h3>2.1 哪一层最可解码，哪一层最适合显示 manifold？</h3>
+  <p class="lede">原分析的 probe-optimal layer 只用 v4.1 discovery grouped-seed full-space CV-R² 选择：Qwen span-end L1、span-mean L0；Gemma span-end L22、span-mean L0。它回答“哪层在完整 residual space 中最容易线性解码”，不回答“哪层的前三个 PC 最完整展示 count manifold”。因此本报告保留原 probe 结果，同时新增逐层 PCA/manifold sweep，并把 3D 展示层单独命名为 manifold-display layer。</p>
+  <div class="stat-grid"><figure class="stat-figure">@@REPRESENTATION_R2_SVG@@<figcaption><strong>图 B2-F1 · Held-out count decoding。</strong>横轴：V4 controlled relaxation；纵轴：confirmation R²。实线/圆点是 span-end，虚线/圆点是 span-mean。R²=0 水平线表示不优于用 confirmation mean 预测。span-end 随控制释放逐渐变差但仍保持强正值；span-mean 在 v4.3 释放 city-score order 后明显崩溃。</figcaption></figure></div>
+  <div class="stat-grid"><figure class="stat-figure">@@LAYER_SWEEP_SVG@@<figcaption><strong>图 B2-F2 · Discovery-only layer sweep。</strong>横轴：zero-based post-block decoder layer；纵轴：0–1 的 discovery-only score。紫色是 full-space grouped-seed CV-R²；青色是前三 PC 的 total EVR；绿色是前三 PC 对 count-centroid signal 的捕获率 F₃；粉色是 leave-one-seed-out compactness C。棕色虚线 P 标记原 probe-optimal 层；靛蓝实线 M 标记 manifold-display 层。高 EVR 单独出现并不够：若 F₃ 或 compactness 低，PCA 可能主要解释 nuisance variance。</figcaption></figure></div>
+  <details open><summary>Probe-optimal 与 manifold-display 层的逐项比较</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>pooling</th><th>probe L</th><th>probe full CV R²</th><th>probe EVR₃</th><th>probe F₃</th><th>probe LOO noise/signal</th><th>display L</th><th>display full CV R²</th><th>display EVR₃</th><th>display F₃</th><th>display PCA3 CV R²</th><th>display LOO noise/signal</th><th>M₃</th></tr></thead><tbody>@@LAYER_SELECTION_ROWS@@</tbody></table></div></details>
+  <p class="artifact-link">完整逐层数值：<a href="realistic_niah_v4_layer_sweep.csv">realistic_niah_v4_layer_sweep.csv</a>。</p>
+  @@LAYER_SELECTION_CONCLUSION@@
   <details open><summary>Primary-layer confirmation metrics</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>pooling</th><th>layer</th><th>panel</th><th>confirm R²</th><th>confirm MAE</th><th>noise / signal</th><th>linear CKA</th><th>distance corr.</th></tr></thead><tbody>@@METRIC_ROWS@@</tbody></table></div></details>
   <details><summary>Paired confirmation-seed sensitivity：相邻 relaxation 在哪里首次显著变差</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>pooling</th><th>layer</th><th>metric</th><th>step</th><th>Δ mean</th><th>95% seed CI</th><th>CI &gt; 0</th></tr></thead><tbody>@@SENSITIVITY_ROWS@@</tbody></table></div></details>
   @@REPRESENTATION_CONCLUSION@@
-</section>
-
-<section id="counter">
-  <span class="section-kicker">06 · Representation II</span>
-  <h2>Count manifold：centroid 顺序存在，但散点与相邻步长并不支持“干净等距 scalar counter”</h2>
-  <p class="lede">下面的 3D view 在每个 model×pooling 的 primary layer 上，用 v4.1 discovery 的全部 occurrence states 拟合 PC1–PC6，并把同一 basis 应用于 v4.1–v4.4。拖动旋转、滚轮缩放，可自由切换三条 PCA axes。淡点是单 seed×occurrence state，彩色节点/连线是 split-specific index 1→10 centroids；颜色编码 occurrence index，不编码 correctness。</p>
+  <div id="counter">
+  <span class="section-kicker">Prompt-reading geometry + answer-query geometry</span>
+  <h3>2.2 Prompt-reading counter：随 prompt 读取的 needle occurrence states</h3>
+  <p class="lede">下面的 3D view 可选择模型、pooling、<strong>任意已捕获 decoder layer</strong>、V4 panel、split 与输出标签。每个 model×pooling×layer 都只用 v4.1 discovery occurrence states 拟合自己的 PC1–PC6，再把同一 basis 应用于 v4.1–v4.4；layer 下拉框默认落在 manifold-display 层。淡点是单 seed×occurrence state，彩色节点/连线是 index 1→10 centroids。不同层分别拟合 PCA，因此只能比较每层内部的顺序、散布与解释度，不能把 PC 坐标值跨层直接相减。</p>
   <div class="viz-shell">
     <div class="controls">
       <label>Model<select id="model-select"><option>Qwen3-8B</option><option>Gemma4-E4B</option></select></label>
       <label>Pooling<select id="pooling-select"><option value="span_end">span-end</option><option value="span_mean">span-mean</option></select></label>
+      <label>Post-block layer<select id="layer-select"></select></label>
       <label>Variant<select id="variant-select"><option>v4.1</option><option>v4.2</option><option>v4.3</option><option>v4.4</option></select></label>
       <label>Split<select id="split-select"><option value="all">all</option><option value="discovery">discovery</option><option value="confirmation">confirmation</option></select></label>
       <label>Final output<select id="outcome-select"><option value="all">all</option><option value="correct">correct</option><option value="wrong">wrong</option><option value="invalid">invalid</option></select></label>
@@ -2868,18 +4541,65 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <h3>Aurora PC1–PC2 audit panels</h3>
   <p>以下四张图与 3D view 使用相同隐藏状态与 v4.1 discovery basis，但固定展示 PC1–PC2，便于比较跨 seed 散点宽度。它们替代旧配色 PNG 作为主报告图；原始 CSV/PNG 仍保留在 run artifact 中。</p>
   <div class="figures">@@STATIC_FIGURES@@</div>
+  <h3>2.3 Answer-query counter：<code>Total:</code> 位置的聚合状态</h3>
+  <p class="lede">这张图使用 geometric-steering discovery capture 中保存的完整 answer-query residual：Qwen L9/L18/L26，Gemma L10/L20/L31。每个点对应一个 variant×discovery seed×gold count prompt，在生成第一个答案 token 之前捕获；它不是 needle token 的均值，也不是首个答案 token 生成后的状态。每层 PCA 只在 v4.1 的 20×10 个 discovery query states 上拟合。</p>
+  <div class="stat-grid"><figure class="stat-figure">@@ANSWER_QUERY_COUNTER_SVG@@<figcaption><strong>图 B2-F4 · Answer-query count manifold。</strong>每行一个模型，每列一个已保存的 post-block query layer；横/纵轴分别为该层独立拟合的 PC1/PC2 score。淡点为 v4.4 discovery 的 20 seeds×10 counts；实线和彩色节点为 v4.4 count centroids，灰色虚线为 v4.1 centroid reference。panel 顶部给出 PC1+PC2 对 v4.1 discovery 总方差的解释比例。坐标轴符号与尺度不可跨 layer/model 直接比较。</figcaption></figure></div>
+  <div class="section-conclusion"><span>当前结论 · 两种表示不能混称</span><p>Prompt-reading 图追踪同一个 N=10 prompt 内第 1→10 个 needle occurrence 的局部状态；answer-query 图比较十个不同 gold-count prompts 在 <code>Total:</code> 位置的聚合状态。前者说明读入过程中哪些 layer 出现可视的 index trajectory，后者说明生成前哪些 layer 已形成 count-conditioned query geometry。只有后者与 late answer-query donor patching/steering 位于同一干预位置，因此不能用 prompt occurrence PCA 直接替代 answer-query counter 的机制证据。</p></div>
   <details><summary>N=10 trajectory 的实际 greedy outcome strata</summary><p class="lede">一条 N=10 trajectory 的十个 occurrence vectors 共同继承该 prompt 的最终输出标签；不是按单 occurrence 重新分类。Qwen confirmation 在四个 panel 都没有正确 N=10 trajectory；Gemma 只有 v4.1 的 1 条，因此 correct/wrong 几何只能作 audit，不能作有 power 的组间比较。</p><div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>split</th><th>correct / n</th><th>accuracy</th><th>mean prediction</th><th>MAE</th></tr></thead><tbody>@@BEHAVIOR_ROWS@@</tbody></table></div></details>
   <div class="section-conclusion"><span>本节结论</span><p>可切换 PCA 中的 centroid trajectory 证明 count-related geometry 具有低维可视结构，但 individual seed scatter、step CV 与 path/chord 显示它既不完全等距，也不总是笔直。PCA 只能说明 representation 的组织方式；是否进入生成读出，需要后面的 attention 与 causal intervention。</p></div>
+
+  <h3>2.4 Exact needle-end residual patching：可解码 endpoint 是否是可运输的 count carrier？</h3>
+  <p>该实验只 patch <code>span_end</code>，不是 span mean。Insertion 把 N−1 receiver 的新增 donor endpoint state 贴入，removal 做反向；positive aligned shift 要求 insertion 增大 output、removal 减小 output。<em>Moved</em> 要求到 donor gold 的距离严格缩短，因此 receiver baseline 已等于 donor gold 时不会被误计为 transport success。</p>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>start</th><th>rows / seeds</th><th>changed</th><th>moved [95% CI]</th><th>insertion shift</th><th>removal shift</th><th>aligned shift [95% CI]</th><th>Holm p</th></tr></thead><tbody>@@CAUSAL_PATCHING_ROWS@@</tbody></table></div>
+  <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_PATCHING_SVG@@<figcaption><strong>图 B2-F5 · Exact endpoint transport。</strong>横轴：mean direction-aligned generated-count shift；纵轴：model 与 cumulative start layer。圆点/横线为 10 个 confirmation seeds 的等权估计与 95% bootstrap CI；零表示复制单 endpoint state 没有沿 donor count 方向移动输出。</figcaption></figure></div>
+  <div class="section-conclusion"><span>本小节结论 · Endpoint insufficiency</span><p>所有 tested depths 的 aligned-shift CI 都包含 0，严格 moved rate 最高仅 2.1%。因此单个 toggled needle-end state 虽高度 count-decodable，却不是跨 prompt 可直接运输的充分 count state。该 null 不排除完整 needle token sequence、多个 endpoints 的协调状态或 query-side 重新聚合。</p></div>
+
+  <h3>2.5 Exact answer-query residual patching：聚合后的 query state 是否足以搬运模型已经算出的 prediction？</h3>
+  <p>每一行在某一层把 donor prompt-final <code>Total:</code> query 的一个<strong>完整 d<sub>model</sub> residual vector</strong>复制到 receiver，然后执行完整 greedy generation。Primary estimand 只在 receiver 与 donor baseline predictions 不同的 eligible rows 中计算：patched output 是否等于 <em>donor model prediction</em>。它有意不等同于 donor-gold accuracy，因为一个完美 transport 也可以忠实复制 donor 已经算错的数字。</p>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>rows / seeds</th><th>valid</th><th>eligible n</th><th>adopts donor prediction [95% CI]</th><th>changed (valid)</th><th>moved to donor gold (valid)</th><th>matches donor prediction (all valid)</th><th>aligned shift (valid) [95% CI]</th><th>adoption vs L0 Holm p</th></tr></thead><tbody>@@ANSWER_QUERY_LAYER_ROWS@@</tbody></table></div>
+  <div class="stat-grid"><figure class="stat-figure">@@ANSWER_QUERY_ADOPTION_SVG@@<figcaption><strong>图 B2-F6 · Layerwise donor-prediction transport。</strong>横轴：eligible rows 中 patched output 等于 donor baseline prediction 的比例；纵轴：model/layer。Strict-invalid continuations 留在分母并记为 failure；横线为 10 个 confirmation seeds 的 95% bootstrap CI，Holm p 比较 later layer 与同模型 L0。</figcaption></figure></div>
+  <details><summary>展开：末层按 V4 panel 与 directed count pair 的稳健性</summary>
+    <h4>By V4 panel</h4><div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>panel</th><th>rows / seeds</th><th>valid</th><th>eligible adoption [95% CI]</th><th>aligned shift [95% CI]</th></tr></thead><tbody>@@ANSWER_QUERY_VARIANT_ROWS@@</tbody></table></div>
+    <h4>By directed count pair</h4><div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>receiver→donor</th><th>rows / seeds</th><th>valid</th><th>eligible n</th><th>eligible adoption [95% CI]</th><th>follows donor prediction (valid)</th><th>aligned shift [95% CI]</th></tr></thead><tbody>@@ANSWER_QUERY_PAIR_ROWS@@</tbody></table></div>
+  </details>
+  @@ANSWER_QUERY_INVALID@@
+  <div class="section-conclusion"><span>本小节结论 · Query-state sufficiency</span><p>Transport 在 Qwen L18→L26 与 Gemma L20→L31 之间突然开启；末层所有合法 eligible rows 都等于 donor prediction。把 Gemma 五个生成 <code>11</code> 的 strict-invalid rows 作为 failure 后，保守 adoption 仍为 Qwen 100%、Gemma 99.58%。这证明 late query state 对“模型已经算出的 prediction”高度充分，但不证明它是单维 scalar counter，也不保证多-token answer 的后续 token 都由同一次 patch 决定。</p></div>
+  </div>
+  <div class="section-conclusion"><span>Block 2 结论</span><p>Prompt 中 needle-end states 保留稳定、可解码的 index/count information；但单 endpoint patch 近乎为零，说明该信息不是一个可单点搬运的运行计数器。相反，<code>Total:</code> 位置的后层完整 residual 可以近确定性搬运 donor prediction，支持“分布式 evidence 先被聚合，再在 answer-query 侧形成 executable count state”。</p></div>
 </section>
 
-<section id="attention-heads">
-  <span class="section-kicker">07 · Descriptive attention mechanism</span>
-  <h2>Answer-query attention：最高排名 head 不等于完整机制，broad aggregation 分散在一个多-head bank 中</h2>
-  <p class="lede">所有 head ranking 只使用 discovery prompts。对每个 head，<code>span_end</code> 把每个 needle 的最后 token 当作 evidence location；<code>span_mean</code> 汇总完整 needle span。Rank primary score 同时奖励总 needle mass 与 entropy coverage。图中纵轴 N<sub>eff</sub> 是 rank-1 head 在 N=10 时等效覆盖的 needles 数量；10 表示均匀覆盖，1 表示几乎只选择一个 occurrence。</p>
-  <div class="stat-grid"><figure class="stat-figure">@@ATTENTION_BREADTH_SVG@@<figcaption><strong>图 3 · Rank-1 head breadth。</strong>横轴：V4 panel；纵轴：rank-1 discovery head 的 N<sub>eff</sub>（0–10）。每个 bar 上的数值是 effective number。Qwen span-end 的最高排名 head 只覆盖约一个 endpoint；Qwen span-mean 与 Gemma 两种 pooling 更接近 5 个 occurrences 的 broad distribution。</figcaption></figure></div>
+<section id="attention-representation">
+  <span class="section-kicker">Block 3 / 5 · Attention-map representation</span>
+  <h2>Answer-query attention：从全 head 图谱到 retrieval phenotype，再到错误关联</h2>
+  <p class="lede">分析位置固定为 prompt-final <code>Total:</code> query，所有 attention 都是模型原始 query→prompt rows。Discovery seeds 只用于选 head、定义 phenotype 与排序；correct/wrong、omission 与 nested-increment 诊断只使用 confirmation seeds。主分析采用 <code>span_end</code>，因为它与可解码 counter 及用户指定的 omission 问题位置一致；<code>span_mean</code> 作为“整段是否被覆盖”的补充轴，不与 endpoint retrieval 混称。</p>
+
+  <h3>3.1 全 head attention atlas：每层每 head 都放在同一个坐标系中</h3>
+  <p>对每个 N=10 discovery prompt、head 与 needle endpoint，记 attention 为 aᵢ，M=Σᵢaᵢ，pᵢ=aᵢ/M。Entropy breadth 为 C<sub>H</sub>=exp[−Σᵢpᵢlog pᵢ]/10，atlas 色值为 S=M×C<sub>H</sub> 的 log₁₀；它同时要求“对 needles 的总 mass 高”和“分布不只落在少数 needles”。颜色在每个模型内部按 1%–99.5% 分位裁剪，因此可比较同模型的 layer/head/panel，不应把 Qwen 与 Gemma 的颜色绝对值直接相减。</p>
+  <div class="stat-grid"><figure class="stat-figure">@@ATTENTION_HEAD_ATLAS_SVG@@<figcaption><strong>图 B3-F1 · All-head span-end retrieval atlas。</strong>横轴：zero-based head index；纵轴：zero-based post-block layer；四列为 V4.1–V4.4，两行为模型。底色是 discovery log₁₀(S)；空心圆=global broad，空心方框=partition-local broad，实心点=first-needle locator 或其他 targeted retriever。Qwen 显示全部 36×32 heads；Gemma 只有 L5/11/17/23/29/35/41 的 global-attention heads 能看到全部远距 needles，其余 sliding-attention layers 以灰色表示“不可观测全局 retrieval”，不是零效果。</figcaption></figure></div>
+  <div class="section-conclusion"><span>本小节结论 · 全局分布</span><p>高 retrieval score 不是单一孤立 head，而是在多个层形成稀疏但重复出现的 bank；同时，颜色高也不等于 broad，因为高 mass 的 selector 也可能排名靠前。因此后续必须把“强度”与“覆盖形状”分开分类。</p></div>
+
+  <h3>3.2 Discovery-only retrieval taxonomy：按可复算规则寻找特定 heads</h3>
+  <p>首先只保留同时满足两项 gate 的候选：needle endpoint attention 高于 matched hard-negative positions，且相对 token-density 的 enrichment&gt;1。然后对每个候选在 20 个 N=10 discovery prompts 上计算 participation effective number N<sub>eff,2</sub>=1/Σᵢpᵢ²、dominant occurrence share、winner occurrence、四个等 normalized-depth quarters 的 row mass，以及 full-span mean profile。以下阈值在看 confirmation outcomes 之前固定；它们是操作性 phenotype，不是神经元“类型”的本体声明。</p>
+  <div class="metric-defs">
+    <div class="definition"><strong>Global broad retrieval</strong><p>mean N<sub>eff,2</sub>≥6，且任何单 occurrence 的 mean normalized share≤0.25。含义：至少约六个 endpoints 有实质贡献，且无单点支配。</p></div>
+    <div class="definition"><strong>Partition-local broad retrieval</strong><p>不满足 global；dominant depth quarter 平均至少包含 2 个 needles；quarter 内 local effective fraction≥0.80；该 quarter 占整个 query row attention mass≥0.50。含义：head 在局部深度区间内广泛聚合，而非全局覆盖。</p></div>
+    <div class="definition"><strong>First-needle locator</strong><p>先满足 selector gate：mean N<sub>eff,2</sub>≤2 且同一 winner occurrence 的频率≥0.80；再要求 winner mode=1、occurrence 1 mean share≥0.80、每 prompt winner 为 first 的比例≥0.90。</p></div>
+    <div class="definition"><strong>Targeted retrieval</strong><p>满足 selector gate 但不满足 first-locator；<code>target occurrence</code> 是 20 个 discovery prompts 中 winner 的众数。它定位某个 occurrence，不代表它在做计数累加。</p></div>
+    <div class="definition"><strong>Broad span-mean only</strong><p>Endpoint 上不属于上述类别，但整个 needle-span token mean 的 N<sub>eff,2</sub>≥6 且最大 occurrence share≤0.25。它说明记录内部有广覆盖，不说明 endpoint counter 被广泛读取。</p></div>
+    <div class="definition"><strong>Mixed</strong><p>通过候选 gate，但不满足任何强 phenotype 阈值。保留而不强行归类，避免把连续 profile 人为离散化后遗漏。</p></div>
+  </div>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>global broad</th><th>local broad</th><th>first locator</th><th>targeted other</th><th>broad span-mean only</th><th>mixed</th><th>all gated candidates</th></tr></thead><tbody>@@ATTENTION_PHENOTYPE_COUNT_ROWS@@</tbody></table></div>
+  <p class="artifact-link">机器可读明细：<a href="realistic_niah_v4_head_atlas.csv">all-head atlas（9,664 model×panel×pooling×layer×head rows）</a>；<a href="realistic_niah_v4_head_phenotypes.csv">gated phenotype profiles（1,030 rows）</a>。CSV 保留每个 head 的原始层号、排名、mass、coverage、enrichment、target occurrence 与十维 endpoint/span profiles。</p>
+  <div class="stat-grid"><figure class="stat-figure">@@ATTENTION_HEAD_PROFILE_SVG@@<figcaption><strong>图 B3-F2 · Representative retrieval profiles（V4.1）。</strong>每行一个模型，每列一个 phenotype；每格选择该 phenotype 中 discovery primary score 最高的 head。横轴：needle occurrence index 1–10；纵轴：20 个 discovery prompts 中每 prompt 先归一化、再平均的 endpoint attention share。标题给出 LxHy、mean N<sub>eff,2</sub> 与 selector target。线形直接显示 global 平坦覆盖、局部分区、first locator 与其他 targeted retrieval 的差异。</figcaption></figure></div>
+  <details><summary>展开：每个模型×panel×phenotype 的最高-primary代表 head</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>phenotype</th><th>head</th><th>target</th><th>mean N_eff,2</th><th>endpoint mass</th><th>entropy coverage</th><th>dominant row-quarter mass</th></tr></thead><tbody>@@ATTENTION_REPRESENTATIVE_ROWS@@</tbody></table></div></details>
+  <div class="section-conclusion"><span>本小节结论 · Retrieval heads 不是单一类型</span><p>两个模型都同时存在 global broad、local broad、first locator 与其他 targeted heads。Qwen global broad 从 v4.1 的 34 个降到 v4.4 的 22 个，local broad 从 15 个降到 9 个，而 first locator 始终有 68–79 个；Gemma 在可见的 global layers 中有 9–16 个 global broad、1–5 个 local broad。由此不能把 top-ranked head 自动称为 broad aggregation head，也不能只保留一个“最显著”head 来代表机制。</p></div>
+
+  <h3>3.3 Rank-1 是必要的反例检查，不是最终机制摘要</h3>
+  <p>下面把 discovery primary score 最高的单个 head 单独画出，用来检验“最高排名是否等于最 broad”。这里的 N<sub>eff,H</sub>=exp(H(p))=10×C<sub>H</sub> 是 entropy effective number；它与 taxonomy 使用的 participation N<sub>eff,2</sub> 都在 1–10，但公式不同，不能在同一阈值下混用。</p>
+  <div class="stat-grid"><figure class="stat-figure">@@ATTENTION_BREADTH_SVG@@<figcaption><strong>图 B3-F3 · Rank-1 head breadth。</strong>横轴：V4 panel；纵轴：rank-1 discovery head 的 entropy effective number N<sub>eff,H</sub>（1–10）。Qwen span-end rank-1 几乎只覆盖一个 endpoint；Qwen span-mean 与 Gemma 两种 pooling 约覆盖 5 个 occurrences。这一反例说明 primary 排名同时受总 mass 影响，不能代替 phenotype classification。</figcaption></figure></div>
   <details><summary>展开：每个 model×panel×pooling 的 rank-1 head 与指标</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>pooling</th><th>rank-1 head</th><th>total mass</th><th>coverage</th><th>N_eff</th><th>primary</th></tr></thead><tbody>@@ATTENTION_TOP_ROWS@@</tbody></table></div></details>
 
-  <h3>Qwen span-end 全候选 phenotype：用户提出的“分区内 aggregation”假设</h3>
+  <h3>3.4 Qwen high-resolution replication：分区内 aggregation 与稳定 global bank</h3>
   <p>因为 Qwen L29H3 的 rank 很高但 N<sub>eff</sub>≈1，我们没有只看 top-1/top-8，而是对每个 panel 的全部 discovery-eligible candidates（212/226/226/225 heads）计算 endpoint breadth、winner occurrence、query-depth quartile gating 和 full-span breadth，并用以下 post-hoc descriptive rules 分类：</p>
   <div class="metric-defs">
     <div class="definition"><strong>Global endpoint aggregator</strong><p>endpoint N<sub>eff</sub>≥6，且任何单 occurrence 的 mean normalized share≤0.25。</p></div>
@@ -2887,15 +4607,21 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
     <div class="definition"><strong>Occurrence endpoint selector</strong><p>endpoint N<sub>eff</sub>≤2，且至少 80% examples 选择相同 occurrence。</p></div>
     <div class="definition"><strong>证据边界</strong><p>这些 phenotype 是行为描述，不是模块标签。一个 head 可有 broad span-mean profile，却在 endpoint 上是 selector；attention profile 也没有包含 value vector 与 output projection。</p></div>
   </div>
-  <div class="stat-grid"><figure class="stat-figure">@@PARTITION_PHENOTYPE_SVG@@<figcaption><strong>图 4 · Qwen discovery-eligible span-end head taxonomy。</strong>横轴：V4 panel；纵轴：候选 head 数量。堆叠颜色显示 global aggregator、partition-local aggregator、occurrence selector 与其他 phenotypes。v4.1 的 partition-local 数量较多，但释放 position 后明显减少；global aggregator bank 在四个 panel 都存在。</figcaption></figure></div>
+  <div class="stat-grid"><figure class="stat-figure">@@PARTITION_PHENOTYPE_SVG@@<figcaption><strong>图 B3-F4 · Qwen discovery-eligible span-end head taxonomy replication。</strong>横轴：V4 panel；纵轴：候选 head 数量。堆叠颜色显示 global aggregator、partition-local aggregator、occurrence selector 与其他 phenotypes。v4.1 的 partition-local 数量较多，但释放 position 后明显减少；global aggregator bank 在四个 panel 都存在。该旧分析与本报告的统一 raw-row 重算在 global/local 两类上逐 head 完全一致，作为索引与规则复现检查。</figcaption></figure></div>
   <details open><summary>Phenotype bank coverage：等权覆盖潜力与 raw attention 实际权重</summary><div class="table-wrap"><table><thead><tr><th>panel</th><th>phenotype</th><th>heads</th><th>equal-head N_eff</th><th>raw-mass N_eff</th><th>mean summed endpoint mass</th></tr></thead><tbody>@@PARTITION_BANK_ROWS@@</tbody></table></div></details>
   <div class="callout"><strong>跨 panel×split 稳定的 Qwen global aggregators（13 个）：</strong><code>@@STABLE_GLOBAL_HEADS@@</code>。其中 L6H12 的 endpoint mass 较高；L13H16、L17H22 也是下一轮 bank-specific ablation 的优先候选。L29H3 则在四个 panel 都把约 99% endpoint share 给 occurrence 1；position 变化后它跟随“最早 occurrence”，而不是固定绝对 depth bin。</div>
   @@ATTENTION_CONCLUSION@@
-</section>
 
-<section id="span-end-attention">
-  <span class="section-kicker">08 · Error-linked attention</span>
-  <h2>Undercount 诊断：错误输出是否漏注意了行为上“少算”的同一批 needles？</h2>
+  <h3>3.5 Correct versus wrong：答错时 ranked heads 的 retrieval 是否系统变窄？</h3>
+  <p>该比较只使用 confirmation prompts 和 discovery-ranked top-8 heads，并对 gold count 做显式调整，避免“错误样本本来就集中在大 count”造成伪差异。对每个 gold count c，若正确与错误两组都存在，则计算 Δ<sub>c</sub>=mean(metric|wrong,c)−mean(metric|correct,c)，再以 w<sub>c</sub>=2n<sub>w,c</sub>n<sub>r,c</sub>/(n<sub>w,c</sub>+n<sub>r,c</sub>) 加权；95% CI 以 confirmation seed 为 cluster 重采样。负的 coverage/min-to-mean 表示错误时注意力在 needles 间更窄或尾部更弱；这仍是 outcome association，不是 causal effect。</p>
+  <div class="stat-grid"><figure class="stat-figure">@@ATTENTION_OUTCOME_EFFECT_SVG@@<figcaption><strong>图 B3-F5 · Count-adjusted wrong−correct attention breadth。</strong>四列为 V4.1–V4.4，两行为模型；每格从上到下是 discovery rank 1–8。单元值为 span-end entropy coverage 的 count-adjusted wrong−correct；粉色（负）表示错误输出时更窄，绿色（正）表示更广，深色边框表示 seed-cluster 95% CI 不含 0。该图比较相同 gold-count strata，不把行为难度梯度误当作 attention 差异。</figcaption></figure></div>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>metric</th><th>head×panel cells</th><th>CI entirely &lt;0</th><th>CI entirely &gt;0</th><th>median wrong−correct</th><th>range</th></tr></thead><tbody>@@ATTENTION_OUTCOME_SUMMARY_ROWS@@</tbody></table></div>
+  <p class="artifact-link">全部 512 个 model×panel×pooling×head×metric effects：<a href="realistic_niah_v4_attention_outcome_effects.csv">realistic_niah_v4_attention_outcome_effects.csv</a>。</p>
+  <div class="callout"><strong>Multiplicity boundary。</strong>深色边框只表示单个 head×panel 的 seed-bootstrap CI 不含 0，没有对 32 个 cells 做 family-wise correction；因此这里用于定位错误相关 channels，不把任一单格宣称为预注册 confirmatory discovery。</div>
+  <div class="section-conclusion"><span>本小节结论 · 正误差异不是统一的单-head signature</span><p>在 32 个 head×panel cells 中，coverage 的 CI 完全低于 0 者为 Qwen 2 个、Gemma 1 个，完全高于 0 者均为 0；minimum-to-mean 同样是 2/32 与 1/32 为负。Primary score 则更异质：Qwen 6 个显著负、2 个显著正，Gemma 2 个负、0 个正。因而“答错=全部 retrieval 关闭”过强；更符合数据的是少数 evidence channels 变窄或漏项，随后表现为 undercount。</p></div>
+
+  <div id="span-end-attention">
+  <h3>3.6 Undercount omission：错误输出是否漏注意了行为上“少算”的同一批 needles？</h3>
   <p class="lede">主分析按用户指定只报告 <code>span_end</code>。它检验 answer-query top-8 discovery-ranked ensemble 是否给 undercount 所隐含的 omitted evidence 更低 attention。所有估计只使用 confirmation seeds；每个 head 先归一化到 occurrence mean share=1 后再等权平均，避免高-mass selector 完全淹没 broad heads。</p>
   <div class="method-strip">
     <div><strong>Behavior label</strong>完整 greedy integer output <em>N̂</em>；sequence probability 与 candidate score 均不参与。无法解析或非-undercount rows 不属于该 estimand。</div>
@@ -2904,7 +4630,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
     <div><strong>Testing</strong>two-sided exact seed sign-flip；两个 pooled model tests 为一个 Holm family，八个 panel-level tests 为另一个。</div>
   </div>
 
-  <h3>8.1 Behavior-implied omitted tail 与 lowest-attention occurrences</h3>
+  <h4>3.6a Behavior-implied omitted tail 与 lowest-attention occurrences</h4>
   <p>对 gold count <em>N</em> 和 undercount <em>N̂</em>，令 <em>k=N−N̂</em>。行为上“少算”的尾部集合为 <em>T<sub>k</sub>={N−k+1,…,N}</em>；attention-implied 集合 <em>B<sub>k</sub></em> 是 ensemble attention 最低的 k 个 occurrence endpoints。主分数是两个集合的 overlap fraction。</p>
   <div class="formula"><em>S=|B<sub>k</sub>∩T<sub>k</sub>|/k</em>。若 <em>B<sub>k</sub></em> 是均匀随机的 k-subset，则 <em>E[S]=k/N</em>，而 exact set match 的 chance 为 <em>P(B<sub>k</sub>=T<sub>k</sub>)=1/C(N,k)</em>。</div>
   <p class="lede">Primary estimand 是 seed-equal mean 的 <em>S−k/N</em>。Cross-panel aggregate 先在每个 seed 内给四个 panel 等权，再跨 seed 推断，避免选择最有利的 relaxation。<em>Tail/prefix</em> 是 omitted tail 的 mean normalized attention 除以 retained prefix；小于 1 表示 tail evidence 被相对抑制。该 omission 分析为 post-hoc inferential audit，并非 preregistered confirmatory test。</p>
@@ -2912,78 +4638,77 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <div class="table-wrap"><table><thead><tr><th>model</th><th>seeds</th><th>overlap / chance</th><th>Δ [95% seed CI]</th><th>Holm p</th><th>exact / chance</th><th>exact Δ [95% CI]</th><th>tail / prefix</th></tr></thead><tbody>@@SPAN_END_POOLED_ROWS@@</tbody></table></div>
   <details><summary>Panel-level heterogeneity</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>prompts / seeds</th><th>mean k</th><th>overlap</th><th>chance k/N</th><th>Δ [95% seed CI]</th><th>Holm p</th><th>exact / chance</th><th>exact Δ [95% CI]</th><th>tail / prefix</th></tr></thead><tbody>@@SPAN_END_ALIGNMENT_ROWS@@</tbody></table></div></details>
   <div class="stat-grid">
-    <figure class="stat-figure">@@SPAN_END_ALIGNMENT_SVG@@<figcaption><strong>图 5 · Omitted-tail overlap。</strong>横轴：attention bottom-k 与 behavior-implied omitted tail 的 overlap fraction。圆点：seed-equal observed overlap；菱形：同 k/N 下的 hypergeometric chance；半透明线：observed−chance 的 95% seed-cluster CI 平移回 overlap axis。圆点在菱形右侧表示低 attention occurrences 更像模型行为上少算的尾部。</figcaption></figure>
+    <figure class="stat-figure">@@SPAN_END_ALIGNMENT_SVG@@<figcaption><strong>图 B3-F6 · Omitted-tail overlap。</strong>横轴：attention bottom-k 与 behavior-implied omitted tail 的 overlap fraction。圆点：seed-equal observed overlap；菱形：同 k/N 下的 hypergeometric chance；半透明线：observed−chance 的 95% seed-cluster CI 平移回 overlap axis。圆点在菱形右侧表示低 attention occurrences 更像模型行为上少算的尾部。</figcaption></figure>
   </div>
 
-  <h3>8.2 Nested N−1→N 中精确新增的 needle</h3>
+  <h4>3.6b Nested N−1→N 中精确新增的 needle</h4>
   <p>Tail 分析把“少算”解释为遗漏后 k 个 occurrences，仍依赖顺序假设。Nested construction 提供更强的 paired check：从 N−1 到 N 新增的 occurrence 精确已知。我们只比较两组最终都仍 undercount 的 transitions：(i) 新 endpoint 是否落在当前 bottom-k attention set；(ii) 新 endpoint 的 normalized share，其中 1 表示在所有 occurrences 间均匀。<em>Failed</em> 表示 output 未增加；<em>registered</em> 表示恰好 +1。先在 seed×panel 内配对，再在 seed 内平均 panels。</p>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>failed / registered n</th><th>paired blocks / seeds</th><th>bottom-k failed / reg.</th><th>risk Δ F−R [95% CI]</th><th>Holm p</th><th>share failed / reg.</th><th>share Δ R−F [95% CI]</th><th>Holm p</th></tr></thead><tbody>@@SPAN_END_NESTED_ROWS@@</tbody></table></div>
   <div class="stat-grid">
-    <figure class="stat-figure">@@SPAN_END_NESTED_SVG@@<figcaption><strong>图 6 · Newly added needle in bottom-k。</strong>横轴：新增 endpoint 进入当前 bottom-k attention set 的概率；纵向分组：模型；粉色/绿色分别为 failed-to-increment 与 registered +1。横线是完整 seed bootstrap 95% CI；右侧 RD=failed−registered 的 paired risk difference。两组最后都 undercount，因而差异不是简单的 correct/wrong 对比。</figcaption></figure>
+    <figure class="stat-figure">@@SPAN_END_NESTED_SVG@@<figcaption><strong>图 B3-F7 · Newly added needle in bottom-k。</strong>横轴：新增 endpoint 进入当前 bottom-k attention set 的概率；纵向分组：模型；粉色/绿色分别为 failed-to-increment 与 registered +1。横线是完整 seed bootstrap 95% CI；右侧 RD=failed−registered 的 paired risk difference。两组最后都 undercount，因而差异不是简单的 correct/wrong 对比。</figcaption></figure>
   </div>
   <div class="notes">@@SPAN_END_CONCLUSION@@</div>
   <div class="callout"><strong>推断边界。</strong>Tail set 是由 behavior 推断出的“可能遗漏集合”，不是模型内部忘记项的直接记录；nested check 虽然精确知道新增 occurrence，但 attention 与 output 仍是相关。它们为 causal ablation/patching 提供靶点，不能替代干预。</div>
-  <div class="section-conclusion"><span>本节结论</span><p>在 confirmation undercounts 中，span-end ensemble 的最低-attention occurrences 与行为上少算的尾部显著对齐；当 nested pair 未注册新增 occurrence 时，该新 endpoint 更常进入 bottom-k、normalized share 也更低。最合理的描述是“evidence omission 与 undercount 同步出现”，尚不能单凭 attention map 宣称 omission 导致错误。</p></div>
+  <div class="section-conclusion"><span>本小节结论</span><p>在 confirmation undercounts 中，span-end ensemble 的最低-attention occurrences 与行为上少算的尾部显著对齐；当 nested pair 未注册新增 occurrence 时，该新 endpoint 更常进入 bottom-k、normalized share 也更低。最合理的描述是“evidence omission 与 undercount 同步出现”，尚不能单凭 attention map 宣称 omission 导致错误。</p></div>
+  </div>
+  <div class="section-conclusion"><span>Block 3 结论</span><p>Answer-query retrieval 由多种 heads 共同完成：有跨全 prompt 的 broad bank，也有分区内 aggregation、first-needle locator 与其他 targeted selectors。错误并非统一关闭全部 attention，而更像部分 channels 变窄或漏掉特定 evidence；omission-tail 与 nested-new-needle 两个独立诊断都把低 attention 与 undercount 对齐，但因果方向仍需 ablation 验证。</p></div>
 </section>
 
-<section id="causal">
-  <span class="section-kicker">09 · Causal interventions</span>
-  <h2>从 representation 到 causal effect：分别检验 head necessity、state transport 与 geometry manipulability</h2>
-  <p class="lede">完成的 <code>screen_8h_v1</code> 与 <code>answer_query_dense_v1</code> 保留两个模型、四个 V4 panels 和全部 10 个 confirmation seeds，只缩小 intervention grid。每一行都在 intervention 后执行完整 deterministic greedy generation；correctness、changed、moved 与 aligned shift 都来自最终 parsed continuation，不使用 candidate probability。</p>
+<section id="head-ablation">
+  <span class="section-kicker">Block 4 / 5 · Head ablation</span>
+  <h2>Head-bank necessity：删掉 discovery-ranked retrieval heads 是否比同层随机 heads 更容易造成 undercount？</h2>
+  <p class="lede">干预只作用于 prompt-final <code>Total:</code> query row，并在 intervention 后执行完整 deterministic greedy generation。每模型使用 160 个 confirmation prompt shards（4 panels×10 seeds×counts 7–10），每 shard 同时保留 baseline、discovery-ranked bank ablation 与 layer-matched random control；所有标签都来自最终 parsed continuation，不使用 candidate probability。</p>
   <div class="method-strip">
-    <div><strong>Head necessity</strong>仅在 answer-query row ablate discovery-ranked span-end top-4/top-8 heads；counts 7–10；control 是相同 layers、相同数量的 random heads。</div>
-    <div><strong>Endpoint transport</strong>5↔6、7↔8、9↔10 nested pairs；把精确 toggled needle-end residual 从 donor 复制到 receiver；从三个 matched depths 起 cumulative patch。</div>
-    <div><strong>Exact query transport</strong>5↔6、7↔8、9↔10、5↔10；只复制 prompt-final <code>Total:</code> query 的单个 residual vector；8 个 single-layer sites。</div>
-    <div><strong>Query manipulability</strong>7↔8、9↔10、5↔10；用 discovery count centroids 的 α=1 delta steering query residual；control 为同 norm 的 orthogonal random direction。</div>
+    <div><strong>Selected bank</strong>按 discovery span-end primary score 取 top-4/top-8；不使用 confirmation outcome 重新排序。</div>
+    <div><strong>Matched control</strong>随机 heads 与 ranked bank 的 head 数量、所在 layers 完全匹配，用于排除“只要删若干 heads 就会下降”。</div>
+    <div><strong>Primary estimand</strong>count shift=(ablated prediction−baseline prediction)；报告 ranked−random paired contrast，负值表示 ranked bank 额外导致 undercount。</div>
+    <div><strong>Scope</strong>该 bank 混合 global/local/selector phenotypes；实验检验 bank-level necessity，不识别其中哪一类单独必要。</div>
     <div><strong>Inference unit</strong>point estimate 等权 prompts；seed 内先平均 panels/pairs，再 bootstrap 10 个 paired seeds；primary tests 为 exact sign-flip + family-wise Holm。</div>
   </div>
-  <div class="notes">@@CAUSAL_CONCLUSION@@</div>
 
-  <h3>9.1 Discovery-ranked head-bank ablation：被选中的 aggregation bank 是否因果必要？</h3>
+  <h3>4.1 Discovery-ranked head-bank ablation</h3>
   <p>Primary contrast 是 ranked minus layer-matched random。生成 count shift 定义为 ablated prediction−baseline prediction，因此负 contrast 表示删掉 ranked bank 比删掉同层 random heads 造成更强 undercount。由于高 count baseline-correct prompts 极少，主表按 preregistered screen estimand 合并 correct/wrong；原始 summary/control tables 仍保留 outcome strata。</p>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>set</th><th>prompts (correct)</th><th>changed ranked / random</th><th>Δ changed [95% CI]</th><th>count shift ranked / random</th><th>Δ count shift [95% CI]</th><th>Holm p</th><th>Δ MAE [95% CI]</th></tr></thead><tbody>@@CAUSAL_ABLATION_ROWS@@</tbody></table></div>
-  <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_ABLATION_SVG@@<figcaption><strong>图 7 · Ranked head-bank ablation。</strong>横轴：paired mean count shift 的 ranked−random contrast；纵轴：model 与 top-k bank。圆点是 seed-equal estimate，横线是 95% seed-bootstrap CI，棕色竖线为零效应。负值表示 ranked bank 被删后额外 undercount；同层 random control 排除了“只是删了若干 heads”的解释。</figcaption></figure></div>
-  <div class="section-conclusion"><span>当前结论 · Necessity</span><p>Top-8 bank 在两个模型都产生稳定负 count-shift contrast（Qwen −0.331；Gemma −2.156，Holm p=0.0078），因此所选 span-end head bank 对保持 output magnitude 因果必要。该结论是 bank-level，不证明 bank 中每个 head 单独 broad、不能区分 aggregator 与 selector 的个体贡献，也不等价于精确算术求和。</p></div>
+  <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_ABLATION_SVG@@<figcaption><strong>图 B4-F1 · Ranked head-bank ablation。</strong>横轴：paired mean count shift 的 ranked−random contrast；纵轴：model 与 top-k bank。圆点是 seed-equal estimate，横线是 95% seed-bootstrap CI，棕色竖线为零效应。负值表示 ranked bank 被删后额外 undercount；同层 random control 排除了“只是删了若干 heads”的解释。</figcaption></figure></div>
+  <div class="section-conclusion"><span>Block 4 结论 · Necessity</span><p>Top-8 bank 在两个模型都产生稳定负 count-shift contrast（Qwen −0.331；Gemma −2.156，Holm p=0.0078），因此所选 span-end retrieval bank 对保持 output magnitude 因果必要。该结论不证明 bank 中每个 head 单独 broad，也不能区分 global/local/selector 的个体贡献；下一步应按本报告统一 phenotype 做 matched bank ablation，而不是把这一结果解释成单一 broad head 的必要性。</p></div>
 
-  <h3>9.2 Exact needle-end residual patching：可解码 endpoint 是否是可运输的 count carrier？</h3>
-  <p>该实验按用户指定只 patch <code>span_end</code>，不是 span mean。Insertion 把 N−1 receiver 的新增 donor endpoint state 贴入，removal 做反向；positive aligned shift 要求 insertion 增大 output、removal 减小 output。<em>Moved</em> 要求到 donor gold 的距离严格缩短，因此 receiver baseline 已等于 donor gold 时不会被误计为 transport success。</p>
-  <div class="table-wrap"><table><thead><tr><th>model</th><th>start</th><th>rows / seeds</th><th>changed</th><th>moved [95% CI]</th><th>insertion shift</th><th>removal shift</th><th>aligned shift [95% CI]</th><th>Holm p</th></tr></thead><tbody>@@CAUSAL_PATCHING_ROWS@@</tbody></table></div>
-  <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_PATCHING_SVG@@<figcaption><strong>图 8 · Exact endpoint transport。</strong>横轴：mean direction-aligned generated-count shift；纵轴：model 与 cumulative start layer。圆点/横线为 seed estimate/95% CI；零表示复制该单 endpoint state 没有沿 donor count 方向移动输出。这里检验的是明确 directional null，因此没有把 random patch 作为 primary contrast。</figcaption></figure></div>
-  <div class="section-conclusion"><span>当前结论 · Endpoint insufficiency</span><p>所有 tested depths 的 aligned-shift CI 都包含 0，严格 moved rate 最高仅 2.1%。因此单个 toggled needle-end state 虽然高度 count-decodable，却不是跨 prompt 可直接运输的充分 count state。仍可能需要 position-specific routing、完整 needle token sequence、多个 endpoints 的协调状态，或由 query-side attention 重新聚合。</p></div>
+  </section>
 
-  <h3>9.3 Exact answer-query residual patching：聚合后的 query state 是否足以搬运模型已经算出的 prediction？</h3>
-  <p>每一行在某一层把 donor prompt-final <code>Total:</code> query 的一个 residual vector 精确复制到 receiver，然后执行完整 greedy generation。Primary estimand 是 receiver 与 donor baseline predictions 不同时，patched output 是否采用 <em>donor model prediction</em>。这与 donor-gold accuracy 有意分离：一个完美 transport 可以忠实复制 donor 已经算错的数字。</p>
-  <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>rows / seeds</th><th>valid</th><th>eligible n</th><th>adopts donor prediction [95% CI]</th><th>changed (valid)</th><th>moved to donor gold (valid)</th><th>matches donor prediction (all valid)</th><th>aligned shift (valid) [95% CI]</th><th>adoption vs L0 Holm p</th></tr></thead><tbody>@@ANSWER_QUERY_LAYER_ROWS@@</tbody></table></div>
-  <div class="stat-grid"><figure class="stat-figure">@@ANSWER_QUERY_ADOPTION_SVG@@<figcaption><strong>图 9 · Layerwise donor-prediction transport。</strong>横轴：receiver/donor baseline predictions 不同的 eligible rows 中，patched output 等于 donor prediction 的比例；纵轴：model/layer。严格 invalid continuations 留在分母并记作 failure。横线为 10 个完整 confirmation seeds 的 95% bootstrap CI；Holm p 比较每个 later layer 与同模型 L0。</figcaption></figure></div>
-  <h4>Final-layer robustness by V4 panel</h4>
-  <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>panel</th><th>rows / seeds</th><th>valid</th><th>eligible adoption [95% CI]</th><th>aligned shift [95% CI]</th></tr></thead><tbody>@@ANSWER_QUERY_VARIANT_ROWS@@</tbody></table></div>
-  <h4>Final-layer transport by directed count pair</h4>
-  <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>receiver→donor</th><th>rows / seeds</th><th>valid</th><th>eligible n</th><th>eligible adoption [95% CI]</th><th>follows donor prediction (valid)</th><th>aligned shift [95% CI]</th></tr></thead><tbody>@@ANSWER_QUERY_PAIR_ROWS@@</tbody></table></div>
-  @@ANSWER_QUERY_INVALID@@
-  <div class="section-conclusion"><span>当前结论 · Query-state sufficiency</span><p>Transport 在 Qwen L18→L26 与 Gemma L20→L31 之间突然开启；末层所有合法 eligible rows 都等于 donor prediction。把 Gemma 五个 <code>11</code> strict-invalid rows 作为 failure 后，保守 adoption 仍为 Qwen 100%、Gemma 99.58%。这证明 late query state 对“模型已经算出的 prediction”高度充分，但不证明它是干净 scalar counter、donor prediction 正确，或一个 query patch 足以决定多 token answer 的全部后续 tokens。</p></div>
+<section id="geometry-steering">
+  <span class="section-kicker">Block 5 / 5 · Geometry steering</span>
+  <h2>Answer-query geometry steering：count-centroid 方向是否与生成 readout 因果对齐？</h2>
+  <p class="lede">该 block 检验的是 full-dimensional <em>directional manipulability</em>，不是 full-state replacement。Discovery seeds 只拟合 count centroids 与方向；10 个 confirmation seeds、四个 V4 panels 和 7↔8/9↔10/5↔10 directed pairs 用于最终干预评估。每一行在干预后执行完整 greedy generation，并从最终 parsed count 计算 changed、moved、target hit 与 aligned shift。</p>
+  <div class="method-strip">
+    <div><strong>Geometry arm</strong><code>centroid_delta</code>：h′=h+α(μ<sub>target</sub>−μ<sub>receiver</sub>)，本轮 α=1，修改全部 d<sub>model</sub> 维。</div>
+    <div><strong>Matched control</strong>与几何 delta 正交且 L2 norm 完全相同的 random vector；逐 prompt/pair 配对。</div>
+    <div><strong>Primary estimand</strong>aligned shift=(patched−receiver baseline)×sign(target−receiver)；报告 geometry−random paired difference。</div>
+    <div><strong>Not tested</strong><code>centroid_transplant</code> h′=μ<sub>target</sub> 未运行；因此本 block 不回答“均值完整状态是否充分”。</div>
+    <div><strong>Inference</strong>seed 内先平均 panels/pairs，再对 10 个 confirmation seeds bootstrap；exact sign-flip，模型内 layers 做 Holm correction。</div>
+  </div>
 
-  <h3>9.4 Answer-query geometric steering：count geometry 是否与生成 readout 对齐？</h3>
-  <p>α=1 时，geometric vector 是 discovery centroid 从 receiver count 指向 target count 的差；control 是与之正交且 norm 完全相同的 random vector。Primary effect 是沿 target direction 的 generated-count shift，按 prompt/pair 与 control 配对。<em>Moved</em> 与 <em>target hit</em> 都基于最终 parsed count，而不是 token probability。</p>
+  <h3>5.1 Centroid-delta intervention</h3>
+  <p>完成实验使用的唯一方法是 <code>centroid_delta</code>、α=1：对 receiver answer-query state 的<strong>全部 d<sub>model</sub> 维</strong>施加 Δ=μ<sub>target</sub>−μ<sub>receiver</sub>，即 h′=h+Δ；control 是与 Δ 正交且 norm 完全相同的 random vector。它不是“只改 PCA 三维”，但也不是“把整个 target state 替换过来”。Primary effect 是沿 target direction 的 generated-count shift，按 prompt/pair 与 control 配对；<em>Moved</em> 与 <em>target hit</em> 都基于最终 parsed count。</p>
+  <div class="callout"><strong>设计边界。</strong>Centroid-delta 适合检验“discovery count direction 是否与生成 readout 对齐”，因为它尽量保留 receiver-specific nuisance residual；但它不能单独检验 target state 的充分性。全状态 donor replacement 已由 9.3 的 answer-query patching 检验；尚缺的对照是同层、同 prompts 上的 <code>centroid_transplant</code>（h′=μ<sub>target</sub>），以及 donor-state / centroid-transplant / centroid-delta 三臂直接比较。</div>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>pairs / seeds</th><th>changed geom. / random</th><th>moved geom. / random</th><th>Δ moved [95% CI]</th><th>target hit geom. / random</th><th>aligned shift geom. / random</th><th>Δ aligned [95% CI]</th><th>Holm p</th></tr></thead><tbody>@@CAUSAL_STEERING_ROWS@@</tbody></table></div>
-  <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_STEERING_SVG@@<figcaption><strong>图 10 · Geometry versus norm-matched random steering。</strong>横轴：paired aligned-count-shift 的 geometric−random contrast；纵轴：model/layer。正值表示 discovery-fit centroid delta 比等 norm 正交方向更有效地把 held-out output 推向 target。只有 Qwen L26 与 Gemma L31 在 family-wise correction 后明确为正。</figcaption></figure></div>
-  <div class="section-conclusion"><span>当前结论 · Manipulability</span><p>后层 query geometry 确实进入生成 readout：Qwen L26 的 geometric−random aligned shift 为 +0.958，Gemma L31 为 +1.388（均 Holm p=0.0117）。但 exact target hit 只有 Qwen 8.75%、Gemma 7.5%，所以当前只支持“方向可操纵”，不支持“α=1 可精确设置目标整数”。</p></div>
+  <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_STEERING_SVG@@<figcaption><strong>图 B5-F1 · Geometry versus norm-matched random steering。</strong>横轴：paired aligned-count-shift 的 geometric−random contrast；纵轴：model/layer。正值表示 discovery-fit centroid delta 比等 norm 正交方向更有效地把 held-out output 推向 target。只有 Qwen L26 与 Gemma L31 在 family-wise correction 后明确为正。</figcaption></figure></div>
+  <div class="section-conclusion"><span>当前结论 · 仅限 directional manipulability</span><p>后层 full-dimensional centroid delta 确实进入生成 readout：Qwen L26 的 geometric−random aligned shift 为 +0.958，Gemma L31 为 +1.388（均 Holm p=0.0117）。但 exact target hit 只有 Qwen 8.75%、Gemma 7.5%。因此该实验只支持“count-centroid 方向可操纵”，不能支持“全 hidden state 已被搬运”或“α=1 可精确设置整数”。全 donor state 的强 sufficiency 来自独立的 answer-query replacement experiment；centroid transplant 仍是缺失实验。</p></div>
 
-  <h3>9.5 为什么 early decoding 很强，steering 却可能无效？</h3>
+  <h3>5.2 为什么 early decoding 很强，steering 却可能无效？</h3>
   <p>下表诊断 steering 使用的 10 个 discovery centroids。Endpoint correlation 是 count 与 centroid 在 1→10 chord 上投影的相关；monotonicity 检查该投影是否随 count 单调。Step CV 高表示相邻 count 步长不等；path/chord 高表示曲线弯折。一个方向可以高度可解码，却不一定是后续 readout 使用的 causal coordinate。</p>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>variants</th><th>endpoint corr. mean (min)</th><th>minimum monotone fraction</th><th>mean step CV</th><th>mean successive-step cosine</th><th>mean tortuosity</th></tr></thead><tbody>@@CAUSAL_GEOMETRY_ROWS@@</tbody></table></div>
 
   <div class="section-conclusion"><span>当前结论 · Availability versus usage</span><p>Early/middle layers 的 centroid path 可接近单调、R² 很高，却在 steering 下近乎 inert；late path 更弯、更不等距，反而强烈改变 output。信息“可被线性读出”与模型“实际沿该方向生成”必须分开验证。</p></div>
 
-  <h3>9.6 Artifact and label audit</h3>
+  <h3>5.3 Artifact and label audit</h3>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>ablation shards / rows</th><th>patch families / rows</th><th>steering discovery / families / rows</th><th>greedy-label alignment</th></tr></thead><tbody>@@CAUSAL_AUDIT_ROWS@@</tbody></table></div>
   <div class="callout"><strong>Audit result。</strong>所有 expected shards、detail/summary/control tables 均存在；每个 patch row 成功；discovery NPZ shapes 与 finite values 已核验；causal baseline 与保存的 greedy behavior labels 完全一致；patched correctness 由最终 parsed continuation 重算；logs 中无 Traceback、OOM 或 FAILED marker。</div>
   <h4>Answer-query dense-patching audit</h4>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>family shards / rows</th><th>successful / skipped</th><th>valid / invalid</th><th>eligible donor-prediction rows</th><th>greedy-label alignment</th></tr></thead><tbody>@@ANSWER_QUERY_AUDIT_ROWS@@</tbody></table></div>
-  <div class="section-conclusion"><span>本节结论</span><p>四类 causal result 形成一致的定位：selected head bank 对 count magnitude 必要；单 needle endpoint 不足以跨 prompt 搬运 count；late <code>Total:</code> query residual 对 donor prediction 近乎充分；同一位置的 count geometry 还能方向性 steering。当前证据最支持“分布式聚合后在 query 侧形成 executable state”，而非 needle-local scalar transport。</p></div>
+  <div class="section-conclusion"><span>Block 5 结论 · Directional manipulability, not state sufficiency</span><p>Qwen L26 与 Gemma L31 的 full-dimensional centroid delta 相对等 norm 正交控制显著把输出推向 target，但 exact target hit 只有 8.75% 与 7.5%。因此可以主张“late count geometry 与生成 readout 因果对齐”，不能主张“α=1 精确设置整数”或“整个 target hidden state 已搬运”。完整 donor state 的 sufficiency 来自 Block 2 的 sample-wise answer-query replacement；centroid transplant 仍是缺失的第三臂。</p></div>
 </section>
 
-<section id="synthesis">
-  <span class="section-kicker">10 · Mechanistic synthesis</span>
+<div class="report-appendix" id="appendix">
+  <span class="section-kicker">Appendix A · Mechanistic synthesis</span>
   <h2>综合机制：哪些解释被支持，哪些解释已经不够，哪些仍无法区分？</h2>
   <div class="evidence-ledger">
     <div class="ledger-row"><div><strong>H1 · Needle-end 存有独立、可直接运输的 running count</strong></div><div><span class="evidence-tag">Not sufficient</span>span-end probe 很强，但 exact endpoint patch 全部接近 null；单 endpoint transport 解释不足。</div></div>
@@ -2994,31 +4719,31 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
     <div class="ledger-row"><div><strong>H6 · Qwen 使用固定的 partition-local aggregation circuit</strong></div><div><span class="evidence-tag">Open</span>存在 local heads，但 phenotype 跨 split/panel 稳定性弱；global bank 更稳定。</div></div>
   </div>
   <div class="section-conclusion"><span>本节结论</span><p>目前最小且不超出证据的机制是：prompt-reading 阶段在 needle spans 保留 count-related local states；多个 answer-query heads 以不同 breadth/selection profiles 聚合这些证据；该 bank 对避免 undercount 必要；聚合结果在后层 query residual 中变成可直接驱动首个 numeric decision 的 executable state。该链条仍缺少从具体 V/O head contributions 到 query residual 的逐层写入分解。</p></div>
-</section>
+</div>
 
-<section id="limits">
-  <span class="section-kicker">11 · Limits and next discriminating tests</span>
+<div class="report-appendix" id="limits">
+  <span class="section-kicker">Appendix B · Limits and next discriminating tests</span>
   <h2>目前仍缺什么：下一轮应优先做能区分机制的实验，而不是简单扩大同一 grid</h2>
   <div class="next-grid">
     <div class="next-item"><strong>1. Stable-global bank vs selector bank 的因果分离</strong><p>分别 ablate 13 个跨 panel×split 稳定 global aggregators、L29H3-like selectors、partition-local heads，并使用多组 layer-matched random controls；增加 leave-one-head-out 与 cumulative dose curve，判断必要性来自 broad heads 还是 rank bank 中的混合 phenotype。</p></div>
     <div class="next-item"><strong>2. 从 attention weight 到写入 residual 的路径分解</strong><p>对 priority heads 保存/重构 V、head output 与 O-projection contribution，在 <code>Total:</code> query 做 direct logit/readout alignment 和 sublayer causal tracing，定位 aggregation evidence 在哪一层被 MLP/residual 转成 count decision。</p></div>
     <div class="next-item"><strong>3. Full-needle 与 coordinated multi-endpoint patch</strong><p>单 endpoint null 不能排除分布式 source state。下一步用 exact tokenwise full-needle patch、position-aligned patch，以及多个新增 endpoints 的 coordinated patch；仍避免大规模 head-output patching。</p></div>
-    <div class="next-item"><strong>4. Steering dose response 与 target-setting</strong><p>对 α∈{−2,…,2}、adjacent/non-local pairs、chord/polyline/local tangent 做 held-out sweep；测 monotonic response、overshoot、exact target hit 与 off-manifold norm，区分方向可操纵和精确可控制。</p></div>
-    <div class="next-item"><strong>5. Gemma 的完整 phenotype/partition replication</strong><p>当前 exhaustive partition taxonomy 只对 Qwen 运行；Gemma top span-end 已较 broad，但尚不知道其 broad coverage 是少数 heads 还是稳定 bank。复现实验后才能比较两个模型是否使用同一种 aggregation architecture。</p></div>
+    <div class="next-item"><strong>4. Full-state transport 与 steering 的三臂分离</strong><p>在同一 answer-query layer、同一 receiver/donor pairs 上直接比较：sample donor replacement h′=h<sub>d</sub>、centroid transplant h′=μ<sub>target</sub>、centroid delta h′=h+μ<sub>target</sub>−μ<sub>receiver</sub>，并为后两者加入 norm/off-manifold matched controls。随后再对 α、adjacent/non-local pairs、chord/polyline/local tangent 做 dose sweep；这样才能区分“完整状态充分”“均值状态充分”“方向可操纵”和“精确 target-setting”。</p></div>
+    <div class="next-item"><strong>5. 两模型 phenotype 的 confirmation stability</strong><p>本报告已用统一 raw-row 规则完成 Qwen 与 Gemma 的 discovery taxonomy；但为了避免 outcome leakage，类别定义没有用 confirmation 重选阈值。下一步应冻结规则后在 confirmation raw rows 上测同一 head 的 phenotype stability，并报告跨 panel×split 的 Jaccard/transition matrix，再决定 phenotype-specific ablation bank。</p></div>
     <div class="next-item"><strong>6. Error-correction 与 thinking-mode generalization</strong><p>高 count correct baselines 太少，correct/wrong causal strata power 不足。可通过调节 length/count 难度获得 matched correct/wrong prompts，再检验 patch 是否纠错；最后扩展到 thinking mode，比较 query state 与 CoT progress state 是否分离。</p></div>
   </div>
   <div class="callout"><strong>不要过度外推。</strong>本轮是 targeted causal screen：selected pairs、三个 steering depths、α=1、一个 matched random replicate，以及八个 query-patch layers。它支持上述具体因果主张，但不替代更大、预注册且多 control replicates 的 full sweep。</div>
   <div class="section-conclusion"><span>本节结论</span><p>优先级最高的是“stable global aggregator bank 的 phenotype-specific ablation”与“head V/O contribution → query residual 的写入路径”，因为它们直接补上当前机制链中唯一缺失的 causal edge；扩大 PCA 或重复更多同类 attention heatmaps 的信息增益较低。</p></div>
-</section>
+</div>
 
-<section id="reproducibility">
-  <span class="section-kicker">12 · Reproducibility</span>
+<div class="report-appendix" id="reproducibility">
+  <span class="section-kicker">Appendix C · Reproducibility</span>
   <h2>复现、归档与报告 provenance</h2>
   <p>Source run：<code>@@RUN_NAME@@</code>。本地与 Lambda filesystem 均保留完整 run；最终 answer-query bundle 的 SHA-256 为 <code>93776fdea92a07e358d52594969a7ab0d97ad9ef9107ed543d4a7daaa6567920</code>。报告由保存的 behavior labels、representation NPZ、raw answer-query attention rows、causal detail/summary/control tables 重新生成，不依赖服务器内存状态。</p>
   <div class="formula">PYTHONPATH=src python scripts/build_realistic_niah_v4_representation_report.py --run-root &lt;run-root&gt; --output reports/realistic_niah_v4_representation_report.html --repo-root .</div>
   <p>视觉系统固定为 Aurora：Midnight Indigo <code>#23165C</code>、Polar Violet <code>#6750E8</code>、Ice Cyan <code>#00C2FF</code>、Aurora Yellow <code>#F6E36A</code>、Aurora Teal <code>#00D4B4</code>、Aurora Green <code>#39E58C</code>、Polar Magenta <code>#C04DFF</code>、Sunset Pink <code>#FF5FA2</code>；正文/背景/网格分别使用 Night Black、Snow White、Frost Gray。后续 V4+ plots 应复用这一 palette 和语义映射。</p>
   <div class="section-conclusion"><span>本节结论</span><p>所有图表的数值来源、坐标含义、计算公式、selection split 与 inference unit 都在报告中显式记录；HTML 为 self-contained artifact，可离线打开并复查交互式 3D geometry。</p></div>
-</section>
+</div>
 </main>
 <footer>生成时间 @@GENERATED@@ · source run <code>@@RUN_NAME@@</code> · commit <code>@@COMMIT@@</code> · Aurora report system</footer>
 <script>
@@ -3029,6 +4754,7 @@ const ctx = canvas.getContext('2d');
 const tooltip = document.getElementById('tooltip');
 const controls = {
   model: document.getElementById('model-select'), pooling: document.getElementById('pooling-select'),
+  layer: document.getElementById('layer-select'),
   variant: document.getElementById('variant-select'), split: document.getElementById('split-select'),
   outcome: document.getElementById('outcome-select'), points: document.getElementById('points-select'),
   scale: document.getElementById('scale-select'), x: document.getElementById('x-axis'),
@@ -3041,7 +4767,22 @@ for (const select of [controls.x, controls.y, controls.z]) {
 controls.x.value='0'; controls.y.value='1'; controls.z.value='2';
 let yaw=-0.72, pitch=0.44, zoom=1.0, dragging=false, lastX=0, lastY=0, projectedPoints=[];
 
-function activeData() { return REP_DATA[`${controls.model.value}|${controls.pooling.value}`]; }
+function availableLayers() {
+  const prefix=`${controls.model.value}|${controls.pooling.value}|`;
+  return Object.keys(REP_DATA).filter(key=>key.startsWith(prefix)).map(key=>+key.slice(prefix.length)).sort((a,b)=>a-b);
+}
+function refreshLayerOptions() {
+  const layers=availableLayers(); controls.layer.innerHTML='';
+  for (const layer of layers) {
+    const data=REP_DATA[`${controls.model.value}|${controls.pooling.value}|${layer}`];
+    const option=document.createElement('option'); option.value=String(layer);
+    const role=data.manifold_display?' · manifold-display':(data.probe_optimal?' · probe-optimal':'');
+    option.textContent=`L${layer}${role}`; controls.layer.appendChild(option);
+  }
+  const defaultLayer=layers.find(layer=>REP_DATA[`${controls.model.value}|${controls.pooling.value}|${layer}`].manifold_display);
+  controls.layer.value=String(defaultLayer??layers[0]);
+}
+function activeData() { return REP_DATA[`${controls.model.value}|${controls.pooling.value}|${controls.layer.value}`]; }
 function filteredRows() {
   const data=activeData(); if (!data) return [];
   return data.rows.filter(r => r[0]===controls.variant.value && (controls.split.value==='all'||r[2]===controls.split.value) && (controls.outcome.value==='all'||r[3]===controls.outcome.value));
@@ -3099,7 +4840,7 @@ function draw() {
   const rect=canvas.getBoundingClientRect(), width=rect.width, height=rect.height;
   ctx.clearRect(0,0,width,height); ctx.fillStyle='#120D31'; ctx.fillRect(0,0,width,height);
   const rows=filteredRows(), axes=[+controls.x.value,+controls.y.value,+controls.z.value];
-  const data=activeData(); document.getElementById('pca-stats').innerHTML=data?`<strong>${data.model} · ${data.pooling} · L${data.layer}</strong><br>PCA fit: v4.1 discovery · EVR ${data.explained_variance_ratio.slice(0,6).map((v,i)=>`PC${i+1} ${(100*v).toFixed(1)}%`).join(' · ')}`:'';
+  const data=activeData(); const role=data?(data.manifold_display?'manifold-display':(data.probe_optimal?'probe-optimal':'layer sweep')):''; document.getElementById('pca-stats').innerHTML=data?`<strong>${data.model} · ${data.pooling} · L${data.layer} · ${role}</strong><br>PCA fit: v4.1 discovery · EVR ${data.explained_variance_ratio.slice(0,6).map((v,i)=>`PC${i+1} ${(100*v).toFixed(1)}%`).join(' · ')} · M₃ ${data.manifold_fidelity_m3.toFixed(3)}`:'';
   const stats=statsFor(rows,axes), transform=makeTransform(rows,axes,width,height); projectedPoints=[];
   if (!rows.length || !stats || !transform) { ctx.fillStyle='#F6E36A';ctx.font='16px system-ui';ctx.textAlign='center';ctx.fillText('No trajectories match this filter.',width/2,height/2);document.getElementById('geometry-stats').textContent='No data';return; }
   drawAxes(transform,stats,axes,width,height);
@@ -3119,7 +4860,8 @@ function draw() {
   document.getElementById('geometry-stats').innerHTML=geometryText(paths,axes);
 }
 function reset(){yaw=-0.72;pitch=.44;zoom=1;draw();}
-Object.values(controls).forEach(el=>el.addEventListener('change',draw));
+[controls.model,controls.pooling].forEach(el=>el.addEventListener('change',()=>{refreshLayerOptions();draw();}));
+[controls.layer,controls.variant,controls.split,controls.outcome,controls.points,controls.scale,controls.x,controls.y,controls.z].forEach(el=>el.addEventListener('change',draw));
 controls.preset.addEventListener('change',()=>{const a=controls.preset.value.split(',');controls.x.value=a[0];controls.y.value=a[1];controls.z.value=a[2];draw();});
 document.getElementById('reset-view').addEventListener('click',reset);
 canvas.addEventListener('pointerdown',e=>{dragging=true;lastX=e.clientX;lastY=e.clientY;canvas.classList.add('dragging');canvas.setPointerCapture(e.pointerId);});
@@ -3127,7 +4869,7 @@ canvas.addEventListener('pointermove',e=>{if(dragging){yaw+=(e.clientX-lastX)*.0
 canvas.addEventListener('pointerup',()=>{dragging=false;canvas.classList.remove('dragging');}); canvas.addEventListener('pointercancel',()=>{dragging=false;canvas.classList.remove('dragging');}); canvas.addEventListener('mouseleave',()=>{tooltip.style.display='none';});
 canvas.addEventListener('wheel',e=>{e.preventDefault();zoom=Math.max(.45,Math.min(2.8,zoom*Math.exp(-e.deltaY*.001)));draw();},{passive:false});
 document.getElementById('count-legend').innerHTML=COLORS.map((c,i)=>`<span><i style="background:${c}"></i>${i+1}</span>`).join('');
-new ResizeObserver(resizeCanvas).observe(canvas); resizeCanvas();
+refreshLayerOptions(); new ResizeObserver(resizeCanvas).observe(canvas); resizeCanvas();
 </script>
 </body>
 </html>"""
@@ -3135,33 +4877,53 @@ new ResizeObserver(resizeCanvas).observe(canvas); resizeCanvas();
 
 def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
     run_root = run_root.resolve()
-    primary: dict[str, dict[str, int]] = {}
+    probe_layers: dict[str, dict[str, int]] = {}
+    display_layers: dict[str, dict[str, int]] = {}
+    layer_sweep_rows: list[dict[str, Any]] = []
     labels_lookup: dict[str, dict[tuple[str, int], dict[str, Any]]] = {}
     labels_frames: dict[str, pd.DataFrame] = {}
     all_labels_frames: dict[str, pd.DataFrame] = {}
     projections: dict[str, dict[str, Any]] = {}
     for model in MODELS:
         model_root = run_root / model / "numeric"
-        primary[model] = _primary_layers(model_root)
+        probe_layers[model] = _primary_layers(model_root)
         labels_lookup[model], labels_frames[model] = _n10_labels(model_root)
         all_labels_frames[model] = _all_generation_labels(model_root)
-        for pooling in POOLINGS:
-            key = f"{model}|{pooling}"
-            projections[key] = _load_projection(
+        model_sweep, model_display, pca_models = _layer_sweep(
+            model_root,
+            model=model,
+            probe_layers=probe_layers[model],
+        )
+        layer_sweep_rows.extend(model_sweep)
+        display_layers[model] = model_display
+        projections.update(
+            _load_prompt_projection_layers(
                 model_root,
                 model=model,
-                pooling=pooling,
-                layer=primary[model][pooling],
                 labels=labels_lookup[model],
+                pca_models=pca_models,
+                layer_rows=model_sweep,
             )
+        )
 
-    metric_rows = _metric_rows(run_root, primary)
+    display_projections = {
+        f"{model}|{pooling}": projections[
+            f"{model}|{pooling}|{display_layers[model][pooling]}"
+        ]
+        for model in MODELS
+        for pooling in POOLINGS
+    }
+    answer_query_projections = _answer_query_projection_data(run_root)
+    metric_rows = _metric_rows(run_root, probe_layers)
     behavior_rows = _behavior_rows(labels_frames)
     behavior_panel_rows = _behavior_panel_rows(all_labels_frames)
     behavior_count_rows = _behavior_count_rows(all_labels_frames)
     behavior_count_pooled_rows = _behavior_count_pooled_rows(all_labels_frames)
     sensitivity_rows = _sensitivity_rows(run_root)
     attention_top_rows = _attention_top_rows(run_root)
+    attention_atlas_rows = _attention_head_atlas_rows(run_root)
+    attention_phenotypes = _attention_head_phenotypes(run_root)
+    attention_outcome_effects = _attention_outcome_effect_rows(run_root)
     partition_summary = _qwen_partition_summary(run_root)
     span_end_alignment_rows = _span_end_alignment_rows(run_root)
     span_end_pooled_rows = _span_end_pooled_rows(run_root)
@@ -3200,11 +4962,39 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
             behavior_panel_rows, behavior_count_pooled_rows
         ),
         "@@REPRESENTATION_R2_SVG@@": _representation_r2_svg(metric_rows),
+        "@@LAYER_SWEEP_SVG@@": _layer_sweep_svg(layer_sweep_rows),
+        "@@LAYER_SELECTION_ROWS@@": _table_layer_selection_html(
+            layer_sweep_rows
+        ),
+        "@@LAYER_SELECTION_CONCLUSION@@": _layer_selection_conclusion_html(
+            layer_sweep_rows
+        ),
         "@@REPRESENTATION_CONCLUSION@@": _representation_conclusion_html(
             metric_rows, sensitivity_rows
         ),
+        "@@ANSWER_QUERY_COUNTER_SVG@@": _answer_query_counter_svg(
+            answer_query_projections
+        ),
         "@@SENSITIVITY_ROWS@@": _table_sensitivity_html(sensitivity_rows),
         "@@ATTENTION_BREADTH_SVG@@": _attention_breadth_svg(attention_top_rows),
+        "@@ATTENTION_HEAD_ATLAS_SVG@@": _attention_head_atlas_svg(
+            attention_atlas_rows, attention_phenotypes
+        ),
+        "@@ATTENTION_HEAD_PROFILE_SVG@@": _representative_head_profiles_svg(
+            attention_phenotypes
+        ),
+        "@@ATTENTION_PHENOTYPE_COUNT_ROWS@@": _table_head_phenotype_counts_html(
+            attention_phenotypes
+        ),
+        "@@ATTENTION_REPRESENTATIVE_ROWS@@": _table_head_representatives_html(
+            attention_phenotypes
+        ),
+        "@@ATTENTION_OUTCOME_EFFECT_SVG@@": _attention_outcome_effect_svg(
+            attention_outcome_effects
+        ),
+        "@@ATTENTION_OUTCOME_SUMMARY_ROWS@@": _table_attention_outcome_summary_html(
+            attention_outcome_effects
+        ),
         "@@ATTENTION_TOP_ROWS@@": _table_attention_top_html(attention_top_rows),
         "@@PARTITION_PHENOTYPE_SVG@@": _partition_phenotype_svg(
             partition_summary
@@ -3290,7 +5080,7 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
             causal_steering_rows,
             answer_query_layer_rows,
         ),
-        "@@STATIC_FIGURES@@": _static_figure_html(projections),
+        "@@STATIC_FIGURES@@": _static_figure_html(display_projections),
         "@@REP_DATA@@": json.dumps(
             projections, ensure_ascii=False, separators=(",", ":")
         ),
@@ -3300,6 +5090,23 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
         rendered = rendered.replace(placeholder, value)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(rendered, encoding="utf-8")
+    layer_sweep_path = output.with_name("realistic_niah_v4_layer_sweep.csv")
+    pd.DataFrame(layer_sweep_rows).to_csv(layer_sweep_path, index=False)
+    atlas_path = output.with_name("realistic_niah_v4_head_atlas.csv")
+    pd.DataFrame(attention_atlas_rows).to_csv(atlas_path, index=False)
+    phenotype_path = output.with_name("realistic_niah_v4_head_phenotypes.csv")
+    phenotype_frame = pd.DataFrame(attention_phenotypes).copy()
+    for column in ("endpoint_profile", "span_mean_profile"):
+        phenotype_frame[column] = phenotype_frame[column].map(
+            lambda values: json.dumps(values, separators=(",", ":"))
+        )
+    phenotype_frame.to_csv(phenotype_path, index=False)
+    outcome_effect_path = output.with_name(
+        "realistic_niah_v4_attention_outcome_effects.csv"
+    )
+    pd.DataFrame(attention_outcome_effects).to_csv(
+        outcome_effect_path, index=False
+    )
     print(
         json.dumps(
             {
@@ -3309,7 +5116,15 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
                 "projection_rows": sum(
                     len(item["rows"]) for item in projections.values()
                 ),
-                "primary_layers": primary,
+                "probe_optimal_layers": probe_layers,
+                "manifold_display_layers": display_layers,
+                "layer_sweep_csv": str(layer_sweep_path.resolve()),
+                "head_atlas_csv": str(atlas_path.resolve()),
+                "head_phenotypes_csv": str(phenotype_path.resolve()),
+                "attention_outcome_effects_csv": str(
+                    outcome_effect_path.resolve()
+                ),
+                "attention_phenotype_rows": len(attention_phenotypes),
                 "behavior_confirmation_rows": sum(
                     int(row["n"]) for row in behavior_panel_rows
                 ),
