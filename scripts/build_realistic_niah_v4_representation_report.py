@@ -5201,6 +5201,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <div class="figure-intro"><p><strong>画什么：</strong>discovery 阶段锁定的一个 single-layer plan 与一个 multi-layer plan，在 10 个独立 confirmation seeds 上相对 matched random control 的 strict aligned-count shift。</p><p><strong>如何得到：</strong>越界输出按零效应保留；每个 seed 内平均四个 panels 与六个 directions，再对 10 个 seeds bootstrap 95% CI。每模型 single/multi 两个 primary tests 做 exact sign-flip 与 Holm correction。</p><p><strong>能说明什么：</strong>CI 与 Holm p 检验方向能否跨新 seeds 复现；single 与 multi 的相对大小说明协调多层干预是否比单层更稳定，但不是对两个 protocols 的直接随机化差异检验。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@STEERING_V2_SVG@@<figcaption><strong>图 B5-F2 · Discovery-locked single-layer versus multi-layer steering。</strong>横轴：held-out strict aligned-count-shift 的 geometric−random paired effect；纵轴：模型、protocol、锁定 layer set 与 α。圆点与横线是 seed-equal estimate 和 95% bootstrap CI；越界 generation 已作为零效应进入估计。</figcaption></figure></div>
   <details><summary>四个 V4 panels 的 held-out heterogeneity</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>protocol</th><th>panel</th><th>paired rows / seeds</th><th>paired Δ [95% CI]</th><th>panel-family Holm p</th></tr></thead><tbody>@@STEERING_V2_PANEL_ROWS@@</tbody></table></div></details>
+  <p class="artifact-link">机器可读表：<a href="realistic_niah_v4_steering_v2_selection.csv">discovery plan selection</a>；<a href="realistic_niah_v4_steering_v2_confirmation.csv">held-out confirmation summary</a>；<a href="realistic_niah_v4_steering_v2_panels.csv">panel heterogeneity</a>。</p>
   <div class="notes">@@STEERING_V2_CONCLUSION@@</div>
   <div class="section-conclusion"><span>5.2 解释规则</span><p>只有 discovery-locked plan 在独立 confirmation seeds 上保持正 effect，才能称为稳定 directional steering。即便 single/multi 都成立，结论仍是“均值差方向可操纵”，不是“target count 被精确设置”；exact donor-state sufficiency 继续由 2.5 的 sample-wise replacement 提供。</p></div>
 
@@ -5696,6 +5697,24 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
     pd.DataFrame(attention_outcome_effects).to_csv(
         outcome_effect_path, index=False
     )
+    steering_v2_selection_path = output.with_name(
+        "realistic_niah_v4_steering_v2_selection.csv"
+    )
+    pd.DataFrame(steering_v2_selection_rows).to_csv(
+        steering_v2_selection_path, index=False
+    )
+    steering_v2_confirmation_path = output.with_name(
+        "realistic_niah_v4_steering_v2_confirmation.csv"
+    )
+    pd.DataFrame(steering_v2_summary_rows).to_csv(
+        steering_v2_confirmation_path, index=False
+    )
+    steering_v2_panel_path = output.with_name(
+        "realistic_niah_v4_steering_v2_panels.csv"
+    )
+    pd.DataFrame(steering_v2_panel_rows).to_csv(
+        steering_v2_panel_path, index=False
+    )
     print(
         json.dumps(
             {
@@ -5712,6 +5731,15 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
                 "head_phenotypes_csv": str(phenotype_path.resolve()),
                 "attention_outcome_effects_csv": str(
                     outcome_effect_path.resolve()
+                ),
+                "steering_v2_selection_csv": str(
+                    steering_v2_selection_path.resolve()
+                ),
+                "steering_v2_confirmation_csv": str(
+                    steering_v2_confirmation_path.resolve()
+                ),
+                "steering_v2_panels_csv": str(
+                    steering_v2_panel_path.resolve()
                 ),
                 "attention_phenotype_rows": len(attention_phenotypes),
                 "behavior_confirmation_rows": sum(

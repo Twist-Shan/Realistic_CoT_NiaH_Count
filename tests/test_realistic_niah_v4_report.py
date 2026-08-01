@@ -79,6 +79,9 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     assert "@@STEERING_V2_SELECTION_ROWS@@" in template
     assert "@@STEERING_V2_SUMMARY_ROWS@@" in template
     assert "@@STEERING_V2_PANEL_ROWS@@" in template
+    assert "realistic_niah_v4_steering_v2_selection.csv" in template
+    assert "realistic_niah_v4_steering_v2_confirmation.csv" in template
+    assert "realistic_niah_v4_steering_v2_panels.csv" in template
     assert 'id="layer-select"' in template
     assert "Discovery / confirmation" in template
     assert "Centroid transplant" in template
