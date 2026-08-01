@@ -22,14 +22,11 @@ from .attention_outcomes import analyze_labeled_attention
 from .behavior import capture_generation_labels
 from .causal_generation import (
     compare_ranked_ablation_to_random,
-    compare_ranked_head_patching_to_random,
     load_broad_rankings,
     load_generation_labels,
     run_generation_head_ablation,
-    run_generation_head_patching,
     run_generation_residual_patching,
     summarize_generation_head_ablation,
-    summarize_generation_head_patching,
     summarize_generation_residual_patching,
 )
 from .geometric_steering import (
@@ -608,7 +605,6 @@ def run_model_stage(
         "representation-capture",
         "attention",
         "ablation",
-        "head-patching",
         "patching",
         "geometric-steering",
     }
@@ -752,7 +748,7 @@ def run_model_stage(
             ),
         }
 
-    if stage in {"head-patching", "patching", "geometric-steering"}:
+    if stage in {"patching", "geometric-steering"}:
         confirmation_rows = select_stimuli(
             stimuli_path,
             variants=variants,
@@ -896,7 +892,7 @@ def run_model_stage(
         "behavior_metric": behavior_metric,
     }
 
-    if stage in {"ablation", "head-patching"}:
+    if stage == "ablation":
         rankings = load_broad_rankings(
             model_output / "attention" / "analysis" / "rankings",
             variants=observed_variants,
@@ -988,89 +984,6 @@ def run_model_stage(
         grouped_encodings.setdefault(
             (encoding.design_variant, int(encoding.seed)), []
         ).append(encoding)
-
-    if stage == "head-patching":
-        directed_pairs = _directed_count_pairs(resolved_patch_pairs)
-        stage_root = _causal_design_root(
-            causal_output,
-            "generation_head_patching_v1",
-            {
-                **selection_payload,
-                "rankings": _ranking_design_payload(rankings),
-                "top_ns": list(resolved_top_ns),
-                "random_replicates": resolved_random_replicates,
-                "directed_count_pairs": [list(pair) for pair in directed_pairs],
-                "site": "answer_query_pre_o_proj_head_output",
-            },
-        )
-        capture_root = stage_root / "capture"
-        index_rows = []
-        with logger.timer(
-            "generation_head_patching",
-            families=len(grouped_encodings),
-            count_pairs=[list(pair) for pair in directed_pairs],
-        ):
-            for (variant, seed), family_encodings in sorted(
-                grouped_encodings.items()
-            ):
-                relative = (
-                    Path("shards")
-                    / variant
-                    / f"{variant.replace('.', '_')}_seed{seed}.csv.gz"
-                )
-                shard = capture_root / relative
-                if shard.exists() and not overwrite:
-                    frame = pd.read_csv(shard, compression="gzip")
-                    _validate_generation_causal_shard(
-                        frame, expected_variant=variant, expected_seed=seed
-                    )
-                else:
-                    frame = run_generation_head_patching(
-                        model,
-                        tokenizer,
-                        adapter,
-                        family_encodings,
-                        baseline_labels=baseline_labels,
-                        rankings=rankings,
-                        count_pairs=directed_pairs,
-                        top_ns=resolved_top_ns,
-                        random_replicates=resolved_random_replicates,
-                        max_new_tokens=generation_max_new_tokens,
-                    )
-                    frame["behavior_metric"] = behavior_metric
-                    _write_csv_gzip_atomic(frame, shard)
-                index_rows.append(
-                    {
-                        "design_variant": variant,
-                        "seed": int(seed),
-                        "rows": len(frame),
-                        "shard_path": relative.as_posix(),
-                    }
-                )
-        index_path = capture_root / "capture_index.jsonl"
-        _write_shard_index(index_rows, index_path)
-        detail = _load_csv_gzip_shards(index_rows, root=capture_root)
-        detail_path = stage_root / "detail.csv.gz"
-        summary_path = stage_root / "summary.csv"
-        comparison_path = stage_root / "broad_vs_layer_matched_random.csv"
-        _write_causal_tables(
-            detail=detail,
-            detail_path=detail_path,
-            summary=summarize_generation_head_patching(detail),
-            summary_path=summary_path,
-        )
-        compare_ranked_head_patching_to_random(
-            detail,
-            bootstrap_repetitions=config.causal_bootstrap_repetitions,
-        ).to_csv(comparison_path, index=False)
-        return {
-            "preflight": str(preflight_path),
-            "design": str(stage_root / "design.json"),
-            "capture_index": str(index_path),
-            "detail": str(detail_path),
-            "summary": str(summary_path),
-            "broad_vs_random": str(comparison_path),
-        }
 
     if stage == "patching":
         directed_pairs = _directed_count_pairs(resolved_patch_pairs)

@@ -47,11 +47,9 @@ from realistic_niah_v4.geometric_steering import (
 from realistic_niah_v4.modeling import (
     _attention_tensor,
     capture_post_block_states,
-    capture_query_head_outputs,
     capture_span_states,
     discover_decoder_adapter,
     generate_with_head_ablation,
-    generate_with_head_patch,
     generate_with_residual_interventions,
     query_attention_rows,
     run_last_logits,
@@ -823,17 +821,6 @@ def test_complete_generation_intervention_hooks(
     )
     assert not torch.allclose(baseline, ablated["probe_logits"])
 
-    _donor_logits, donor_heads = capture_query_head_outputs(model, adapter, donor)
-    patched_heads = generate_with_head_patch(
-        model,
-        None,
-        adapter,
-        receiver,
-        [(0, 0)],
-        donor_heads,
-    )
-    assert not torch.allclose(baseline, patched_heads["probe_logits"])
-
     _donor_logits, donor_states = capture_post_block_states(
         model,
         adapter,
@@ -1203,24 +1190,12 @@ def test_tiny_transformers_architectures_support_v4_hooks() -> None:
             receiver_positions=[item.query_position],
             donor_states=states[0] + 0.1,
         )
-        _head_logits, head_outputs = capture_query_head_outputs(
-            model, adapter, item, layers=[0]
-        )
         generated_ablation = generate_with_head_ablation(
             model,
             FixedNumericDecodeTokenizer(),
             adapter,
             item,
             [(0, 0)],
-            max_new_tokens=1,
-        )
-        generated_head_patch = generate_with_head_patch(
-            model,
-            FixedNumericDecodeTokenizer(),
-            adapter,
-            item,
-            [(0, 0)],
-            head_outputs,
             max_new_tokens=1,
         )
         generated_residual_patch = generate_with_residual_interventions(
@@ -1240,9 +1215,7 @@ def test_tiny_transformers_architectures_support_v4_hooks() -> None:
         assert not torch.allclose(baseline, ablated)
         assert not torch.allclose(baseline, patched)
         assert generated_ablation["completion_text"] == "2"
-        assert generated_head_patch["completion_text"] == "2"
         assert generated_residual_patch["completion_text"] == "2"
-        assert generated_head_patch["intervention_hook_applications"] == {"0": 1}
         assert generated_residual_patch["intervention_hook_applications"] == {
             "0": 1
         }

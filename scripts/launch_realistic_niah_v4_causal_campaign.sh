@@ -35,7 +35,7 @@ if [[ $# -gt 0 ]]; then
 else
   MODELS=(Qwen3-8B Gemma4-E4B)
 fi
-STAGES=(ablation head-patching patching geometric-steering)
+STAGES=(ablation patching geometric-steering)
 
 if [[ ! -x "$VENV_PYTHON" ]]; then
   echo "Venv Python is not executable: $VENV_PYTHON" >&2

@@ -198,7 +198,7 @@ PYTHONPATH=src python scripts/freeze_realistic_niah_v4.py \
 Then invoke `scripts/run_realistic_niah_v4.py` once per model and stage:
 `preflight`, `behavior`, `representation-capture`, `representation-analyze`,
 `attention`, and `attention-analyze`. Causal stages are `ablation`,
-`head-patching`, `patching`, and `geometric-steering`. The `attention` stage
+`patching` and `geometric-steering`. The `attention` stage
 only captures restartable raw query rows; `attention-analyze` joins strict
 greedy labels and runs span-end/span-mean broad-head, correct/wrong, and
 omission-candidate diagnostics on CPU. Causal stages likewise score the actual

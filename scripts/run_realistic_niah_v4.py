@@ -18,7 +18,6 @@ MODEL_STAGES = (
     "representation-capture",
     "attention",
     "ablation",
-    "head-patching",
     "patching",
     "geometric-steering",
 )
@@ -111,7 +110,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--causal-top-ns",
-        help="Comma-separated top-N head set sizes for ablation/head patching.",
+        help="Comma-separated top-N head set sizes for ablation.",
     )
     parser.add_argument(
         "--causal-random-replicates",
@@ -121,7 +120,7 @@ def main() -> None:
     parser.add_argument(
         "--causal-count-pairs",
         type=_count_pairs,
-        help="Canonical LOW:HIGH pairs for head/residual patching.",
+        help="Canonical LOW:HIGH pairs for residual patching.",
     )
     parser.add_argument(
         "--ablation-scopes",

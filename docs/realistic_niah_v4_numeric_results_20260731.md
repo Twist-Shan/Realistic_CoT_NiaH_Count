@@ -2,9 +2,9 @@
 
 This note records the completed descriptive V4 run
 `run_20260731_v4_numeric_presentation_v3`. It separates measured results from
-causal claims: head ablation, head-output patching, residual patching, and
-geometric steering have tested implementations, but the full registered causal
-sweeps were not part of this run.
+causal claims: head ablation, residual patching, and geometric steering have
+tested implementations, but the full registered causal sweeps were not part of
+this run.
 
 ## Registered design
 
@@ -195,7 +195,7 @@ candidate bank is lower still at 2.81--3.19 because the selector class carries
 more total endpoint mass and overwhelms the aggregator class. These sums are
 attention diagnostics, not a reconstruction of the model computation: heads
 have different value vectors and output-projection slices. The causal follow-up
-must therefore ablate or patch the stable aggregator bank separately from
+must therefore ablate the stable aggregator bank separately from
 L29H3-like selectors and use layer-matched random controls.
 
 Most count-adjusted wrong-minus-correct bootstrap intervals include zero:
@@ -223,8 +223,8 @@ interventions.
 The omission hypothesis is consequently most visible for Qwen `span_end`, and
 the nested-pair association appears in both models. Neither establishes that
 low attention causes the undercount. That question is reserved for the
-registered broad-head ablation, head-output patching, and needle-state patching
-sweeps with layer-matched random controls.
+registered broad-head ablation and needle-state patching sweeps with
+layer-matched random controls.
 
 ## Reproducibility and next causal step
 
@@ -246,10 +246,9 @@ restricts it to the registered diagnostic subset. The causal implementation
 uses actual complete greedy numeric generation and supports:
 
 1. answer-query and global broad-head ablation;
-2. pre-output-projection head-slice patching;
-3. answer-query, needle-end, and exact tokenwise full-needle residual patching,
+2. answer-query, needle-end, and exact tokenwise full-needle residual patching,
    with single-layer and cumulative-from-layer protocols; and
-4. discovery-fit centroid transplant/delta, chord/polyline geometric steering,
+3. discovery-fit centroid transplant/delta, chord/polyline geometric steering,
    and norm-matched random controls.
 
 The full causal sweep must be reported separately. Until it is run, all claims

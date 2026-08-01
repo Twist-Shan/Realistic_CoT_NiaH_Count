@@ -1117,7 +1117,7 @@ footer { padding:24px; color:#6d7475; text-align:center; border-top:1px solid va
   <div class="notes">
     <div class="note"><strong>Representation ≠ mechanism.</strong><p>PCA, ridge decoding, and centroid geometry show availability of count-related information. They do not show that generation reads or needs it.</p></div>
     <div class="note"><strong>Span-end vs span-mean.</strong><p>Span-end asks whether a localized terminal state carries the running index. Span-mean asks whether information is distributed across the full semantic needle span. Their PCA bases and primary layers are intentionally separate.</p></div>
-    <div class="note"><strong>Causal next step.</strong><p>Registered head ablation, answer-query head-output patching, exact needle-end/full-span residual patching, and geometric steering test necessity and transport on held-out confirmation seeds.</p></div>
+    <div class="note"><strong>Causal next step.</strong><p>Registered head ablation, exact needle-end/full-span residual patching, and geometric steering test necessity and transport on held-out confirmation seeds.</p></div>
   </div>
 </section>
 </main>

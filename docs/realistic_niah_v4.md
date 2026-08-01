@@ -221,16 +221,6 @@ Ablation can demonstrate necessity but can also introduce distribution shift.
 The layer-matched controls and top-N dose response are required for
 interpretation.
 
-### Answer-query head-output patching
-
-For same-seed nested donor/receiver pairs, the selected donor head slices are
-captured immediately before `o_proj` and substituted at the receiver's final
-answer query. Ranked top-N sets are compared with the same deterministic
-layer-matched controls as ablation. Both directions are run, so a causal head
-must support count increases and decreases rather than merely inducing a
-generic output change. Reported endpoints include target-hit rate, movement
-toward donor gold and donor baseline prediction, and count-transport slope.
-
 ### Residual-stream patching, removal, and restoration
 
 Adjacent same-seed prompts differ at one known nested slot. A higher-count
@@ -351,13 +341,6 @@ for MODEL in Qwen3-8B Gemma4-E4B; do
     --cache-dir "${HF_CACHE}"
 
   PYTHONPATH=src python scripts/run_realistic_niah_v4.py \
-    --stage head-patching \
-    --stimuli "${RUN_ROOT}/dataset/stimuli.jsonl" \
-    --output-dir "${RUN_ROOT}" \
-    --model "${MODEL}" \
-    --cache-dir "${HF_CACHE}"
-
-  PYTHONPATH=src python scripts/run_realistic_niah_v4.py \
     --stage patching \
     --stimuli "${RUN_ROOT}/dataset/stimuli.jsonl" \
     --output-dir "${RUN_ROOT}" \
@@ -378,8 +361,7 @@ labelled partial runs. Pair-based patching stages automatically load all ten
 counts for each selected confirmation seed. Geometric steering also loads the
 complete discovery split for centroid fitting, even when confirmation seeds
 are filtered. Full representation analysis requires all four panels and all
-30 seeds. Head ablation and head patching require completed discovery
-broad-head rankings.
+30 seeds. Head ablation requires completed discovery broad-head rankings.
 
 For an explicit GPU smoke, causal designs can be narrowed without editing the
 registered JSON. For example:
@@ -447,7 +429,6 @@ reused in a formal design. Every design directory has a restartable `capture/`
 tree, `detail.csv.gz`, and `summary.csv`:
 
 - `generation_head_ablation_v1/` also saves the paired broad-vs-random table;
-- `generation_head_patching_v1/` saves donor/receiver transport and controls;
 - `generation_residual_patching_v1/` retains successful and explicitly
   skipped full-span rows;
 - `geometric_steering_v1/` contains discovery query-state shards,
@@ -473,7 +454,6 @@ registered checkpoints still require one GPU preflight that confirms:
 - agreement diagnostics between the cached eager query and full SDPA logits;
 - pre-output-projection head layout;
 - answer-query and global head ablation under generation;
-- answer-query head-output patching;
 - answer-query, needle-end, and full-span residual generation patches;
 - one discovery-centroid and confirmation steering smoke family.
 
