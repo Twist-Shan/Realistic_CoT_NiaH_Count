@@ -9,6 +9,7 @@ from realistic_niah_v4.partitioned_attention import (
     depth_bin_masses,
     occurrence_attention_values,
     partition_sample_metrics,
+    phenotype_bank_coverage,
 )
 from realistic_niah_v4.prompts import TokenSpan
 
@@ -106,3 +107,39 @@ def test_assessment_separates_endpoint_selector_from_span_mean() -> None:
     assert item["first_occurrence_endpoint_selector"] is True
     assert item["near_uniform_endpoint_aggregation_inside_winning_partition"] is False
     assert item["broader_span_mean_distribution"] is True
+
+
+def test_phenotype_bank_combines_complementary_endpoint_heads() -> None:
+    occurrence = pd.DataFrame(
+        [
+            {
+                "stimulus_id": stimulus,
+                "model_label": "model",
+                "design_variant": "v4.1",
+                "pooling": "span_end",
+                "head_rank": rank,
+                "layer": 0,
+                "head": rank,
+                "occurrence_index": occurrence_index,
+                "normalized_share": value,
+                "raw_attention_value": value,
+            }
+            for stimulus in ("a", "b")
+            for rank, values in ((1, (1.0, 0.0)), (2, (0.0, 1.0)))
+            for occurrence_index, value in enumerate(values, start=1)
+        ]
+    )
+    phenotypes = pd.DataFrame(
+        {
+            "model_label": ["model", "model"],
+            "design_variant": ["v4.1", "v4.1"],
+            "head_rank": [1, 2],
+            "layer": [0, 0],
+            "head": [1, 2],
+            "phenotype": ["complementary", "complementary"],
+        }
+    )
+    result = phenotype_bank_coverage(occurrence, phenotypes).iloc[0]
+    assert result["head_count"] == 2
+    assert result["equal_head_profile_effective_number"] == pytest.approx(2.0)
+    assert result["raw_attention_ensemble_effective_number"] == pytest.approx(2.0)

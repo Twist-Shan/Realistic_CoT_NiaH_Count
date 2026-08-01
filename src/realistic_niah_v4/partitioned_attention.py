@@ -684,6 +684,68 @@ def head_bank_coverage(
     return pd.DataFrame(rows)
 
 
+def phenotype_bank_coverage(
+    occurrence_detail: pd.DataFrame,
+    phenotypes: pd.DataFrame,
+) -> pd.DataFrame:
+    """Summarize the joint endpoint coverage of every head phenotype.
+
+    The equal-profile metric gives every head the same total weight. The raw
+    metric preserves the observed attention magnitude, so disagreement between
+    them exposes a candidate bank whose spatial coverage exists but is
+    dominated by a small number of high-mass heads.
+    """
+
+    keys = ["model_label", "design_variant", "head_rank", "layer", "head"]
+    endpoint = occurrence_detail[occurrence_detail["pooling"] == "span_end"]
+    endpoint = endpoint.merge(
+        phenotypes[keys + ["phenotype"]],
+        on=keys,
+        how="inner",
+        validate="many_to_one",
+    )
+    rows: list[dict[str, Any]] = []
+    for (variant, phenotype), frame in endpoint.groupby(
+        ["design_variant", "phenotype"], sort=True
+    ):
+        profiles = frame.pivot_table(
+            index=["head_rank", "layer", "head"],
+            columns="occurrence_index",
+            values="normalized_share",
+            aggfunc="mean",
+            fill_value=0.0,
+        ).sort_index(level="head_rank")
+        labels = list(profiles.index)
+        pairs = [(int(layer), int(head)) for _rank, layer, head in labels]
+        per_head_mass = frame.groupby(
+            ["stimulus_id", "head_rank", "layer", "head"], sort=False
+        )["raw_attention_value"].sum()
+        bank_mass = frame.groupby("stimulus_id", sort=False)[
+            "raw_attention_value"
+        ].sum()
+        rows.append(
+            {
+                "design_variant": variant,
+                "phenotype": phenotype,
+                "head_count": len(labels),
+                "minimum_rank": min(int(label[0]) for label in labels),
+                "median_rank": float(np.median([label[0] for label in labels])),
+                "maximum_rank": max(int(label[0]) for label in labels),
+                "equal_head_profile_effective_number": (
+                    _profile_effective_number(profiles.to_numpy(dtype=float).sum(axis=0))
+                ),
+                "raw_attention_ensemble_effective_number": (
+                    _sample_raw_ensemble_effective(frame, pairs)
+                ),
+                "mean_per_head_total_endpoint_mass": float(per_head_mass.mean()),
+                "mean_summed_bank_endpoint_mass": float(bank_mass.mean()),
+            }
+        )
+    return pd.DataFrame(rows).sort_values(
+        ["design_variant", "phenotype"]
+    ).reset_index(drop=True)
+
+
 def _plot_occurrence_profiles(detail: pd.DataFrame, output: Path) -> None:
     rank1 = detail[detail["head_rank"] == 1]
     variants = sorted(rank1["design_variant"].unique())
@@ -872,6 +934,43 @@ def _plot_head_bank(frame: pd.DataFrame, output: Path) -> None:
     figure.legend(handles, labels, frameon=False, loc="lower center", ncol=2)
     figure.suptitle("Do multiple broad candidates cover complementary partitions?")
     figure.tight_layout(rect=(0, 0.18, 1, 1))
+    figure.savefig(output, dpi=180, bbox_inches="tight")
+    plt.close(figure)
+
+
+def _plot_phenotype_bank(frame: pd.DataFrame, output: Path) -> None:
+    variants = sorted(frame["design_variant"].unique())
+    figure, axes = plt.subplots(2, 2, figsize=(13, 9), sharex=True)
+    for axis, variant in zip(axes.flat, variants):
+        selected = frame[frame["design_variant"] == variant].sort_values(
+            "raw_attention_ensemble_effective_number"
+        )
+        positions = np.arange(len(selected))
+        axis.barh(
+            positions - 0.18,
+            selected["equal_head_profile_effective_number"],
+            height=0.36,
+            label="equal head profiles",
+            color="#2878b5",
+        )
+        axis.barh(
+            positions + 0.18,
+            selected["raw_attention_ensemble_effective_number"],
+            height=0.36,
+            label="raw attention weighted",
+            color="#c43c39",
+        )
+        axis.set_yticks(positions)
+        axis.set_yticklabels(selected["phenotype"], fontsize=8)
+        axis.set_xlim(0, 10.2)
+        axis.set_title(variant)
+        axis.grid(axis="x", alpha=0.25)
+    axes[1, 0].set_xlabel("Effective number across 10 needle endpoints")
+    axes[1, 1].set_xlabel("Effective number across 10 needle endpoints")
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    figure.legend(handles, labels, frameon=False, loc="lower center", ncol=2)
+    figure.suptitle("Joint endpoint coverage of all heads in each phenotype")
+    figure.tight_layout(rect=(0, 0.06, 1, 1))
     figure.savefig(output, dpi=180, bbox_inches="tight")
     plt.close(figure)
 
@@ -1071,6 +1170,61 @@ def analyze_partitioned_attention(
         occurrences,
         diagnostic_top_k=top_k,
     )
+    phenotype_bank = phenotype_bank_coverage(occurrences, phenotypes)
+
+    split_summaries: list[pd.DataFrame] = []
+    split_phenotypes: list[pd.DataFrame] = []
+    split_head_banks: list[pd.DataFrame] = []
+    split_phenotype_banks: list[pd.DataFrame] = []
+    for split in sorted(samples["split"].unique()):
+        split_samples = samples[samples["split"] == split]
+        split_occurrences = occurrences[occurrences["split"] == split]
+        split_depth = depth_detail[depth_detail["split"] == split]
+        split_summary = _head_summary(
+            split_samples,
+            split_occurrences,
+            bootstrap_repetitions=bootstrap_repetitions,
+            bootstrap_top_k=top_k,
+            random_seed=random_seed + 10_000,
+        )
+        split_phenotype = classify_candidate_heads(
+            split_summary,
+            split_depth,
+            depth_bins=depth_bins,
+        )
+        split_head_bank = head_bank_coverage(
+            split_occurrences,
+            diagnostic_top_k=top_k,
+        )
+        split_phenotype_bank = phenotype_bank_coverage(
+            split_occurrences,
+            split_phenotype,
+        )
+        for frame in (
+            split_summary,
+            split_phenotype,
+            split_head_bank,
+            split_phenotype_bank,
+        ):
+            frame.insert(1, "split", split)
+        split_summaries.append(split_summary)
+        split_phenotypes.append(split_phenotype)
+        split_head_banks.append(split_head_bank)
+        split_phenotype_banks.append(split_phenotype_bank)
+    summary_by_split = pd.concat(split_summaries, ignore_index=True)
+    phenotypes_by_split = pd.concat(split_phenotypes, ignore_index=True)
+    phenotype_counts_by_split = (
+        phenotypes_by_split.groupby(
+            ["split", "design_variant", "phenotype"], sort=True
+        )
+        .size()
+        .rename("heads")
+        .reset_index()
+    )
+    head_bank_by_split = pd.concat(split_head_banks, ignore_index=True)
+    phenotype_bank_by_split = pd.concat(
+        split_phenotype_banks, ignore_index=True
+    )
 
     occurrence_path = output / "occurrence_detail.csv.gz"
     sample_path = output / "head_sample_detail.csv.gz"
@@ -1081,6 +1235,14 @@ def analyze_partitioned_attention(
     phenotype_path = output / "all_candidate_head_phenotypes.csv"
     phenotype_count_path = output / "all_candidate_phenotype_counts.csv"
     head_bank_path = output / "multi_head_partition_coverage.csv"
+    phenotype_bank_path = output / "phenotype_bank_coverage.csv"
+    summary_by_split_path = output / "head_partition_summary_by_split.csv"
+    phenotype_by_split_path = output / "all_candidate_head_phenotypes_by_split.csv"
+    phenotype_count_by_split_path = (
+        output / "all_candidate_phenotype_counts_by_split.csv"
+    )
+    head_bank_by_split_path = output / "multi_head_partition_coverage_by_split.csv"
+    phenotype_bank_by_split_path = output / "phenotype_bank_coverage_by_split.csv"
     figures = output / "figures"
     figures.mkdir(parents=True, exist_ok=True)
     occurrence_figure = figures / "rank1_endpoint_vs_span_mean_by_occurrence.png"
@@ -1089,6 +1251,7 @@ def analyze_partitioned_attention(
     phenotype_figure = figures / "all_candidate_phenotype_counts.png"
     scatter_figure = figures / "all_candidate_breadth_vs_spatial_gating.png"
     head_bank_figure = figures / "multi_head_partition_coverage.png"
+    phenotype_bank_figure = figures / "phenotype_bank_coverage.png"
     _write_csv_atomic(occurrences, occurrence_path, gzip=True)
     _write_csv_atomic(samples, sample_path, gzip=True)
     _write_csv_atomic(summary, summary_path)
@@ -1098,12 +1261,19 @@ def analyze_partitioned_attention(
     _write_csv_atomic(phenotypes, phenotype_path)
     _write_csv_atomic(phenotype_counts, phenotype_count_path)
     _write_csv_atomic(head_bank, head_bank_path)
+    _write_csv_atomic(phenotype_bank, phenotype_bank_path)
+    _write_csv_atomic(summary_by_split, summary_by_split_path)
+    _write_csv_atomic(phenotypes_by_split, phenotype_by_split_path)
+    _write_csv_atomic(phenotype_counts_by_split, phenotype_count_by_split_path)
+    _write_csv_atomic(head_bank_by_split, head_bank_by_split_path)
+    _write_csv_atomic(phenotype_bank_by_split, phenotype_bank_by_split_path)
     _plot_occurrence_profiles(occurrences, occurrence_figure)
     _plot_depth_profiles(depth_summary, depth_figure)
     _plot_top_head_heatmaps(occurrences, heatmap_figure, top_k=top_k)
     _plot_candidate_phenotypes(phenotypes, phenotype_figure)
     _plot_candidate_scatter(phenotypes, scatter_figure)
     _plot_head_bank(head_bank, head_bank_figure)
+    _plot_phenotype_bank(phenotype_bank, phenotype_bank_figure)
 
     outputs = {
         "occurrence_detail": occurrence_path,
@@ -1115,12 +1285,19 @@ def analyze_partitioned_attention(
         "all_candidate_phenotypes": phenotype_path,
         "all_candidate_phenotype_counts": phenotype_count_path,
         "multi_head_partition_coverage": head_bank_path,
+        "phenotype_bank_coverage": phenotype_bank_path,
+        "head_partition_summary_by_split": summary_by_split_path,
+        "all_candidate_phenotypes_by_split": phenotype_by_split_path,
+        "all_candidate_phenotype_counts_by_split": phenotype_count_by_split_path,
+        "multi_head_partition_coverage_by_split": head_bank_by_split_path,
+        "phenotype_bank_coverage_by_split": phenotype_bank_by_split_path,
         "occurrence_figure": occurrence_figure,
         "depth_figure": depth_figure,
         "top8_heatmap": heatmap_figure,
         "phenotype_figure": phenotype_figure,
         "candidate_scatter": scatter_figure,
         "head_bank_figure": head_bank_figure,
+        "phenotype_bank_figure": phenotype_bank_figure,
     }
     _write_json_atomic(
         {
