@@ -104,11 +104,13 @@ or as proof of an abstract counter.
 ### Interactive representation report
 
 [`reports/realistic_niah_v4_representation_report.html`](../reports/realistic_niah_v4_representation_report.html)
-is a self-contained, v10-style audit report over the downloaded representation
-captures. It includes the registered primary-layer tables, paired seed
-sensitivity results, original 2D figures, and an interactive 3D count manifold.
-The 3D view keeps individual seed points and split-specific 1--10 centroid
-paths, and allows switching model, span-end/span-mean pooling, v4.1--v4.4,
+is the self-contained, v10-style V4 result report. Its argument runs from the
+full confirmation behavior boundary to representation geometry, attention-head
+phenotypes, omission diagnostics, and causal necessity/sufficiency tests. It
+adds Aurora-native 2D figures, explicit metric formulas, axis/estimand captions,
+and a current-conclusion block after every section. The interactive 3D count
+manifold keeps individual seed points and split-specific 1--10 centroid paths,
+and allows switching model, span-end/span-mean pooling, v4.1--v4.4,
 discovery/confirmation, actual greedy output strata, and any displayed axes
 among PC1--PC6.
 
@@ -120,6 +122,11 @@ output for the whole trajectory. This stratum is severely imbalanced: Qwen has
 no correct N=10 confirmation trajectory; Gemma has one in v4.1 and none in
 v4.2--v4.4. The outcome switch is therefore an audit, not a powered group
 comparison.
+
+All V4 and later visualizations use the Aurora palette registered in the report
+builder and repository README. Count colors are ordered blends of the supplied
+Aurora anchors; model, panel, pooling, control, and zero-reference colors keep
+fixed meanings across figures.
 
 ## Answer-query attention
 

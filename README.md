@@ -262,17 +262,32 @@ PYTHONPATH=src python scripts/build_realistic_niah_v4_representation_report.py \
   --repo-root .
 ```
 
-The report embeds the original 2D audit panels, a draggable and zoomable 3D
-counter, and the completed matched-control causal screen. Within each
-model/pooling panel, PCA is fit on v4.1 discovery at the registered primary
-layer and reused for all variants; PC1--PC6, split, variant, and actual greedy
-correct/wrong strata are switchable. The causal section reports seed-cluster
-intervals for broad-head ablation, exact span-end residual transport, and
-answer-query centroid steering, plus exact donor-state transport by layer,
-panel, directed pair, and baseline outcome. It preserves all five Gemma
-strict-invalid `11` continuations rather than silently dropping them. See
+The report is the unified V4 result artifact. It starts from the full
+confirmation behavior boundary, then follows the evidence from span-end versus
+span-mean representation geometry, the exhaustive Qwen attention-head
+phenotype bank, undercount/omission diagnostics, and finally matched-control
+causal tests. Every section states its current conclusion and limits; every
+figure defines its axes and estimand; new quantities such as effective number,
+tail alignment, donor adoption, and direction-aligned shift are defined with
+their calculation rules.
+
+The report includes Aurora-native 2D audit panels and a draggable, zoomable 3D
+counter. Within each model/pooling panel, PCA is fit on v4.1 discovery at the
+registered primary layer and reused for all variants; PC1--PC6, split, variant,
+and actual greedy correct/wrong strata are switchable. The causal section
+reports seed-cluster intervals for broad-head ablation, exact span-end residual
+transport, answer-query donor-state transport, and centroid steering. It
+preserves all five Gemma strict-invalid `11` continuations rather than silently
+dropping them. See
 [`docs/realistic_niah_v4_causal_screen_20260801.md`](docs/realistic_niah_v4_causal_screen_20260801.md)
 for the complete estimands, results, audit, and limitations.
+
+V4 and later plots use the registered **Aurora** visual system: Midnight Indigo
+`#23165C`, Polar Violet `#6750E8`, Ice Cyan `#00C2FF`, Aurora Yellow
+`#F6E36A`, Aurora Teal `#00D4B4`, Aurora Green `#39E58C`, Polar Magenta
+`#C04DFF`, Sunset Pink `#FF5FA2`, Night Black `#161923`, Snow White
+`#F8FBFF`, Frost Gray `#8190A5`, and Warm Brown `#765347`. The report builder
+is the source of truth for semantic color mappings and ordered count blends.
 
 ## Registered Realistic NIAH V3
 

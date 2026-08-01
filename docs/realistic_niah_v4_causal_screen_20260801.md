@@ -247,6 +247,16 @@ PYTHONPATH=src python scripts/build_realistic_niah_v4_representation_report.py \
   --repo-root .
 ```
 
+The rebuilt HTML is the unified V4 mechanism report rather than a causal-only
+appendix. It explicitly connects the count-dependent behavior failure, the
+span-end representation and attention evidence, the Qwen head-bank taxonomy,
+paired omission diagnostics, and four causal claims: bank-level necessity,
+single-endpoint insufficiency, late query-state sufficiency, and directional
+geometric manipulability. Each result block reports its estimand, axes,
+seed-level uncertainty, current conclusion, and remaining alternative
+explanations. Figures follow the registered Aurora palette in `README.md` and
+`scripts/build_realistic_niah_v4_representation_report.py`.
+
 The downloaded bundle is
 `exports/run_20260731_v4_numeric_presentation_v3/causal_screen_8h_bundle.tar.gz`
 with SHA-256
