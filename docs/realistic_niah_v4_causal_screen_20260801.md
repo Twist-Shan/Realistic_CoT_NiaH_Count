@@ -12,9 +12,10 @@ answer-query follow-up completed at 16:35:59 UTC.
 
 The four stages test different claims and should not be conflated.
 
-1. **Head necessity:** does ablating discovery-ranked `span_end` attention
-   heads at the answer-query row change the final greedy count more than
-   ablating the same number of layer-matched random heads?
+1. **Mixed-bank necessity:** does ablating the discovery-ranked `span_end`
+   head bank at the answer-query row change the final greedy count more than
+   ablating the same number of layer-matched random heads? The ranking was not
+   phenotype-pure, so this estimand does not isolate broad heads.
 2. **Endpoint transport:** is the exact hidden state at the toggled needle-end
    token sufficient to transport a one-count change when copied from a nested
    donor prompt into a receiver prompt?
@@ -44,7 +45,7 @@ direction, and baseline-outcome tables are robustness/descriptive strata.
 
 | Stage | Per-model design | Qwen design | Gemma design |
 | --- | --- | --- | --- |
-| Broad-head ablation | counts 7--10; `span_end`; answer-query; top-4/top-8; one layer-matched random set | `design_2ccb6d6eee0f` | `design_5a1dcb9fa083` |
+| Mixed ranked-bank ablation | counts 7--10; `span_end`; answer-query; top-4/top-8; one layer-matched random set | `design_2ccb6d6eee0f` | `design_5a1dcb9fa083` |
 | Residual patching | 5↔6, 7↔8, 9↔10; exact toggled needle end; cumulative from three relative depths | `design_1702318319c8` | `design_f9c90bcbf650` |
 | Exact answer-query patching | 5↔6, 7↔8, 9↔10, 5↔10; prompt-final query state; eight single-layer sites | `design_e67fc867381a` | `design_823e7a6638be` |
 | Geometric steering | 7↔8, 9↔10, 5↔10; centroid delta; α=1; three relative depths; one norm-matched orthogonal control | `design_cf77fd4452c2` | `design_28163399d9ee` |
@@ -71,7 +72,7 @@ the screen logs.
 The earlier interrupted Qwen full-grid ablation remains preserved as
 `design_b46a127ab7ad`. It is not mixed into the screen estimates or report.
 
-## 1. Discovery-ranked broad heads are causally necessary
+## 1. The discovery-ranked mixed head bank has a necessary contribution
 
 The primary contrast is ranked minus layer-matched random. Negative generated
 count shift means stronger undercount after ablating ranked heads.
@@ -86,10 +87,11 @@ count shift means stronger undercount after ablating ranked heads.
 The selected span-end bank therefore contributes causally to preserving count
 magnitude in both models. The result is strongest for top-8 ablation and is
 not explained by merely ablating the same number of heads at the same layers.
-It does **not** establish that every selected head is individually broad, that
-all broad heads were found, or that the bank implements an exact arithmetic
-sum. Qwen's ranking includes selector/partition-like heads as well as broad
-heads, so the appropriate claim is bank-level necessity.
+It does **not** establish that every selected head is individually necessary,
+that every selected head is broad, that all broad heads were found, or that
+the bank implements an exact arithmetic sum. Qwen's ranking includes
+selector/partition-like heads as well as broad heads, so the appropriate claim
+is necessity of the tested mixed bank, not phenotype-specific necessity.
 
 Only 3 of the 160 high-count receiver prompts are baseline-correct for each
 model. The saved `summary.csv` and matched-control table retain correct/wrong

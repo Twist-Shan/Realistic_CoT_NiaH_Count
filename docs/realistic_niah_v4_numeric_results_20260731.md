@@ -243,7 +243,8 @@ no skipped intervention rows: 640 ablation rows, 720 exact needle-end patch
 rows, 800 discovery query states, 1,440 steering rows, and 2,560 exact
 answer-query patch rows per model.
 
-- **Broad-head ablation is positive.** Relative to layer-matched random heads,
+- **Mixed ranked-bank ablation is positive.** Relative to layer-matched random
+  heads,
   top-8 ablation shifts Qwen counts by -0.331 [95% seed CI -0.413, -0.256]
   and Gemma counts by -2.156 [-2.356, -1.969]; both Holm-adjusted exact
   sign-flip p-values are 0.0078.
@@ -263,8 +264,9 @@ answer-query patch rows per model.
   count setting.
 
 The combined result distinguishes four properties: count information is
-decodable at needle endpoints, a discovery-ranked span-end head bank is
-necessary for preserving output magnitude, the exact late query state is
+decodable at needle endpoints, a discovery-ranked mixed span-end head bank has
+a necessary contribution to preserving output magnitude, the exact late query
+state is
 sufficient to transport the model's computed prediction, and query-state
 geometry is directionally steerable. The single toggled endpoint is
 nevertheless not sufficient to transport a nested count change across prompts.

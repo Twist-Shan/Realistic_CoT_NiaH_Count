@@ -19,8 +19,9 @@ control panels (v4.1-v4.4), prompt-reading representations, answer-query
 attention, and causal interventions. V3 remains behavior-only.
 
 The completed V4 result separates where count information is visible from
-what generation actually uses. A discovery-ranked span-end head bank is
-causally necessary; one needle-end state is not sufficient for count
+what generation actually uses. A discovery-ranked mixed span-end head bank
+has a necessary contribution to preserving count magnitude; one needle-end
+state is not sufficient for count
 transport; late answer-query geometry is steerable; and exact answer-query
 residual patching transfers the donor model prediction on 100% of eligible
 Qwen final-layer rows and 99.58% of Gemma rows when strict-invalid outputs are
@@ -283,9 +284,11 @@ representations are transportable.
 
 The attention block now recomputes raw N=10 discovery profiles for both models.
 It contains an all-head layer×head atlas, frozen rules for global broad,
-partition-local broad, first-needle locator, other targeted retrieval,
-span-mean-only breadth, and mixed candidates, a count-adjusted correct/wrong
-comparison, and both omitted-tail and exact nested-new-needle diagnostics.
+partition-local broad, first-needle locator, weak first-focused selection,
+span-mean-only breadth, and mixed candidates. No strong non-first targeted
+retriever is found: every gated targeted candidate selects occurrence 1. The
+block also includes a count-adjusted correct/wrong comparison and both
+omitted-tail and exact nested-new-needle diagnostics.
 Machine-readable outputs are written beside the HTML as
 `realistic_niah_v4_head_atlas.csv`,
 `realistic_niah_v4_head_phenotypes.csv`, and
@@ -301,6 +304,10 @@ continuations remain in the conservative denominator rather than being
 silently dropped. See
 [`docs/realistic_niah_v4_causal_screen_20260801.md`](docs/realistic_niah_v4_causal_screen_20260801.md)
 for the complete estimands, results, audit, and limitations.
+
+All numeric tables in the HTML are collapsed by default. Each disclosure
+summary reports the number of data rows and the leading field names; figures,
+methods, and section conclusions remain visible without expanding tables.
 
 V4 and later plots use the registered **Aurora** visual system: Midnight Indigo
 `#23165C`, Polar Violet `#6750E8`, Ice Cyan `#00C2FF`, Aurora Yellow
