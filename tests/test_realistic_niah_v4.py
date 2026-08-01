@@ -38,12 +38,16 @@ from realistic_niah_v4.causal_generation import (
 )
 from realistic_niah_v4.geometric_steering import (
     CountCentroidBundle,
+    LayerSetSteeringPlan,
+    _layer_set_centroid_delta_states,
     centroid_geometry_tables,
     chord_point,
     fit_count_centroids,
+    layer_set_steering_plan_scores,
     load_centroid_bundle,
     polyline_point,
     save_centroid_bundle,
+    select_layer_set_steering_plans,
 )
 from realistic_niah_v4.modeling import (
     _attention_tensor,
@@ -977,6 +981,91 @@ def test_geometric_chord_and_polyline_are_distinct(tmp_path: Path) -> None:
     assert len(summary) == 1
     assert len(adjacent) == 2
     assert summary.iloc[0]["path_tortuosity"] == pytest.approx(2**0.5)
+
+
+def test_layer_set_centroid_delta_uses_each_layers_full_state() -> None:
+    bundle = CountCentroidBundle(
+        variants=("v4.1",),
+        layers=(1, 2),
+        counts=(1, 2),
+        centroids=np.asarray(
+            [
+                [
+                    [[1.0, 2.0], [3.0, 6.0]],
+                    [[0.0, 0.0], [2.0, -2.0]],
+                ]
+            ],
+            dtype=np.float32,
+        ),
+        sample_counts=np.asarray([[2, 2]], dtype=np.int32),
+        discovery_seeds=(11, 12),
+    )
+    plan = LayerSetSteeringPlan(layers=(1, 2), alpha=0.5)
+    plan.validate(bundle)
+    replacements, deltas = _layer_set_centroid_delta_states(
+        bundle,
+        {1: torch.tensor([10.0, 10.0]), 2: torch.tensor([20.0, 20.0])},
+        variant="v4.1",
+        receiver_count=1,
+        target_count=2,
+        plan=plan,
+    )
+    assert plan.protocol == "multi_layer"
+    assert torch.allclose(deltas[1], torch.tensor([1.0, 2.0]))
+    assert torch.allclose(deltas[2], torch.tensor([1.0, -1.0]))
+    assert torch.allclose(replacements[1], torch.tensor([11.0, 12.0]))
+    assert torch.allclose(replacements[2], torch.tensor([21.0, 19.0]))
+
+
+def test_layer_set_discovery_selection_maximizes_worst_panel() -> None:
+    rows = []
+    plans = {
+        ("single_layer", "1", 0.5): [0.8, 0.8, 0.8, -0.2],
+        ("single_layer", "2", 1.0): [0.3, 0.3, 0.3, 0.3],
+        ("multi_layer", "1+2", 0.5): [0.5, 0.5, 0.5, 0.5],
+        ("multi_layer", "2+3", 1.0): [0.7, 0.7, 0.7, -0.1],
+    }
+    for (protocol, layer_set, alpha), effects in plans.items():
+        for variant_index, (variant, effect) in enumerate(
+            zip(("v4.1", "v4.2", "v4.3", "v4.4"), effects)
+        ):
+            for seed in (11, 12):
+                common = {
+                    "model_label": "toy",
+                    "design_variant": variant,
+                    "seed": seed,
+                    "receiver_stimulus_id": f"r-{variant_index}-{seed}",
+                    "target_stimulus_id": f"t-{variant_index}-{seed}",
+                    "receiver_count": 7,
+                    "target_count": 8,
+                    "target_direction": "increase",
+                    "steering_protocol": protocol,
+                    "layer_set": layer_set,
+                    "alpha": alpha,
+                    "patched_format_valid": True,
+                    "moved_toward_donor_gold": effect > 0,
+                    "follows_donor_gold": False,
+                }
+                rows.append(
+                    {
+                        **common,
+                        "condition": "geometric",
+                        "direction_aligned_generated_count_shift": effect,
+                    }
+                )
+                rows.append(
+                    {
+                        **common,
+                        "condition": "orthogonal_norm_matched_random",
+                        "direction_aligned_generated_count_shift": 0.0,
+                    }
+                )
+    detail = pd.DataFrame(rows)
+    scores = layer_set_steering_plan_scores(detail)
+    selected = select_layer_set_steering_plans(detail)["selected"]
+    assert not scores.empty
+    assert selected["single_layer"]["layer_set"] == "2"
+    assert selected["multi_layer"]["layer_set"] == "1+2"
 
 
 def test_count_centroids_require_complete_discovery_grid(tmp_path: Path) -> None:

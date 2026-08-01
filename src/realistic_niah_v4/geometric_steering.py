@@ -96,6 +96,40 @@ class CountCentroidBundle:
         )
 
 
+@dataclass(frozen=True)
+class LayerSetSteeringPlan:
+    """One registered answer-query centroid-delta intervention.
+
+    A single-layer plan contains one post-block layer.  A multi-layer plan
+    contains two or more layers and applies each layer's own discovery-fit
+    count-centroid displacement during the same prompt-prefill forward pass.
+    ``alpha`` scales every layer-specific displacement by the same registered
+    dose; no PCA projection or hidden-dimension masking is performed.
+    """
+
+    layers: tuple[int, ...]
+    alpha: float
+
+    def validate(self, bundle: CountCentroidBundle) -> None:
+        if not self.layers:
+            raise ValueError("A layer-set steering plan must contain a layer")
+        if tuple(sorted(set(int(layer) for layer in self.layers))) != self.layers:
+            raise ValueError("Steering-plan layers must be unique and increasing")
+        missing = sorted(set(self.layers) - set(bundle.layers))
+        if missing:
+            raise ValueError(f"Steering-plan layers missing from centroids: {missing}")
+        if not 0.0 < float(self.alpha) <= 1.0:
+            raise ValueError("Layer-set steering alpha must lie in (0, 1]")
+
+    @property
+    def protocol(self) -> str:
+        return "single_layer" if len(self.layers) == 1 else "multi_layer"
+
+    @property
+    def label(self) -> str:
+        return "+".join(str(int(layer)) for layer in self.layers)
+
+
 def _save_npz_atomic(path: Path, **arrays: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp.npz")
@@ -768,6 +802,554 @@ def run_generation_geometric_steering(
                 )
     if not rows:
         raise ValueError("No geometric-steering rows were produced")
+    return pd.DataFrame(rows)
+
+
+def _normalize_layer_set_plans(
+    plans: Sequence[LayerSetSteeringPlan],
+    bundle: CountCentroidBundle,
+) -> tuple[LayerSetSteeringPlan, ...]:
+    normalized = tuple(
+        LayerSetSteeringPlan(
+            layers=tuple(int(layer) for layer in plan.layers),
+            alpha=float(plan.alpha),
+        )
+        for plan in plans
+    )
+    if not normalized:
+        raise ValueError("At least one layer-set steering plan is required")
+    for plan in normalized:
+        plan.validate(bundle)
+    keys = [(plan.layers, float(plan.alpha)) for plan in normalized]
+    if len(set(keys)) != len(keys):
+        raise ValueError("Layer-set steering plans must be unique")
+    return normalized
+
+
+def _layer_set_centroid_delta_states(
+    bundle: CountCentroidBundle,
+    receiver_states: Mapping[int, torch.Tensor],
+    *,
+    variant: str,
+    receiver_count: int,
+    target_count: int,
+    plan: LayerSetSteeringPlan,
+) -> tuple[dict[int, torch.Tensor], dict[int, torch.Tensor]]:
+    """Return full-width replacement states and their layer-specific deltas."""
+
+    replacements: dict[int, torch.Tensor] = {}
+    deltas: dict[int, torch.Tensor] = {}
+    for layer in plan.layers:
+        receiver_state = receiver_states[int(layer)].float()
+        receiver_centroid = bundle.state(variant, int(layer), int(receiver_count))
+        target_centroid = bundle.state(variant, int(layer), int(target_count))
+        delta = float(plan.alpha) * (target_centroid - receiver_centroid)
+        replacements[int(layer)] = receiver_state + delta
+        deltas[int(layer)] = delta
+    return replacements, deltas
+
+
+def _combined_delta_norm(deltas: Mapping[int, torch.Tensor]) -> float:
+    return float(
+        math.sqrt(
+            sum(float(torch.sum(delta.float() ** 2)) for delta in deltas.values())
+        )
+    )
+
+
+def run_generation_layer_set_centroid_delta(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    encodings: Sequence[PromptEncoding],
+    *,
+    baseline_labels: Mapping[str, Mapping[str, Any]],
+    centroids: CountCentroidBundle,
+    count_pairs: Sequence[tuple[int, int]],
+    plans: Sequence[LayerSetSteeringPlan],
+    random_replicates: int = 1,
+    max_new_tokens: int = 16,
+) -> pd.DataFrame:
+    """Run registered single- and multi-layer answer-query steering.
+
+    For every selected layer ``l``, this applies
+
+    ``h_l' = h_l + alpha * (mu_l,target - mu_l,receiver)``
+
+    to the complete answer-query residual vector during prompt prefill.  A
+    multi-layer plan supplies all replacements to one generation call, so the
+    downstream state evolves under the cumulative interventions.  The matched
+    random control is formed independently at every layer, is orthogonal to
+    that layer's centroid delta, and has exactly the same per-layer norm.
+    """
+
+    centroids.validate()
+    plans = _normalize_layer_set_plans(plans, centroids)
+    if int(random_replicates) < 1:
+        raise ValueError("Layer-set steering requires at least one random control")
+    directed_pairs = tuple((int(left), int(right)) for left, right in count_pairs)
+    if not directed_pairs or any(left == right for left, right in directed_pairs):
+        raise ValueError("Layer-set steering count pairs must be directed and distinct")
+    by_key = {
+        (item.design_variant, int(item.seed), int(item.count)): item
+        for item in encodings
+    }
+    if len(by_key) != len(encodings):
+        raise ValueError("Steering encodings are not unique by variant/seed/count")
+    splits = {str(item.split) for item in encodings}
+    if len(splits) != 1 or next(iter(splits)) not in {"discovery", "confirmation"}:
+        raise ValueError("Layer-set steering encodings must use one registered split")
+    evaluation_split = next(iter(splits))
+    variants = sorted({item.design_variant for item in encodings})
+    seeds = sorted({int(item.seed) for item in encodings})
+    capture_layers = tuple(sorted({layer for plan in plans for layer in plan.layers}))
+    rows: list[dict[str, Any]] = []
+    state_cache: dict[str, dict[int, torch.Tensor]] = {}
+    for variant in variants:
+        for seed in seeds:
+            for receiver_count, target_count in directed_pairs:
+                receiver = by_key.get((variant, seed, receiver_count))
+                target = by_key.get((variant, seed, target_count))
+                if receiver is None or target is None:
+                    raise KeyError(
+                        f"Missing layer-set pair {variant} seed={seed} "
+                        f"N={receiver_count}->{target_count}"
+                    )
+                receiver_label = baseline_labels[receiver.stimulus_id]
+                target_label = baseline_labels[target.stimulus_id]
+                _validate_baseline_label(receiver, receiver_label)
+                _validate_baseline_label(target, target_label)
+                if receiver.stimulus_id not in state_cache:
+                    _logits, captured = capture_post_block_states(
+                        model,
+                        adapter,
+                        receiver,
+                        [int(receiver.query_position)],
+                        layers=capture_layers,
+                    )
+                    state_cache[receiver.stimulus_id] = {
+                        layer: captured[layer][0] for layer in capture_layers
+                    }
+                receiver_states = state_cache[receiver.stimulus_id]
+                for plan in plans:
+                    geometric_states, geometric_deltas = (
+                        _layer_set_centroid_delta_states(
+                            centroids,
+                            receiver_states,
+                            variant=variant,
+                            receiver_count=receiver_count,
+                            target_count=target_count,
+                            plan=plan,
+                        )
+                    )
+                    conditions: list[
+                        tuple[str, int, dict[int, torch.Tensor], dict[int, torch.Tensor]]
+                    ] = [("geometric", -1, geometric_states, geometric_deltas)]
+                    for replicate in range(int(random_replicates)):
+                        random_deltas = {
+                            layer: _orthogonal_norm_matched_delta(
+                                delta,
+                                seed=_stable_seed(
+                                    f"layer-set:{variant}:{seed}:{receiver_count}:"
+                                    f"{target_count}:{plan.label}:{plan.alpha}:"
+                                    f"L{layer}:random:{replicate}"
+                                ),
+                            )
+                            for layer, delta in geometric_deltas.items()
+                        }
+                        random_states = {
+                            layer: receiver_states[layer].float() + delta
+                            for layer, delta in random_deltas.items()
+                        }
+                        conditions.append(
+                            (
+                                "orthogonal_norm_matched_random",
+                                int(replicate),
+                                random_states,
+                                random_deltas,
+                            )
+                        )
+                    baseline_prediction = _optional_int(
+                        receiver_label.get("parsed_count")
+                    )
+                    intended_shift = float(plan.alpha) * (
+                        float(target_count) - float(receiver_count)
+                    )
+                    path_count = float(receiver_count) + intended_shift
+                    direction_sign = 1 if target_count > receiver_count else -1
+                    for condition, replicate, condition_states, condition_deltas in conditions:
+                        completion = generate_with_residual_interventions(
+                            model,
+                            tokenizer,
+                            adapter,
+                            receiver,
+                            {
+                                int(layer): (
+                                    (int(receiver.query_position),),
+                                    state.unsqueeze(0),
+                                )
+                                for layer, state in condition_states.items()
+                            },
+                            max_new_tokens=max_new_tokens,
+                        )
+                        outcome = intervention_outcome(
+                            completion, receiver, receiver_label
+                        )
+                        patched = _optional_int(
+                            outcome.get("patched_predicted_count")
+                        )
+                        rows.append(
+                            {
+                                **_base_metadata(receiver),
+                                **_baseline_metadata(receiver_label),
+                                "evaluation_split": evaluation_split,
+                                "receiver_stimulus_id": receiver.stimulus_id,
+                                "target_stimulus_id": target.stimulus_id,
+                                "receiver_count": receiver_count,
+                                "target_count": target_count,
+                                "target_baseline_outcome": str(
+                                    target_label["outcome_group"]
+                                ),
+                                "target_baseline_predicted_count": _optional_int(
+                                    target_label.get("parsed_count")
+                                ),
+                                "site": "answer_query",
+                                "steering_method": "scaled_centroid_delta",
+                                "steering_protocol": plan.protocol,
+                                "layer_set": plan.label,
+                                "layer_set_json": json.dumps(list(plan.layers)),
+                                "intervened_layer_count": len(plan.layers),
+                                "alpha": float(plan.alpha),
+                                "condition": condition,
+                                "random_replicate": int(replicate),
+                                "target_direction": (
+                                    "increase" if direction_sign > 0 else "decrease"
+                                ),
+                                "intended_path_count": path_count,
+                                "intended_count_shift": intended_shift,
+                                "combined_applied_delta_norm": _combined_delta_norm(
+                                    condition_deltas
+                                ),
+                                "per_layer_applied_delta_norms": json.dumps(
+                                    {
+                                        str(layer): float(
+                                            torch.linalg.vector_norm(delta.float())
+                                        )
+                                        for layer, delta in condition_deltas.items()
+                                    },
+                                    sort_keys=True,
+                                ),
+                                **outcome,
+                                **transport_fields(
+                                    outcome,
+                                    receiver_label=receiver_label,
+                                    donor_label=target_label,
+                                    receiver_count=receiver_count,
+                                    donor_count=target_count,
+                                ),
+                                "direction_aligned_generated_count_shift": (
+                                    float(outcome["generated_count_shift"])
+                                    * direction_sign
+                                    if np.isfinite(outcome["generated_count_shift"])
+                                    else math.nan
+                                ),
+                                "nearest_path_count_hit": (
+                                    bool(patched == math.floor(path_count + 0.5))
+                                    if patched is not None
+                                    else False
+                                ),
+                                "moved_toward_path_count": (
+                                    abs(float(patched) - path_count)
+                                    < abs(float(baseline_prediction) - path_count)
+                                    if patched is not None
+                                    and baseline_prediction is not None
+                                    else False
+                                ),
+                            }
+                        )
+                print(
+                    "[v4 layer-set steering] "
+                    f"split={evaluation_split} {variant} seed={seed} "
+                    f"N={receiver_count}->{target_count}",
+                    flush=True,
+                )
+    if not rows:
+        raise ValueError("No layer-set steering rows were produced")
+    return pd.DataFrame(rows)
+
+
+def _paired_layer_set_effects(detail: pd.DataFrame) -> pd.DataFrame:
+    required = {
+        "model_label",
+        "design_variant",
+        "seed",
+        "receiver_stimulus_id",
+        "target_stimulus_id",
+        "steering_protocol",
+        "layer_set",
+        "alpha",
+        "condition",
+        "patched_format_valid",
+        "direction_aligned_generated_count_shift",
+        "moved_toward_donor_gold",
+        "follows_donor_gold",
+    }
+    missing = sorted(required - set(detail.columns))
+    if missing:
+        raise ValueError(f"Layer-set steering detail is missing columns: {missing}")
+    identifiers = [
+        "model_label",
+        "design_variant",
+        "seed",
+        "receiver_stimulus_id",
+        "target_stimulus_id",
+        "receiver_count",
+        "target_count",
+        "target_direction",
+        "steering_protocol",
+        "layer_set",
+        "alpha",
+    ]
+    metrics = [
+        "patched_format_valid",
+        "direction_aligned_generated_count_shift",
+        "moved_toward_donor_gold",
+        "follows_donor_gold",
+    ]
+    work = detail.copy()
+    valid = work["patched_format_valid"].astype(bool)
+    aligned = pd.to_numeric(
+        work["direction_aligned_generated_count_shift"], errors="coerce"
+    )
+    work["strict_aligned_shift"] = np.where(valid & aligned.notna(), aligned, 0.0)
+    work["strict_moved"] = np.where(
+        valid, work["moved_toward_donor_gold"].fillna(False).astype(bool), False
+    ).astype(float)
+    work["strict_target_hit"] = np.where(
+        valid, work["follows_donor_gold"].fillna(False).astype(bool), False
+    ).astype(float)
+    metrics = [
+        "patched_format_valid",
+        "strict_aligned_shift",
+        "strict_moved",
+        "strict_target_hit",
+    ]
+    geometric = work[work["condition"] == "geometric"][identifiers + metrics]
+    if geometric.duplicated(identifiers).any():
+        raise ValueError("Geometric layer-set rows are not unique")
+    random = work[work["condition"] == "orthogonal_norm_matched_random"]
+    if random.empty:
+        raise ValueError("Layer-set steering requires matched random rows")
+    random_mean = random.groupby(identifiers, as_index=False)[metrics].mean()
+    random_mean = random_mean.rename(
+        columns={metric: f"{metric}_random" for metric in metrics}
+    )
+    paired = geometric.merge(random_mean, on=identifiers, how="inner", validate="1:1")
+    for metric in metrics:
+        paired[f"{metric}_effect"] = (
+            paired[metric] - paired[f"{metric}_random"]
+        )
+    return paired
+
+
+def layer_set_steering_plan_scores(detail: pd.DataFrame) -> pd.DataFrame:
+    """Discovery-only robust scores for locking one plan per protocol.
+
+    The primary score is the worst V4-panel mean paired aligned-shift effect,
+    penalized by twice the geometric strict-invalid rate.  This deliberately
+    favors effects that survive every controlled-relaxation panel instead of a
+    large average driven by one panel.  Mean effect and the lower alpha are
+    deterministic tie-breakers.
+    """
+
+    paired = _paired_layer_set_effects(detail)
+    block = (
+        paired.groupby(
+            [
+                "steering_protocol",
+                "layer_set",
+                "alpha",
+                "seed",
+                "design_variant",
+            ],
+            as_index=False,
+        )[
+            [
+                "strict_aligned_shift_effect",
+                "strict_moved_effect",
+                "strict_target_hit_effect",
+                "patched_format_valid",
+                "patched_format_valid_random",
+            ]
+        ]
+        .mean()
+    )
+    rows: list[dict[str, Any]] = []
+    for keys, frame in block.groupby(
+        ["steering_protocol", "layer_set", "alpha"], sort=True
+    ):
+        protocol, layer_set, alpha = keys
+        variant_effects = frame.groupby("design_variant")[
+            "strict_aligned_shift_effect"
+        ].mean()
+        invalid_rate = 1.0 - float(frame["patched_format_valid"].mean())
+        rows.append(
+            {
+                "steering_protocol": str(protocol),
+                "layer_set": str(layer_set),
+                "alpha": float(alpha),
+                "screen_seeds": int(frame["seed"].nunique()),
+                "screen_variants": int(frame["design_variant"].nunique()),
+                "mean_aligned_shift_effect": float(
+                    frame["strict_aligned_shift_effect"].mean()
+                ),
+                "worst_variant_aligned_shift_effect": float(variant_effects.min()),
+                "positive_variant_count": int((variant_effects > 0).sum()),
+                "mean_moved_effect": float(frame["strict_moved_effect"].mean()),
+                "mean_target_hit_effect": float(
+                    frame["strict_target_hit_effect"].mean()
+                ),
+                "geometric_valid_rate": float(
+                    frame["patched_format_valid"].mean()
+                ),
+                "random_valid_rate": float(
+                    frame["patched_format_valid_random"].mean()
+                ),
+                "robust_selection_score": float(variant_effects.min())
+                - 2.0 * invalid_rate,
+            }
+        )
+    return pd.DataFrame(rows).sort_values(
+        [
+            "steering_protocol",
+            "robust_selection_score",
+            "mean_aligned_shift_effect",
+            "alpha",
+        ],
+        ascending=[True, False, False, True],
+        ignore_index=True,
+    )
+
+
+def select_layer_set_steering_plans(detail: pd.DataFrame) -> dict[str, Any]:
+    scores = layer_set_steering_plan_scores(detail)
+    selected: dict[str, Any] = {
+        "selection_split": "discovery",
+        "selection_rule": (
+            "maximize worst-V4-panel paired strict aligned-shift effect minus "
+            "2x geometric invalid rate; break ties by mean effect then lower alpha"
+        ),
+        "selected": {},
+    }
+    for protocol in ("single_layer", "multi_layer"):
+        available = scores[scores["steering_protocol"] == protocol]
+        if available.empty:
+            raise ValueError(f"No discovery plans are available for {protocol}")
+        row = available.iloc[0]
+        selected["selected"][protocol] = {
+            "layers": [int(value) for value in str(row["layer_set"]).split("+")],
+            "layer_set": str(row["layer_set"]),
+            "alpha": float(row["alpha"]),
+            "robust_selection_score": float(row["robust_selection_score"]),
+            "mean_aligned_shift_effect": float(row["mean_aligned_shift_effect"]),
+            "worst_variant_aligned_shift_effect": float(
+                row["worst_variant_aligned_shift_effect"]
+            ),
+            "positive_variant_count": int(row["positive_variant_count"]),
+            "geometric_valid_rate": float(row["geometric_valid_rate"]),
+        }
+    return selected
+
+
+def _bootstrap_seed_mean(
+    values: np.ndarray,
+    *,
+    seed: int,
+    repetitions: int,
+) -> tuple[float, float, float]:
+    values = np.asarray(values, dtype=float)
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return math.nan, math.nan, math.nan
+    rng = np.random.default_rng(int(seed))
+    indices = rng.integers(0, values.size, size=(int(repetitions), values.size))
+    distribution = values[indices].mean(axis=1)
+    low, high = np.quantile(distribution, [0.025, 0.975])
+    return float(values.mean()), float(low), float(high)
+
+
+def summarize_layer_set_steering(
+    detail: pd.DataFrame,
+    *,
+    bootstrap_repetitions: int = 10_000,
+) -> pd.DataFrame:
+    paired = _paired_layer_set_effects(detail)
+    rows: list[dict[str, Any]] = []
+    for keys, frame in paired.groupby(
+        ["model_label", "steering_protocol", "layer_set", "alpha"], sort=True
+    ):
+        model_label, protocol, layer_set, alpha = keys
+        seed_frame = frame.groupby("seed", as_index=False)[
+            [
+                "strict_aligned_shift_effect",
+                "strict_moved_effect",
+                "strict_target_hit_effect",
+                "patched_format_valid",
+                "patched_format_valid_random",
+                "strict_aligned_shift",
+                "strict_aligned_shift_random",
+            ]
+        ].mean()
+        estimates: dict[str, tuple[float, float, float]] = {}
+        for metric in (
+            "strict_aligned_shift_effect",
+            "strict_moved_effect",
+            "strict_target_hit_effect",
+        ):
+            estimates[metric] = _bootstrap_seed_mean(
+                seed_frame[metric].to_numpy(dtype=float),
+                seed=_stable_seed(
+                    f"layer-set-summary:{model_label}:{protocol}:{layer_set}:"
+                    f"{alpha}:{metric}"
+                ),
+                repetitions=int(bootstrap_repetitions),
+            )
+        aligned = estimates["strict_aligned_shift_effect"]
+        moved = estimates["strict_moved_effect"]
+        hit = estimates["strict_target_hit_effect"]
+        rows.append(
+            {
+                "model_label": str(model_label),
+                "steering_protocol": str(protocol),
+                "layer_set": str(layer_set),
+                "alpha": float(alpha),
+                "paired_rows": int(len(frame)),
+                "seeds": int(seed_frame["seed"].nunique()),
+                "variants": int(frame["design_variant"].nunique()),
+                "geometric_valid_rate": float(
+                    seed_frame["patched_format_valid"].mean()
+                ),
+                "random_valid_rate": float(
+                    seed_frame["patched_format_valid_random"].mean()
+                ),
+                "geometric_mean_aligned_shift": float(
+                    seed_frame["strict_aligned_shift"].mean()
+                ),
+                "random_mean_aligned_shift": float(
+                    seed_frame["strict_aligned_shift_random"].mean()
+                ),
+                "aligned_shift_effect": aligned[0],
+                "aligned_shift_ci95_low": aligned[1],
+                "aligned_shift_ci95_high": aligned[2],
+                "moved_rate_effect": moved[0],
+                "moved_rate_ci95_low": moved[1],
+                "moved_rate_ci95_high": moved[2],
+                "target_hit_rate_effect": hit[0],
+                "target_hit_rate_ci95_low": hit[1],
+                "target_hit_rate_ci95_high": hit[2],
+                "bootstrap_repetitions": int(bootstrap_repetitions),
+            }
+        )
     return pd.DataFrame(rows)
 
 
