@@ -105,6 +105,7 @@ run_phase() {
   printf '[%s] START model=%s phase=%s\n' "$(timestamp)" "$model" "$phase" | tee -a "$log_path"
   if env \
       HF_HOME="$HF_CACHE" \
+      HF_TOKEN_PATH="${HF_TOKEN_PATH:-${HOME}/.cache/huggingface/token}" \
       TOKENIZERS_PARALLELISM=false \
       PYTHONPATH="$REPO_ROOT/src" \
       "$VENV_PYTHON" "$REPO_ROOT/scripts/run_realistic_niah_v4_steering_v2.py" \
@@ -137,7 +138,7 @@ latest_selection() {
   local model=$1
   find "$RUN_ROOT/$model/numeric/causal/geometric_steering_v2" \
     -type f -path '*/screen_*/selection.json' -printf '%T@ %p\n' \
-    | sort -nr | head -1 | cut -d' ' -f2-
+    | sort -n | tail -1 | cut -d' ' -f2-
 }
 
 printf '[%s] steering_v2 expected_rows_per_model=3840\n' "$(timestamp)"
