@@ -1,10 +1,12 @@
 # Realistic NIAH V4 numeric non-thinking results
 
-This note records the completed descriptive V4 run
-`run_20260731_v4_numeric_presentation_v3`. It separates measured results from
-causal claims: head ablation, residual patching, and geometric steering have
-tested implementations, but the full registered causal sweeps were not part of
-this run.
+This note records the completed V4 run
+`run_20260731_v4_numeric_presentation_v3`. The descriptive representation and
+attention analyses are followed by the targeted `screen_8h_v1` causal
+campaign. The screen is complete, but it is smaller than the fully registered
+causal grid. Detailed intervention estimands, seed-cluster intervals, matched
+controls, and audit results are in
+[`realistic_niah_v4_causal_screen_20260801.md`](realistic_niah_v4_causal_screen_20260801.md).
 
 ## Registered design
 
@@ -226,7 +228,32 @@ low attention causes the undercount. That question is reserved for the
 registered broad-head ablation and needle-state patching sweeps with
 layer-matched random controls.
 
-## Reproducibility and next causal step
+## Causal screen result
+
+The targeted screen completed for both models with no skipped intervention
+rows: 640 ablation rows, 720 exact needle-end patch rows, 800 discovery query
+states, and 1,440 steering rows per model.
+
+- **Broad-head ablation is positive.** Relative to layer-matched random heads,
+  top-8 ablation shifts Qwen counts by -0.331 [95% seed CI -0.413, -0.256]
+  and Gemma counts by -2.156 [-2.356, -1.969]; both Holm-adjusted exact
+  sign-flip p-values are 0.0078.
+- **Exact needle-end transport is null.** Across all tested depths, at most
+  2.1% of rows move strictly toward the donor gold, and every direction-aligned
+  shift interval includes zero after family-wise correction.
+- **Late answer-query steering is positive.** Geometric-minus-random aligned
+  count shift is +0.958 [+0.808, +1.096] at Qwen L26 and +1.388 [+1.283,
+  +1.488] at Gemma L31; both Holm-adjusted p-values are 0.0117. Exact target
+  hits remain low, so this is directional manipulability rather than precise
+  count setting.
+
+The combined result distinguishes three properties: count information is
+decodable at needle endpoints, a discovery-ranked span-end head bank is
+necessary for preserving output magnitude, and late query-state geometry is
+readout-aligned and steerable. The single toggled endpoint is nevertheless not
+sufficient to transport a nested count change across prompts.
+
+## Reproducibility and remaining causal scope
 
 The run root is `run_20260731_v4_numeric_presentation_v3`. Each model directory
 contains behavior labels, representation captures, raw answer-query attention,
@@ -251,6 +278,14 @@ uses actual complete greedy numeric generation and supports:
 3. discovery-fit centroid transplant/delta, chord/polyline geometric steering,
    and norm-matched random controls.
 
-The full causal sweep must be reported separately. Until it is run, all claims
-in this note remain behavioral, representational, or attentional rather than
-causal.
+Audit the downloaded causal result with:
+
+```bash
+PYTHONPATH=src python scripts/audit_realistic_niah_v4_causal.py \
+  --run-root <run-root> \
+  --output <run-root>/causal_screen_8h_audit.json
+```
+
+The targeted screen supports the causal claims summarized above; descriptive
+PCA, probe, and attention results remain non-causal. The unrun remainder is the
+larger condition grid, not these completed interventions.

@@ -33,7 +33,8 @@ Remote: <https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git>
 | --- | --- | --- |
 | Run the Realistic NIAH V4 mechanism study | `scripts/freeze_realistic_niah_v4.py`, `scripts/run_realistic_niah_v4.py` | [`docs/realistic_niah_v4.md`](docs/realistic_niah_v4.md) |
 | Inspect the completed V4 numeric non-thinking run | `run_20260731_v4_numeric_presentation_v3` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md) |
-| Open or rebuild the V4 representation report | [`reports/realistic_niah_v4_representation_report.html`](reports/realistic_niah_v4_representation_report.html), `scripts/build_realistic_niah_v4_representation_report.py` | [`docs/realistic_niah_v4_numeric_results_20260731.md#interactive-representation-report`](docs/realistic_niah_v4_numeric_results_20260731.md#interactive-representation-report) |
+| Open or rebuild the V4 representation + causal report | [`reports/realistic_niah_v4_representation_report.html`](reports/realistic_niah_v4_representation_report.html), `scripts/build_realistic_niah_v4_representation_report.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md`](docs/realistic_niah_v4_causal_screen_20260801.md) |
+| Audit the completed V4 causal screen | `scripts/audit_realistic_niah_v4_causal.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md#screen-design-and-completion-audit`](docs/realistic_niah_v4_causal_screen_20260801.md#screen-design-and-completion-audit) |
 | Analyze all Qwen span-end candidates and multi-head coverage | `scripts/analyze_realistic_niah_v4_partitioning.py` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md#qwen-span-end-full-candidate-bank-and-positional-partitioning) |
 | Run or audit Realistic NIAH V3 | `scripts/freeze_realistic_niah_v3.py`, `scripts/launch_realistic_niah_v3.sh` | [`docs/realistic_niah_v3.md`](docs/realistic_niah_v3.md) |
 | Inspect the executable V3 registry | `src/realistic_niah_v3/spec.py`, `configs/realistic_niah_v3.json` | `tests/test_realistic_niah_v3.py` |
@@ -220,19 +221,33 @@ pair at three matched relative depths. Every intervention keeps one
 layer-matched or norm-matched random control. The reduced design is a causal
 screen, not a replacement for a fully powered all-condition sweep.
 
-Build the self-contained V4 representation report from a downloaded run with:
+Audit the completed `screen_8h_v1` causal subtree with:
 
 ```bash
-python scripts/build_realistic_niah_v4_representation_report.py \
+PYTHONPATH=src python scripts/audit_realistic_niah_v4_causal.py \
+  --run-root /path/to/run_20260731_v4_numeric_presentation_v3 \
+  --output /path/to/run/causal_screen_8h_audit.json
+```
+
+Build the self-contained V4 representation and causal report from a downloaded
+run with:
+
+```bash
+PYTHONPATH=src python scripts/build_realistic_niah_v4_representation_report.py \
   --run-root /path/to/run_20260731_v4_numeric_presentation_v3 \
   --output reports/realistic_niah_v4_representation_report.html \
   --repo-root .
 ```
 
-The report embeds the original 2D audit panels and a draggable, zoomable 3D
-counter view. Within each model/pooling panel, PCA is fit on v4.1 discovery at
-the registered primary layer and reused for all variants; PC1--PC6, split,
-variant, and actual greedy correct/wrong strata are switchable.
+The report embeds the original 2D audit panels, a draggable and zoomable 3D
+counter, and the completed matched-control causal screen. Within each
+model/pooling panel, PCA is fit on v4.1 discovery at the registered primary
+layer and reused for all variants; PC1--PC6, split, variant, and actual greedy
+correct/wrong strata are switchable. The causal section reports seed-cluster
+intervals for broad-head ablation, exact span-end residual transport, and
+answer-query centroid steering. See
+[`docs/realistic_niah_v4_causal_screen_20260801.md`](docs/realistic_niah_v4_causal_screen_20260801.md)
+for the complete estimands, results, audit, and limitations.
 
 ## Registered Realistic NIAH V3
 

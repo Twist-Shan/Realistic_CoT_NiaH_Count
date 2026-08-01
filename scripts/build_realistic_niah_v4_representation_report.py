@@ -7,6 +7,7 @@ import html
 import json
 import math
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,16 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
+
+
+REPO_SRC = Path(__file__).resolve().parents[1] / "src"
+if str(REPO_SRC) not in sys.path:
+    sys.path.insert(0, str(REPO_SRC))
+
+from realistic_niah_v4.causal_audit import (  # noqa: E402
+    audit_screen_8h,
+    find_screen_designs,
+)
 
 
 MODELS = ("Qwen3-8B", "Gemma4-E4B")
@@ -84,7 +95,9 @@ def _primary_layers(model_root: Path) -> dict[str, int]:
     }
 
 
-def _n10_labels(model_root: Path) -> tuple[dict[tuple[str, int], dict[str, Any]], pd.DataFrame]:
+def _n10_labels(
+    model_root: Path,
+) -> tuple[dict[tuple[str, int], dict[str, Any]], pd.DataFrame]:
     labels = pd.read_csv(model_root / "behavior" / "capture" / "generation_labels.csv")
     labels = labels[labels["gold_count"].astype(int) == 10].copy()
     if labels.duplicated(["design_variant", "seed"]).any():
@@ -121,7 +134,9 @@ def _load_projection(
 ) -> dict[str, Any]:
     capture_root = model_root / "representation" / "capture"
     records = _read_jsonl(capture_root / "capture_index.jsonl")
-    tensors: dict[str, list[tuple[int, str, np.ndarray]]] = {variant: [] for variant in VARIANTS}
+    tensors: dict[str, list[tuple[int, str, np.ndarray]]] = {
+        variant: [] for variant in VARIANTS
+    }
     for record in records:
         variant = str(record["design_variant"])
         if variant not in tensors:
@@ -131,7 +146,9 @@ def _load_projection(
             layer_indices = np.asarray(payload["layer_indices"], dtype=int)
             match = np.flatnonzero(layer_indices == int(layer))
             if len(match) != 1:
-                raise RuntimeError(f"{model}/{pooling}: layer {layer} absent in {shard}")
+                raise RuntimeError(
+                    f"{model}/{pooling}: layer {layer} absent in {shard}"
+                )
             states = np.asarray(payload[pooling][int(match[0])], dtype=np.float32)
         if states.shape[0] != 10:
             raise RuntimeError(f"Expected ten occurrence states, got {states.shape}")
@@ -139,7 +156,9 @@ def _load_projection(
     for variant in VARIANTS:
         tensors[variant].sort(key=lambda item: item[0])
         if len(tensors[variant]) != 30:
-            raise RuntimeError(f"{model}/{pooling}/{variant}: expected 30 seed captures")
+            raise RuntimeError(
+                f"{model}/{pooling}/{variant}: expected 30 seed captures"
+            )
 
     reference = np.stack(
         [states for _seed, split, states in tensors["v4.1"] if split == "discovery"],
@@ -155,7 +174,9 @@ def _load_projection(
             projected = pca.transform(states)
             label = labels.get((variant, seed))
             if label is None:
-                raise RuntimeError(f"Missing final-output label for {model}/{variant}/seed{seed}")
+                raise RuntimeError(
+                    f"Missing final-output label for {model}/{variant}/seed{seed}"
+                )
             for count_index, point in enumerate(projected, start=1):
                 rows.append(
                     [
@@ -182,7 +203,9 @@ def _load_projection(
     }
 
 
-def _metric_rows(run_root: Path, primary: dict[str, dict[str, int]]) -> list[dict[str, Any]]:
+def _metric_rows(
+    run_root: Path, primary: dict[str, dict[str, int]]
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for model in MODELS:
         analysis = run_root / model / "numeric" / "representation" / "analysis"
@@ -190,7 +213,8 @@ def _metric_rows(run_root: Path, primary: dict[str, dict[str, int]]) -> list[dic
         for pooling in POOLINGS:
             layer = primary[model][pooling]
             selected = metrics[
-                (metrics["pooling"] == pooling) & (metrics["layer"].astype(int) == layer)
+                (metrics["pooling"] == pooling)
+                & (metrics["layer"].astype(int) == layer)
             ]
             for row in selected.to_dict("records"):
                 rows.append(row)
@@ -200,7 +224,9 @@ def _metric_rows(run_root: Path, primary: dict[str, dict[str, int]]) -> list[dic
 def _behavior_rows(labels_by_model: dict[str, pd.DataFrame]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for model, labels in labels_by_model.items():
-        for (variant, split), frame in labels.groupby(["design_variant", "split"], sort=True):
+        for (variant, split), frame in labels.groupby(
+            ["design_variant", "split"], sort=True
+        ):
             parsed = pd.to_numeric(frame["parsed_count"], errors="coerce")
             rows.append(
                 {
@@ -211,7 +237,11 @@ def _behavior_rows(labels_by_model: dict[str, pd.DataFrame]) -> list[dict[str, A
                     "correct": int(frame["is_correct"].map(_bool).sum()),
                     "accuracy": float(frame["is_correct"].map(_bool).mean()),
                     "mean_prediction": float(parsed.mean()),
-                    "mae": float(pd.to_numeric(frame["count_error"], errors="coerce").abs().mean()),
+                    "mae": float(
+                        pd.to_numeric(frame["count_error"], errors="coerce")
+                        .abs()
+                        .mean()
+                    ),
                 }
             )
     return rows
@@ -339,9 +369,7 @@ def _span_end_undercount_frame(run_root: Path, model: str) -> pd.DataFrame:
     ).astype(int)
     frame["chance"] = frame["omission_count"] / frame["count"]
     frame["delta"] = frame["overlap"] - frame["chance"]
-    frame["exact"] = (
-        frame["overlap_count"] == frame["omission_count"]
-    ).astype(float)
+    frame["exact"] = (frame["overlap_count"] == frame["omission_count"]).astype(float)
     frame["exact_chance"] = [
         1.0 / math.comb(int(count), int(k))
         for count, k in zip(frame["count"], frame["omission_count"])
@@ -427,9 +455,9 @@ def _span_end_pooled_rows(run_root: Path) -> list[dict[str, Any]]:
         seed_variant = frame.groupby(["seed", "design_variant"], sort=True)[
             metrics
         ].mean()
-        variant_counts = seed_variant.reset_index().groupby("seed")[
-            "design_variant"
-        ].nunique()
+        variant_counts = (
+            seed_variant.reset_index().groupby("seed")["design_variant"].nunique()
+        )
         if not (variant_counts == len(VARIANTS)).all():
             raise RuntimeError(f"Incomplete pooled span-end variants for {model}")
         by_seed = seed_variant.groupby("seed", sort=True)[metrics].mean()
@@ -506,15 +534,13 @@ def _span_end_nested_rows(run_root: Path) -> list[dict[str, Any]]:
         }
         frame["status"] = frame["increment_status"].map(status_names)
 
-        block_status = frame.groupby(
-            ["seed", "design_variant", "status"], sort=True
-        )[
+        block_status = frame.groupby(["seed", "design_variant", "status"], sort=True)[
             ["new_in_bottom_k", "new_needle_normalized_share"]
         ].mean()
         wide_bottom = block_status["new_in_bottom_k"].unstack("status").dropna()
-        wide_share = block_status["new_needle_normalized_share"].unstack(
-            "status"
-        ).dropna()
+        wide_share = (
+            block_status["new_needle_normalized_share"].unstack("status").dropna()
+        )
         if not {"failed", "registered"}.issubset(wide_bottom.columns):
             raise RuntimeError(f"Missing paired nested statuses in {path}")
         common_blocks = wide_bottom.index.intersection(wide_share.index)
@@ -527,11 +553,17 @@ def _span_end_nested_rows(run_root: Path) -> list[dict[str, Any]]:
         seed_bottom = wide_bottom.groupby(level="seed").mean()
         seed_share = wide_share.groupby(level="seed").mean()
         bottom_difference = (
-            wide_bottom["failed"] - wide_bottom["registered"]
-        ).groupby(level="seed").mean().to_numpy()
+            (wide_bottom["failed"] - wide_bottom["registered"])
+            .groupby(level="seed")
+            .mean()
+            .to_numpy()
+        )
         share_difference = (
-            wide_share["registered"] - wide_share["failed"]
-        ).groupby(level="seed").mean().to_numpy()
+            (wide_share["registered"] - wide_share["failed"])
+            .groupby(level="seed")
+            .mean()
+            .to_numpy()
+        )
         bottom_est, bottom_low, bottom_high = _seed_bootstrap(
             bottom_difference,
             label=f"nested-bottom-difference|{model}",
@@ -724,7 +756,7 @@ def _span_end_alignment_svg(rows: list[dict[str, Any]]) -> str:
         left = panel_lefts[panel_index]
         parts.append(
             f'<text x="{left}" y="34" font-size="17" font-weight="700">'
-            f'{html.escape(model)}</text>'
+            f"{html.escape(model)}</text>"
         )
         for tick in np.arange(0.0, x_max + 0.001, 0.1):
             x = x_position(float(tick), left)
@@ -741,9 +773,7 @@ def _span_end_alignment_svg(rows: list[dict[str, Any]]) -> str:
             y = 88 + row_index * 58
             chance_x = x_position(float(row["chance"]), left)
             observed_x = x_position(float(row["overlap"]), left)
-            ci_low_x = x_position(
-                float(row["chance"]) + float(row["delta_low"]), left
-            )
+            ci_low_x = x_position(float(row["chance"]) + float(row["delta_low"]), left)
             ci_high_x = x_position(
                 float(row["chance"]) + float(row["delta_high"]), left
             )
@@ -772,7 +802,7 @@ def _span_end_alignment_svg(rows: list[dict[str, Any]]) -> str:
             '<text x="774" y="38" font-size="11" fill="#66727a">hypergeometric chance</text>',
             '<circle cx="910" cy="34" r="6" fill="#2e5d72"/>',
             '<text x="920" y="38" font-size="11" fill="#66727a">observed (95% seed CI)</text>',
-            '</g></svg>',
+            "</g></svg>",
         ]
     )
     return "".join(parts)
@@ -830,14 +860,14 @@ def _span_end_nested_svg(rows: list[dict[str, Any]]) -> str:
             f'<text x="770" y="{center_y + 4}" font-size="11" fill="#3d4c53">'
             f'RD {_number(row["bottom_difference"], signed=True)} '
             f'[{_number(row["bottom_difference_low"])}, {_number(row["bottom_difference_high"])}]'
-            '</text>'
+            "</text>"
         )
     parts.extend(
         [
             '<circle cx="590" cy="25" r="6" fill="#a0443e"/><text x="601" y="29" font-size="11" fill="#66727a">failed to increment</text>',
             '<circle cx="720" cy="25" r="6" fill="#47705e"/><text x="731" y="29" font-size="11" fill="#66727a">registered +1</text>',
             '<text x="465" y="273" text-anchor="middle" font-size="12" fill="#66727a">P(new needle is in current bottom-k attention set)</text>',
-            '</g></svg>',
+            "</g></svg>",
         ]
     )
     return "".join(parts)
@@ -863,9 +893,7 @@ def _span_end_conclusion_html(
         positive_ci = [
             str(row["variant"]) for row in selected if float(row["delta_low"]) > 0
         ]
-        holm = [
-            str(row["variant"]) for row in selected if float(row["p_holm"]) < 0.05
-        ]
+        holm = [str(row["variant"]) for row in selected if float(row["p_holm"]) < 0.05]
         cards.append(
             '<div class="note"><strong>'
             + html.escape(model)
@@ -902,6 +930,568 @@ def _span_end_conclusion_html(
     return "".join(cards)
 
 
+def _causal_frames(
+    run_root: Path,
+) -> tuple[
+    dict[str, dict[str, pd.DataFrame]],
+    dict[str, dict[str, Any]],
+]:
+    designs = find_screen_designs(run_root)
+    frames: dict[str, dict[str, pd.DataFrame]] = {}
+    paths: dict[str, dict[str, Any]] = {}
+    for model in MODELS:
+        frames[model] = {}
+        paths[model] = {}
+        for stage in ("ablation", "patching", "steering"):
+            selected = designs[model][stage]
+            frames[model][stage] = pd.read_csv(
+                selected.root / "detail.csv.gz", compression="gzip"
+            )
+            paths[model][stage] = selected
+        frames[model]["geometry"] = pd.read_csv(
+            designs[model]["steering"].root / "centroid_geometry_summary.csv"
+        )
+    return frames, paths
+
+
+def _paired_seed_contrast(
+    frame: pd.DataFrame,
+    *,
+    metric: str,
+    condition_column: str,
+    treatment: str,
+    control: str,
+    identity_columns: list[str],
+    label: str,
+) -> dict[str, Any]:
+    pivot = frame.pivot(
+        index=identity_columns,
+        columns=condition_column,
+        values=metric,
+    )
+    missing = sorted({treatment, control} - set(pivot.columns))
+    if missing or pivot[[treatment, control]].isna().any().any():
+        raise RuntimeError(f"{label}: incomplete paired conditions {missing}")
+    differences = (pivot[treatment] - pivot[control]).rename("difference").reset_index()
+    seed_values = differences.groupby("seed", sort=True)["difference"].mean().to_numpy()
+    if len(seed_values) != 10:
+        raise RuntimeError(f"{label}: expected ten paired confirmation seeds")
+    estimate, low, high = _seed_bootstrap(seed_values, label=label)
+    return {
+        "estimate": estimate,
+        "low": low,
+        "high": high,
+        "p_raw": _exact_sign_flip_p(seed_values),
+        "seed_values": seed_values,
+    }
+
+
+def _one_sample_seed_estimate(
+    frame: pd.DataFrame,
+    *,
+    metric: str,
+    label: str,
+) -> dict[str, Any]:
+    seed_values = frame.groupby("seed", sort=True)[metric].mean().to_numpy()
+    if len(seed_values) != 10:
+        raise RuntimeError(f"{label}: expected ten confirmation seeds")
+    estimate, low, high = _seed_bootstrap(seed_values, label=label)
+    return {
+        "estimate": estimate,
+        "low": low,
+        "high": high,
+        "p_raw": _exact_sign_flip_p(seed_values),
+        "seed_values": seed_values,
+    }
+
+
+def _causal_ablation_rows(
+    frames: dict[str, dict[str, pd.DataFrame]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for model in MODELS:
+        detail = frames[model]["ablation"].copy()
+        detail["prediction_changed_numeric"] = detail["prediction_changed"].astype(
+            float
+        )
+        for top_n in (4, 8):
+            selected = detail[detail["top_n"].astype(int) == top_n].copy()
+            identity = ["design_variant", "seed", "stimulus_id", "top_n"]
+            changed = _paired_seed_contrast(
+                selected,
+                metric="prediction_changed_numeric",
+                condition_column="condition",
+                treatment="ranked",
+                control="layer_matched_random",
+                identity_columns=identity,
+                label=f"causal-ablation-changed-{model}-top{top_n}",
+            )
+            count_shift = _paired_seed_contrast(
+                selected,
+                metric="generated_count_shift",
+                condition_column="condition",
+                treatment="ranked",
+                control="layer_matched_random",
+                identity_columns=identity,
+                label=f"causal-ablation-shift-{model}-top{top_n}",
+            )
+            error = _paired_seed_contrast(
+                selected,
+                metric="absolute_error_delta",
+                condition_column="condition",
+                treatment="ranked",
+                control="layer_matched_random",
+                identity_columns=identity,
+                label=f"causal-ablation-error-{model}-top{top_n}",
+            )
+            ranked = selected[selected["condition"] == "ranked"]
+            control = selected[selected["condition"] == "layer_matched_random"]
+            baseline = selected.drop_duplicates("stimulus_id")
+            rows.append(
+                {
+                    "model": model,
+                    "top_n": top_n,
+                    "prompts": int(baseline["stimulus_id"].nunique()),
+                    "baseline_correct": int(
+                        baseline["baseline_is_correct"].astype(bool).sum()
+                    ),
+                    "ranked_changed": float(
+                        ranked["prediction_changed_numeric"].mean()
+                    ),
+                    "random_changed": float(
+                        control["prediction_changed_numeric"].mean()
+                    ),
+                    "changed_difference": changed["estimate"],
+                    "changed_difference_low": changed["low"],
+                    "changed_difference_high": changed["high"],
+                    "ranked_count_shift": float(ranked["generated_count_shift"].mean()),
+                    "random_count_shift": float(
+                        control["generated_count_shift"].mean()
+                    ),
+                    "count_shift_difference": count_shift["estimate"],
+                    "count_shift_difference_low": count_shift["low"],
+                    "count_shift_difference_high": count_shift["high"],
+                    "count_shift_p_raw": count_shift["p_raw"],
+                    "error_difference": error["estimate"],
+                    "error_difference_low": error["low"],
+                    "error_difference_high": error["high"],
+                }
+            )
+    adjusted = _holm_adjust([float(row["count_shift_p_raw"]) for row in rows])
+    for row, p_holm in zip(rows, adjusted):
+        row["count_shift_p_holm"] = p_holm
+    return rows
+
+
+def _causal_patching_rows(
+    frames: dict[str, dict[str, pd.DataFrame]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for model in MODELS:
+        detail = frames[model]["patching"].copy()
+        detail["prediction_changed_numeric"] = detail["prediction_changed"].astype(
+            float
+        )
+        detail["moved_numeric"] = detail["moved_toward_donor_gold"].astype(float)
+        detail["direction_aligned_shift"] = pd.to_numeric(
+            detail["generated_count_shift"]
+        ) * np.sign(pd.to_numeric(detail["gold_count_offset"]))
+        for layer in sorted(pd.to_numeric(detail["start_layer"]).astype(int).unique()):
+            selected = detail[pd.to_numeric(detail["start_layer"]).astype(int) == layer]
+            aligned = _one_sample_seed_estimate(
+                selected,
+                metric="direction_aligned_shift",
+                label=f"causal-patching-aligned-{model}-L{layer}",
+            )
+            moved = _one_sample_seed_estimate(
+                selected,
+                metric="moved_numeric",
+                label=f"causal-patching-moved-{model}-L{layer}",
+            )
+            insertion = selected[selected["direction"] == "needle_insertion"]
+            removal = selected[selected["direction"] == "needle_removal"]
+            rows.append(
+                {
+                    "model": model,
+                    "layer": int(layer),
+                    "rows": int(len(selected)),
+                    "changed_rate": float(
+                        selected["prediction_changed_numeric"].mean()
+                    ),
+                    "moved_rate": moved["estimate"],
+                    "moved_rate_low": moved["low"],
+                    "moved_rate_high": moved["high"],
+                    "insertion_shift": float(insertion["generated_count_shift"].mean()),
+                    "removal_shift": float(removal["generated_count_shift"].mean()),
+                    "aligned_shift": aligned["estimate"],
+                    "aligned_shift_low": aligned["low"],
+                    "aligned_shift_high": aligned["high"],
+                    "aligned_shift_p_raw": aligned["p_raw"],
+                }
+            )
+    adjusted = _holm_adjust([float(row["aligned_shift_p_raw"]) for row in rows])
+    for row, p_holm in zip(rows, adjusted):
+        row["aligned_shift_p_holm"] = p_holm
+    return rows
+
+
+def _causal_steering_rows(
+    frames: dict[str, dict[str, pd.DataFrame]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for model in MODELS:
+        detail = frames[model]["steering"].copy()
+        detail["prediction_changed_numeric"] = detail["prediction_changed"].astype(
+            float
+        )
+        detail["moved_numeric"] = detail["moved_toward_path_count"].astype(float)
+        detail["target_hit_numeric"] = detail["nearest_path_count_hit"].astype(float)
+        detail["direction_aligned_shift"] = pd.to_numeric(
+            detail["generated_count_shift"]
+        ) * np.sign(pd.to_numeric(detail["intended_count_shift"]))
+        for layer in sorted(pd.to_numeric(detail["layer"]).astype(int).unique()):
+            selected = detail[pd.to_numeric(detail["layer"]).astype(int) == layer]
+            identity = [
+                "design_variant",
+                "seed",
+                "receiver_stimulus_id",
+                "target_stimulus_id",
+                "layer",
+                "steering_method",
+                "alpha",
+            ]
+            moved = _paired_seed_contrast(
+                selected,
+                metric="moved_numeric",
+                condition_column="condition",
+                treatment="geometric",
+                control="orthogonal_norm_matched_random",
+                identity_columns=identity,
+                label=f"causal-steering-moved-{model}-L{layer}",
+            )
+            aligned = _paired_seed_contrast(
+                selected,
+                metric="direction_aligned_shift",
+                condition_column="condition",
+                treatment="geometric",
+                control="orthogonal_norm_matched_random",
+                identity_columns=identity,
+                label=f"causal-steering-aligned-{model}-L{layer}",
+            )
+            geometric = selected[selected["condition"] == "geometric"]
+            control = selected[
+                selected["condition"] == "orthogonal_norm_matched_random"
+            ]
+            baseline = selected.drop_duplicates("receiver_stimulus_id")
+            rows.append(
+                {
+                    "model": model,
+                    "layer": int(layer),
+                    "pairs_per_condition": int(len(geometric)),
+                    "baseline_correct": int(
+                        baseline["baseline_is_correct"].astype(bool).sum()
+                    ),
+                    "geometric_changed": float(
+                        geometric["prediction_changed_numeric"].mean()
+                    ),
+                    "random_changed": float(
+                        control["prediction_changed_numeric"].mean()
+                    ),
+                    "geometric_moved": float(geometric["moved_numeric"].mean()),
+                    "random_moved": float(control["moved_numeric"].mean()),
+                    "moved_difference": moved["estimate"],
+                    "moved_difference_low": moved["low"],
+                    "moved_difference_high": moved["high"],
+                    "geometric_target_hit": float(
+                        geometric["target_hit_numeric"].mean()
+                    ),
+                    "random_target_hit": float(control["target_hit_numeric"].mean()),
+                    "geometric_aligned_shift": float(
+                        geometric["direction_aligned_shift"].mean()
+                    ),
+                    "random_aligned_shift": float(
+                        control["direction_aligned_shift"].mean()
+                    ),
+                    "aligned_difference": aligned["estimate"],
+                    "aligned_difference_low": aligned["low"],
+                    "aligned_difference_high": aligned["high"],
+                    "aligned_difference_p_raw": aligned["p_raw"],
+                }
+            )
+    adjusted = _holm_adjust([float(row["aligned_difference_p_raw"]) for row in rows])
+    for row, p_holm in zip(rows, adjusted):
+        row["aligned_difference_p_holm"] = p_holm
+    return rows
+
+
+def _causal_geometry_rows(
+    frames: dict[str, dict[str, pd.DataFrame]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for model in MODELS:
+        geometry = frames[model]["geometry"].copy()
+        for layer, selected in geometry.groupby("layer", sort=True):
+            rows.append(
+                {
+                    "model": model,
+                    "layer": int(layer),
+                    "variants": int(selected["design_variant"].nunique()),
+                    "projection_correlation_mean": float(
+                        selected["endpoint_projection_count_correlation"].mean()
+                    ),
+                    "projection_correlation_min": float(
+                        selected["endpoint_projection_count_correlation"].min()
+                    ),
+                    "monotone_fraction_min": float(
+                        selected["endpoint_projection_monotone_fraction"].min()
+                    ),
+                    "step_cv_mean": float(selected["adjacent_step_cv"].mean()),
+                    "successive_cosine_mean": float(
+                        selected["mean_successive_step_cosine"].mean()
+                    ),
+                    "tortuosity_mean": float(selected["path_tortuosity"].mean()),
+                }
+            )
+    return rows
+
+
+def _table_causal_ablation_html(rows: list[dict[str, Any]]) -> str:
+    rendered: list[str] = []
+    for row in rows:
+        rendered.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['model']))}</td><td>top-{row['top_n']}</td>"
+            f"<td>{row['prompts']} ({row['baseline_correct']} correct)</td>"
+            f"<td>{100*row['ranked_changed']:.1f}% / {100*row['random_changed']:.1f}%</td>"
+            f"<td>{100*row['changed_difference']:+.1f} pp "
+            f"[{100*row['changed_difference_low']:+.1f}, {100*row['changed_difference_high']:+.1f}]</td>"
+            f"<td>{_number(row['ranked_count_shift'], signed=True)} / "
+            f"{_number(row['random_count_shift'], signed=True)}</td>"
+            f"<td>{_number(row['count_shift_difference'], signed=True)} "
+            f"[{_number(row['count_shift_difference_low'], signed=True)}, "
+            f"{_number(row['count_shift_difference_high'], signed=True)}]</td>"
+            f"<td>{_p_value(row['count_shift_p_holm'])}</td>"
+            f"<td>{_number(row['error_difference'], signed=True)} "
+            f"[{_number(row['error_difference_low'], signed=True)}, "
+            f"{_number(row['error_difference_high'], signed=True)}]</td>"
+            "</tr>"
+        )
+    return "".join(rendered)
+
+
+def _table_causal_patching_html(rows: list[dict[str, Any]]) -> str:
+    rendered: list[str] = []
+    for row in rows:
+        rendered.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['model']))}</td><td>L{row['layer']}</td>"
+            f"<td>{row['rows']} / 10</td><td>{100*row['changed_rate']:.1f}%</td>"
+            f"<td>{100*row['moved_rate']:.1f}% "
+            f"[{100*row['moved_rate_low']:.1f}, {100*row['moved_rate_high']:.1f}]</td>"
+            f"<td>{_number(row['insertion_shift'], signed=True)}</td>"
+            f"<td>{_number(row['removal_shift'], signed=True)}</td>"
+            f"<td>{_number(row['aligned_shift'], signed=True)} "
+            f"[{_number(row['aligned_shift_low'], signed=True)}, "
+            f"{_number(row['aligned_shift_high'], signed=True)}]</td>"
+            f"<td>{_p_value(row['aligned_shift_p_holm'])}</td>"
+            "</tr>"
+        )
+    return "".join(rendered)
+
+
+def _table_causal_steering_html(rows: list[dict[str, Any]]) -> str:
+    rendered: list[str] = []
+    for row in rows:
+        rendered.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['model']))}</td><td>L{row['layer']}</td>"
+            f"<td>{row['pairs_per_condition']} / 10</td>"
+            f"<td>{100*row['geometric_changed']:.1f}% / {100*row['random_changed']:.1f}%</td>"
+            f"<td>{100*row['geometric_moved']:.1f}% / {100*row['random_moved']:.1f}%</td>"
+            f"<td>{100*row['moved_difference']:+.1f} pp "
+            f"[{100*row['moved_difference_low']:+.1f}, {100*row['moved_difference_high']:+.1f}]</td>"
+            f"<td>{100*row['geometric_target_hit']:.1f}% / "
+            f"{100*row['random_target_hit']:.1f}%</td>"
+            f"<td>{_number(row['geometric_aligned_shift'], signed=True)} / "
+            f"{_number(row['random_aligned_shift'], signed=True)}</td>"
+            f"<td>{_number(row['aligned_difference'], signed=True)} "
+            f"[{_number(row['aligned_difference_low'], signed=True)}, "
+            f"{_number(row['aligned_difference_high'], signed=True)}]</td>"
+            f"<td>{_p_value(row['aligned_difference_p_holm'])}</td>"
+            "</tr>"
+        )
+    return "".join(rendered)
+
+
+def _table_causal_geometry_html(rows: list[dict[str, Any]]) -> str:
+    rendered: list[str] = []
+    for row in rows:
+        rendered.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['model']))}</td><td>L{row['layer']}</td>"
+            f"<td>{row['variants']}</td>"
+            f"<td>{_number(row['projection_correlation_mean'])} "
+            f"(min {_number(row['projection_correlation_min'])})</td>"
+            f"<td>{_number(row['monotone_fraction_min'])}</td>"
+            f"<td>{_number(row['step_cv_mean'])}</td>"
+            f"<td>{_number(row['successive_cosine_mean'])}</td>"
+            f"<td>{_number(row['tortuosity_mean'])}</td>"
+            "</tr>"
+        )
+    return "".join(rendered)
+
+
+def _table_causal_audit_html(audit: dict[str, Any]) -> str:
+    rendered: list[str] = []
+    for model in MODELS:
+        stages = audit["models"][model]
+        ablation = stages["ablation"]
+        patching = stages["patching"]
+        steering = stages["steering"]
+        rendered.append(
+            "<tr>"
+            f"<td>{html.escape(model)}</td>"
+            f"<td>{ablation['shards']} / {ablation['detail_rows']}</td>"
+            f"<td>{patching['shards']} / {patching['detail_rows']} "
+            f"({patching['skipped_rows']} skipped)</td>"
+            f"<td>{steering['discovery']['npz_shards']} / "
+            f"{steering['shards']} / {steering['detail_rows']}</td>"
+            "<td>verified</td>"
+            "</tr>"
+        )
+    return "".join(rendered)
+
+
+def _forest_svg(
+    rows: list[dict[str, Any]],
+    *,
+    estimate_key: str,
+    low_key: str,
+    high_key: str,
+    title: str,
+    axis_label: str,
+    label: Any,
+) -> str:
+    width = 980
+    left = 255
+    right = 110
+    top = 48
+    row_height = 38
+    height = top + row_height * len(rows) + 60
+    lows = [float(row[low_key]) for row in rows]
+    highs = [float(row[high_key]) for row in rows]
+    minimum = min([0.0, *lows])
+    maximum = max([0.0, *highs])
+    span = max(maximum - minimum, 1e-6)
+    minimum -= 0.08 * span
+    maximum += 0.08 * span
+
+    def x_position(value: float) -> float:
+        return left + (float(value) - minimum) / (maximum - minimum) * (
+            width - left - right
+        )
+
+    parts = [
+        f'<svg class="stat-svg" viewBox="0 0 {width} {height}" role="img" '
+        f'aria-label="{html.escape(title)}"><g font-family="system-ui, sans-serif">',
+        f'<text x="{left}" y="22" font-size="14" font-weight="700" fill="#172128">'
+        f"{html.escape(title)}</text>",
+    ]
+    ticks = np.linspace(minimum, maximum, 6)
+    for tick in ticks:
+        x = x_position(float(tick))
+        parts.extend(
+            [
+                f'<line x1="{x:.1f}" y1="{top-10}" x2="{x:.1f}" '
+                f'y2="{height-42}" stroke="#ded8cc" stroke-width="1"/>',
+                f'<text x="{x:.1f}" y="{height-24}" text-anchor="middle" '
+                f'font-size="10" fill="#66727a">{tick:.2f}</text>',
+            ]
+        )
+    zero_x = x_position(0.0)
+    parts.append(
+        f'<line x1="{zero_x:.1f}" y1="{top-14}" x2="{zero_x:.1f}" '
+        f'y2="{height-40}" stroke="#172128" stroke-width="1.6"/>'
+    )
+    colors = {"Qwen3-8B": "#2e5d72", "Gemma4-E4B": "#a0443e"}
+    for index, row in enumerate(rows):
+        y = top + index * row_height
+        estimate = float(row[estimate_key])
+        low = float(row[low_key])
+        high = float(row[high_key])
+        color = colors.get(str(row.get("model")), "#47705e")
+        parts.extend(
+            [
+                f'<text x="{left-12}" y="{y+4}" text-anchor="end" font-size="11" '
+                f'fill="#3d4c53">{html.escape(str(label(row)))}</text>',
+                f'<line x1="{x_position(low):.1f}" y1="{y}" '
+                f'x2="{x_position(high):.1f}" y2="{y}" stroke="{color}" '
+                'stroke-width="5" stroke-linecap="round" opacity=".38"/>',
+                f'<circle cx="{x_position(estimate):.1f}" cy="{y}" r="6" '
+                f'fill="{color}" stroke="#fffdf8" stroke-width="1.5"/>',
+                f'<text x="{width-right+12}" y="{y+4}" font-size="10" fill="#66727a">'
+                f"{estimate:+.3f} [{low:+.3f}, {high:+.3f}]</text>",
+            ]
+        )
+    parts.extend(
+        [
+            f'<text x="{(left + width-right)/2:.1f}" y="{height-5}" text-anchor="middle" '
+            f'font-size="11" fill="#66727a">{html.escape(axis_label)}</text>',
+            "</g></svg>",
+        ]
+    )
+    return "".join(parts)
+
+
+def _causal_conclusion_html(
+    ablation_rows: list[dict[str, Any]],
+    patching_rows: list[dict[str, Any]],
+    steering_rows: list[dict[str, Any]],
+) -> str:
+    cards: list[str] = []
+    for model in MODELS:
+        ablation = next(
+            row for row in ablation_rows if row["model"] == model and row["top_n"] == 8
+        )
+        cards.append(
+            '<div class="note"><strong>'
+            + html.escape(model)
+            + " broad-head necessity.</strong><p>Top-8 ranked ablation changes "
+            + f"{100*ablation['ranked_changed']:.1f}% of outputs versus "
+            + f"{100*ablation['random_changed']:.1f}% for layer-matched random heads. "
+            + "The paired count-shift contrast is "
+            + _number(ablation["count_shift_difference"], signed=True)
+            + " ["
+            + _number(ablation["count_shift_difference_low"], signed=True)
+            + ", "
+            + _number(ablation["count_shift_difference_high"], signed=True)
+            + "], Holm p="
+            + _p_value(ablation["count_shift_p_holm"])
+            + ". Negative means stronger undercount after ablating ranked heads.</p></div>"
+        )
+    steering_sentences: list[str] = []
+    for model in MODELS:
+        selected = [row for row in steering_rows if row["model"] == model]
+        final = max(selected, key=lambda row: int(row["layer"]))
+        steering_sentences.append(
+            f"{model} L{final['layer']}: aligned geometric-minus-random shift "
+            f"{_number(final['aligned_difference'], signed=True)} "
+            f"[{_number(final['aligned_difference_low'], signed=True)}, "
+            f"{_number(final['aligned_difference_high'], signed=True)}], "
+            f"Holm p={_p_value(final['aligned_difference_p_holm'])}"
+        )
+    max_moved = max(float(row["moved_rate"]) for row in patching_rows)
+    cards.append(
+        '<div class="note"><strong>Transport/manipulability dissociation.</strong><p>'
+        + "; ".join(steering_sentences)
+        + f". In contrast, exact needle-end residual patching moves toward the donor gold "
+        f"on at most {100*max_moved:.1f}% of rows at any tested layer. The answer-query "
+        "count geometry is causally manipulable late, but the tested single endpoint is not "
+        "a sufficient transport channel.</p></div>"
+    )
+    return "".join(cards)
+
+
 def _static_figure_html(run_root: Path) -> str:
     cards: list[str] = []
     for model in MODELS:
@@ -918,31 +1508,31 @@ def _static_figure_html(run_root: Path) -> str:
                 / f"shared_pca_{pooling}_layer_{layer}_by_outcome.png"
             )
             cards.append(
-                "<article class=\"figure-card\">"
+                '<article class="figure-card">'
                 f"<h3>{html.escape(model)} · {html.escape(pooling)} · L{layer}</h3>"
-                f"<img loading=\"lazy\" src=\"{_image_data_uri(source)}\" "
-                f"alt=\"Shared PCA for {html.escape(model)} {html.escape(pooling)}\">"
+                f'<img loading="lazy" src="{_image_data_uri(source)}" '
+                f'alt="Shared PCA for {html.escape(model)} {html.escape(pooling)}">'
                 "<p>All seeds. PCA basis fit on v4.1 discovery.</p>"
                 "</article>"
             )
             if outcome.exists():
                 cards.append(
-                    "<article class=\"figure-card\">"
+                    '<article class="figure-card">'
                     f"<h3>{html.escape(model)} · {html.escape(pooling)} · output strata</h3>"
-                    f"<img loading=\"lazy\" src=\"{_image_data_uri(outcome)}\" "
-                    f"alt=\"Outcome-stratified PCA for {html.escape(model)} {html.escape(pooling)}\">"
+                    f'<img loading="lazy" src="{_image_data_uri(outcome)}" '
+                    f'alt="Outcome-stratified PCA for {html.escape(model)} {html.escape(pooling)}">'
                     "<p>Confirmation seeds labeled by the actual greedy N=10 output.</p>"
                     "</article>"
                 )
     return "\n".join(cards)
 
 
-REPORT_TEMPLATE = r'''<!doctype html>
+REPORT_TEMPLATE = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Realistic NIAH V4 Representation Report</title>
+<title>Realistic NIAH V4 Representation and Causal Report</title>
 <style>
 :root { --ink:#172128; --muted:#66727a; --paper:#f7f4ed; --card:#fffdf8; --line:#d8d2c6; --blue:#2e5d72; --red:#a0443e; --gold:#b08430; --green:#47705e; }
 * { box-sizing:border-box; }
@@ -1010,13 +1600,13 @@ footer { padding:24px; color:#6d7475; text-align:center; border-top:1px solid va
 <body>
 <header>
   <div class="eyebrow">Realistic NIAH · non-thinking · V4.1–V4.4</div>
-  <h1>Where does the running count live?</h1>
-  <p>A v10-style representation analysis of needle-occurrence hidden states. The report separates <code>span_end</code> from <code>span_mean</code>, fits every PCA basis only on v4.1 discovery seeds, and then stress-tests the same coordinate system as position, order, and content are released.</p>
+  <h1>Where does the running count live—and what does generation use?</h1>
+  <p>A v10-style representation analysis plus a held-out causal screen. The report separates <code>span_end</code> from <code>span_mean</code>, fits representation geometry and intervention targets on discovery seeds only, and tests broad-head necessity, exact needle-end transport, and answer-query geometric steering on confirmation seeds.</p>
   <div class="meta">
     <span class="pill">Qwen3-8B + Gemma4-E4B</span><span class="pill">length ≈ 10,000 tokens</span><span class="pill">needle index 1–10</span><span class="pill">30 seeds / variant</span><span class="pill">commit @@COMMIT@@</span>
   </div>
 </header>
-<nav><a href="#design">Design</a><a href="#metrics">Metrics</a><a href="#counter">3D counter</a><a href="#span-end-attention">Undercount attention</a><a href="#sensitivity">Seed sensitivity</a><a href="#outcomes">Output strata</a><a href="#figures">2D panels</a><a href="#limits">Limits</a></nav>
+<nav><a href="#design">Design</a><a href="#metrics">Metrics</a><a href="#counter">3D counter</a><a href="#span-end-attention">Undercount attention</a><a href="#sensitivity">Seed sensitivity</a><a href="#outcomes">Output strata</a><a href="#causal">Causal screen</a><a href="#figures">2D panels</a><a href="#limits">Limits</a></nav>
 <main>
 <section id="design">
   <h2>Controlled relaxation ladder</h2>
@@ -1106,6 +1696,43 @@ footer { padding:24px; color:#6d7475; text-align:center; border-top:1px solid va
   <div class="callout"><strong>Severe class imbalance.</strong> Qwen has no correct N=10 confirmation trajectory in any variant; Gemma has one in v4.1 and none in v4.2–v4.4. Therefore the correct/wrong switch is an audit view, not a powered group comparison. The causal studies should stratify by the baseline outcome over the full count grid, where both correct and wrong examples are available.</div>
 </section>
 
+<section id="causal">
+  <h2>Causal screen: necessity, transport, and manipulability</h2>
+  <p class="lede">The completed <code>screen_8h_v1</code> keeps all four variants and all ten confirmation seeds while narrowing interventions to the most diagnostic conditions. Every row is scored from the complete deterministic greedy continuation after <code>Total:</code>; candidate probabilities never define correctness or effect size.</p>
+  <div class="method-strip">
+    <div><strong>Head necessity</strong>Discovery-ranked <code>span_end</code> top-4/top-8 heads are ablated only at the answer-query row for counts 7–10, with one layer-matched random set.</div>
+    <div><strong>Endpoint transport</strong>The exact toggled needle-end residual is copied from donor to receiver cumulatively from three matched depths for 5↔6, 7↔8, and 9↔10.</div>
+    <div><strong>Query manipulability</strong>Discovery-fit count-centroid deltas steer the answer-query residual for 7↔8, 9↔10, and 5↔10, with an orthogonal norm-matched random vector.</div>
+    <div><strong>Inference unit</strong>Point estimates weight prompts equally; intervals resample ten paired seeds after averaging variants and count pairs within seed. Primary sign-flip tests use ten seeds and Holm correction within each intervention family.</div>
+  </div>
+  <div class="notes">@@CAUSAL_CONCLUSION@@</div>
+
+  <h3>1. Discovery-ranked broad-head ablation</h3>
+  <p>The primary contrast is ranked minus layer-matched random. A negative count-shift contrast means that removing the ranked heads produces a larger undercount than removing equally many control heads at the same layers. The table pools baseline-correct and baseline-wrong prompts because the high-count correct stratum is sparse; the saved summary and control tables retain the outcome strata.</p>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>set</th><th>prompts (correct)</th><th>changed ranked / random</th><th>Δ changed [95% CI]</th><th>count shift ranked / random</th><th>Δ count shift [95% CI]</th><th>Holm p</th><th>Δ MAE [95% CI]</th></tr></thead><tbody>@@CAUSAL_ABLATION_ROWS@@</tbody></table></div>
+  <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_ABLATION_SVG@@<figcaption>Seed-cluster percentile intervals for the paired ranked-minus-random count shift. Negative values are the predicted signature of removing an aggregation contribution.</figcaption></figure></div>
+  <div class="callout"><strong>Interpretation.</strong> The top-eight result is consistent across both models: discovery-ranked span-end heads are more necessary for preserving the generated count than layer-matched random heads. This establishes a causal contribution of the selected bank, but it does not imply that every ranked head is individually broad or that the circuit computes an exact arithmetic sum.</div>
+
+  <h3>2. Exact needle-end residual patching</h3>
+  <p>This is the user-selected <code>span_end</code> intervention—not a span mean. A positive direction-aligned shift means insertion patches increase the output and removal patches decrease it. <em>Moved</em> requires a strict reduction in distance to the donor gold, so a receiver already equal to the donor gold does not count as transport.</p>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>start</th><th>rows / seeds</th><th>changed</th><th>moved [95% CI]</th><th>insertion shift</th><th>removal shift</th><th>aligned shift [95% CI]</th><th>Holm p</th></tr></thead><tbody>@@CAUSAL_PATCHING_ROWS@@</tbody></table></div>
+  <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_PATCHING_SVG@@<figcaption>No random control is needed for the directional null shown here: zero means the exact endpoint transplant does not move output in the donor-count direction. Intervals resample complete confirmation seeds.</figcaption></figure></div>
+  <div class="callout"><strong>Interpretation.</strong> The tested endpoint state is not a sufficient count-transport channel. This null does not erase the span-end decoding result: decodability, causal necessity, and cross-prompt transport are different properties. Position-specific routing, multiple needle tokens, or a distributed state may still be required.</div>
+
+  <h3>3. Answer-query geometric steering</h3>
+  <p>At α=1, the applied vector is the discovery centroid difference from the receiver count to the target count. The primary effect is the generated-count shift aligned with the intended direction, paired against an orthogonal vector with the same norm. <em>Moved</em> and <em>target hit</em> use the intended count path, not token probability.</p>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>pairs / seeds</th><th>changed geom. / random</th><th>moved geom. / random</th><th>Δ moved [95% CI]</th><th>target hit geom. / random</th><th>aligned shift geom. / random</th><th>Δ aligned [95% CI]</th><th>Holm p</th></tr></thead><tbody>@@CAUSAL_STEERING_ROWS@@</tbody></table></div>
+  <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_STEERING_SVG@@<figcaption>The late-layer effect is the key positive result: discovery-fit geometry moves held-out greedy outputs in the intended direction beyond a norm-matched orthogonal control.</figcaption></figure></div>
+
+  <h3>4. Discovery centroid geometry</h3>
+  <p>These diagnostics describe the ten discovery centroids used for steering. Correlation is between count and projection onto the 1→10 endpoint chord; monotonicity is evaluated along that projection. High tortuosity or step CV warns that a monotone coordinate need not be a straight, equally spaced scalar line.</p>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>variants</th><th>endpoint corr. mean (min)</th><th>minimum monotone fraction</th><th>mean step CV</th><th>mean successive-step cosine</th><th>mean tortuosity</th></tr></thead><tbody>@@CAUSAL_GEOMETRY_ROWS@@</tbody></table></div>
+
+  <h3>5. Artifact and label audit</h3>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>ablation shards / rows</th><th>patch families / rows</th><th>steering discovery / families / rows</th><th>greedy-label alignment</th></tr></thead><tbody>@@CAUSAL_AUDIT_ROWS@@</tbody></table></div>
+  <div class="callout"><strong>Audit result.</strong> All expected shards and consolidated tables are present; every patch row succeeded; discovery NPZ layer shapes and finite values were checked; causal baselines exactly match the saved behavior labels; patched correctness is recomputed from the final parsed continuation; and no Traceback, OOM, or FAILED marker appears in the campaign logs.</div>
+</section>
+
 <section id="figures">
   <h2>Static 2D audit panels</h2>
   <p class="lede">These are the original analysis artifacts embedded verbatim for reproducibility. The first panel in each pair shows all seeds; the second applies actual final-output strata.</p>
@@ -1117,7 +1744,7 @@ footer { padding:24px; color:#6d7475; text-align:center; border-top:1px solid va
   <div class="notes">
     <div class="note"><strong>Representation ≠ mechanism.</strong><p>PCA, ridge decoding, and centroid geometry show availability of count-related information. They do not show that generation reads or needs it.</p></div>
     <div class="note"><strong>Span-end vs span-mean.</strong><p>Span-end asks whether a localized terminal state carries the running index. Span-mean asks whether information is distributed across the full semantic needle span. Their PCA bases and primary layers are intentionally separate.</p></div>
-    <div class="note"><strong>Causal next step.</strong><p>Registered head ablation, exact needle-end/full-span residual patching, and geometric steering test necessity and transport on held-out confirmation seeds.</p></div>
+    <div class="note"><strong>Screen, not full sweep.</strong><p>The causal result covers top-4/top-8 span-end heads, exact toggled needle ends, three depths, selected count pairs, α=1 centroid deltas, and one matched random control. It does not replace the larger registered grid.</p></div>
   </div>
 </section>
 </main>
@@ -1231,7 +1858,7 @@ document.getElementById('count-legend').innerHTML=COLORS.map((c,i)=>`<span><i st
 new ResizeObserver(resizeCanvas).observe(canvas); resizeCanvas();
 </script>
 </body>
-</html>'''
+</html>"""
 
 
 def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
@@ -1260,6 +1887,12 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
     span_end_alignment_rows = _span_end_alignment_rows(run_root)
     span_end_pooled_rows = _span_end_pooled_rows(run_root)
     span_end_nested_rows = _span_end_nested_rows(run_root)
+    causal_audit = audit_screen_8h(run_root)
+    causal_frames, _causal_paths = _causal_frames(run_root)
+    causal_ablation_rows = _causal_ablation_rows(causal_frames)
+    causal_patching_rows = _causal_patching_rows(causal_frames)
+    causal_steering_rows = _causal_steering_rows(causal_frames)
+    causal_geometry_rows = _causal_geometry_rows(causal_frames)
     commit = _git_commit(repo_root)
     replacements = {
         "@@COMMIT@@": html.escape(commit[:12]),
@@ -1273,18 +1906,47 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
         "@@SPAN_END_ALIGNMENT_ROWS@@": _table_span_end_alignment_html(
             span_end_alignment_rows
         ),
-        "@@SPAN_END_POOLED_ROWS@@": _table_span_end_pooled_html(
-            span_end_pooled_rows
-        ),
-        "@@SPAN_END_ALIGNMENT_SVG@@": _span_end_alignment_svg(
-            span_end_alignment_rows
-        ),
-        "@@SPAN_END_NESTED_ROWS@@": _table_span_end_nested_html(
-            span_end_nested_rows
-        ),
+        "@@SPAN_END_POOLED_ROWS@@": _table_span_end_pooled_html(span_end_pooled_rows),
+        "@@SPAN_END_ALIGNMENT_SVG@@": _span_end_alignment_svg(span_end_alignment_rows),
+        "@@SPAN_END_NESTED_ROWS@@": _table_span_end_nested_html(span_end_nested_rows),
         "@@SPAN_END_NESTED_SVG@@": _span_end_nested_svg(span_end_nested_rows),
         "@@SPAN_END_CONCLUSION@@": _span_end_conclusion_html(
             span_end_pooled_rows, span_end_alignment_rows, span_end_nested_rows
+        ),
+        "@@CAUSAL_ABLATION_ROWS@@": _table_causal_ablation_html(causal_ablation_rows),
+        "@@CAUSAL_PATCHING_ROWS@@": _table_causal_patching_html(causal_patching_rows),
+        "@@CAUSAL_STEERING_ROWS@@": _table_causal_steering_html(causal_steering_rows),
+        "@@CAUSAL_GEOMETRY_ROWS@@": _table_causal_geometry_html(causal_geometry_rows),
+        "@@CAUSAL_AUDIT_ROWS@@": _table_causal_audit_html(causal_audit),
+        "@@CAUSAL_ABLATION_SVG@@": _forest_svg(
+            causal_ablation_rows,
+            estimate_key="count_shift_difference",
+            low_key="count_shift_difference_low",
+            high_key="count_shift_difference_high",
+            title="Discovery-ranked broad-head ablation versus layer-matched random",
+            axis_label="paired mean count shift: ranked minus random (negative = stronger undercount)",
+            label=lambda row: f"{row['model']} top-{row['top_n']}",
+        ),
+        "@@CAUSAL_PATCHING_SVG@@": _forest_svg(
+            causal_patching_rows,
+            estimate_key="aligned_shift",
+            low_key="aligned_shift_low",
+            high_key="aligned_shift_high",
+            title="Exact needle-end residual transport",
+            axis_label="mean direction-aligned generated-count shift",
+            label=lambda row: f"{row['model']} L{row['layer']}",
+        ),
+        "@@CAUSAL_STEERING_SVG@@": _forest_svg(
+            causal_steering_rows,
+            estimate_key="aligned_difference",
+            low_key="aligned_difference_low",
+            high_key="aligned_difference_high",
+            title="Centroid-delta steering versus norm-matched orthogonal random",
+            axis_label="paired direction-aligned count shift: geometric minus random",
+            label=lambda row: f"{row['model']} L{row['layer']}",
+        ),
+        "@@CAUSAL_CONCLUSION@@": _causal_conclusion_html(
+            causal_ablation_rows, causal_patching_rows, causal_steering_rows
         ),
         "@@STATIC_FIGURES@@": _static_figure_html(run_root),
         "@@REP_DATA@@": json.dumps(
@@ -1302,11 +1964,18 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
                 "output": str(output.resolve()),
                 "bytes": output.stat().st_size,
                 "projection_panels": len(projections),
-                "projection_rows": sum(len(item["rows"]) for item in projections.values()),
+                "projection_rows": sum(
+                    len(item["rows"]) for item in projections.values()
+                ),
                 "primary_layers": primary,
                 "span_end_pooled": span_end_pooled_rows,
                 "span_end_alignment": span_end_alignment_rows,
                 "span_end_nested": span_end_nested_rows,
+                "causal_audit_validated": bool(causal_audit["validated"]),
+                "causal_ablation": causal_ablation_rows,
+                "causal_patching": causal_patching_rows,
+                "causal_steering": causal_steering_rows,
+                "causal_geometry": causal_geometry_rows,
                 "commit": commit,
             },
             indent=2,
