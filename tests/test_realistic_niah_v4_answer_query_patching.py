@@ -7,6 +7,7 @@ from realistic_niah_v4.answer_query_patching import (
     DIRECTED_COUNT_PAIRS,
     EXPECTED_LAYERS,
     _matches_answer_query_design,
+    _seed_estimate,
     add_answer_query_metrics,
 )
 
@@ -84,3 +85,25 @@ def test_answer_query_metrics_preserve_invalid_greedy_outputs() -> None:
     assert pd.isna(enriched["prediction_changed_numeric"])
     assert pd.isna(enriched["follows_donor_prediction_numeric"])
     assert enriched["donor_prediction_adopted"] == pytest.approx(0.0)
+
+
+def test_seed_estimate_reports_sparse_eligible_clusters() -> None:
+    frame = pd.DataFrame(
+        {
+            "seed": list(range(1254, 1264)),
+            "metric": [float("nan"), *([1.0] * 9)],
+        }
+    )
+    with pytest.raises(ValueError, match="expected 10 seed clusters"):
+        _seed_estimate(frame, "metric", label="strict", repetitions=100)
+    estimate = _seed_estimate(
+        frame,
+        "metric",
+        label="sparse",
+        repetitions=100,
+        expected_seed_count=None,
+    )
+    assert estimate["seed_clusters"] == 9
+    assert estimate["estimate"] == pytest.approx(1.0)
+    assert estimate["ci95_low"] == pytest.approx(1.0)
+    assert estimate["ci95_high"] == pytest.approx(1.0)

@@ -1,15 +1,16 @@
 # Realistic NIAH V4 causal screen
 
-This note records the completed `screen_8h_v1` causal campaign for
-`run_20260731_v4_numeric_presentation_v3`. The screen was deliberately smaller
-than the registered full grid: it retained both models, all four V4 panels,
-and all ten held-out confirmation seeds, but restricted each intervention to
-the most diagnostic conditions. It completed on 2026-08-01 at 08:47:15 UTC in
-3 h 05 min, including preflight.
+This note records the completed `screen_8h_v1` causal campaign and the
+`answer_query_dense_v1` follow-up for
+`run_20260731_v4_numeric_presentation_v3`. Both retained both models, all four
+V4 panels, and all ten held-out confirmation seeds while restricting the
+intervention grid to diagnostic conditions. The initial screen completed on
+2026-08-01 at 08:47:15 UTC in 3 h 05 min, including preflight; the exact
+answer-query follow-up completed at 16:35:59 UTC.
 
 ## Scientific question and estimands
 
-The three stages test different claims and should not be conflated.
+The four stages test different claims and should not be conflated.
 
 1. **Head necessity:** does ablating discovery-ranked `span_end` attention
    heads at the answer-query row change the final greedy count more than
@@ -17,7 +18,10 @@ The three stages test different claims and should not be conflated.
 2. **Endpoint transport:** is the exact hidden state at the toggled needle-end
    token sufficient to transport a one-count change when copied from a nested
    donor prompt into a receiver prompt?
-3. **Query-state manipulability:** does a discovery-fit count-centroid delta at
+3. **Exact query-state transport:** is the one residual vector at the
+   prompt-final `Total:` query sufficient to transfer a donor prompt's
+   already-computed prediction at a given layer?
+4. **Query-state manipulability:** does a discovery-fit count-centroid delta at
    the answer-query residual move held-out greedy outputs toward a target count
    more than an orthogonal vector with the same norm?
 
@@ -31,7 +35,10 @@ average variants and count pairs within each confirmation seed, then perform a
 20,000-repetition percentile bootstrap over the ten paired seeds. The primary
 two-sided tests are exact sign-flip tests over those ten seed-level contrasts;
 Holm correction is applied separately to the four ablation contrasts, six
-patching contrasts, and six steering contrasts.
+needle-end patching contrasts, and six steering contrasts. The dense
+answer-query primary analysis compares each of seven later layers with L0 by
+paired seed, with Holm correction within model; panel, directed-pair,
+direction, and baseline-outcome tables are robustness/descriptive strata.
 
 ## Screen design and completion audit
 
@@ -39,6 +46,7 @@ patching contrasts, and six steering contrasts.
 | --- | --- | --- | --- |
 | Broad-head ablation | counts 7--10; `span_end`; answer-query; top-4/top-8; one layer-matched random set | `design_2ccb6d6eee0f` | `design_5a1dcb9fa083` |
 | Residual patching | 5↔6, 7↔8, 9↔10; exact toggled needle end; cumulative from three relative depths | `design_1702318319c8` | `design_f9c90bcbf650` |
+| Exact answer-query patching | 5↔6, 7↔8, 9↔10, 5↔10; prompt-final query state; eight single-layer sites | `design_e67fc867381a` | `design_823e7a6638be` |
 | Geometric steering | 7↔8, 9↔10, 5↔10; centroid delta; α=1; three relative depths; one norm-matched orthogonal control | `design_cf77fd4452c2` | `design_28163399d9ee` |
 
 | Artifact per model | Qwen3-8B | Gemma4-E4B |
@@ -46,6 +54,9 @@ patching contrasts, and six steering contrasts.
 | Ablation prompt shards / detail rows | 160 / 640 | 160 / 640 |
 | Patching family shards / detail rows | 40 / 720 | 40 / 720 |
 | Successful / skipped patch rows | 720 / 0 | 720 / 0 |
+| Answer-query family shards / detail rows | 40 / 2,560 | 40 / 2,560 |
+| Successful / skipped answer-query rows | 2,560 / 0 | 2,560 / 0 |
+| Valid / strict-invalid answer-query outputs | 2,560 / 0 | 2,555 / 5 |
 | Steering discovery NPZ | 800 | 800 |
 | Steering confirmation families / detail rows | 40 / 1,440 | 40 / 1,440 |
 | Query-state discovery shape | 3 × 4,096 | 3 × 2,560 |
@@ -109,7 +120,62 @@ Possible remaining mechanisms include position-specific routing, multiple
 tokens within the record, coordinated multi-needle state, or a query-side
 aggregation that cannot be recreated by one donor endpoint.
 
-## 3. Late answer-query geometry is causally manipulable
+## 3. Late answer-query state transports the computed prediction
+
+This follow-up copies exactly one donor residual vector into the receiver at
+the prompt-final `Total:` query and one layer, then runs complete greedy
+generation. The primary estimand is **donor-prediction adoption conditional on
+receiver and donor baseline predictions differing**. This is the appropriate
+transport target: donor-gold accuracy can be low simply because the donor
+model was already wrong. Strict-invalid continuations remain in the eligible
+denominator as failures.
+
+| Model | Layer | Valid | Eligible rows | Adopts donor prediction [95% seed CI] | Direction-aligned shift [95% seed CI] | Adoption vs L0 Holm p |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Qwen3-8B | 0 | 100% | 188 | 1.4% [0.0, 2.8] | +0.009 [-0.016, +0.038] | 1.0000 |
+| Qwen3-8B | 9 | 100% | 188 | 1.4% [0.0, 3.2] | +0.003 [-0.019, +0.025] | 1.0000 |
+| Qwen3-8B | 18 | 100% | 188 | 1.4% [0.0, 3.6] | +0.022 [0.000, +0.044] | 1.0000 |
+| Qwen3-8B | 26 | 100% | 188 | **59.2% [52.0, 66.1]** | **+0.744 [+0.628, +0.856]** | **0.0137** |
+| Qwen3-8B | 29 | 100% | 188 | 96.2% [91.7, 100.0] | +1.059 [+0.869, +1.250] | 0.0137 |
+| Qwen3-8B | 32 | 100% | 188 | 97.5% [95.4, 99.5] | +1.081 [+0.884, +1.275] | 0.0137 |
+| Qwen3-8B | 34 | 100% | 188 | 98.0% [96.0, 100.0] | +1.100 [+0.888, +1.313] | 0.0137 |
+| Qwen3-8B | 35 | 100% | 188 | **100.0% [100.0, 100.0]** | +1.094 [+0.894, +1.294] | 0.0137 |
+| Gemma4-E4B | 0 | 100% | 230 | 0.4% [0.0, 1.3] | +0.003 [0.000, +0.009] | 1.0000 |
+| Gemma4-E4B | 10 | 100% | 230 | 0.4% [0.0, 1.2] | -0.006 [-0.016, 0.000] | 1.0000 |
+| Gemma4-E4B | 20 | 100% | 230 | 0.8% [0.0, 2.0] | +0.003 [-0.016, +0.028] | 1.0000 |
+| Gemma4-E4B | 31 | 99.69% | 230 | **86.5% [82.8, 90.0]** | **+1.192 [+1.100, +1.283]** | **0.0137** |
+| Gemma4-E4B | 35 | 99.69% | 230 | 96.2% [94.4, 97.9] | +1.254 [+1.163, +1.345] | 0.0137 |
+| Gemma4-E4B | 38 | 99.69% | 230 | 98.8% [97.1, 100.0] | +1.286 [+1.197, +1.370] | 0.0137 |
+| Gemma4-E4B | 40 | 99.69% | 230 | 99.2% [97.9, 100.0] | +1.282 [+1.197, +1.366] | 0.0137 |
+| Gemma4-E4B | 41 | 99.69% | 230 | **99.6% [98.8, 100.0]** | +1.276 [+1.188, +1.360] | 0.0137 |
+
+Transport therefore turns on abruptly between Qwen L18 and L26 and between
+Gemma L20 and L31. At the final layer, every valid eligible continuation
+equals the donor prediction. The conservative eligible adoption rate is 100%
+for Qwen and 99.58% for Gemma because invalid rows are failures. The result is
+stable across v4.1--v4.4 and all eight directed pairs; final-layer panel and
+pair estimates are included in the HTML and saved CSV tables. It also holds in
+both baseline-correct and baseline-wrong strata (Qwen: 100% in both; Gemma:
+96% among eligible baseline-correct rows versus 100% among baseline-wrong
+rows), although the correct strata contain only 9 Qwen and 5 Gemma seeds.
+
+### Why five Gemma outputs are `11`
+
+All five strict-invalid rows are the same v4.1 seed-1263 family, receiver
+count 5 ← donor count 10, at L31/L35/L38/L40/L41. The exact continuations are:
+
+- receiver baseline: `5<turn|>`, token IDs `[236810, 106]`;
+- donor baseline: `10<turn|>`, token IDs `[236770, 236771, 106]`;
+- patched: `11<turn|>`, token IDs `[236770, 236770, 106]`.
+
+This is not truncation or a failed hook. The single query-state patch transfers
+the donor's first digit token, but the next autoregressive step is no longer
+patched and emits another `1` instead of `0`. It is therefore a revealing
+boundary condition: the prompt-final state is sufficient to set the first
+generated decision late in the network, while multi-token realization still
+depends on subsequent unpatched computation.
+
+## 4. Late answer-query geometry is causally manipulable
 
 For α=1 centroid-delta steering, the direction-aligned effect is compared
 within prompt and target pair against an orthogonal norm-matched control.
@@ -133,7 +199,7 @@ tested layer, exact target/path hit rates are 8.75% versus 1.25% for Qwen and
 7.5% versus 1.67% for Gemma. The centroid direction is therefore used by the
 readout, but α=1 does not reliably land on the target integer.
 
-## 4. Geometry explains why decoding and steering can diverge
+## 5. Geometry explains why decoding and steering can diverge
 
 All 24 model × variant × layer discovery paths are monotone along their 1→10
 endpoint chord, but the paths are not straight or equally spaced.
@@ -163,6 +229,15 @@ PYTHONPATH=src python scripts/audit_realistic_niah_v4_causal.py \
   --output /path/to/run/causal_screen_8h_audit.json
 ```
 
+Audit and reproduce the dense answer-query statistics with:
+
+```bash
+PYTHONPATH=src python scripts/analyze_realistic_niah_v4_answer_query_patching.py \
+  --run-root /path/to/run_20260731_v4_numeric_presentation_v3 \
+  --output-dir /path/to/run/analysis/answer_query_patching_dense_v1 \
+  --bootstrap-repetitions 20000
+```
+
 Rebuild the self-contained representation-plus-causal report with:
 
 ```bash
@@ -182,6 +257,14 @@ control tables, discovery centroids, and centroid geometry tables. The bundle
 is an uncommitted run artifact; code, documentation, and the compact HTML
 report are version controlled.
 
+The answer-query follow-up is separately archived as
+`answer_query_patching_dense_v1_bundle.tar.gz` (112 entries, SHA-256
+`94ccc497dd9e3ad9d498061247d0849c987f9fc5eff7beae6894e1a30b4b2d24`).
+Its local extracted analysis includes `layer_summary.csv`,
+`variant_summary.csv`, `pair_summary.csv`, `outcome_summary.csv`, the complete
+model × layer × direction × pair × panel × baseline-outcome
+`stratum_summary.csv`, `invalid_rows.csv`, and the strict audit JSON.
+
 ## Limits and next discriminating tests
 
 - This is a targeted causal screen, not the fully powered registered sweep.
@@ -193,6 +276,10 @@ report are version controlled.
 - Endpoint patching tests one exact token state. A small tokenwise full-needle
   patch or coordinated multi-endpoint patch remains a distinct intervention;
   head-state patching was intentionally removed from scope.
+- Exact answer-query patching establishes late-state sufficiency for the
+  model's prediction, not correctness of that prediction, a uniquely scalar
+  representation, or sufficiency for every later token in a multi-token
+  answer. The Gemma `11` rows demonstrate the last limitation directly.
 - Steering establishes late readout-aligned manipulability, but the low exact
   target-hit rate motivates an α dose response and local versus non-local pair
   comparison before claiming precise count control.

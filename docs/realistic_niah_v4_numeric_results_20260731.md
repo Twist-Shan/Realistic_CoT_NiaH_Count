@@ -3,9 +3,10 @@
 This note records the completed V4 run
 `run_20260731_v4_numeric_presentation_v3`. The descriptive representation and
 attention analyses are followed by the targeted `screen_8h_v1` causal
-campaign. The screen is complete, but it is smaller than the fully registered
-causal grid. Detailed intervention estimands, seed-cluster intervals, matched
-controls, and audit results are in
+campaign and the denser `answer_query_dense_v1` residual-patching follow-up.
+Both are complete, but smaller than the fully registered causal grid. Detailed
+intervention estimands, seed-cluster intervals, matched controls, and audit
+results are in
 [`realistic_niah_v4_causal_screen_20260801.md`](realistic_niah_v4_causal_screen_20260801.md).
 
 ## Registered design
@@ -230,9 +231,10 @@ layer-matched random controls.
 
 ## Causal screen result
 
-The targeted screen completed for both models with no skipped intervention
-rows: 640 ablation rows, 720 exact needle-end patch rows, 800 discovery query
-states, and 1,440 steering rows per model.
+The targeted screen and exact-query follow-up completed for both models with
+no skipped intervention rows: 640 ablation rows, 720 exact needle-end patch
+rows, 800 discovery query states, 1,440 steering rows, and 2,560 exact
+answer-query patch rows per model.
 
 - **Broad-head ablation is positive.** Relative to layer-matched random heads,
   top-8 ablation shifts Qwen counts by -0.331 [95% seed CI -0.413, -0.256]
@@ -241,17 +243,32 @@ states, and 1,440 steering rows per model.
 - **Exact needle-end transport is null.** Across all tested depths, at most
   2.1% of rows move strictly toward the donor gold, and every direction-aligned
   shift interval includes zero after family-wise correction.
+- **Exact late answer-query transport is near-deterministic.** Conditional on
+  receiver and donor baseline predictions differing, donor-prediction adoption
+  jumps from 1.4% at Qwen L18 to 59.2% [52.0, 66.1] at L26 and reaches 100%
+  at L35. Gemma jumps from 0.8% at L20 to 86.5% [82.8, 90.0] at L31 and
+  reaches 99.58% [98.75, 100] at L41 when strict-invalid outputs count as
+  failures. Every valid eligible final-layer row copies the donor prediction.
 - **Late answer-query steering is positive.** Geometric-minus-random aligned
   count shift is +0.958 [+0.808, +1.096] at Qwen L26 and +1.388 [+1.283,
   +1.488] at Gemma L31; both Holm-adjusted p-values are 0.0117. Exact target
   hits remain low, so this is directional manipulability rather than precise
   count setting.
 
-The combined result distinguishes three properties: count information is
+The combined result distinguishes four properties: count information is
 decodable at needle endpoints, a discovery-ranked span-end head bank is
-necessary for preserving output magnitude, and late query-state geometry is
-readout-aligned and steerable. The single toggled endpoint is nevertheless not
-sufficient to transport a nested count change across prompts.
+necessary for preserving output magnitude, the exact late query state is
+sufficient to transport the model's computed prediction, and query-state
+geometry is directionally steerable. The single toggled endpoint is
+nevertheless not sufficient to transport a nested count change across prompts.
+
+Five Gemma rows emit strict-invalid `11<turn|>` rather than an integer in
+1--10. They are all the same v4.1 seed-1263, 5←10 family at layers
+31/35/38/40/41. The donor baseline `10` has token IDs
+`[236770, 236771, 106]`; the patch emits `[236770, 236770, 106]`. This is
+consistent with the query patch transferring the first digit `1` while the
+next, unpatched autoregressive step generates `1` rather than `0`; it is not
+truncation or a failed hook.
 
 ## Reproducibility and remaining causal scope
 
@@ -284,6 +301,15 @@ Audit the downloaded causal result with:
 PYTHONPATH=src python scripts/audit_realistic_niah_v4_causal.py \
   --run-root <run-root> \
   --output <run-root>/causal_screen_8h_audit.json
+```
+
+Audit and reproduce the exact answer-query analysis with:
+
+```bash
+PYTHONPATH=src python scripts/analyze_realistic_niah_v4_answer_query_patching.py \
+  --run-root <run-root> \
+  --output-dir <run-root>/analysis/answer_query_patching_dense_v1 \
+  --bootstrap-repetitions 20000
 ```
 
 The targeted screen supports the causal claims summarized above; descriptive

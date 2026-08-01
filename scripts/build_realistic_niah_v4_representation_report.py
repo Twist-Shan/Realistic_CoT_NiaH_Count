@@ -1798,7 +1798,7 @@ footer { padding:24px; color:#6d7475; text-align:center; border-top:1px solid va
 <header>
   <div class="eyebrow">Realistic NIAH · non-thinking · V4.1–V4.4</div>
   <h1>Where does the running count live—and what does generation use?</h1>
-  <p>A v10-style representation analysis plus a held-out causal screen. The report separates <code>span_end</code> from <code>span_mean</code>, fits representation geometry and intervention targets on discovery seeds only, and tests broad-head necessity, exact needle-end transport, and answer-query geometric steering on confirmation seeds.</p>
+  <p>A v10-style representation analysis plus held-out causal tests. The report separates <code>span_end</code> from <code>span_mean</code>, fits representation geometry and intervention targets on discovery seeds only, and tests broad-head necessity, exact needle-end transport, exact answer-query state transport, and answer-query geometric steering on confirmation seeds.</p>
   <div class="meta">
     <span class="pill">Qwen3-8B + Gemma4-E4B</span><span class="pill">length ≈ 10,000 tokens</span><span class="pill">needle index 1–10</span><span class="pill">30 seeds / variant</span><span class="pill">commit @@COMMIT@@</span>
   </div>
@@ -1919,7 +1919,7 @@ footer { padding:24px; color:#6d7475; text-align:center; border-top:1px solid va
 
   <h3>3. Exact answer-query residual patching</h3>
   <p>This follow-up isolates the prompt-final <code>Total:</code> query state. Each row copies one donor residual vector into the receiver at exactly one layer, then performs complete greedy generation. The primary mechanistic estimand is adoption of the donor model prediction among rows where receiver and donor baseline predictions differ. It is deliberately distinct from donor-gold accuracy: a perfect transport can faithfully copy a donor that was itself wrong.</p>
-  <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>rows / seeds</th><th>valid</th><th>eligible n</th><th>adopts donor prediction [95% CI]</th><th>changed (valid)</th><th>moved to donor gold (valid)</th><th>follows donor prediction (valid)</th><th>aligned shift (valid) [95% CI]</th><th>adoption vs L0 Holm p</th></tr></thead><tbody>@@ANSWER_QUERY_LAYER_ROWS@@</tbody></table></div>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>rows / seeds</th><th>valid</th><th>eligible n</th><th>adopts donor prediction [95% CI]</th><th>changed (valid)</th><th>moved to donor gold (valid)</th><th>matches donor prediction (all valid)</th><th>aligned shift (valid) [95% CI]</th><th>adoption vs L0 Holm p</th></tr></thead><tbody>@@ANSWER_QUERY_LAYER_ROWS@@</tbody></table></div>
   <div class="stat-grid"><figure class="stat-figure">@@ANSWER_QUERY_ADOPTION_SVG@@<figcaption>Eligible donor-prediction adoption includes strict-invalid continuations as failures. Intervals resample ten complete confirmation seeds. Holm p-values compare each later layer with the model's L0 row using exact paired seed sign flips.</figcaption></figure></div>
   <h4>Final-layer robustness by panel</h4>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>panel</th><th>rows / seeds</th><th>valid</th><th>eligible adoption [95% CI]</th><th>aligned shift [95% CI]</th></tr></thead><tbody>@@ANSWER_QUERY_VARIANT_ROWS@@</tbody></table></div>
@@ -1955,7 +1955,7 @@ footer { padding:24px; color:#6d7475; text-align:center; border-top:1px solid va
   <div class="notes">
     <div class="note"><strong>Representation ≠ mechanism.</strong><p>PCA, ridge decoding, and centroid geometry show availability of count-related information. They do not show that generation reads or needs it.</p></div>
     <div class="note"><strong>Span-end vs span-mean.</strong><p>Span-end asks whether a localized terminal state carries the running index. Span-mean asks whether information is distributed across the full semantic needle span. Their PCA bases and primary layers are intentionally separate.</p></div>
-    <div class="note"><strong>Screen, not full sweep.</strong><p>The causal result covers top-4/top-8 span-end heads, exact toggled needle ends, three depths, selected count pairs, α=1 centroid deltas, and one matched random control. It does not replace the larger registered grid.</p></div>
+    <div class="note"><strong>Screen, not full sweep.</strong><p>The causal result covers top-4/top-8 span-end heads, exact toggled needle ends, exact answer-query states at eight layers, selected count pairs, α=1 centroid deltas, and one matched random control. It does not replace the larger registered grid.</p></div>
   </div>
 </section>
 </main>

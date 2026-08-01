@@ -18,6 +18,14 @@ non-thinking analysis at 10k tokens. V4 separates four progressively relaxed
 control panels (v4.1-v4.4), prompt-reading representations, answer-query
 attention, and causal interventions. V3 remains behavior-only.
 
+The completed V4 result separates where count information is visible from
+what generation actually uses. A discovery-ranked span-end head bank is
+causally necessary; one needle-end state is not sufficient for count
+transport; late answer-query geometry is steerable; and exact answer-query
+residual patching transfers the donor model prediction on 100% of eligible
+Qwen final-layer rows and 99.58% of Gemma rows when strict-invalid outputs are
+conservatively counted as failures.
+
 The repository was consolidated non-destructively from
 `NIAH_repo_and_local_runs_001` and `NIAH_repo_and_local_runs_002`. The original
 instructions are preserved in
@@ -35,6 +43,7 @@ Remote: <https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git>
 | Inspect the completed V4 numeric non-thinking run | `run_20260731_v4_numeric_presentation_v3` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md) |
 | Open or rebuild the V4 representation + causal report | [`reports/realistic_niah_v4_representation_report.html`](reports/realistic_niah_v4_representation_report.html), `scripts/build_realistic_niah_v4_representation_report.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md`](docs/realistic_niah_v4_causal_screen_20260801.md) |
 | Audit the completed V4 causal screen | `scripts/audit_realistic_niah_v4_causal.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md#screen-design-and-completion-audit`](docs/realistic_niah_v4_causal_screen_20260801.md#screen-design-and-completion-audit) |
+| Audit and analyze exact answer-query transport | `scripts/analyze_realistic_niah_v4_answer_query_patching.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md#3-late-answer-query-state-transports-the-computed-prediction`](docs/realistic_niah_v4_causal_screen_20260801.md#3-late-answer-query-state-transports-the-computed-prediction) |
 | Analyze all Qwen span-end candidates and multi-head coverage | `scripts/analyze_realistic_niah_v4_partitioning.py` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md#qwen-span-end-full-candidate-bank-and-positional-partitioning) |
 | Run or audit Realistic NIAH V3 | `scripts/freeze_realistic_niah_v3.py`, `scripts/launch_realistic_niah_v3.sh` | [`docs/realistic_niah_v3.md`](docs/realistic_niah_v3.md) |
 | Inspect the executable V3 registry | `src/realistic_niah_v3/spec.py`, `configs/realistic_niah_v3.json` | `tests/test_realistic_niah_v3.py` |
@@ -64,6 +73,7 @@ historical decisions.
 ├── src/
 │   ├── realistic_niah/         # Shared V2/V3 prompt, parser, runner, and freeze logic
 │   ├── realistic_niah_v3/      # V3 registry, shards, audit, analysis, and reporting
+│   ├── realistic_niah_v4/      # V4 freeze, capture, attention, causal, and audit logic
 │   ├── dataset_generation/     # Dynamic NIAH generation and hidden-state/QK analysis
 │   ├── counting/               # Probes, CoT analysis, steering, and evaluation
 │   └── single_example/         # Token/representation ablation and restoration
@@ -229,6 +239,19 @@ PYTHONPATH=src python scripts/audit_realistic_niah_v4_causal.py \
   --output /path/to/run/causal_screen_8h_audit.json
 ```
 
+The completed `answer_query_dense_v1` follow-up uses eight single-layer
+answer-query sites per model, all four panels, all ten confirmation seeds, and
+directed pairs 5↔6, 7↔8, 9↔10, and 5↔10. Launch it restartably with
+`scripts/launch_realistic_niah_v4_answer_query_patching.sh`; audit and analyze
+the 5,120 strict-greedy rows with:
+
+```bash
+PYTHONPATH=src python scripts/analyze_realistic_niah_v4_answer_query_patching.py \
+  --run-root /path/to/run_20260731_v4_numeric_presentation_v3 \
+  --output-dir /path/to/run/analysis/answer_query_patching_dense_v1 \
+  --bootstrap-repetitions 20000
+```
+
 Build the self-contained V4 representation and causal report from a downloaded
 run with:
 
@@ -245,7 +268,9 @@ model/pooling panel, PCA is fit on v4.1 discovery at the registered primary
 layer and reused for all variants; PC1--PC6, split, variant, and actual greedy
 correct/wrong strata are switchable. The causal section reports seed-cluster
 intervals for broad-head ablation, exact span-end residual transport, and
-answer-query centroid steering. See
+answer-query centroid steering, plus exact donor-state transport by layer,
+panel, directed pair, and baseline outcome. It preserves all five Gemma
+strict-invalid `11` continuations rather than silently dropping them. See
 [`docs/realistic_niah_v4_causal_screen_20260801.md`](docs/realistic_niah_v4_causal_screen_20260801.md)
 for the complete estimands, results, audit, and limitations.
 
