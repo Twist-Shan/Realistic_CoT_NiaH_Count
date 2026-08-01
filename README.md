@@ -33,6 +33,7 @@ Remote: <https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git>
 | --- | --- | --- |
 | Run the Realistic NIAH V4 mechanism study | `scripts/freeze_realistic_niah_v4.py`, `scripts/run_realistic_niah_v4.py` | [`docs/realistic_niah_v4.md`](docs/realistic_niah_v4.md) |
 | Inspect the completed V4 numeric non-thinking run | `run_20260731_v4_numeric_presentation_v3` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md) |
+| Analyze all Qwen span-end candidates and multi-head coverage | `scripts/analyze_realistic_niah_v4_partitioning.py` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md#qwen-span-end-full-candidate-bank-and-positional-partitioning) |
 | Run or audit Realistic NIAH V3 | `scripts/freeze_realistic_niah_v3.py`, `scripts/launch_realistic_niah_v3.sh` | [`docs/realistic_niah_v3.md`](docs/realistic_niah_v3.md) |
 | Inspect the executable V3 registry | `src/realistic_niah_v3/spec.py`, `configs/realistic_niah_v3.json` | `tests/test_realistic_niah_v3.py` |
 | Reproduce the completed V2 protocol | `src/realistic_niah/spec.py`, `src/realistic_niah/sharding.py` | [`docs/realistic_niah_v2.md`](docs/realistic_niah_v2.md) |

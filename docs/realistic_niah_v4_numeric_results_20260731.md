@@ -38,6 +38,10 @@ Qwen occupies about 30 GB and Gemma about 2.6 GB. The apparent size difference
 comes primarily from the registered query-row storage shape, not from a
 difference in the number of examples.
 
+A subsequent Qwen-only partition analysis added 16 tables/manifests and seven
+figures under `Qwen3-8B/numeric/attention/analysis/partitioning`. It reads the
+same saved answer-query rows and does not change the registered capture.
+
 ## Behavior
 
 Every generated answer was format-valid. The failures below are therefore
@@ -111,6 +115,69 @@ and `span_mean` expose different mechanisms.
 - Gemma `span_mean`: L35H2 is rank 1 in every panel. Coverage is about
   0.76--0.80 and the effective number is about 4.6--4.8.
 
+### Qwen span-end: full candidate bank and positional partitioning
+
+The rank-1 result does not characterize the complete head population. We
+therefore evaluated every discovery-eligible Qwen `span_end` candidate (212 in
+v4.1, 226 in v4.2/v4.3, and 225 in v4.4) on the exact saved N=10 attention
+rows. Each head was measured at every needle endpoint, over the full needle
+span, and over 20 equal-width query-depth bins. The following post-hoc rules
+are descriptive rather than causal or preregistered:
+
+- a global endpoint aggregator has endpoint effective number at least 6 and no
+  single occurrence with mean normalized share above 0.25;
+- a partition-local endpoint aggregator is not global, has at least two
+  needles in its winning depth quartile, local effective fraction at least
+  0.8, and at least half of its full-row mass in one depth quartile; and
+- an occurrence selector has endpoint effective number at most 2 and the same
+  winning occurrence in at least 80% of examples.
+
+| All-30-seed result | v4.1 | v4.2 | v4.3 | v4.4 |
+| --- | ---: | ---: | ---: | ---: |
+| Global endpoint-aggregator heads | 35 | 24 | 24 | 24 |
+| Global-bank raw effective number / 10 | 9.59 | 9.06 | 9.14 | 9.04 |
+| Partition-local endpoint-aggregator heads | 16 | 5 | 5 | 5 |
+| Partition-local-bank raw effective number / 10 | 6.58 | 7.10 | 8.24 | 7.31 |
+| Occurrence endpoint selectors | 63 | 69 | 66 | 69 |
+| Selector-bank raw effective number / 10 | 1.20 | 1.18 | 1.20 | 1.20 |
+
+The central result is therefore that broad aggregation is distributed across
+many heads, even though the highest-ranked head is not itself a broad
+aggregator. On confirmation seeds alone, the global class contains 34, 32, 33,
+and 31 heads and its raw effective number is 9.63, 9.18, 9.21, and 9.11. Thirteen
+heads remain global aggregators in every one of the eight panel-by-split cells:
+L6H12, L8H19, L9H19, L9H27, L10H22, L13H16, L15H4, L15H8, L16H15,
+L17H22, L18H22, L19H15, and L22H16. L6H12 has the largest mean endpoint
+mass among this stable set; L13H16 and L17H22 are also high-mass candidates
+for controlled ablation. Layer and head indices are zero-based throughout.
+
+Partition-local specialization is present but less stable than global
+aggregation. In the all-seed summaries, L8H16 is prefix-local in v4.1, v4.2,
+and v4.4; L13H17 is prefix-local in v4.2--v4.4; and L14H15 is suffix-local in
+v4.2--v4.4. Exact local-phenotype identity agrees between discovery and
+confirmation for 12 heads in v4.1 but only 1, 0, and 2 heads in v4.2--v4.4.
+Thus the evidence for a stable global aggregation bank is strong, whereas a
+fixed seed-invariant partition circuit remains only a hypothesis.
+
+L29H3 remains a first-occurrence endpoint selector: its first endpoint receives
+about 99.1--99.3% of within-endpoint mass in every panel. When positions vary,
+its winning absolute depth bin is stable in only 46.7% of seeds, so it tracks
+the earliest occurrence rather than a fixed absolute bin. Its `span_mean`
+effective number is 5.30--5.70, showing broader attention inside record spans,
+but not uniform aggregation at their endpoint tokens. All heads classified as
+strong occurrence selectors also choose occurrence 1; there is no matching
+family that cleanly assigns one selector to each later occurrence.
+
+Finally, an eight-head complement-greedy bank reaches effective number
+9.46--9.61 when every head profile is normalized to equal weight, but only
+3.24--3.62 when raw attention magnitudes are preserved. The full unfiltered
+candidate bank is lower still at 2.81--3.19 because the selector class carries
+more total endpoint mass and overwhelms the aggregator class. These sums are
+attention diagnostics, not a reconstruction of the model computation: heads
+have different value vectors and output-projection slices. The causal follow-up
+must therefore ablate or patch the stable aggregator bank separately from
+L29H3-like selectors and use layer-matched random controls.
+
 Most count-adjusted wrong-minus-correct bootstrap intervals include zero:
 only 36 of 256 Qwen comparisons and 24 of 256 Gemma comparisons exclude zero
 before any multiplicity correction. Aggregate needle mass alone therefore does
@@ -143,8 +210,20 @@ sweeps with layer-matched random controls.
 
 The run root is `run_20260731_v4_numeric_presentation_v3`. Each model directory
 contains behavior labels, representation captures, raw answer-query attention,
-analysis manifests, tables, and figures. The causal implementation uses actual
-complete greedy numeric generation and supports:
+analysis manifests, tables, and figures. Reproduce the Qwen partition analysis
+from the saved answer-query rows with:
+
+```bash
+PYTHONPATH=src python scripts/analyze_realistic_niah_v4_partitioning.py \
+  --stimuli <run-root>/dataset/stimuli.jsonl \
+  --run-root <run-root> --model Qwen3-8B --answer-format numeric \
+  --count 10 --top-k 8 --partitions 4 --depth-bins 20 \
+  --bootstrap-repetitions 10000
+```
+
+The command defaults to all discovery-eligible candidates; `--top-k-only`
+restricts it to the registered diagnostic subset. The causal implementation
+uses actual complete greedy numeric generation and supports:
 
 1. answer-query and global broad-head ablation;
 2. pre-output-projection head-slice patching;
