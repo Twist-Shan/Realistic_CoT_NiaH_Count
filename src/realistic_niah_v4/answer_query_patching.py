@@ -361,6 +361,7 @@ def audit_answer_query_patching(run_root: str | Path) -> dict[str, Any]:
             f"{context}: unexpected site, protocol, or patched layer count",
         )
         enriched = add_answer_query_metrics(detail)
+        invalid_detail = detail[~_as_bool(detail["patched_format_valid"])]
         counts.update(
             {
                 "design": str(design.root.relative_to(root)),
@@ -385,6 +386,19 @@ def audit_answer_query_patching(run_root: str | Path) -> dict[str, Any]:
                 "eligible_donor_prediction_rows": int(
                     enriched["donor_prediction_eligible"].sum()
                 ),
+                "invalid_examples": invalid_detail[
+                    [
+                        "design_variant",
+                        "seed",
+                        "receiver_stimulus_id",
+                        "donor_stimulus_id",
+                        "receiver_count",
+                        "donor_count",
+                        "start_layer",
+                        "patched_completion_text_raw",
+                        "patched_generated_token_ids",
+                    ]
+                ].to_dict("records"),
             }
         )
         report["models"][model] = counts
@@ -413,13 +427,18 @@ def _seed_estimate(
     *,
     label: str,
     repetitions: int,
+    expected_seed_count: int | None = len(CONFIRMATION_SEEDS),
 ) -> dict[str, float]:
     usable = frame[["seed", metric]].dropna()
     seed_values = usable.groupby("seed", sort=True)[metric].mean().to_numpy(dtype=float)
-    _require(
-        len(seed_values) == len(CONFIRMATION_SEEDS),
-        f"{label}: expected ten seed clusters, found {len(seed_values)}",
-    )
+    if expected_seed_count is None:
+        _require(len(seed_values) > 0, f"{label}: no usable seed clusters")
+    else:
+        _require(
+            len(seed_values) == expected_seed_count,
+            f"{label}: expected {expected_seed_count} seed clusters, "
+            f"found {len(seed_values)}",
+        )
     rng = np.random.default_rng(_stable_seed(label))
     indices = rng.integers(
         0, len(seed_values), size=(int(repetitions), len(seed_values))
@@ -505,10 +524,52 @@ def analyze_answer_query_patching(
     designs = find_answer_query_designs(root)
     layer_rows: list[dict[str, Any]] = []
     pair_rows: list[dict[str, Any]] = []
+    variant_rows: list[dict[str, Any]] = []
     outcome_rows: list[dict[str, Any]] = []
+    stratum_rows: list[dict[str, Any]] = []
+    invalid_frames: list[pd.DataFrame] = []
     for model, design in designs.items():
         raw = pd.read_csv(design.root / "detail.csv.gz", compression="gzip")
         detail = add_answer_query_metrics(raw)
+        labels = pd.read_csv(
+            root / model / "numeric" / "behavior" / "capture" / "generation_labels.csv"
+        ).set_index("stimulus_id")
+        invalid = detail[detail["patched_valid_numeric"].eq(0.0)].copy()
+        if not invalid.empty:
+            for role in ("receiver", "donor"):
+                ids = invalid[f"{role}_stimulus_id"]
+                invalid[f"{role}_baseline_completion_text_raw"] = ids.map(
+                    labels["completion_text_raw"]
+                )
+                invalid[f"{role}_baseline_generated_token_ids"] = ids.map(
+                    labels["generated_token_ids"]
+                )
+            invalid.insert(0, "model", model)
+            invalid_frames.append(
+                invalid[
+                    [
+                        "model",
+                        "design_variant",
+                        "seed",
+                        "receiver_stimulus_id",
+                        "donor_stimulus_id",
+                        "receiver_count",
+                        "donor_count",
+                        "baseline_predicted_count",
+                        "donor_baseline_predicted_count",
+                        "receiver_baseline_completion_text_raw",
+                        "receiver_baseline_generated_token_ids",
+                        "donor_baseline_completion_text_raw",
+                        "donor_baseline_generated_token_ids",
+                        "start_layer",
+                        "patched_outcome",
+                        "patched_completion_text",
+                        "patched_completion_text_raw",
+                        "patched_generated_token_ids",
+                        "patched_generation_truncated",
+                    ]
+                ]
+            )
         baseline_layer = min(EXPECTED_LAYERS[model])
         model_layer_rows: list[dict[str, Any]] = []
         for layer in EXPECTED_LAYERS[model]:
@@ -587,6 +648,15 @@ def analyze_answer_query_patching(
                     row[f"{metric_name}_vs_layer0_p_holm"] = 1.0
         layer_rows.extend(model_layer_rows)
 
+        summary_metrics = {
+            "patched_valid_rate": "patched_valid_numeric",
+            "changed_rate": "prediction_changed_numeric",
+            "moved_toward_donor_gold_rate": "moved_toward_donor_gold_numeric",
+            "follows_donor_gold_rate": "follows_donor_gold_numeric",
+            "follows_donor_prediction_rate": "follows_donor_prediction_numeric",
+            "eligible_donor_adoption_rate": "donor_prediction_adopted",
+            "mean_direction_aligned_shift": "direction_aligned_shift",
+        }
         pair_groups = [
             "start_layer",
             "receiver_count",
@@ -596,70 +666,166 @@ def analyze_answer_query_patching(
         ]
         for keys, selected in detail.groupby(pair_groups, sort=True):
             values = dict(zip(pair_groups, keys))
-            pair_rows.append(
+            row = {
+                "model": model,
+                "layer": int(values["start_layer"]),
+                "receiver_count": int(values["receiver_count"]),
+                "donor_count": int(values["donor_count"]),
+                "canonical_pair": str(values["canonical_pair"]),
+                "direction": str(values["direction"]),
+                "rows": int(len(selected)),
+                "seed_clusters": int(selected["seed"].nunique()),
+                "eligible_donor_prediction_rows": int(
+                    selected["donor_prediction_eligible"].sum()
+                ),
+            }
+            for output_name, metric in summary_metrics.items():
+                estimate = _seed_estimate(
+                    selected,
+                    metric,
+                    label=(
+                        f"answer-query-{model}-L{values['start_layer']}-"
+                        f"{values['receiver_count']}-to-{values['donor_count']}-{metric}"
+                    ),
+                    repetitions=bootstrap_repetitions,
+                )
+                row[output_name] = estimate["estimate"]
+                row[f"{output_name}_ci95_low"] = estimate["ci95_low"]
+                row[f"{output_name}_ci95_high"] = estimate["ci95_high"]
+            pair_rows.append(row)
+
+        for (layer, variant), selected in detail.groupby(
+            ["start_layer", "design_variant"], sort=True
+        ):
+            row = {
+                "model": model,
+                "layer": int(layer),
+                "design_variant": str(variant),
+                "rows": int(len(selected)),
+                "seed_clusters": int(selected["seed"].nunique()),
+                "eligible_donor_prediction_rows": int(
+                    selected["donor_prediction_eligible"].sum()
+                ),
+            }
+            for output_name, metric in summary_metrics.items():
+                estimate = _seed_estimate(
+                    selected,
+                    metric,
+                    label=f"answer-query-{model}-L{layer}-{variant}-{metric}",
+                    repetitions=bootstrap_repetitions,
+                )
+                row[output_name] = estimate["estimate"]
+                row[f"{output_name}_ci95_low"] = estimate["ci95_low"]
+                row[f"{output_name}_ci95_high"] = estimate["ci95_high"]
+            variant_rows.append(row)
+
+        for (layer, outcome), selected in detail.groupby(
+            ["start_layer", "baseline_outcome"], sort=True
+        ):
+            row = {
+                "model": model,
+                "layer": int(layer),
+                "baseline_outcome": str(outcome),
+                "rows": int(len(selected)),
+                "seed_clusters": int(selected["seed"].nunique()),
+                "eligible_donor_prediction_rows": int(
+                    selected["donor_prediction_eligible"].sum()
+                ),
+            }
+            for output_name, metric in summary_metrics.items():
+                estimate = _seed_estimate(
+                    selected,
+                    metric,
+                    label=f"answer-query-{model}-L{layer}-{outcome}-{metric}",
+                    repetitions=bootstrap_repetitions,
+                    expected_seed_count=None,
+                )
+                row[output_name] = estimate["estimate"]
+                row[f"{output_name}_ci95_low"] = estimate["ci95_low"]
+                row[f"{output_name}_ci95_high"] = estimate["ci95_high"]
+            outcome_rows.append(row)
+
+        stratum_groups = [
+            "start_layer",
+            "direction",
+            "canonical_pair",
+            "design_variant",
+            "baseline_outcome",
+        ]
+        for keys, selected in detail.groupby(stratum_groups, sort=True):
+            values = dict(zip(stratum_groups, keys))
+            stratum_rows.append(
                 {
                     "model": model,
                     "layer": int(values["start_layer"]),
-                    "receiver_count": int(values["receiver_count"]),
-                    "donor_count": int(values["donor_count"]),
-                    "canonical_pair": str(values["canonical_pair"]),
                     "direction": str(values["direction"]),
+                    "canonical_pair": str(values["canonical_pair"]),
+                    "design_variant": str(values["design_variant"]),
+                    "baseline_outcome": str(values["baseline_outcome"]),
                     "rows": int(len(selected)),
-                    "changed_rate": float(
+                    "seed_clusters": int(selected["seed"].nunique()),
+                    "patched_valid_rate": float(
+                        selected["patched_valid_numeric"].mean()
+                    ),
+                    "changed_rate_valid_only": float(
                         selected["prediction_changed_numeric"].mean()
                     ),
-                    "moved_toward_donor_gold_rate": float(
+                    "moved_toward_donor_gold_rate_valid_only": float(
                         selected["moved_toward_donor_gold_numeric"].mean()
                     ),
-                    "follows_donor_gold_rate": float(
+                    "follows_donor_gold_rate_valid_only": float(
                         selected["follows_donor_gold_numeric"].mean()
                     ),
-                    "follows_donor_prediction_rate": float(
+                    "follows_donor_prediction_rate_valid_only": float(
                         selected["follows_donor_prediction_numeric"].mean()
                     ),
                     "eligible_donor_prediction_rows": int(
                         selected["donor_prediction_eligible"].sum()
                     ),
-                    "eligible_donor_adoption_rate": float(
+                    "eligible_donor_adoption_rate_invalid_as_failure": float(
                         selected["donor_prediction_adopted"].mean()
                     ),
-                    "mean_direction_aligned_shift": float(
+                    "mean_direction_aligned_shift_valid_only": float(
                         selected["direction_aligned_shift"].mean()
                     ),
                 }
             )
 
-        for (layer, outcome), selected in detail.groupby(
-            ["start_layer", "baseline_outcome"], sort=True
-        ):
-            outcome_rows.append(
-                {
-                    "model": model,
-                    "layer": int(layer),
-                    "baseline_outcome": str(outcome),
-                    "rows": int(len(selected)),
-                    "changed_rate": float(
-                        selected["prediction_changed_numeric"].mean()
-                    ),
-                    "moved_toward_donor_gold_rate": float(
-                        selected["moved_toward_donor_gold_numeric"].mean()
-                    ),
-                    "eligible_donor_prediction_rows": int(
-                        selected["donor_prediction_eligible"].sum()
-                    ),
-                    "eligible_donor_adoption_rate": float(
-                        selected["donor_prediction_adopted"].mean()
-                    ),
-                    "mean_direction_aligned_shift": float(
-                        selected["direction_aligned_shift"].mean()
-                    ),
-                }
-            )
+    invalid_rows = (
+        pd.concat(invalid_frames, ignore_index=True)
+        if invalid_frames
+        else pd.DataFrame(
+            columns=[
+                "model",
+                "design_variant",
+                "seed",
+                "receiver_stimulus_id",
+                "donor_stimulus_id",
+                "receiver_count",
+                "donor_count",
+                "baseline_predicted_count",
+                "donor_baseline_predicted_count",
+                "receiver_baseline_completion_text_raw",
+                "receiver_baseline_generated_token_ids",
+                "donor_baseline_completion_text_raw",
+                "donor_baseline_generated_token_ids",
+                "start_layer",
+                "patched_outcome",
+                "patched_completion_text",
+                "patched_completion_text_raw",
+                "patched_generated_token_ids",
+                "patched_generation_truncated",
+            ]
+        )
+    )
 
     return {
         "layer_summary": pd.DataFrame(layer_rows),
         "pair_summary": pd.DataFrame(pair_rows),
+        "variant_summary": pd.DataFrame(variant_rows),
         "outcome_summary": pd.DataFrame(outcome_rows),
+        "stratum_summary": pd.DataFrame(stratum_rows),
+        "invalid_rows": invalid_rows,
     }
 
 

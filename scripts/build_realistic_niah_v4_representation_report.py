@@ -25,6 +25,9 @@ from realistic_niah_v4.causal_audit import (  # noqa: E402
     audit_screen_8h,
     find_screen_designs,
 )
+from realistic_niah_v4.answer_query_patching import (  # noqa: E402
+    audit_answer_query_patching,
+)
 
 
 MODELS = ("Qwen3-8B", "Gemma4-E4B")
@@ -954,6 +957,57 @@ def _causal_frames(
     return frames, paths
 
 
+def _answer_query_frames(
+    run_root: Path,
+) -> tuple[dict[str, pd.DataFrame], dict[str, Any]]:
+    analysis_root = run_root / "analysis" / "answer_query_patching_dense_v1"
+    required = (
+        "layer_summary",
+        "pair_summary",
+        "variant_summary",
+        "outcome_summary",
+        "stratum_summary",
+        "invalid_rows",
+    )
+    frames: dict[str, pd.DataFrame] = {}
+    for name in required:
+        path = analysis_root / f"{name}.csv"
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"Missing answer-query analysis table {path}; run "
+                "scripts/analyze_realistic_niah_v4_answer_query_patching.py first"
+            )
+        frames[name] = pd.read_csv(path)
+    return frames, audit_answer_query_patching(run_root)
+
+
+def _answer_query_final_rows(
+    frame: pd.DataFrame,
+) -> list[dict[str, Any]]:
+    selected: list[pd.DataFrame] = []
+    for model in MODELS:
+        model_rows = frame[frame["model"] == model]
+        selected.append(model_rows[model_rows["layer"] == model_rows["layer"].max()])
+    return pd.concat(selected, ignore_index=True).to_dict("records")
+
+
+def _answer_query_onset_rows(
+    layer_frame: pd.DataFrame,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for model in MODELS:
+        selected = layer_frame[layer_frame["model"] == model].sort_values("layer")
+        candidates = selected[
+            (selected["layer"] > selected["layer"].min())
+            & (selected["eligible_donor_adoption_rate"] >= 0.5)
+            & (selected["eligible_donor_adoption_vs_layer0_p_holm"] < 0.05)
+        ]
+        if candidates.empty:
+            raise RuntimeError(f"No significant answer-query transport onset for {model}")
+        rows.append(candidates.iloc[0].to_dict())
+    return rows
+
+
 def _paired_seed_contrast(
     frame: pd.DataFrame,
     *,
@@ -1255,6 +1309,119 @@ def _causal_geometry_rows(
     return rows
 
 
+def _table_answer_query_layer_html(rows: list[dict[str, Any]]) -> str:
+    rendered: list[str] = []
+    for row in rows:
+        rendered.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['model']))}</td><td>L{int(row['layer'])}</td>"
+            f"<td>{int(row['rows'])} / 10</td>"
+            f"<td>{100*float(row['patched_valid_rate']):.2f}%</td>"
+            f"<td>{int(row['eligible_donor_prediction_rows'])}</td>"
+            f"<td>{100*float(row['eligible_donor_adoption_rate']):.1f}% "
+            f"[{100*float(row['eligible_donor_adoption_rate_ci95_low']):.1f}, "
+            f"{100*float(row['eligible_donor_adoption_rate_ci95_high']):.1f}]</td>"
+            f"<td>{100*float(row['changed_rate']):.1f}%</td>"
+            f"<td>{100*float(row['moved_toward_donor_gold_rate']):.1f}%</td>"
+            f"<td>{100*float(row['follows_donor_prediction_rate']):.1f}%</td>"
+            f"<td>{_number(row['mean_direction_aligned_shift'], signed=True)} "
+            f"[{_number(row['mean_direction_aligned_shift_ci95_low'], signed=True)}, "
+            f"{_number(row['mean_direction_aligned_shift_ci95_high'], signed=True)}]</td>"
+            f"<td>{_p_value(row['eligible_donor_adoption_vs_layer0_p_holm'])}</td>"
+            "</tr>"
+        )
+    return "".join(rendered)
+
+
+def _table_answer_query_variant_html(rows: list[dict[str, Any]]) -> str:
+    rendered: list[str] = []
+    for row in rows:
+        rendered.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['model']))}</td><td>L{int(row['layer'])}</td>"
+            f"<td>{html.escape(str(row['design_variant']))}</td>"
+            f"<td>{int(row['rows'])} / {int(row['seed_clusters'])}</td>"
+            f"<td>{100*float(row['patched_valid_rate']):.1f}%</td>"
+            f"<td>{100*float(row['eligible_donor_adoption_rate']):.1f}% "
+            f"[{100*float(row['eligible_donor_adoption_rate_ci95_low']):.1f}, "
+            f"{100*float(row['eligible_donor_adoption_rate_ci95_high']):.1f}]</td>"
+            f"<td>{_number(row['mean_direction_aligned_shift'], signed=True)} "
+            f"[{_number(row['mean_direction_aligned_shift_ci95_low'], signed=True)}, "
+            f"{_number(row['mean_direction_aligned_shift_ci95_high'], signed=True)}]</td>"
+            "</tr>"
+        )
+    return "".join(rendered)
+
+
+def _table_answer_query_pair_html(rows: list[dict[str, Any]]) -> str:
+    rendered: list[str] = []
+    for row in rows:
+        rendered.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['model']))}</td><td>L{int(row['layer'])}</td>"
+            f"<td>{int(row['receiver_count'])}→{int(row['donor_count'])}</td>"
+            f"<td>{int(row['rows'])} / {int(row['seed_clusters'])}</td>"
+            f"<td>{100*float(row['patched_valid_rate']):.1f}%</td>"
+            f"<td>{int(row['eligible_donor_prediction_rows'])}</td>"
+            f"<td>{100*float(row['eligible_donor_adoption_rate']):.1f}% "
+            f"[{100*float(row['eligible_donor_adoption_rate_ci95_low']):.1f}, "
+            f"{100*float(row['eligible_donor_adoption_rate_ci95_high']):.1f}]</td>"
+            f"<td>{100*float(row['follows_donor_prediction_rate']):.1f}%</td>"
+            f"<td>{_number(row['mean_direction_aligned_shift'], signed=True)} "
+            f"[{_number(row['mean_direction_aligned_shift_ci95_low'], signed=True)}, "
+            f"{_number(row['mean_direction_aligned_shift_ci95_high'], signed=True)}]</td>"
+            "</tr>"
+        )
+    return "".join(rendered)
+
+
+def _table_answer_query_audit_html(audit: dict[str, Any]) -> str:
+    rendered: list[str] = []
+    for model in MODELS:
+        row = audit["models"][model]
+        rendered.append(
+            "<tr>"
+            f"<td>{html.escape(model)}</td>"
+            f"<td>{row['shards']} / {row['detail_rows']}</td>"
+            f"<td>{row['successful_rows']} / {row['skipped_rows']}</td>"
+            f"<td>{row['patched_valid_rows']} / {row['patched_invalid_rows']}</td>"
+            f"<td>{row['eligible_donor_prediction_rows']}</td>"
+            "<td>verified</td>"
+            "</tr>"
+        )
+    return "".join(rendered)
+
+
+def _answer_query_invalid_html(invalid: pd.DataFrame) -> str:
+    if invalid.empty:
+        return (
+            '<div class="callout"><strong>Strict-format audit.</strong> '
+            "Every patched continuation is a valid integer from 1 through 10.</div>"
+        )
+    models = ", ".join(sorted(invalid["model"].astype(str).unique()))
+    layers = ", ".join(
+        f"L{int(value)}" for value in sorted(pd.to_numeric(invalid["start_layer"]).unique())
+    )
+    first = invalid.iloc[0]
+    return (
+        '<div class="callout"><strong>Strict-format audit: '
+        f"{len(invalid)} invalid rows.</strong> All occur in {html.escape(models)}, "
+        f"{html.escape(str(first['design_variant']))}, seed {int(first['seed'])}, "
+        f"receiver {int(first['receiver_count'])} ← donor {int(first['donor_count'])}, "
+        f"at {layers}. The receiver baseline is <code>"
+        f"{html.escape(str(first['receiver_baseline_completion_text_raw']))}</code> "
+        f"with token IDs <code>{html.escape(str(first['receiver_baseline_generated_token_ids']))}</code>; "
+        f"the donor baseline is <code>{html.escape(str(first['donor_baseline_completion_text_raw']))}</code> "
+        f"with IDs <code>{html.escape(str(first['donor_baseline_generated_token_ids']))}</code>; "
+        f"the patch emits <code>{html.escape(str(first['patched_completion_text_raw']))}</code> "
+        f"with IDs <code>{html.escape(str(first['patched_generated_token_ids']))}</code>. "
+        "This is evidence for prefix transport followed by an unpatched autoregressive "
+        "continuation error: the answer-query state supplies the first digit, whereas the "
+        "next generated step is outside the single-position patch. Invalid eligible rows "
+        "are counted as donor-adoption failures, never dropped from the primary rate.</div>"
+    )
+
+
 def _table_causal_ablation_html(rows: list[dict[str, Any]]) -> str:
     rendered: list[str] = []
     for row in rows:
@@ -1447,6 +1614,7 @@ def _causal_conclusion_html(
     ablation_rows: list[dict[str, Any]],
     patching_rows: list[dict[str, Any]],
     steering_rows: list[dict[str, Any]],
+    answer_query_layer_rows: list[dict[str, Any]],
 ) -> str:
     cards: list[str] = []
     for model in MODELS:
@@ -1488,6 +1656,30 @@ def _causal_conclusion_html(
         f"on at most {100*max_moved:.1f}% of rows at any tested layer. The answer-query "
         "count geometry is causally manipulable late, but the tested single endpoint is not "
         "a sufficient transport channel.</p></div>"
+    )
+    onset_sentences: list[str] = []
+    final_sentences: list[str] = []
+    for row in _answer_query_onset_rows(pd.DataFrame(answer_query_layer_rows)):
+        onset_sentences.append(
+            f"{row['model']} L{int(row['layer'])}: "
+            f"{100*float(row['eligible_donor_adoption_rate']):.1f}% "
+            f"[{100*float(row['eligible_donor_adoption_rate_ci95_low']):.1f}, "
+            f"{100*float(row['eligible_donor_adoption_rate_ci95_high']):.1f}]"
+        )
+    for row in _answer_query_final_rows(pd.DataFrame(answer_query_layer_rows)):
+        final_sentences.append(
+            f"{row['model']} L{int(row['layer'])}: "
+            f"{100*float(row['eligible_donor_adoption_rate']):.2f}%"
+        )
+    cards.append(
+        '<div class="note"><strong>Exact query-state transport.</strong><p>'
+        + "The first significant ≥50% donor-prediction adoption occurs at "
+        + "; ".join(onset_sentences)
+        + ". At the final block the conservative eligible-row adoption rates are "
+        + "; ".join(final_sentences)
+        + ". Thus late answer-query state is a highly sufficient carrier of the "
+        "model's already-computed prediction, sharply contrasting with the null "
+        "needle-end transplant.</p></div>"
     )
     return "".join(cards)
 
@@ -1698,10 +1890,11 @@ footer { padding:24px; color:#6d7475; text-align:center; border-top:1px solid va
 
 <section id="causal">
   <h2>Causal screen: necessity, transport, and manipulability</h2>
-  <p class="lede">The completed <code>screen_8h_v1</code> keeps all four variants and all ten confirmation seeds while narrowing interventions to the most diagnostic conditions. Every row is scored from the complete deterministic greedy continuation after <code>Total:</code>; candidate probabilities never define correctness or effect size.</p>
+  <p class="lede">The completed <code>screen_8h_v1</code> and <code>answer_query_dense_v1</code> campaigns keep all four variants and all ten confirmation seeds while narrowing interventions to the most diagnostic conditions. Every row is scored from the complete deterministic greedy continuation after <code>Total:</code>; candidate probabilities never define correctness or effect size.</p>
   <div class="method-strip">
     <div><strong>Head necessity</strong>Discovery-ranked <code>span_end</code> top-4/top-8 heads are ablated only at the answer-query row for counts 7–10, with one layer-matched random set.</div>
     <div><strong>Endpoint transport</strong>The exact toggled needle-end residual is copied from donor to receiver cumulatively from three matched depths for 5↔6, 7↔8, and 9↔10.</div>
+    <div><strong>Exact query transport</strong>The single residual state at the prompt-final <code>Total:</code> query is copied at eight separate layers for 5↔6, 7↔8, 9↔10, and 5↔10. The donor is another real prompt; no span mean or output-token state is used.</div>
     <div><strong>Query manipulability</strong>Discovery-fit count-centroid deltas steer the answer-query residual for 7↔8, 9↔10, and 5↔10, with an orthogonal norm-matched random vector.</div>
     <div><strong>Inference unit</strong>Point estimates weight prompts equally; intervals resample ten paired seeds after averaging variants and count pairs within seed. Primary sign-flip tests use ten seeds and Holm correction within each intervention family.</div>
   </div>
@@ -1719,18 +1912,31 @@ footer { padding:24px; color:#6d7475; text-align:center; border-top:1px solid va
   <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_PATCHING_SVG@@<figcaption>No random control is needed for the directional null shown here: zero means the exact endpoint transplant does not move output in the donor-count direction. Intervals resample complete confirmation seeds.</figcaption></figure></div>
   <div class="callout"><strong>Interpretation.</strong> The tested endpoint state is not a sufficient count-transport channel. This null does not erase the span-end decoding result: decodability, causal necessity, and cross-prompt transport are different properties. Position-specific routing, multiple needle tokens, or a distributed state may still be required.</div>
 
-  <h3>3. Answer-query geometric steering</h3>
+  <h3>3. Exact answer-query residual patching</h3>
+  <p>This follow-up isolates the prompt-final <code>Total:</code> query state. Each row copies one donor residual vector into the receiver at exactly one layer, then performs complete greedy generation. The primary mechanistic estimand is adoption of the donor model prediction among rows where receiver and donor baseline predictions differ. It is deliberately distinct from donor-gold accuracy: a perfect transport can faithfully copy a donor that was itself wrong.</p>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>rows / seeds</th><th>valid</th><th>eligible n</th><th>adopts donor prediction [95% CI]</th><th>changed (valid)</th><th>moved to donor gold (valid)</th><th>follows donor prediction (valid)</th><th>aligned shift (valid) [95% CI]</th><th>adoption vs L0 Holm p</th></tr></thead><tbody>@@ANSWER_QUERY_LAYER_ROWS@@</tbody></table></div>
+  <div class="stat-grid"><figure class="stat-figure">@@ANSWER_QUERY_ADOPTION_SVG@@<figcaption>Eligible donor-prediction adoption includes strict-invalid continuations as failures. Intervals resample ten complete confirmation seeds. Holm p-values compare each later layer with the model's L0 row using exact paired seed sign flips.</figcaption></figure></div>
+  <h4>Final-layer robustness by panel</h4>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>panel</th><th>rows / seeds</th><th>valid</th><th>eligible adoption [95% CI]</th><th>aligned shift [95% CI]</th></tr></thead><tbody>@@ANSWER_QUERY_VARIANT_ROWS@@</tbody></table></div>
+  <h4>Final-layer transport by directed count pair</h4>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>receiver→donor</th><th>rows / seeds</th><th>valid</th><th>eligible n</th><th>eligible adoption [95% CI]</th><th>follows donor prediction (valid)</th><th>aligned shift [95% CI]</th></tr></thead><tbody>@@ANSWER_QUERY_PAIR_ROWS@@</tbody></table></div>
+  @@ANSWER_QUERY_INVALID@@
+  <div class="callout"><strong>Interpretation.</strong> Transport switches on abruptly between Qwen L18 and L26 and between Gemma L20 and L31. At the final layer, every valid eligible row follows the donor prediction; the conservative rate is 100% for Qwen and 99.58% for Gemma because Gemma's five strict-invalid <code>11</code> continuations count as failures. This establishes sufficiency of the late query state for the computed prediction, not that the state is a clean scalar counter or that the donor prediction is correct.</div>
+
+  <h3>4. Answer-query geometric steering</h3>
   <p>At α=1, the applied vector is the discovery centroid difference from the receiver count to the target count. The primary effect is the generated-count shift aligned with the intended direction, paired against an orthogonal vector with the same norm. <em>Moved</em> and <em>target hit</em> use the intended count path, not token probability.</p>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>pairs / seeds</th><th>changed geom. / random</th><th>moved geom. / random</th><th>Δ moved [95% CI]</th><th>target hit geom. / random</th><th>aligned shift geom. / random</th><th>Δ aligned [95% CI]</th><th>Holm p</th></tr></thead><tbody>@@CAUSAL_STEERING_ROWS@@</tbody></table></div>
   <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_STEERING_SVG@@<figcaption>The late-layer effect is the key positive result: discovery-fit geometry moves held-out greedy outputs in the intended direction beyond a norm-matched orthogonal control.</figcaption></figure></div>
 
-  <h3>4. Discovery centroid geometry</h3>
+  <h3>5. Discovery centroid geometry</h3>
   <p>These diagnostics describe the ten discovery centroids used for steering. Correlation is between count and projection onto the 1→10 endpoint chord; monotonicity is evaluated along that projection. High tortuosity or step CV warns that a monotone coordinate need not be a straight, equally spaced scalar line.</p>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>variants</th><th>endpoint corr. mean (min)</th><th>minimum monotone fraction</th><th>mean step CV</th><th>mean successive-step cosine</th><th>mean tortuosity</th></tr></thead><tbody>@@CAUSAL_GEOMETRY_ROWS@@</tbody></table></div>
 
-  <h3>5. Artifact and label audit</h3>
+  <h3>6. Artifact and label audit</h3>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>ablation shards / rows</th><th>patch families / rows</th><th>steering discovery / families / rows</th><th>greedy-label alignment</th></tr></thead><tbody>@@CAUSAL_AUDIT_ROWS@@</tbody></table></div>
   <div class="callout"><strong>Audit result.</strong> All expected shards and consolidated tables are present; every patch row succeeded; discovery NPZ layer shapes and finite values were checked; causal baselines exactly match the saved behavior labels; patched correctness is recomputed from the final parsed continuation; and no Traceback, OOM, or FAILED marker appears in the campaign logs.</div>
+  <h4>Answer-query dense-patching audit</h4>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>family shards / rows</th><th>successful / skipped</th><th>valid / invalid</th><th>eligible donor-prediction rows</th><th>greedy-label alignment</th></tr></thead><tbody>@@ANSWER_QUERY_AUDIT_ROWS@@</tbody></table></div>
 </section>
 
 <section id="figures">
@@ -1893,6 +2099,14 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
     causal_patching_rows = _causal_patching_rows(causal_frames)
     causal_steering_rows = _causal_steering_rows(causal_frames)
     causal_geometry_rows = _causal_geometry_rows(causal_frames)
+    answer_query_frames, answer_query_audit = _answer_query_frames(run_root)
+    answer_query_layer_rows = answer_query_frames["layer_summary"].to_dict("records")
+    answer_query_variant_rows = _answer_query_final_rows(
+        answer_query_frames["variant_summary"]
+    )
+    answer_query_pair_rows = _answer_query_final_rows(
+        answer_query_frames["pair_summary"]
+    )
     commit = _git_commit(repo_root)
     replacements = {
         "@@COMMIT@@": html.escape(commit[:12]),
@@ -1918,6 +2132,21 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
         "@@CAUSAL_STEERING_ROWS@@": _table_causal_steering_html(causal_steering_rows),
         "@@CAUSAL_GEOMETRY_ROWS@@": _table_causal_geometry_html(causal_geometry_rows),
         "@@CAUSAL_AUDIT_ROWS@@": _table_causal_audit_html(causal_audit),
+        "@@ANSWER_QUERY_LAYER_ROWS@@": _table_answer_query_layer_html(
+            answer_query_layer_rows
+        ),
+        "@@ANSWER_QUERY_VARIANT_ROWS@@": _table_answer_query_variant_html(
+            answer_query_variant_rows
+        ),
+        "@@ANSWER_QUERY_PAIR_ROWS@@": _table_answer_query_pair_html(
+            answer_query_pair_rows
+        ),
+        "@@ANSWER_QUERY_INVALID@@": _answer_query_invalid_html(
+            answer_query_frames["invalid_rows"]
+        ),
+        "@@ANSWER_QUERY_AUDIT_ROWS@@": _table_answer_query_audit_html(
+            answer_query_audit
+        ),
         "@@CAUSAL_ABLATION_SVG@@": _forest_svg(
             causal_ablation_rows,
             estimate_key="count_shift_difference",
@@ -1945,8 +2174,20 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
             axis_label="paired direction-aligned count shift: geometric minus random",
             label=lambda row: f"{row['model']} L{row['layer']}",
         ),
+        "@@ANSWER_QUERY_ADOPTION_SVG@@": _forest_svg(
+            answer_query_layer_rows,
+            estimate_key="eligible_donor_adoption_rate",
+            low_key="eligible_donor_adoption_rate_ci95_low",
+            high_key="eligible_donor_adoption_rate_ci95_high",
+            title="Exact answer-query donor-prediction transport",
+            axis_label="eligible rows adopting donor baseline prediction",
+            label=lambda row: f"{row['model']} L{int(row['layer'])}",
+        ),
         "@@CAUSAL_CONCLUSION@@": _causal_conclusion_html(
-            causal_ablation_rows, causal_patching_rows, causal_steering_rows
+            causal_ablation_rows,
+            causal_patching_rows,
+            causal_steering_rows,
+            answer_query_layer_rows,
         ),
         "@@STATIC_FIGURES@@": _static_figure_html(run_root),
         "@@REP_DATA@@": json.dumps(
@@ -1976,6 +2217,13 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
                 "causal_patching": causal_patching_rows,
                 "causal_steering": causal_steering_rows,
                 "causal_geometry": causal_geometry_rows,
+                "answer_query_audit_validated": bool(answer_query_audit["validated"]),
+                "answer_query_layer": answer_query_layer_rows,
+                "answer_query_final_variant": answer_query_variant_rows,
+                "answer_query_final_pair": answer_query_pair_rows,
+                "answer_query_invalid_rows": int(
+                    len(answer_query_frames["invalid_rows"])
+                ),
                 "commit": commit,
             },
             indent=2,
