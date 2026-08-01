@@ -39,6 +39,7 @@ def test_answer_query_metrics_condition_donor_adoption_on_eligibility() -> None:
             "receiver_count": [5, 6],
             "donor_count": [6, 5],
             "generated_count_shift": [2, 1],
+            "patched_format_valid": [True, True],
             "prediction_changed": [True, True],
             "moved_toward_donor_gold": [True, True],
             "follows_donor_gold": [True, True],
@@ -60,3 +61,26 @@ def test_answer_query_metrics_condition_donor_adoption_on_eligibility() -> None:
     assert pd.isna(second["donor_prediction_distance_reduction"])
     assert pd.isna(second["donor_prediction_transport_fraction"])
     assert second["direction_aligned_shift"] == pytest.approx(-1.0)
+
+
+def test_answer_query_metrics_preserve_invalid_greedy_outputs() -> None:
+    detail = pd.DataFrame(
+        {
+            "baseline_predicted_count": [4],
+            "donor_baseline_predicted_count": [6],
+            "patched_predicted_count": [float("nan")],
+            "receiver_count": [5],
+            "donor_count": [6],
+            "generated_count_shift": [float("nan")],
+            "patched_format_valid": [False],
+            "prediction_changed": [float("nan")],
+            "moved_toward_donor_gold": [float("nan")],
+            "follows_donor_gold": [float("nan")],
+            "follows_donor_prediction": [float("nan")],
+        }
+    )
+    enriched = add_answer_query_metrics(detail).iloc[0]
+    assert enriched["patched_valid_numeric"] == pytest.approx(0.0)
+    assert pd.isna(enriched["prediction_changed_numeric"])
+    assert pd.isna(enriched["follows_donor_prediction_numeric"])
+    assert enriched["donor_prediction_adopted"] == pytest.approx(0.0)

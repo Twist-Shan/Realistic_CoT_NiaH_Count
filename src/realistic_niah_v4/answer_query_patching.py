@@ -95,6 +95,23 @@ def _as_bool(series: pd.Series) -> pd.Series:
     return normalized.eq("true")
 
 
+def _as_nullable_bool_numeric(series: pd.Series) -> pd.Series:
+    result = pd.Series(np.nan, index=series.index, dtype=float)
+    present = series.notna()
+    if not present.any():
+        return result
+    if pd.api.types.is_bool_dtype(series):
+        result.loc[present] = series.loc[present].astype(float)
+        return result
+    normalized = series.loc[present].astype(str).str.strip().str.lower()
+    _require(
+        normalized.isin({"true", "false"}).all(),
+        f"Cannot parse nullable boolean column {series.name}",
+    )
+    result.loc[present] = normalized.eq("true").astype(float)
+    return result
+
+
 def _numeric(series: pd.Series, *, name: str) -> pd.Series:
     values = pd.to_numeric(series, errors="coerce")
     _require(values.notna().all(), f"{name} contains nonnumeric values")
@@ -111,18 +128,21 @@ def add_answer_query_metrics(detail: pd.DataFrame) -> pd.DataFrame:
     generated_shift = pd.to_numeric(frame["generated_count_shift"], errors="coerce")
     direction_sign = np.sign(donor_count - receiver_count)
 
-    frame["prediction_changed_numeric"] = _as_bool(frame["prediction_changed"]).astype(
+    frame["patched_valid_numeric"] = _as_bool(frame["patched_format_valid"]).astype(
         float
     )
-    frame["moved_toward_donor_gold_numeric"] = _as_bool(
+    frame["prediction_changed_numeric"] = _as_nullable_bool_numeric(
+        frame["prediction_changed"]
+    )
+    frame["moved_toward_donor_gold_numeric"] = _as_nullable_bool_numeric(
         frame["moved_toward_donor_gold"]
-    ).astype(float)
-    frame["follows_donor_gold_numeric"] = _as_bool(frame["follows_donor_gold"]).astype(
-        float
     )
-    frame["follows_donor_prediction_numeric"] = _as_bool(
+    frame["follows_donor_gold_numeric"] = _as_nullable_bool_numeric(
+        frame["follows_donor_gold"]
+    )
+    frame["follows_donor_prediction_numeric"] = _as_nullable_bool_numeric(
         frame["follows_donor_prediction"]
-    ).astype(float)
+    )
     frame["direction_aligned_shift"] = generated_shift * direction_sign
     frame["canonical_pair"] = [
         f"{min(int(receiver), int(target))}<->{max(int(receiver), int(target))}"
@@ -196,57 +216,81 @@ def _validate_derived_fields(detail: pd.DataFrame, *, context: str) -> None:
         not _as_bool(detail["patched_generation_truncated"]).any(),
         f"{context}: at least one generation was truncated",
     )
-    _require(
-        _as_bool(detail["patched_format_valid"]).all(),
-        f"{context}: at least one patched output is not numeric",
-    )
+    valid = _as_bool(detail["patched_format_valid"])
     baseline = _numeric(
         detail["baseline_predicted_count"], name="baseline_predicted_count"
     )
-    patched = _numeric(
-        detail["patched_predicted_count"], name="patched_predicted_count"
-    )
+    patched = pd.to_numeric(detail["patched_predicted_count"], errors="coerce")
     donor_prediction = _numeric(
         detail["donor_baseline_predicted_count"],
         name="donor_baseline_predicted_count",
     )
     donor_gold = _numeric(detail["donor_count"], name="donor_count")
-    generated_shift = _numeric(
-        detail["generated_count_shift"], name="generated_count_shift"
+    generated_shift = pd.to_numeric(detail["generated_count_shift"], errors="coerce")
+    _require(
+        patched.loc[valid].notna().all() and patched.loc[~valid].isna().all(),
+        f"{context}: patched numeric value disagrees with format validity",
     )
+    observed_changed = _as_nullable_bool_numeric(detail["prediction_changed"])
     _require(
         np.array_equal(
-            _as_bool(detail["prediction_changed"]).to_numpy(),
-            baseline.ne(patched).to_numpy(),
+            observed_changed.loc[valid].astype(bool).to_numpy(),
+            baseline.loc[valid].ne(patched.loc[valid]).to_numpy(),
         ),
         f"{context}: prediction_changed is inconsistent",
     )
     _require(
-        np.allclose(generated_shift.to_numpy(), (patched - baseline).to_numpy()),
-        f"{context}: generated_count_shift is inconsistent",
+        observed_changed.loc[~valid].isna().all(),
+        f"{context}: invalid rows must not have prediction_changed labels",
     )
     _require(
+        np.allclose(
+            generated_shift.loc[valid].to_numpy(),
+            (patched.loc[valid] - baseline.loc[valid]).to_numpy(),
+        )
+        and generated_shift.loc[~valid].isna().all(),
+        f"{context}: generated_count_shift is inconsistent",
+    )
+    observed_donor_gold = _as_nullable_bool_numeric(detail["follows_donor_gold"])
+    _require(
         np.array_equal(
-            _as_bool(detail["follows_donor_gold"]).to_numpy(),
-            patched.eq(donor_gold).to_numpy(),
+            observed_donor_gold.loc[valid].astype(bool).to_numpy(),
+            patched.loc[valid].eq(donor_gold.loc[valid]).to_numpy(),
         ),
         f"{context}: follows_donor_gold is inconsistent",
     )
+    observed_donor_prediction = _as_nullable_bool_numeric(
+        detail["follows_donor_prediction"]
+    )
     _require(
         np.array_equal(
-            _as_bool(detail["follows_donor_prediction"]).to_numpy(),
-            patched.eq(donor_prediction).to_numpy(),
+            observed_donor_prediction.loc[valid].astype(bool).to_numpy(),
+            patched.loc[valid].eq(donor_prediction.loc[valid]).to_numpy(),
         ),
         f"{context}: follows_donor_prediction is inconsistent",
     )
-    expected_moved = (patched - donor_gold).abs().lt((baseline - donor_gold).abs())
+    expected_moved = (
+        (patched.loc[valid] - donor_gold.loc[valid])
+        .abs()
+        .lt((baseline.loc[valid] - donor_gold.loc[valid]).abs())
+    )
+    observed_moved = _as_nullable_bool_numeric(detail["moved_toward_donor_gold"])
     _require(
         np.array_equal(
-            _as_bool(detail["moved_toward_donor_gold"]).to_numpy(),
+            observed_moved.loc[valid].astype(bool).to_numpy(),
             expected_moved.to_numpy(),
         ),
         f"{context}: moved_toward_donor_gold is inconsistent",
     )
+    for name, observed in (
+        ("follows_donor_gold", observed_donor_gold),
+        ("follows_donor_prediction", observed_donor_prediction),
+        ("moved_toward_donor_gold", observed_moved),
+    ):
+        _require(
+            observed.loc[~valid].isna().all(),
+            f"{context}: invalid rows must not have {name} labels",
+        )
 
 
 def _validate_family_cartesian(
@@ -322,6 +366,12 @@ def audit_answer_query_patching(run_root: str | Path) -> dict[str, Any]:
                 "design": str(design.root.relative_to(root)),
                 "successful_rows": int(detail["status"].eq("ok").sum()),
                 "skipped_rows": int(detail["status"].ne("ok").sum()),
+                "patched_valid_rows": int(
+                    _as_bool(detail["patched_format_valid"]).sum()
+                ),
+                "patched_invalid_rows": int(
+                    (~_as_bool(detail["patched_format_valid"])).sum()
+                ),
                 "summary_rows": _table_row_count(
                     design.root / "summary.csv",
                     required_columns={
@@ -477,6 +527,7 @@ def analyze_answer_query_patching(
                 ),
             }
             metrics = {
+                "patched_valid_rate": "patched_valid_numeric",
                 "changed_rate": "prediction_changed_numeric",
                 "moved_toward_donor_gold_rate": "moved_toward_donor_gold_numeric",
                 "follows_donor_gold_rate": "follows_donor_gold_numeric",
