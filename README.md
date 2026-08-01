@@ -33,6 +33,7 @@ Remote: <https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git>
 | --- | --- | --- |
 | Run the Realistic NIAH V4 mechanism study | `scripts/freeze_realistic_niah_v4.py`, `scripts/run_realistic_niah_v4.py` | [`docs/realistic_niah_v4.md`](docs/realistic_niah_v4.md) |
 | Inspect the completed V4 numeric non-thinking run | `run_20260731_v4_numeric_presentation_v3` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md) |
+| Open or rebuild the V4 representation report | [`reports/realistic_niah_v4_representation_report.html`](reports/realistic_niah_v4_representation_report.html), `scripts/build_realistic_niah_v4_representation_report.py` | [`docs/realistic_niah_v4_numeric_results_20260731.md#interactive-representation-report`](docs/realistic_niah_v4_numeric_results_20260731.md#interactive-representation-report) |
 | Analyze all Qwen span-end candidates and multi-head coverage | `scripts/analyze_realistic_niah_v4_partitioning.py` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md#qwen-span-end-full-candidate-bank-and-positional-partitioning) |
 | Run or audit Realistic NIAH V3 | `scripts/freeze_realistic_niah_v3.py`, `scripts/launch_realistic_niah_v3.sh` | [`docs/realistic_niah_v3.md`](docs/realistic_niah_v3.md) |
 | Inspect the executable V3 registry | `src/realistic_niah_v3/spec.py`, `configs/realistic_niah_v3.json` | `tests/test_realistic_niah_v3.py` |
@@ -209,6 +210,20 @@ evaluated on held-out confirmation seeds with norm-matched random controls. See
 [`docs/realistic_niah_v4.md`](docs/realistic_niah_v4.md) for exact estimands,
 discovery/confirmation separation, formulas, commands, outputs, and
 interpretation limits.
+
+Build the self-contained V4 representation report from a downloaded run with:
+
+```bash
+python scripts/build_realistic_niah_v4_representation_report.py \
+  --run-root /path/to/run_20260731_v4_numeric_presentation_v3 \
+  --output reports/realistic_niah_v4_representation_report.html \
+  --repo-root .
+```
+
+The report embeds the original 2D audit panels and a draggable, zoomable 3D
+counter view. Within each model/pooling panel, PCA is fit on v4.1 discovery at
+the registered primary layer and reused for all variants; PC1--PC6, split,
+variant, and actual greedy correct/wrong strata are switchable.
 
 ## Registered Realistic NIAH V3
 

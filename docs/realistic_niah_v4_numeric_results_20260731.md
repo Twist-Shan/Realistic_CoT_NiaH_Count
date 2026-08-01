@@ -98,6 +98,26 @@ span-mean result is strongly dependent on the fixed city-score organization and
 does not survive the v4.3 relaxation. PCA alone should not be treated as causal
 or as proof of an abstract counter.
 
+### Interactive representation report
+
+[`reports/realistic_niah_v4_representation_report.html`](../reports/realistic_niah_v4_representation_report.html)
+is a self-contained, v10-style audit report over the downloaded representation
+captures. It includes the registered primary-layer tables, paired seed
+sensitivity results, original 2D figures, and an interactive 3D count manifold.
+The 3D view keeps individual seed points and split-specific 1--10 centroid
+paths, and allows switching model, span-end/span-mean pooling, v4.1--v4.4,
+discovery/confirmation, actual greedy output strata, and any displayed axes
+among PC1--PC6.
+
+Each model/pooling basis is fit only on v4.1 discovery states at that pooling's
+registered primary layer, then reused across all four variants. Bases are not
+shared across models or poolings. Because the representation capture consists
+of N=10 trajectories, correct/wrong coloring uses the actual greedy N=10
+output for the whole trajectory. This stratum is severely imbalanced: Qwen has
+no correct N=10 confirmation trajectory; Gemma has one in v4.1 and none in
+v4.2--v4.4. The outcome switch is therefore an audit, not a powered group
+comparison.
+
 ## Answer-query attention
 
 Discovery-only rankings are stable under 500 seed bootstraps, but `span_end`
