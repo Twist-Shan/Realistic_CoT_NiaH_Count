@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import html
 import json
 import math
@@ -233,6 +234,353 @@ def _sensitivity_rows(run_root: Path) -> list[dict[str, Any]]:
     return result
 
 
+def _stable_seed(label: str) -> int:
+    digest = hashlib.sha256(label.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "little") % (2**32)
+
+
+def _seed_bootstrap(
+    values: np.ndarray,
+    *,
+    label: str,
+    iterations: int = 20_000,
+) -> tuple[float, float, float]:
+    values = np.asarray(values, dtype=float)
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return math.nan, math.nan, math.nan
+    estimate = float(values.mean())
+    rng = np.random.default_rng(_stable_seed(label))
+    sampled = values[
+        rng.integers(0, values.size, size=(int(iterations), values.size))
+    ].mean(axis=1)
+    low, high = np.quantile(sampled, [0.025, 0.975])
+    return estimate, float(low), float(high)
+
+
+def _exact_sign_flip_p(values: np.ndarray) -> float:
+    """Two-sided exact sign-flip p-value for one seed-level paired contrast."""
+    values = np.asarray(values, dtype=float)
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return math.nan
+    if values.size > 20:
+        raise ValueError("Exact sign-flip enumeration is capped at 20 clusters")
+    observed = abs(float(values.mean()))
+    assignments = np.arange(1 << values.size, dtype=np.uint64)[:, None]
+    bits = (assignments >> np.arange(values.size, dtype=np.uint64)) & 1
+    signs = bits.astype(float) * 2.0 - 1.0
+    permuted = np.abs(signs @ values / values.size)
+    return float(np.mean(permuted >= observed - 1e-12))
+
+
+def _holm_adjust(p_values: list[float]) -> list[float]:
+    adjusted = [math.nan] * len(p_values)
+    finite = [index for index, value in enumerate(p_values) if math.isfinite(value)]
+    ordered = sorted(finite, key=lambda index: p_values[index])
+    running = 0.0
+    total = len(ordered)
+    for rank, index in enumerate(ordered):
+        candidate = min(1.0, (total - rank) * p_values[index])
+        running = max(running, candidate)
+        adjusted[index] = running
+    return adjusted
+
+
+def _p_value(value: Any) -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if not math.isfinite(numeric):
+        return "—"
+    if numeric < 0.001:
+        return "&lt;0.001"
+    return f"{numeric:.3f}"
+
+
+def _span_end_undercount_frame(run_root: Path, model: str) -> pd.DataFrame:
+    path = (
+        run_root
+        / model
+        / "numeric"
+        / "attention"
+        / "analysis"
+        / "tables"
+        / "omission_diagnostics.csv"
+    )
+    frame = pd.read_csv(path)
+    frame = frame[
+        (frame["split"] == "confirmation")
+        & (frame["pooling"] == "span_end")
+        & (pd.to_numeric(frame["omission_count"], errors="coerce") > 0)
+    ].copy()
+    if frame.empty:
+        raise RuntimeError(f"No confirmation span-end undercounts in {path}")
+    selected_counts = pd.to_numeric(
+        frame["selected_head_count"], errors="raise"
+    ).astype(int)
+    if not (selected_counts == 8).all():
+        raise RuntimeError(f"Expected an eight-head discovery ensemble in {path}")
+    frame["count"] = pd.to_numeric(frame["count"], errors="raise").astype(int)
+    frame["omission_count"] = pd.to_numeric(
+        frame["omission_count"], errors="raise"
+    ).astype(int)
+    invalid_k = (frame["omission_count"] <= 0) | (
+        frame["omission_count"] > frame["count"]
+    )
+    if invalid_k.any():
+        raise RuntimeError(f"Invalid undercount magnitude in {path}")
+    frame["overlap"] = pd.to_numeric(
+        frame["bottom_k_tail_overlap_fraction"], errors="raise"
+    )
+    frame["overlap_count"] = pd.to_numeric(
+        frame["bottom_k_tail_overlap"], errors="raise"
+    ).astype(int)
+    frame["chance"] = frame["omission_count"] / frame["count"]
+    frame["delta"] = frame["overlap"] - frame["chance"]
+    frame["exact"] = (
+        frame["overlap_count"] == frame["omission_count"]
+    ).astype(float)
+    frame["exact_chance"] = [
+        1.0 / math.comb(int(count), int(k))
+        for count, k in zip(frame["count"], frame["omission_count"])
+    ]
+    frame["exact_delta"] = frame["exact"] - frame["exact_chance"]
+    frame["tail_prefix_ratio"] = pd.to_numeric(
+        frame["undercount_tail_to_prefix_ratio"], errors="coerce"
+    )
+    return frame
+
+
+def _span_end_alignment_rows(run_root: Path) -> list[dict[str, Any]]:
+    """Variant-level confirmation tail alignment with seed-cluster inference."""
+    results: list[dict[str, Any]] = []
+    for model in MODELS:
+        frame = _span_end_undercount_frame(run_root, model)
+
+        for variant in VARIANTS:
+            selected = frame[frame["design_variant"] == variant].copy()
+            if selected.empty:
+                raise RuntimeError(f"No {model}/{variant} span-end undercounts")
+            by_seed = selected.groupby("seed", sort=True)[
+                [
+                    "overlap",
+                    "chance",
+                    "delta",
+                    "exact",
+                    "exact_chance",
+                    "exact_delta",
+                    "tail_prefix_ratio",
+                ]
+            ].mean()
+            delta_est, delta_low, delta_high = _seed_bootstrap(
+                by_seed["delta"].to_numpy(),
+                label=f"tail-delta|{model}|{variant}",
+            )
+            exact_est, exact_low, exact_high = _seed_bootstrap(
+                by_seed["exact_delta"].to_numpy(),
+                label=f"tail-exact-delta|{model}|{variant}",
+            )
+            results.append(
+                {
+                    "model": model,
+                    "variant": variant,
+                    "prompts": int(len(selected)),
+                    "seeds": int(by_seed.shape[0]),
+                    "mean_k": float(selected["omission_count"].mean()),
+                    "overlap": float(by_seed["overlap"].mean()),
+                    "chance": float(by_seed["chance"].mean()),
+                    "delta": delta_est,
+                    "delta_low": delta_low,
+                    "delta_high": delta_high,
+                    "p_raw": _exact_sign_flip_p(by_seed["delta"].to_numpy()),
+                    "exact": float(by_seed["exact"].mean()),
+                    "exact_chance": float(by_seed["exact_chance"].mean()),
+                    "exact_delta": exact_est,
+                    "exact_delta_low": exact_low,
+                    "exact_delta_high": exact_high,
+                    "tail_prefix_ratio": float(by_seed["tail_prefix_ratio"].mean()),
+                }
+            )
+
+    adjusted = _holm_adjust([float(row["p_raw"]) for row in results])
+    for row, value in zip(results, adjusted):
+        row["p_holm"] = value
+    return results
+
+
+def _span_end_pooled_rows(run_root: Path) -> list[dict[str, Any]]:
+    """Equal-variant-weight model-level summary; every seed contributes once."""
+    results: list[dict[str, Any]] = []
+    metrics = [
+        "overlap",
+        "chance",
+        "delta",
+        "exact",
+        "exact_chance",
+        "exact_delta",
+        "tail_prefix_ratio",
+    ]
+    for model in MODELS:
+        frame = _span_end_undercount_frame(run_root, model)
+        seed_variant = frame.groupby(["seed", "design_variant"], sort=True)[
+            metrics
+        ].mean()
+        variant_counts = seed_variant.reset_index().groupby("seed")[
+            "design_variant"
+        ].nunique()
+        if not (variant_counts == len(VARIANTS)).all():
+            raise RuntimeError(f"Incomplete pooled span-end variants for {model}")
+        by_seed = seed_variant.groupby("seed", sort=True)[metrics].mean()
+        delta_est, delta_low, delta_high = _seed_bootstrap(
+            by_seed["delta"].to_numpy(),
+            label=f"tail-pooled-delta|{model}",
+        )
+        exact_est, exact_low, exact_high = _seed_bootstrap(
+            by_seed["exact_delta"].to_numpy(),
+            label=f"tail-pooled-exact-delta|{model}",
+        )
+        results.append(
+            {
+                "model": model,
+                "seeds": int(len(by_seed)),
+                "overlap": float(by_seed["overlap"].mean()),
+                "chance": float(by_seed["chance"].mean()),
+                "delta": delta_est,
+                "delta_low": delta_low,
+                "delta_high": delta_high,
+                "p_raw": _exact_sign_flip_p(by_seed["delta"].to_numpy()),
+                "exact": float(by_seed["exact"].mean()),
+                "exact_chance": float(by_seed["exact_chance"].mean()),
+                "exact_delta": exact_est,
+                "exact_delta_low": exact_low,
+                "exact_delta_high": exact_high,
+                "tail_prefix_ratio": float(by_seed["tail_prefix_ratio"].mean()),
+            }
+        )
+    adjusted = _holm_adjust([float(row["p_raw"]) for row in results])
+    for row, value in zip(results, adjusted):
+        row["p_holm"] = value
+    return results
+
+
+def _span_end_nested_rows(run_root: Path) -> list[dict[str, Any]]:
+    """Exact new-needle diagnostic on undercount-ending nested transitions."""
+    results: list[dict[str, Any]] = []
+    for model in MODELS:
+        path = (
+            run_root
+            / model
+            / "numeric"
+            / "attention"
+            / "analysis"
+            / "tables"
+            / "nested_increment_diagnostics.csv"
+        )
+        frame = pd.read_csv(path)
+        frame = frame[
+            (frame["split"] == "confirmation")
+            & (frame["pooling"] == "span_end")
+            & (pd.to_numeric(frame["count"], errors="coerce") >= 2)
+            & (pd.to_numeric(frame["omission_count"], errors="coerce") > 0)
+            & frame["increment_status"].isin(
+                ["failed_to_increment", "registered_plus_one"]
+            )
+        ].copy()
+        frame["omission_count"] = pd.to_numeric(
+            frame["omission_count"], errors="raise"
+        ).astype(int)
+        frame["new_needle_low_attention_rank"] = pd.to_numeric(
+            frame["new_needle_low_attention_rank"], errors="raise"
+        ).astype(int)
+        frame["new_needle_normalized_share"] = pd.to_numeric(
+            frame["new_needle_normalized_share"], errors="raise"
+        )
+        frame["new_in_bottom_k"] = (
+            frame["new_needle_low_attention_rank"] <= frame["omission_count"]
+        ).astype(float)
+        status_names = {
+            "failed_to_increment": "failed",
+            "registered_plus_one": "registered",
+        }
+        frame["status"] = frame["increment_status"].map(status_names)
+
+        block_status = frame.groupby(
+            ["seed", "design_variant", "status"], sort=True
+        )[
+            ["new_in_bottom_k", "new_needle_normalized_share"]
+        ].mean()
+        wide_bottom = block_status["new_in_bottom_k"].unstack("status").dropna()
+        wide_share = block_status["new_needle_normalized_share"].unstack(
+            "status"
+        ).dropna()
+        if not {"failed", "registered"}.issubset(wide_bottom.columns):
+            raise RuntimeError(f"Missing paired nested statuses in {path}")
+        common_blocks = wide_bottom.index.intersection(wide_share.index)
+        wide_bottom = wide_bottom.loc[common_blocks]
+        wide_share = wide_share.loc[common_blocks]
+        paired_mask = frame.set_index(["seed", "design_variant"]).index.isin(
+            common_blocks
+        )
+        paired_frame = frame.loc[paired_mask]
+        seed_bottom = wide_bottom.groupby(level="seed").mean()
+        seed_share = wide_share.groupby(level="seed").mean()
+        bottom_difference = (
+            wide_bottom["failed"] - wide_bottom["registered"]
+        ).groupby(level="seed").mean().to_numpy()
+        share_difference = (
+            wide_share["registered"] - wide_share["failed"]
+        ).groupby(level="seed").mean().to_numpy()
+        bottom_est, bottom_low, bottom_high = _seed_bootstrap(
+            bottom_difference,
+            label=f"nested-bottom-difference|{model}",
+        )
+        share_est, share_low, share_high = _seed_bootstrap(
+            share_difference,
+            label=f"nested-share-difference|{model}",
+        )
+        failed_rate, failed_low, failed_high = _seed_bootstrap(
+            seed_bottom["failed"].to_numpy(),
+            label=f"nested-failed-rate|{model}",
+        )
+        registered_rate, registered_low, registered_high = _seed_bootstrap(
+            seed_bottom["registered"].to_numpy(),
+            label=f"nested-registered-rate|{model}",
+        )
+        results.append(
+            {
+                "model": model,
+                "paired_seeds": int(seed_bottom.shape[0]),
+                "paired_blocks": int(len(common_blocks)),
+                "failed_n": int((paired_frame["status"] == "failed").sum()),
+                "registered_n": int((paired_frame["status"] == "registered").sum()),
+                "failed_bottom": failed_rate,
+                "failed_bottom_low": failed_low,
+                "failed_bottom_high": failed_high,
+                "registered_bottom": registered_rate,
+                "registered_bottom_low": registered_low,
+                "registered_bottom_high": registered_high,
+                "bottom_difference": bottom_est,
+                "bottom_difference_low": bottom_low,
+                "bottom_difference_high": bottom_high,
+                "bottom_p_raw": _exact_sign_flip_p(bottom_difference),
+                "failed_share": float(seed_share["failed"].mean()),
+                "registered_share": float(seed_share["registered"].mean()),
+                "share_difference": share_est,
+                "share_difference_low": share_low,
+                "share_difference_high": share_high,
+                "share_p_raw": _exact_sign_flip_p(share_difference),
+            }
+        )
+
+    for field in ("bottom", "share"):
+        adjusted = _holm_adjust([float(row[f"{field}_p_raw"]) for row in results])
+        for row, value in zip(results, adjusted):
+            row[f"{field}_p_holm"] = value
+    return results
+
+
 def _table_metric_html(rows: list[dict[str, Any]]) -> str:
     body: list[str] = []
     for row in rows:
@@ -285,6 +633,273 @@ def _table_sensitivity_html(rows: list[dict[str, Any]]) -> str:
             "</tr>"
         )
     return "\n".join(body)
+
+
+def _table_span_end_alignment_html(rows: list[dict[str, Any]]) -> str:
+    body: list[str] = []
+    for row in rows:
+        body.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['model']))}</td>"
+            f"<td>{html.escape(str(row['variant']))}</td>"
+            f"<td>{int(row['prompts'])} / {int(row['seeds'])}</td>"
+            f"<td>{_number(row['mean_k'], 2)}</td>"
+            f"<td>{_number(row['overlap'])}</td>"
+            f"<td>{_number(row['chance'])}</td>"
+            f"<td>{_number(row['delta'], signed=True)} "
+            f"[{_number(row['delta_low'])}, {_number(row['delta_high'])}]</td>"
+            f"<td>{_p_value(row['p_holm'])}</td>"
+            f"<td>{_number(row['exact'])} / {_number(row['exact_chance'])}</td>"
+            f"<td>{_number(row['exact_delta'], signed=True)} "
+            f"[{_number(row['exact_delta_low'])}, {_number(row['exact_delta_high'])}]</td>"
+            f"<td>{_number(row['tail_prefix_ratio'])}</td>"
+            "</tr>"
+        )
+    return "\n".join(body)
+
+
+def _table_span_end_pooled_html(rows: list[dict[str, Any]]) -> str:
+    body: list[str] = []
+    for row in rows:
+        body.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['model']))}</td>"
+            f"<td>{int(row['seeds'])}</td>"
+            f"<td>{_number(row['overlap'])} / {_number(row['chance'])}</td>"
+            f"<td>{_number(row['delta'], signed=True)} "
+            f"[{_number(row['delta_low'])}, {_number(row['delta_high'])}]</td>"
+            f"<td>{_p_value(row['p_holm'])}</td>"
+            f"<td>{_number(row['exact'])} / {_number(row['exact_chance'])}</td>"
+            f"<td>{_number(row['exact_delta'], signed=True)} "
+            f"[{_number(row['exact_delta_low'])}, {_number(row['exact_delta_high'])}]</td>"
+            f"<td>{_number(row['tail_prefix_ratio'])}</td>"
+            "</tr>"
+        )
+    return "\n".join(body)
+
+
+def _table_span_end_nested_html(rows: list[dict[str, Any]]) -> str:
+    body: list[str] = []
+    for row in rows:
+        body.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['model']))}</td>"
+            f"<td>{int(row['failed_n'])} / {int(row['registered_n'])}</td>"
+            f"<td>{int(row['paired_blocks'])} / {int(row['paired_seeds'])}</td>"
+            f"<td>{_number(row['failed_bottom'])} / "
+            f"{_number(row['registered_bottom'])}</td>"
+            f"<td>{_number(row['bottom_difference'], signed=True)} "
+            f"[{_number(row['bottom_difference_low'])}, "
+            f"{_number(row['bottom_difference_high'])}]</td>"
+            f"<td>{_p_value(row['bottom_p_holm'])}</td>"
+            f"<td>{_number(row['failed_share'])} / "
+            f"{_number(row['registered_share'])}</td>"
+            f"<td>{_number(row['share_difference'], signed=True)} "
+            f"[{_number(row['share_difference_low'])}, "
+            f"{_number(row['share_difference_high'])}]</td>"
+            f"<td>{_p_value(row['share_p_holm'])}</td>"
+            "</tr>"
+        )
+    return "\n".join(body)
+
+
+def _span_end_alignment_svg(rows: list[dict[str, Any]]) -> str:
+    width, height = 1040, 390
+    panel_lefts = [70, 570]
+    panel_width = 390
+    x_max = 0.70
+
+    def x_position(value: float, panel_left: float) -> float:
+        return panel_left + max(0.0, min(x_max, value)) / x_max * panel_width
+
+    parts = [
+        f'<svg class="stat-svg" viewBox="0 0 {width} {height}" role="img" '
+        'aria-labelledby="tail-plot-title tail-plot-desc">',
+        '<title id="tail-plot-title">Span-end tail and bottom-k overlap versus chance</title>',
+        '<desc id="tail-plot-desc">Observed overlap is above the hypergeometric chance baseline in most model and variant panels.</desc>',
+        '<rect width="1040" height="390" fill="#fffdf8"/>',
+        '<g font-family="Inter,system-ui,sans-serif" fill="#172128">',
+    ]
+    for panel_index, model in enumerate(MODELS):
+        left = panel_lefts[panel_index]
+        parts.append(
+            f'<text x="{left}" y="34" font-size="17" font-weight="700">'
+            f'{html.escape(model)}</text>'
+        )
+        for tick in np.arange(0.0, x_max + 0.001, 0.1):
+            x = x_position(float(tick), left)
+            parts.append(
+                f'<line x1="{x:.1f}" y1="55" x2="{x:.1f}" y2="315" '
+                'stroke="#e5dfd3" stroke-width="1"/>'
+            )
+            parts.append(
+                f'<text x="{x:.1f}" y="338" text-anchor="middle" '
+                f'font-size="11" fill="#66727a">{tick:.1f}</text>'
+            )
+        model_rows = [row for row in rows if row["model"] == model]
+        for row_index, row in enumerate(model_rows):
+            y = 88 + row_index * 58
+            chance_x = x_position(float(row["chance"]), left)
+            observed_x = x_position(float(row["overlap"]), left)
+            ci_low_x = x_position(
+                float(row["chance"]) + float(row["delta_low"]), left
+            )
+            ci_high_x = x_position(
+                float(row["chance"]) + float(row["delta_high"]), left
+            )
+            parts.extend(
+                [
+                    f'<text x="{left - 12}" y="{y + 4}" text-anchor="end" '
+                    f'font-size="12" font-weight="650">{html.escape(str(row["variant"]))}</text>',
+                    f'<line x1="{chance_x:.1f}" y1="{y}" x2="{observed_x:.1f}" '
+                    f'y2="{y}" stroke="#9aa5a8" stroke-width="2"/>',
+                    f'<line x1="{ci_low_x:.1f}" y1="{y}" x2="{ci_high_x:.1f}" '
+                    f'y2="{y}" stroke="#2e5d72" stroke-width="5" stroke-linecap="round" opacity=".42"/>',
+                    f'<path d="M {chance_x:.1f} {y - 6} L {chance_x + 6:.1f} {y} '
+                    f'L {chance_x:.1f} {y + 6} L {chance_x - 6:.1f} {y} Z" fill="#b08430"/>',
+                    f'<circle cx="{observed_x:.1f}" cy="{y}" r="6" fill="#2e5d72" stroke="#fffdf8" stroke-width="1.5"/>',
+                    f'<text x="{left + panel_width + 9}" y="{y + 4}" font-size="11" fill="#3d4c53">'
+                    f'Δ {_number(row["delta"], signed=True)}</text>',
+                ]
+            )
+        parts.append(
+            f'<text x="{left + panel_width / 2:.1f}" y="365" text-anchor="middle" '
+            'font-size="12" fill="#66727a">tail overlap fraction</text>'
+        )
+    parts.extend(
+        [
+            '<path d="M 761 28 L 767 34 L 761 40 L 755 34 Z" fill="#b08430"/>',
+            '<text x="774" y="38" font-size="11" fill="#66727a">hypergeometric chance</text>',
+            '<circle cx="910" cy="34" r="6" fill="#2e5d72"/>',
+            '<text x="920" y="38" font-size="11" fill="#66727a">observed (95% seed CI)</text>',
+            '</g></svg>',
+        ]
+    )
+    return "".join(parts)
+
+
+def _span_end_nested_svg(rows: list[dict[str, Any]]) -> str:
+    width, height = 920, 290
+    left, plot_width, x_max = 180, 570, 0.70
+
+    def x_position(value: float) -> float:
+        return left + max(0.0, min(x_max, value)) / x_max * plot_width
+
+    parts = [
+        f'<svg class="stat-svg" viewBox="0 0 {width} {height}" role="img" '
+        'aria-labelledby="nested-plot-title nested-plot-desc">',
+        '<title id="nested-plot-title">New needle bottom-k attention risk by increment status</title>',
+        '<desc id="nested-plot-desc">The newly introduced needle is more often in the lowest-attention set when the output fails to increment.</desc>',
+        '<rect width="920" height="290" fill="#fffdf8"/>',
+        '<g font-family="Inter,system-ui,sans-serif" fill="#172128">',
+    ]
+    for tick in np.arange(0.0, x_max + 0.001, 0.1):
+        x = x_position(float(tick))
+        parts.append(
+            f'<line x1="{x:.1f}" y1="48" x2="{x:.1f}" y2="222" '
+            'stroke="#e5dfd3" stroke-width="1"/>'
+        )
+        parts.append(
+            f'<text x="{x:.1f}" y="244" text-anchor="middle" font-size="11" '
+            f'fill="#66727a">{tick:.1f}</text>'
+        )
+    for row_index, row in enumerate(rows):
+        center_y = 92 + row_index * 88
+        parts.append(
+            f'<text x="{left - 18}" y="{center_y + 4}" text-anchor="end" '
+            f'font-size="14" font-weight="700">{html.escape(str(row["model"]))}</text>'
+        )
+        for status, color, offset in (
+            ("failed", "#a0443e", -12),
+            ("registered", "#47705e", 12),
+        ):
+            value = float(row[f"{status}_bottom"])
+            low = float(row[f"{status}_bottom_low"])
+            high = float(row[f"{status}_bottom_high"])
+            y = center_y + offset
+            parts.extend(
+                [
+                    f'<line x1="{x_position(low):.1f}" y1="{y}" '
+                    f'x2="{x_position(high):.1f}" y2="{y}" stroke="{color}" '
+                    'stroke-width="4" stroke-linecap="round" opacity=".42"/>',
+                    f'<circle cx="{x_position(value):.1f}" cy="{y}" r="6" '
+                    f'fill="{color}" stroke="#fffdf8" stroke-width="1.5"/>',
+                ]
+            )
+        parts.append(
+            f'<text x="770" y="{center_y + 4}" font-size="11" fill="#3d4c53">'
+            f'RD {_number(row["bottom_difference"], signed=True)} '
+            f'[{_number(row["bottom_difference_low"])}, {_number(row["bottom_difference_high"])}]'
+            '</text>'
+        )
+    parts.extend(
+        [
+            '<circle cx="590" cy="25" r="6" fill="#a0443e"/><text x="601" y="29" font-size="11" fill="#66727a">failed to increment</text>',
+            '<circle cx="720" cy="25" r="6" fill="#47705e"/><text x="731" y="29" font-size="11" fill="#66727a">registered +1</text>',
+            '<text x="465" y="273" text-anchor="middle" font-size="12" fill="#66727a">P(new needle is in current bottom-k attention set)</text>',
+            '</g></svg>',
+        ]
+    )
+    return "".join(parts)
+
+
+def _variant_list(values: list[str]) -> str:
+    if not values:
+        return "none"
+    if len(values) == 1:
+        return values[0]
+    return ", ".join(values[:-1]) + f", and {values[-1]}"
+
+
+def _span_end_conclusion_html(
+    pooled_rows: list[dict[str, Any]],
+    alignment_rows: list[dict[str, Any]],
+    nested_rows: list[dict[str, Any]],
+) -> str:
+    cards: list[str] = []
+    for model in MODELS:
+        selected = [row for row in alignment_rows if row["model"] == model]
+        pooled = next(row for row in pooled_rows if row["model"] == model)
+        positive_ci = [
+            str(row["variant"]) for row in selected if float(row["delta_low"]) > 0
+        ]
+        holm = [
+            str(row["variant"]) for row in selected if float(row["p_holm"]) < 0.05
+        ]
+        cards.append(
+            '<div class="note"><strong>'
+            + html.escape(model)
+            + " tail alignment.</strong><p>The equal-variant pooled contrast is "
+            + _number(pooled["delta"], signed=True)
+            + " ["
+            + _number(pooled["delta_low"])
+            + ", "
+            + _number(pooled["delta_high"])
+            + "], Holm p="
+            + _p_value(pooled["p_holm"])
+            + ". All four variant point estimates are above chance. "
+            + "The 95% seed-cluster interval excludes zero for "
+            + html.escape(_variant_list(positive_ci))
+            + "; the exact sign-flip test remains below 0.05 after Holm correction for "
+            + html.escape(_variant_list(holm))
+            + ".</p></div>"
+        )
+    nested_sentences: list[str] = []
+    for row in nested_rows:
+        nested_sentences.append(
+            f"{html.escape(str(row['model']))}: risk difference "
+            f"{_number(row['bottom_difference'], signed=True)} "
+            f"[{_number(row['bottom_difference_low'])}, "
+            f"{_number(row['bottom_difference_high'])}], "
+            f"Holm p={_p_value(row['bottom_p_holm'])}"
+        )
+    cards.append(
+        '<div class="note"><strong>Exact new-needle check.</strong><p>'
+        + "; ".join(nested_sentences)
+        + ". Positive values mean the newly added needle is more often in the "
+        + "bottom-k attention set when the output fails to increment.</p></div>"
+    )
+    return "".join(cards)
 
 
 def _static_figure_html(run_root: Path) -> str:
@@ -376,12 +991,20 @@ button:hover { background:#294650; }
 .figure-card { background:var(--card); border:1px solid var(--line); padding:13px; }
 .figure-card img { display:block; width:100%; height:auto; background:white; }
 .figure-card p { margin:7px 0 0; color:var(--muted); font-size:12px; }
+.stat-grid { display:grid; grid-template-columns:1fr; gap:16px; margin:18px 0; }
+.stat-figure { margin:0; padding:14px; background:var(--card); border:1px solid var(--line); }
+.stat-svg { display:block; width:100%; height:auto; }
+.stat-figure figcaption { margin:8px 6px 2px; color:var(--muted); font-size:12px; }
+.formula { margin:16px 0; padding:14px 17px; background:#edf1ef; border:1px solid #ccd8d3; font-family:Georgia,serif; font-size:16px; }
+.method-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:16px 0; }
+.method-strip div { padding:12px; background:var(--card); border:1px solid var(--line); font-size:12px; }
+.method-strip strong { display:block; color:var(--blue); font-size:13px; }
 .notes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
 .note { padding:17px; background:var(--card); border:1px solid var(--line); }
 .note strong { color:var(--blue); }
 footer { padding:24px; color:#6d7475; text-align:center; border-top:1px solid var(--line); }
-@media (max-width:900px) { .grid4,.notes { grid-template-columns:repeat(2,1fr); } .controls { grid-template-columns:repeat(3,1fr); } .figures { grid-template-columns:1fr; } }
-@media (max-width:560px) { .grid4,.notes,.viz-foot { grid-template-columns:1fr; } .controls { grid-template-columns:repeat(2,1fr); } #counter3d { height:500px; } .canvas-wrap { min-height:500px; } }
+@media (max-width:900px) { .grid4,.notes,.method-strip { grid-template-columns:repeat(2,1fr); } .controls { grid-template-columns:repeat(3,1fr); } .figures { grid-template-columns:1fr; } }
+@media (max-width:560px) { .grid4,.notes,.method-strip,.viz-foot { grid-template-columns:1fr; } .controls { grid-template-columns:repeat(2,1fr); } #counter3d { height:500px; } .canvas-wrap { min-height:500px; } }
 </style>
 </head>
 <body>
@@ -393,7 +1016,7 @@ footer { padding:24px; color:#6d7475; text-align:center; border-top:1px solid va
     <span class="pill">Qwen3-8B + Gemma4-E4B</span><span class="pill">length ≈ 10,000 tokens</span><span class="pill">needle index 1–10</span><span class="pill">30 seeds / variant</span><span class="pill">commit @@COMMIT@@</span>
   </div>
 </header>
-<nav><a href="#design">Design</a><a href="#metrics">Metrics</a><a href="#counter">3D counter</a><a href="#sensitivity">Seed sensitivity</a><a href="#outcomes">Output strata</a><a href="#figures">2D panels</a><a href="#limits">Limits</a></nav>
+<nav><a href="#design">Design</a><a href="#metrics">Metrics</a><a href="#counter">3D counter</a><a href="#span-end-attention">Undercount attention</a><a href="#sensitivity">Seed sensitivity</a><a href="#outcomes">Output strata</a><a href="#figures">2D panels</a><a href="#limits">Limits</a></nav>
 <main>
 <section id="design">
   <h2>Controlled relaxation ladder</h2>
@@ -436,6 +1059,38 @@ footer { padding:24px; color:#6d7475; text-align:center; border-top:1px solid va
     <div class="legend" id="count-legend"></div>
   </div>
   <div class="callout"><strong>Coordinate comparability.</strong> All four variants share a PCA basis within a fixed model × pooling panel. Bases are fitted separately across panels, so absolute PC coordinates should not be compared between Qwen/Gemma or span-end/span-mean.</div>
+</section>
+
+<section id="span-end-attention">
+  <h2>Span-end attention–undercount alignment</h2>
+  <p class="lede">This analysis is intentionally restricted to <code>span_end</code>. It asks whether the answer-query attention ensemble assigns unusually low mass to the evidence implied by an undercount. All estimates use confirmation seeds only; head ranking is frozen from discovery data within each model × variant, and the top eight discovery-ranked broad heads are averaged after each head is normalized to mean occurrence share 1.</p>
+  <div class="method-strip">
+    <div><strong>Behavior label</strong>Actual greedy integer output <em>N̂</em>; no sequence probability or candidate score enters the label. Unparseable and non-undercount outputs are outside this estimand.</div>
+    <div><strong>Held-out unit</strong>Ten confirmation seeds (1254–1263); prompts within a seed remain in the same resampling cluster.</div>
+    <div><strong>Uncertainty</strong>20,000 percentile bootstrap resamples of seed-level means.</div>
+    <div><strong>Testing</strong>Two-sided exact seed sign-flip tests under the symmetry null; Holm families are the two pooled model tests and, separately, the eight variant panels.</div>
+  </div>
+
+  <h3>1. Behavior-implied omitted tail versus the lowest-attention occurrences</h3>
+  <p>For a gold count <em>N</em> and an undercount <em>N̂</em>, let <em>k = N − N̂</em>. The behavior-implied omitted tail is <em>T<sub>k</sub> = {N−k+1,…,N}</em>; the attention-implied candidate set <em>B<sub>k</sub></em> contains the <em>k</em> occurrence endpoints with the lowest ensemble attention. The primary score is their overlap fraction.</p>
+  <div class="formula"><em>S = |B<sub>k</sub> ∩ T<sub>k</sub>| / k</em>. If <em>B<sub>k</sub></em> were a uniformly random <em>k</em>-subset, <em>E[S] = k/N</em> and <em>P(B<sub>k</sub> = T<sub>k</sub>) = 1 / C(N,k)</em>.</div>
+  <p class="lede">The estimand is the seed-equal mean of <em>S − k/N</em>. To avoid selecting the most favorable relaxation, the cross-variant aggregate gives each variant equal weight inside each seed; the variant panels expose heterogeneity. This analysis was not preregistered, so its intervals and tests are inferential audits rather than confirmatory claims. “Exact / random” reports the observed exact-set-match rate and its combinatorial chance baseline. Tail/prefix is the mean normalized attention on the behavior-implied tail divided by the retained prefix; values below 1 indicate suppressed tail attention.</p>
+  <h3>Cross-variant aggregate</h3>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>seeds</th><th>overlap / random</th><th>Δ [95% seed CI]</th><th>Holm p</th><th>exact / random</th><th>exact Δ [95% CI]</th><th>tail / prefix</th></tr></thead><tbody>@@SPAN_END_POOLED_ROWS@@</tbody></table></div>
+  <h3>Variant-level heterogeneity</h3>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>variant</th><th>prompts / seeds</th><th>mean k</th><th>overlap</th><th>random k/N</th><th>Δ [95% seed CI]</th><th>Holm p</th><th>exact / random</th><th>exact Δ [95% CI]</th><th>tail / prefix</th></tr></thead><tbody>@@SPAN_END_ALIGNMENT_ROWS@@</tbody></table></div>
+  <div class="stat-grid">
+    <figure class="stat-figure">@@SPAN_END_ALIGNMENT_SVG@@<figcaption>Circle: observed seed-equal overlap. Diamond: hypergeometric chance. The translucent interval is the 95% seed-cluster interval for the observed-minus-chance contrast, translated onto the overlap axis.</figcaption></figure>
+  </div>
+
+  <h3>2. Exact newly added needle in nested N−1 → N pairs</h3>
+  <p>The tail analysis identifies an omitted <em>set</em> only under an ordering assumption. The nested design supplies a sharper check: the newly introduced Nth occurrence is known exactly. We retain transitions ending in an undercount for both groups, then compare (i) whether that new endpoint falls inside the current bottom-<em>k</em> attention set and (ii) its normalized attention share, where 1 is uniform over occurrences. “Failed” means the greedy output did not increase; “registered” means it increased by exactly one. Statuses are first matched within seed × variant; matched variant contrasts are then averaged inside seed. Holm correction is applied across the two models separately for each nested estimand.</p>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>failed / registered n</th><th>paired blocks / seeds</th><th>bottom-k failed / reg.</th><th>risk Δ F−R [95% CI]</th><th>Holm p</th><th>share failed / reg.</th><th>share Δ R−F [95% CI]</th><th>Holm p</th></tr></thead><tbody>@@SPAN_END_NESTED_ROWS@@</tbody></table></div>
+  <div class="stat-grid">
+    <figure class="stat-figure">@@SPAN_END_NESTED_SVG@@<figcaption>Both transition groups end in a behavioral undercount. Intervals around each point resample complete seeds; the reported risk-difference interval is paired at seed level.</figcaption></figure>
+  </div>
+  <div class="notes">@@SPAN_END_CONCLUSION@@</div>
+  <div class="callout"><strong>Inference boundary.</strong> The tail set is behavior-implied, not an observed record of which occurrences the model “forgot.” The nested increment diagnostic identifies the added occurrence exactly, but attention remains correlational. These results motivate—and do not replace—the registered ablation and endpoint residual-patching tests.</div>
 </section>
 
 <section id="sensitivity">
@@ -602,6 +1257,9 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
     metric_rows = _metric_rows(run_root, primary)
     behavior_rows = _behavior_rows(labels_frames)
     sensitivity_rows = _sensitivity_rows(run_root)
+    span_end_alignment_rows = _span_end_alignment_rows(run_root)
+    span_end_pooled_rows = _span_end_pooled_rows(run_root)
+    span_end_nested_rows = _span_end_nested_rows(run_root)
     commit = _git_commit(repo_root)
     replacements = {
         "@@COMMIT@@": html.escape(commit[:12]),
@@ -612,6 +1270,22 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
         "@@METRIC_ROWS@@": _table_metric_html(metric_rows),
         "@@BEHAVIOR_ROWS@@": _table_behavior_html(behavior_rows),
         "@@SENSITIVITY_ROWS@@": _table_sensitivity_html(sensitivity_rows),
+        "@@SPAN_END_ALIGNMENT_ROWS@@": _table_span_end_alignment_html(
+            span_end_alignment_rows
+        ),
+        "@@SPAN_END_POOLED_ROWS@@": _table_span_end_pooled_html(
+            span_end_pooled_rows
+        ),
+        "@@SPAN_END_ALIGNMENT_SVG@@": _span_end_alignment_svg(
+            span_end_alignment_rows
+        ),
+        "@@SPAN_END_NESTED_ROWS@@": _table_span_end_nested_html(
+            span_end_nested_rows
+        ),
+        "@@SPAN_END_NESTED_SVG@@": _span_end_nested_svg(span_end_nested_rows),
+        "@@SPAN_END_CONCLUSION@@": _span_end_conclusion_html(
+            span_end_pooled_rows, span_end_alignment_rows, span_end_nested_rows
+        ),
         "@@STATIC_FIGURES@@": _static_figure_html(run_root),
         "@@REP_DATA@@": json.dumps(
             projections, ensure_ascii=False, separators=(",", ":")
@@ -630,6 +1304,9 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
                 "projection_panels": len(projections),
                 "projection_rows": sum(len(item["rows"]) for item in projections.values()),
                 "primary_layers": primary,
+                "span_end_pooled": span_end_pooled_rows,
+                "span_end_alignment": span_end_alignment_rows,
+                "span_end_nested": span_end_nested_rows,
                 "commit": commit,
             },
             indent=2,
