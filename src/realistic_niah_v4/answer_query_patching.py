@@ -428,7 +428,7 @@ def _seed_estimate(
     label: str,
     repetitions: int,
     expected_seed_count: int | None = len(CONFIRMATION_SEEDS),
-) -> dict[str, float]:
+) -> dict[str, float | int]:
     usable = frame[["seed", metric]].dropna()
     seed_values = usable.groupby("seed", sort=True)[metric].mean().to_numpy(dtype=float)
     if expected_seed_count is None:
@@ -449,6 +449,7 @@ def _seed_estimate(
         "estimate": float(seed_values.mean()),
         "ci95_low": float(low),
         "ci95_high": float(high),
+        "seed_clusters": int(len(seed_values)),
     }
 
 
@@ -608,6 +609,7 @@ def analyze_answer_query_patching(
                 row[output_name] = estimate["estimate"]
                 row[f"{output_name}_ci95_low"] = estimate["ci95_low"]
                 row[f"{output_name}_ci95_high"] = estimate["ci95_high"]
+                row[f"{output_name}_seed_clusters"] = estimate["seed_clusters"]
             if layer == baseline_layer:
                 for metric_name in ("eligible_donor_adoption", "aligned_shift"):
                     row[f"{metric_name}_vs_layer0"] = 0.0
@@ -688,10 +690,12 @@ def analyze_answer_query_patching(
                         f"{values['receiver_count']}-to-{values['donor_count']}-{metric}"
                     ),
                     repetitions=bootstrap_repetitions,
+                    expected_seed_count=None,
                 )
                 row[output_name] = estimate["estimate"]
                 row[f"{output_name}_ci95_low"] = estimate["ci95_low"]
                 row[f"{output_name}_ci95_high"] = estimate["ci95_high"]
+                row[f"{output_name}_seed_clusters"] = estimate["seed_clusters"]
             pair_rows.append(row)
 
         for (layer, variant), selected in detail.groupby(
@@ -713,10 +717,12 @@ def analyze_answer_query_patching(
                     metric,
                     label=f"answer-query-{model}-L{layer}-{variant}-{metric}",
                     repetitions=bootstrap_repetitions,
+                    expected_seed_count=None,
                 )
                 row[output_name] = estimate["estimate"]
                 row[f"{output_name}_ci95_low"] = estimate["ci95_low"]
                 row[f"{output_name}_ci95_high"] = estimate["ci95_high"]
+                row[f"{output_name}_seed_clusters"] = estimate["seed_clusters"]
             variant_rows.append(row)
 
         for (layer, outcome), selected in detail.groupby(
@@ -743,6 +749,7 @@ def analyze_answer_query_patching(
                 row[output_name] = estimate["estimate"]
                 row[f"{output_name}_ci95_low"] = estimate["ci95_low"]
                 row[f"{output_name}_ci95_high"] = estimate["ci95_high"]
+                row[f"{output_name}_seed_clusters"] = estimate["seed_clusters"]
             outcome_rows.append(row)
 
         stratum_groups = [
