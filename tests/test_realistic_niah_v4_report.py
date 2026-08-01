@@ -62,19 +62,23 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     for block in range(1, 6):
         assert f"Block {block} / 5" in template
     assert template.count('class="section-conclusion"') >= 5
-    assert "broad evidence aggregation" in template
+    assert "distributed retrieval/aggregation" in template
     assert "late executable query state" in template
     assert "@@BEHAVIOR_ACCURACY_SVG@@" in template
     assert "@@REPRESENTATION_R2_SVG@@" in template
     assert "@@LAYER_SWEEP_SVG@@" in template
     assert "@@ANSWER_QUERY_COUNTER_SVG@@" in template
-    assert "@@ATTENTION_HEAD_ATLAS_SVG@@" in template
+    assert "@@ATTENTION_HEAD_ATLAS_HTML@@" in template
     assert "@@ATTENTION_HEAD_PROFILE_SVG@@" in template
     assert "@@ATTENTION_OUTCOME_EFFECT_SVG@@" in template
     assert "@@ATTENTION_BREADTH_SVG@@" in template
     assert "@@CAUSAL_ABLATION_SVG@@" in template
     assert "@@ANSWER_QUERY_ADOPTION_SVG@@" in template
     assert "@@CAUSAL_STEERING_SVG@@" in template
+    assert "@@STEERING_V2_SVG@@" in template
+    assert "@@STEERING_V2_SELECTION_ROWS@@" in template
+    assert "@@STEERING_V2_SUMMARY_ROWS@@" in template
+    assert "@@STEERING_V2_PANEL_ROWS@@" in template
     assert 'id="layer-select"' in template
     assert "Discovery / confirmation" in template
     assert "Centroid transplant" in template
@@ -85,6 +89,49 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     assert "Count-adjusted wrong−correct" in template
     assert "controls.layer.value=String(defaultLayer??layers[0])" in template
     assert "previous!==null" not in template
+    assert "background:linear-gradient" not in template
+    assert template.count('class="figure-intro"') >= 12
+
+
+def test_steering_v2_strict_pairing_keeps_invalid_outputs_as_failures() -> None:
+    report = _load_report_module()
+    shared = {
+        "model_label": "Qwen3-8B",
+        "design_variant": "v4.1",
+        "seed": 1254,
+        "receiver_stimulus_id": "receiver",
+        "target_stimulus_id": "target",
+        "receiver_count": 5,
+        "target_count": 10,
+        "target_direction": "up",
+        "steering_protocol": "single_layer",
+        "layer_set": "26",
+        "alpha": 1.0,
+        "moved_toward_donor_gold": True,
+        "follows_donor_gold": True,
+    }
+    detail = report.pd.DataFrame(
+        [
+            {
+                **shared,
+                "condition": "geometric",
+                "patched_format_valid": False,
+                "direction_aligned_generated_count_shift": 5.0,
+            },
+            {
+                **shared,
+                "condition": "orthogonal_norm_matched_random",
+                "patched_format_valid": True,
+                "direction_aligned_generated_count_shift": 1.0,
+            },
+        ]
+    )
+    paired = report._steering_v2_paired_effects(detail)
+    assert len(paired) == 1
+    assert paired.iloc[0]["strict_aligned_shift"] == 0.0
+    assert paired.iloc[0]["strict_aligned_shift_effect"] == -1.0
+    assert paired.iloc[0]["strict_moved"] == 0.0
+    assert paired.iloc[0]["strict_target_hit"] == 0.0
 
 
 def test_attention_phenotype_rules_are_ordered_and_explicit() -> None:

@@ -2198,13 +2198,20 @@ def _aurora_sequential(value: float) -> str:
 def _attention_head_atlas_svg(
     atlas_rows: list[dict[str, Any]],
     phenotypes: list[dict[str, Any]],
+    *,
+    variant: str | None = None,
 ) -> str:
     """Layer-by-head atlas of discovery span-end broad-retrieval score."""
 
+    if variant is not None and variant not in VARIANTS:
+        raise ValueError(f"Unknown attention-atlas variant: {variant}")
+    display_variants = VARIANTS if variant is None else (variant,)
     width, height = 1260, 900
-    panel_width, panel_height = 230, 300
-    lefts = (115, 405, 695, 985)
+    panel_width = 230 if variant is None else 900
+    panel_height = 300
+    lefts = (115, 405, 695, 985) if variant is None else (180,)
     tops = (130, 535)
+    id_suffix = "all" if variant is None else variant.replace(".", "-")
     phenotype_lookup = {
         (
             str(row["model"]),
@@ -2230,9 +2237,9 @@ def _attention_head_atlas_svg(
         scales[model] = (float(low), float(max(high, low + 1e-9)))
     parts = [
         f'<svg class="stat-svg" viewBox="0 0 {width} {height}" role="img" '
-        'aria-labelledby="head-atlas-title head-atlas-desc">',
-        '<title id="head-atlas-title">All-head answer-query span-end attention atlas</title>',
-        '<desc id="head-atlas-desc">Every captured full-attention head is placed by decoder layer and head index. Color is discovery log broad-retrieval primary score, and symbols mark discovery-only head phenotypes.</desc>',
+        f'aria-labelledby="head-atlas-title-{id_suffix} head-atlas-desc-{id_suffix}">',
+        f'<title id="head-atlas-title-{id_suffix}">All-head answer-query span-end attention atlas: {html.escape(variant or "all panels")}</title>',
+        f'<desc id="head-atlas-desc-{id_suffix}">Every captured full-attention head is placed by decoder layer and head index for {html.escape(variant or "all V4 panels")}. Color is discovery log broad-retrieval primary score, and symbols mark discovery-only head phenotypes.</desc>',
         f'<rect width="{width}" height="{height}" fill="{AURORA["snow_white"]}"/>',
         f'<g font-family="Aptos,Segoe UI,system-ui,sans-serif" fill="{AURORA["night_black"]}">',
         '<text x="115" y="28" font-size="13" font-weight="700">color: log₁₀[(needle endpoint mass) × entropy coverage]</text>',
@@ -2253,7 +2260,7 @@ def _attention_head_atlas_svg(
             f'<circle cx="1065" cy="24" r="4" fill="{PHENOTYPE_COLORS["first_needle_locator"]}" stroke="{AURORA["night_black"]}" stroke-width=".7"/>',
             '<text x="1074" y="28" font-size="10">first locator</text>',
             f'<circle cx="1152" cy="24" r="4" fill="{PHENOTYPE_COLORS["targeted_occurrence_retriever"]}" stroke="{AURORA["night_black"]}" stroke-width=".7"/>',
-            '<text x="1161" y="28" font-size="10">targeted</text>',
+            '<text x="1161" y="28" font-size="10">weak first-focused</text>',
         ]
     )
     for model_index, model in enumerate(MODELS):
@@ -2263,20 +2270,20 @@ def _attention_head_atlas_svg(
         parts.append(
             f'<text x="26" y="{top+panel_height/2:.1f}" transform="rotate(-90 26 {top+panel_height/2:.1f})" text-anchor="middle" font-size="17" font-weight="700">{html.escape(model)}</text>'
         )
-        for variant_index, variant in enumerate(VARIANTS):
+        for variant_index, displayed_variant in enumerate(display_variants):
             left = lefts[variant_index]
             cell_width = panel_width / max_heads
             cell_height = panel_height / max_layers
             parts.extend(
                 [
-                    f'<text x="{left+panel_width/2:.1f}" y="{top-22}" text-anchor="middle" font-size="14" font-weight="700">{variant}</text>',
+                    f'<text x="{left+panel_width/2:.1f}" y="{top-22}" text-anchor="middle" font-size="14" font-weight="700">{displayed_variant}</text>',
                     f'<rect x="{left}" y="{top}" width="{panel_width}" height="{panel_height}" fill="{AURORA["frost_gray"]}" opacity=".12" stroke="{AURORA["frost_gray"]}"/>',
                 ]
             )
             panel = [
                 row
                 for row in span_end
-                if row["model"] == model and row["variant"] == variant
+                if row["model"] == model and row["variant"] == displayed_variant
             ]
             for row in panel:
                 layer, head = int(row["layer"]), int(row["head"])
@@ -2284,10 +2291,10 @@ def _attention_head_atlas_svg(
                 score = (math.log10(value) - low) / (high - low)
                 x = left + head * cell_width
                 y = top + layer * cell_height
-                key = (model, variant, layer, head)
+                key = (model, displayed_variant, layer, head)
                 phenotype = phenotype_lookup.get(key)
                 tooltip = (
-                    f"{model} {variant} L{layer}H{head}; primary="
+                    f"{model} {displayed_variant} L{layer}H{head}; primary="
                     f"{float(row['pool_primary']):.6g}; N_eff="
                     f"{float(row['pool_effective_number']):.3f}"
                 )
@@ -2330,6 +2337,39 @@ def _attention_head_atlas_svg(
             )
     parts.append("</g></svg>")
     return "".join(parts)
+
+
+def _attention_head_atlas_interactive_html(
+    atlas_rows: list[dict[str, Any]],
+    phenotypes: list[dict[str, Any]],
+) -> str:
+    buttons = "".join(
+        (
+            f'<button type="button" class="atlas-button" data-atlas-variant="{variant}" '
+            f'aria-pressed="{"true" if index == 0 else "false"}">{variant}</button>'
+        )
+        for index, variant in enumerate(VARIANTS)
+    )
+    panels = "".join(
+        (
+            f'<div class="atlas-panel" data-atlas-panel="{variant}"'
+            + ("" if index == 0 else " hidden")
+            + ">"
+            + _attention_head_atlas_svg(
+                atlas_rows, phenotypes, variant=variant
+            )
+            + "</div>"
+        )
+        for index, variant in enumerate(VARIANTS)
+    )
+    return (
+        '<div class="atlas-interactive" id="attention-atlas-interactive">'
+        '<div class="atlas-controls" role="group" aria-label="V4 panel">'
+        + buttons
+        + "</div>"
+        + panels
+        + "</div>"
+    )
 
 
 def _table_head_phenotype_counts_html(rows: list[dict[str, Any]]) -> str:
@@ -3169,6 +3209,307 @@ def _causal_frames(
     return frames, paths
 
 
+def _completed_steering_v2_root(
+    run_root: Path,
+    *,
+    model: str,
+    phase: str,
+) -> Path:
+    family_root = (
+        run_root
+        / model
+        / "numeric"
+        / "causal"
+        / "geometric_steering_v2"
+    )
+    candidates: list[Path] = []
+    for root in sorted(family_root.glob(f"{phase}_*")):
+        complete = root / "complete.json"
+        if not complete.is_file():
+            continue
+        payload = _read_json(complete)
+        if payload.get("status") == "complete" and payload.get("phase") == phase:
+            candidates.append(root)
+    if len(candidates) != 1:
+        raise RuntimeError(
+            f"{model}: expected one completed steering-v2 {phase} root, "
+            f"found {len(candidates)}"
+        )
+    return candidates[0]
+
+
+def _steering_v2_paired_effects(detail: pd.DataFrame) -> pd.DataFrame:
+    """Pair geometric and norm-matched controls with invalid rows set to failure."""
+
+    identifiers = [
+        "model_label",
+        "design_variant",
+        "seed",
+        "receiver_stimulus_id",
+        "target_stimulus_id",
+        "receiver_count",
+        "target_count",
+        "target_direction",
+        "steering_protocol",
+        "layer_set",
+        "alpha",
+    ]
+    required = set(identifiers) | {
+        "condition",
+        "patched_format_valid",
+        "direction_aligned_generated_count_shift",
+        "moved_toward_donor_gold",
+        "follows_donor_gold",
+    }
+    missing = sorted(required - set(detail.columns))
+    if missing:
+        raise RuntimeError(f"Steering-v2 detail is missing columns: {missing}")
+    work = detail.copy()
+    valid = work["patched_format_valid"].astype(str).str.lower().isin(
+        {"true", "1", "yes"}
+    )
+    aligned = pd.to_numeric(
+        work["direction_aligned_generated_count_shift"], errors="coerce"
+    )
+    work["strict_aligned_shift"] = np.where(valid & aligned.notna(), aligned, 0.0)
+    work["strict_moved"] = np.where(
+        valid,
+        work["moved_toward_donor_gold"].astype(str).str.lower().isin(
+            {"true", "1", "yes"}
+        ),
+        False,
+    ).astype(float)
+    work["strict_target_hit"] = np.where(
+        valid,
+        work["follows_donor_gold"].astype(str).str.lower().isin(
+            {"true", "1", "yes"}
+        ),
+        False,
+    ).astype(float)
+    work["strict_valid"] = valid.astype(float)
+    metrics = (
+        "strict_aligned_shift",
+        "strict_moved",
+        "strict_target_hit",
+        "strict_valid",
+    )
+    geometric = work[work["condition"] == "geometric"][identifiers + list(metrics)]
+    if geometric.duplicated(identifiers).any():
+        raise RuntimeError("Steering-v2 geometric rows are not unique")
+    random = work[work["condition"] == "orthogonal_norm_matched_random"]
+    if random.empty:
+        raise RuntimeError("Steering-v2 matched random rows are missing")
+    random_mean = random.groupby(identifiers, as_index=False)[list(metrics)].mean()
+    random_mean = random_mean.rename(
+        columns={metric: f"{metric}_random" for metric in metrics}
+    )
+    paired = geometric.merge(random_mean, on=identifiers, how="inner", validate="1:1")
+    if len(paired) != len(geometric):
+        raise RuntimeError("Steering-v2 geometric/control pairing is incomplete")
+    for metric in metrics:
+        paired[f"{metric}_effect"] = paired[metric] - paired[f"{metric}_random"]
+    return paired
+
+
+def _steering_v2_rows(
+    run_root: Path,
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
+    """Load the discovery lock and analyze held-out single/multi-layer steering."""
+
+    selection_rows: list[dict[str, Any]] = []
+    overall_rows: list[dict[str, Any]] = []
+    panel_rows: list[dict[str, Any]] = []
+    audit_rows: list[dict[str, Any]] = []
+    for model in MODELS:
+        screen_root = _completed_steering_v2_root(
+            run_root, model=model, phase="screen"
+        )
+        confirmation_root = _completed_steering_v2_root(
+            run_root, model=model, phase="confirmation"
+        )
+        screen_design = _read_json(screen_root / "design.json")
+        confirmation_design = _read_json(confirmation_root / "design.json")
+        selection = _read_json(screen_root / "selection.json")
+        scores = pd.read_csv(screen_root / "plan_scores.csv")
+        summary = pd.read_csv(confirmation_root / "summary.csv")
+        detail = pd.read_csv(confirmation_root / "detail.csv.gz", compression="gzip")
+        if screen_design.get("evaluation_split") != "discovery":
+            raise RuntimeError(f"{model}: steering-v2 screen split changed")
+        if confirmation_design.get("evaluation_split") != "confirmation":
+            raise RuntimeError(f"{model}: steering-v2 confirmation split changed")
+        if tuple(confirmation_design.get("variants", ())) != VARIANTS:
+            raise RuntimeError(f"{model}: steering-v2 confirmation panels changed")
+        if tuple(confirmation_design.get("seeds", ())) != tuple(range(1254, 1264)):
+            raise RuntimeError(f"{model}: steering-v2 confirmation seeds changed")
+        if len(detail) != 960 or set(detail["steering_protocol"].astype(str)) != {
+            "single_layer",
+            "multi_layer",
+        }:
+            raise RuntimeError(f"{model}: unexpected steering-v2 confirmation detail")
+        paired = _steering_v2_paired_effects(detail)
+        model_overall_start = len(overall_rows)
+        model_panel_start = len(panel_rows)
+        for protocol in ("single_layer", "multi_layer"):
+            locked = selection["selected"][protocol]
+            layer_set = str(locked["layer_set"])
+            alpha = float(locked["alpha"])
+            score_row = scores[
+                (scores["steering_protocol"].astype(str) == protocol)
+                & (scores["layer_set"].astype(str) == layer_set)
+                & np.isclose(pd.to_numeric(scores["alpha"]), alpha)
+            ]
+            summary_row = summary[
+                (summary["steering_protocol"].astype(str) == protocol)
+                & (summary["layer_set"].astype(str) == layer_set)
+                & np.isclose(pd.to_numeric(summary["alpha"]), alpha)
+            ]
+            if len(score_row) != 1 or len(summary_row) != 1:
+                raise RuntimeError(f"{model}: locked steering-v2 plan is not unique")
+            score_payload = score_row.iloc[0].to_dict()
+            summary_payload = summary_row.iloc[0].to_dict()
+            selection_rows.append(
+                {
+                    "model": model,
+                    "protocol": protocol,
+                    "layer_set": layer_set,
+                    "alpha": alpha,
+                    "candidate_plans": int(selection["candidate_plan_count"]),
+                    "screen_seeds": int(score_payload["screen_seeds"]),
+                    "mean_screen_effect": float(
+                        score_payload["mean_aligned_shift_effect"]
+                    ),
+                    "worst_panel_screen_effect": float(
+                        score_payload["worst_variant_aligned_shift_effect"]
+                    ),
+                    "positive_screen_panels": int(
+                        score_payload["positive_variant_count"]
+                    ),
+                    "screen_valid_rate": float(
+                        score_payload["geometric_valid_rate"]
+                    ),
+                    "robust_selection_score": float(
+                        score_payload["robust_selection_score"]
+                    ),
+                }
+            )
+            selected = paired[
+                (paired["steering_protocol"].astype(str) == protocol)
+                & (paired["layer_set"].astype(str) == layer_set)
+                & np.isclose(pd.to_numeric(paired["alpha"]), alpha)
+            ]
+            seed_values = selected.groupby("seed", sort=True)[
+                "strict_aligned_shift_effect"
+            ].mean()
+            if len(seed_values) != 10:
+                raise RuntimeError(f"{model}/{protocol}: expected ten confirmation seeds")
+            estimate, low, high = _seed_bootstrap(
+                seed_values.to_numpy(dtype=float),
+                label=f"steering-v2-overall:{model}:{protocol}:{layer_set}:{alpha}",
+            )
+            overall_rows.append(
+                {
+                    "model": model,
+                    "protocol": protocol,
+                    "layer_set": layer_set,
+                    "alpha": alpha,
+                    "paired_rows": int(len(selected)),
+                    "seeds": 10,
+                    "geometric_valid_rate": float(
+                        summary_payload["geometric_valid_rate"]
+                    ),
+                    "random_valid_rate": float(summary_payload["random_valid_rate"]),
+                    "geometric_aligned_shift": float(
+                        summary_payload["geometric_mean_aligned_shift"]
+                    ),
+                    "random_aligned_shift": float(
+                        summary_payload["random_mean_aligned_shift"]
+                    ),
+                    "aligned_effect": estimate,
+                    "aligned_effect_low": low,
+                    "aligned_effect_high": high,
+                    "moved_effect": float(summary_payload["moved_rate_effect"]),
+                    "moved_effect_low": float(
+                        summary_payload["moved_rate_ci95_low"]
+                    ),
+                    "moved_effect_high": float(
+                        summary_payload["moved_rate_ci95_high"]
+                    ),
+                    "target_hit_effect": float(
+                        summary_payload["target_hit_rate_effect"]
+                    ),
+                    "p_raw": _exact_sign_flip_p(seed_values.to_numpy(dtype=float)),
+                }
+            )
+            for variant in VARIANTS:
+                cell = selected[selected["design_variant"].astype(str) == variant]
+                variant_seed = cell.groupby("seed", sort=True)[
+                    "strict_aligned_shift_effect"
+                ].mean()
+                if len(variant_seed) != 10:
+                    raise RuntimeError(
+                        f"{model}/{protocol}/{variant}: incomplete confirmation seeds"
+                    )
+                panel_estimate, panel_low, panel_high = _seed_bootstrap(
+                    variant_seed.to_numpy(dtype=float),
+                    label=(
+                        f"steering-v2-panel:{model}:{protocol}:{layer_set}:"
+                        f"{alpha}:{variant}"
+                    ),
+                )
+                panel_rows.append(
+                    {
+                        "model": model,
+                        "protocol": protocol,
+                        "layer_set": layer_set,
+                        "alpha": alpha,
+                        "variant": variant,
+                        "paired_rows": int(len(cell)),
+                        "aligned_effect": panel_estimate,
+                        "aligned_effect_low": panel_low,
+                        "aligned_effect_high": panel_high,
+                        "p_raw": _exact_sign_flip_p(
+                            variant_seed.to_numpy(dtype=float)
+                        ),
+                    }
+                )
+        model_overall = overall_rows[model_overall_start:]
+        for row, p_holm in zip(
+            model_overall,
+            _holm_adjust([float(row["p_raw"]) for row in model_overall]),
+        ):
+            row["p_holm"] = p_holm
+        model_panels = panel_rows[model_panel_start:]
+        for row, p_holm in zip(
+            model_panels,
+            _holm_adjust([float(row["p_raw"]) for row in model_panels]),
+        ):
+            row["p_holm"] = p_holm
+        audit_rows.append(
+            {
+                "model": model,
+                "screen_root": screen_root.name,
+                "screen_rows": int(pd.read_csv(screen_root / "detail.csv.gz").shape[0]),
+                "screen_shards": len(
+                    _read_jsonl(screen_root / "capture" / "capture_index.jsonl")
+                ),
+                "confirmation_root": confirmation_root.name,
+                "confirmation_rows": int(len(detail)),
+                "confirmation_shards": len(
+                    _read_jsonl(
+                        confirmation_root / "capture" / "capture_index.jsonl"
+                    )
+                ),
+                "selection_rule": str(selection["selection_rule"]),
+            }
+        )
+    return selection_rows, overall_rows, panel_rows, audit_rows
+
+
 def _answer_query_frames(
     run_root: Path,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, Any]]:
@@ -3961,6 +4302,122 @@ def _table_causal_steering_html(rows: list[dict[str, Any]]) -> str:
     return "".join(rendered)
 
 
+def _table_steering_v2_selection_html(rows: list[dict[str, Any]]) -> str:
+    rendered: list[str] = []
+    for row in rows:
+        rendered.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['model']))}</td>"
+            f"<td>{html.escape(str(row['protocol']))}</td>"
+            f"<td>{html.escape(str(row['layer_set']))}</td>"
+            f"<td>{_number(row['alpha'], 2)}</td>"
+            f"<td>{row['candidate_plans']} / {row['screen_seeds']}</td>"
+            f"<td>{_number(row['mean_screen_effect'], signed=True)}</td>"
+            f"<td>{_number(row['worst_panel_screen_effect'], signed=True)}</td>"
+            f"<td>{row['positive_screen_panels']}/4</td>"
+            f"<td>{100*float(row['screen_valid_rate']):.1f}%</td>"
+            f"<td>{_number(row['robust_selection_score'], signed=True)}</td>"
+            "</tr>"
+        )
+    return "".join(rendered)
+
+
+def _table_steering_v2_summary_html(rows: list[dict[str, Any]]) -> str:
+    rendered: list[str] = []
+    for row in rows:
+        rendered.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['model']))}</td>"
+            f"<td>{html.escape(str(row['protocol']))}</td>"
+            f"<td>{html.escape(str(row['layer_set']))}</td>"
+            f"<td>{_number(row['alpha'], 2)}</td>"
+            f"<td>{row['paired_rows']} / {row['seeds']}</td>"
+            f"<td>{100*float(row['geometric_valid_rate']):.1f}% / "
+            f"{100*float(row['random_valid_rate']):.1f}%</td>"
+            f"<td>{_number(row['geometric_aligned_shift'], signed=True)} / "
+            f"{_number(row['random_aligned_shift'], signed=True)}</td>"
+            f"<td>{_number(row['aligned_effect'], signed=True)} "
+            f"[{_number(row['aligned_effect_low'], signed=True)}, "
+            f"{_number(row['aligned_effect_high'], signed=True)}]</td>"
+            f"<td>{100*float(row['moved_effect']):+.1f} pp "
+            f"[{100*float(row['moved_effect_low']):+.1f}, "
+            f"{100*float(row['moved_effect_high']):+.1f}]</td>"
+            f"<td>{100*float(row['target_hit_effect']):+.1f} pp</td>"
+            f"<td>{_p_value(row['p_holm'])}</td>"
+            "</tr>"
+        )
+    return "".join(rendered)
+
+
+def _table_steering_v2_panel_html(rows: list[dict[str, Any]]) -> str:
+    rendered: list[str] = []
+    for row in rows:
+        rendered.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['model']))}</td>"
+            f"<td>{html.escape(str(row['protocol']))}</td>"
+            f"<td>{html.escape(str(row['variant']))}</td>"
+            f"<td>{row['paired_rows']} / 10</td>"
+            f"<td>{_number(row['aligned_effect'], signed=True)} "
+            f"[{_number(row['aligned_effect_low'], signed=True)}, "
+            f"{_number(row['aligned_effect_high'], signed=True)}]</td>"
+            f"<td>{_p_value(row['p_holm'])}</td>"
+            "</tr>"
+        )
+    return "".join(rendered)
+
+
+def _table_steering_v2_audit_html(rows: list[dict[str, Any]]) -> str:
+    return "".join(
+        "<tr>"
+        f"<td>{html.escape(str(row['model']))}</td>"
+        f"<td>{row['screen_shards']} / {row['screen_rows']}</td>"
+        f"<td>{row['confirmation_shards']} / {row['confirmation_rows']}</td>"
+        f"<td><code>{html.escape(str(row['screen_root']))}</code></td>"
+        f"<td><code>{html.escape(str(row['confirmation_root']))}</code></td>"
+        "</tr>"
+        for row in rows
+    )
+
+
+def _steering_v2_conclusion_html(
+    overall_rows: list[dict[str, Any]],
+    panel_rows: list[dict[str, Any]],
+) -> str:
+    cards: list[str] = []
+    for model in MODELS:
+        sentences: list[str] = []
+        for protocol in ("single_layer", "multi_layer"):
+            row = next(
+                item
+                for item in overall_rows
+                if item["model"] == model and item["protocol"] == protocol
+            )
+            panels = [
+                item
+                for item in panel_rows
+                if item["model"] == model and item["protocol"] == protocol
+            ]
+            positive = sum(float(item["aligned_effect"]) > 0 for item in panels)
+            positive_ci = sum(float(item["aligned_effect_low"]) > 0 for item in panels)
+            sentences.append(
+                f"{protocol} {row['layer_set']} (α={float(row['alpha']):g})："
+                f"Δ={_number(row['aligned_effect'], signed=True)} "
+                f"[{_number(row['aligned_effect_low'], signed=True)}, "
+                f"{_number(row['aligned_effect_high'], signed=True)}]，"
+                f"Holm p={_p_value(row['p_holm'])}；"
+                f"panel 点估计为正 {positive}/4，CI 下界>0 {positive_ci}/4"
+            )
+        cards.append(
+            '<div class="note"><strong>'
+            + html.escape(model)
+            + " held-out steering。</strong><p>"
+            + "；".join(sentences)
+            + "。</p></div>"
+        )
+    return "".join(cards)
+
+
 def _table_causal_geometry_html(rows: list[dict[str, Any]]) -> str:
     rendered: list[str] = []
     for row in rows:
@@ -4097,7 +4554,7 @@ def _causal_conclusion_html(
         cards.append(
             '<div class="note"><strong>'
             + html.escape(model)
-            + " broad-head 必要性。</strong><p>Top-8 ranked ablation 改变 "
+            + " mixed-bank 必要性。</strong><p>Top-8 ranked ablation 改变 "
             + f"{100*ablation['ranked_changed']:.1f}% 的输出；"
             + f"layer-matched random heads 仅改变 {100*ablation['random_changed']:.1f}%。"
             + "配对 count-shift contrast 为 "
@@ -4271,6 +4728,9 @@ def _static_figure_html(projections: dict[str, dict[str, Any]]) -> str:
             cards.append(
                 '<article class="figure-card">'
                 f'<div class="figure-kicker">{html.escape(model)} · {html.escape(pooling.replace("_", "-"))} · L{int(projection["layer"])}</div>'
+                '<div class="figure-intro"><p><strong>画什么：</strong>同一模型与 pooling 在 V4.1–V4.4 中的 occurrence-index PC1–PC2 轨迹及跨 seed 散布。</p>'
+                '<p><strong>如何得到：</strong>只用 V4.1 discovery states 拟合该层 PCA，再把四个 panel 的 discovery/confirmation states 投到同一 basis；淡点是 seed×occurrence，折线是 1→10 的 split centroids。</p>'
+                '<p><strong>能说明什么：</strong>可比较控制项释放后轨迹是否仍有序、散点是否变宽；不能把二维分离度等同于模型实际使用该坐标。</p></div>'
                 f"{_projection_2d_svg(projection)}"
                 '<p class="figure-caption"><strong>图 B2-F3：共享 PC1–PC2 轨迹。</strong>'
                 "横轴和纵轴分别是以 v4.1 discovery occurrence states 拟合的 PC1、PC2 score；四个 panel 使用同一坐标范围。"
@@ -4291,7 +4751,7 @@ REPORT_TEMPLATE = r"""<!doctype html>
 :root {
   --midnight:#23165C; --violet:#6750E8; --cyan:#00C2FF; --yellow:#F6E36A;
   --teal:#00D4B4; --green:#39E58C; --magenta:#C04DFF; --pink:#FF5FA2;
-  --ink:#161923; --paper:#F8FBFF; --muted:#66758A; --frost:#8190A5;
+  --ink:#171717; --paper:#FFFFFF; --muted:#5F6368; --frost:#8190A5;
   --brown:#765347; --line:rgba(129,144,165,.34); --surface:#FFFFFF;
   --soft-violet:rgba(103,80,232,.08); --soft-cyan:rgba(0,194,255,.09);
   --soft-yellow:rgba(246,227,106,.18); --soft-green:rgba(57,229,140,.10);
@@ -4299,53 +4759,47 @@ REPORT_TEMPLATE = r"""<!doctype html>
 * { box-sizing:border-box; }
 html { scroll-behavior:smooth; }
 body { margin:0; color:var(--ink); background:var(--paper); font:15px/1.68 "Aptos","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif; }
-header { position:relative; overflow:hidden; padding:62px max(24px,calc((100vw - 1240px)/2)) 56px; color:var(--paper); background:var(--midnight); border-bottom:4px solid var(--cyan); }
-header::after { content:""; position:absolute; inset:-45% -10% auto 40%; height:430px; pointer-events:none; opacity:.34; transform:rotate(-8deg); background:linear-gradient(115deg,transparent 8%,var(--violet) 35%,var(--magenta) 54%,var(--teal) 72%,transparent 88%); filter:blur(42px); }
-header>* { position:relative; z-index:1; }
-header .eyebrow { color:var(--cyan); text-transform:uppercase; letter-spacing:.15em; font-size:12px; font-weight:750; }
-h1 { max-width:930px; margin:11px 0 15px; font:760 clamp(34px,5vw,61px)/1.04 "Aptos Display","Segoe UI Variable Display","Segoe UI",sans-serif; letter-spacing:-.035em; }
-header p { max-width:920px; margin:0; color:rgba(248,251,255,.84); font-size:17px; }
+header { padding:48px max(24px,calc((100vw - 1240px)/2)) 38px; color:var(--ink); background:#FFFFFF; border-bottom:1px solid #DADCE0; }
+header::after { display:none; }
+header .eyebrow { color:var(--muted); text-transform:uppercase; letter-spacing:.12em; font-size:11px; font-weight:700; }
+h1 { max-width:930px; margin:11px 0 15px; font:720 clamp(32px,4.5vw,54px)/1.08 Georgia,"Times New Roman",serif; letter-spacing:-.02em; }
+header p { max-width:920px; margin:0; color:#444746; font-size:16px; }
 .meta { display:flex; flex-wrap:wrap; gap:9px; margin-top:26px; }
-.pill { border:1px solid rgba(0,194,255,.48); padding:6px 11px; color:var(--paper); font:12px/1.3 "Cascadia Mono","SFMono-Regular",Consolas,monospace; background:rgba(22,25,35,.24); }
-nav { position:sticky; top:0; z-index:20; display:flex; gap:21px; overflow:auto; padding:11px max(24px,calc((100vw - 1240px)/2)); background:rgba(248,251,255,.94); border-bottom:1px solid var(--line); backdrop-filter:blur(12px); }
-nav a { color:var(--midnight); text-decoration:none; white-space:nowrap; font-weight:720; font-size:13px; }
-nav a:hover { color:var(--violet); }
+.pill { border:1px solid #DADCE0; padding:6px 10px; color:#3C4043; font:12px/1.3 "Cascadia Mono","SFMono-Regular",Consolas,monospace; background:#F8F9FA; }
+nav { position:sticky; top:0; z-index:20; display:flex; gap:21px; overflow:auto; padding:11px max(24px,calc((100vw - 1240px)/2)); background:#FFFFFF; border-bottom:1px solid #DADCE0; }
+nav a { color:#3C4043; text-decoration:none; white-space:nowrap; font-weight:650; font-size:13px; }
+nav a:hover { color:#000000; text-decoration:underline; }
 main { max-width:1240px; margin:auto; padding:38px 24px 88px; }
 section { margin:0 0 64px; padding-top:4px; scroll-margin-top:62px; }
 .report-preamble,.report-appendix { margin:0 0 56px; padding-top:4px; scroll-margin-top:62px; }
 .report-preamble { padding-bottom:34px; border-bottom:1px solid var(--line); }
 .report-appendix { padding:30px 0 8px; border-top:1px solid var(--line); }
-main>section { padding-top:34px; border-top:5px solid var(--midnight); }
-main>section:nth-of-type(2) { border-top-color:var(--violet); }
-main>section:nth-of-type(3) { border-top-color:var(--cyan); }
-main>section:nth-of-type(4) { border-top-color:var(--teal); }
-main>section:nth-of-type(5) { border-top-color:var(--pink); }
-.section-kicker { display:block; margin-bottom:8px; color:var(--violet); font:740 11px/1.2 "Cascadia Mono",Consolas,monospace; letter-spacing:.13em; text-transform:uppercase; }
-h2 { max-width:980px; margin:0 0 11px; font:760 clamp(27px,3.2vw,38px)/1.13 "Aptos Display","Segoe UI Variable Display","Segoe UI",sans-serif; letter-spacing:-.025em; }
+main>section { padding-top:34px; border-top:1px solid #DADCE0; }
+.section-kicker { display:block; margin-bottom:8px; color:var(--muted); font:700 11px/1.2 "Cascadia Mono",Consolas,monospace; letter-spacing:.11em; text-transform:uppercase; }
+h2 { max-width:980px; margin:0 0 11px; font:700 clamp(26px,3vw,36px)/1.16 Georgia,"Times New Roman",serif; letter-spacing:-.015em; }
 h3 { margin:28px 0 9px; font-size:18px; line-height:1.3; }
-h4 { margin:22px 0 7px; font-size:14px; color:var(--midnight); }
+h4 { margin:22px 0 7px; font-size:14px; color:var(--ink); }
 p { max-width:980px; }
 .lede { max-width:980px; color:#39445A; font-size:16px; }
-.callout { margin:20px 0; padding:16px 18px; border-left:4px solid var(--yellow); background:var(--soft-yellow); }
-.callout strong { color:var(--midnight); }
+.callout { margin:20px 0; padding:16px 18px; border-left:3px solid #80868B; background:#F8F9FA; }
+.callout strong { color:var(--ink); }
 .grid4 { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; margin:24px 0; border:1px solid var(--line); background:var(--line); }
-.step { min-height:164px; padding:18px; background:var(--surface); border-top:4px solid var(--violet); }
-.step:nth-child(2) { border-top-color:var(--cyan); } .step:nth-child(3) { border-top-color:var(--teal); } .step:nth-child(4) { border-top-color:var(--pink); }
-.step strong { display:block; color:var(--midnight); font:780 23px/1.15 "Aptos Display","Segoe UI",sans-serif; }
+.step { min-height:164px; padding:18px; background:var(--surface); border-top:2px solid #80868B; }
+.step strong { display:block; color:var(--ink); font:780 23px/1.15 "Aptos Display","Segoe UI",sans-serif; }
 .step small { color:var(--muted); font-family:"Cascadia Mono",Consolas,monospace; }
 .table-wrap { overflow:auto; border:1px solid var(--line); background:var(--surface); }
 table { width:100%; border-collapse:collapse; font-size:12.5px; font-variant-numeric:tabular-nums; }
 caption { padding:10px 12px; text-align:left; color:var(--muted); }
 th,td { padding:9px 10px; text-align:right; border-bottom:1px solid rgba(129,144,165,.19); white-space:nowrap; }
-th { position:sticky; top:0; background:#EEF3FA; color:var(--midnight); font:720 10.5px/1.3 "Cascadia Mono",Consolas,monospace; letter-spacing:.035em; text-transform:uppercase; }
+th { position:sticky; top:0; background:#F1F3F4; color:#3C4043; font:720 10.5px/1.3 "Cascadia Mono",Consolas,monospace; letter-spacing:.035em; text-transform:uppercase; }
 th:first-child,td:first-child,th:nth-child(2),td:nth-child(2) { text-align:left; }
 tbody tr:hover { background:var(--soft-cyan); }
 tr:last-child td { border-bottom:0; }
-code { color:var(--midnight); background:rgba(103,80,232,.09); padding:2px 5px; border:1px solid rgba(103,80,232,.15); font-family:"Cascadia Mono",Consolas,monospace; }
+code { color:#202124; background:#F1F3F4; padding:2px 5px; border:1px solid #DADCE0; font-family:"Cascadia Mono",Consolas,monospace; }
 details { margin:14px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
-summary { cursor:pointer; padding:11px 2px; color:var(--midnight); font-weight:720; }
-summary:hover { color:var(--violet); }
-.viz-shell { margin-top:22px; padding:18px; color:var(--paper); background:var(--midnight); border:1px solid var(--violet); box-shadow:0 22px 46px rgba(35,22,92,.14); }
+summary { cursor:pointer; padding:11px 2px; color:var(--ink); font-weight:720; }
+summary:hover { color:#000000; text-decoration:underline; }
+.viz-shell { margin-top:22px; padding:18px; color:var(--paper); background:#161923; border:1px solid #3C4043; }
 .controls { display:grid; grid-template-columns:repeat(6,minmax(110px,1fr)); gap:10px; margin-bottom:12px; }
 label { display:flex; flex-direction:column; gap:4px; color:rgba(248,251,255,.72); font:720 10.5px/1.3 "Cascadia Mono",Consolas,monospace; letter-spacing:.04em; text-transform:uppercase; }
 select,button { width:100%; border:1px solid rgba(0,194,255,.42); background:rgba(22,25,35,.54); color:var(--paper); padding:8px 9px; font:inherit; }
@@ -4361,42 +4815,46 @@ button:hover { background:rgba(103,80,232,.42); } button:active { transform:tran
 .legend i { display:inline-block; width:10px; height:10px; margin-right:5px; }
 .figures { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
 .figure-card { padding:13px; background:var(--surface); border:1px solid var(--line); }
-.figure-kicker { margin:2px 4px 10px; color:var(--midnight); font:720 12px/1.3 "Cascadia Mono",Consolas,monospace; }
-.projection-svg,.stat-svg { display:block; width:100%; height:auto; background:var(--paper); }
+.figure-kicker { margin:2px 4px 10px; color:#3C4043; font:720 12px/1.3 "Cascadia Mono",Consolas,monospace; }
+.projection-svg,.stat-svg { display:block; width:100%; height:auto; background:#FFFFFF; }
 .figure-caption,.stat-figure figcaption { margin:10px 5px 3px; color:var(--muted); font-size:12px; line-height:1.55; }
-.figure-caption strong,.stat-figure figcaption strong { color:var(--midnight); }
+.figure-caption strong,.stat-figure figcaption strong { color:var(--ink); }
 .stat-grid { display:grid; grid-template-columns:1fr; gap:16px; margin:19px 0; }
-.stat-figure { margin:0; padding:14px; background:var(--surface); border:1px solid var(--line); }
-.formula { margin:16px 0; padding:15px 17px; background:var(--soft-violet); border-left:3px solid var(--violet); font:15px/1.65 "Cascadia Mono",Consolas,monospace; overflow:auto; }
+.stat-figure { margin:0; padding:14px; background:var(--surface); border:1px solid #DADCE0; }
+.figure-intro { max-width:980px; margin:18px 0 10px; padding:13px 15px; background:#F8F9FA; border:1px solid #E0E0E0; color:#3C4043; font-size:13px; }
+.figure-intro p { margin:4px 0; }
+.figure-intro strong { color:#202124; }
+.atlas-controls { display:flex; gap:8px; margin:0 0 12px; }
+.atlas-controls button { width:auto; min-width:74px; padding:7px 13px; color:#3C4043; background:#FFFFFF; border:1px solid #BDC1C6; }
+.atlas-controls button[aria-pressed="true"] { color:#FFFFFF; background:#3C4043; border-color:#3C4043; }
+.atlas-panel[hidden] { display:none; }
+.atlas-panel .stat-svg { max-height:900px; }
+.formula { margin:16px 0; padding:15px 17px; background:#F8F9FA; border-left:3px solid #80868B; font:15px/1.65 "Cascadia Mono",Consolas,monospace; overflow:auto; }
 .method-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; margin:17px 0; border:1px solid var(--line); background:var(--line); }
 .method-strip div { padding:13px; background:var(--surface); font-size:12px; }
-.method-strip strong { display:block; margin-bottom:4px; color:var(--midnight); font-size:13px; }
+.method-strip strong { display:block; margin-bottom:4px; color:var(--ink); font-size:13px; }
 .metric-defs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin:20px 0; }
-.definition { padding:15px 17px; border-top:3px solid var(--cyan); background:var(--surface); }
-.definition:nth-child(2n) { border-top-color:var(--teal); }
-.definition strong { color:var(--midnight); }
+.definition { padding:15px 17px; border-top:2px solid #80868B; background:var(--surface); }
+.definition strong { color:var(--ink); }
 .definition p { margin:5px 0 0; color:var(--muted); font-size:12.5px; }
 .notes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
-.note { padding:17px; background:var(--surface); border-top:3px solid var(--cyan); }
-.note:nth-child(2) { border-top-color:var(--teal); } .note:nth-child(3) { border-top-color:var(--pink); }
-.note strong { color:var(--midnight); }
-.section-conclusion { margin:24px 0 0; padding:17px 19px 18px; color:var(--paper); background:var(--midnight); border-left:5px solid var(--green); }
-.section-conclusion span { display:block; margin-bottom:5px; color:var(--green); font:760 11px/1.2 "Cascadia Mono",Consolas,monospace; letter-spacing:.12em; text-transform:uppercase; }
-.section-conclusion p { margin:0; color:rgba(248,251,255,.91); }
+.note { padding:17px; background:var(--surface); border-top:2px solid #80868B; }
+.note strong { color:var(--ink); }
+.section-conclusion { margin:24px 0 0; padding:17px 19px 18px; color:var(--ink); background:#F1F3F4; border-left:4px solid #5F6368; }
+.section-conclusion span { display:block; margin-bottom:5px; color:#3C4043; font:760 11px/1.2 "Cascadia Mono",Consolas,monospace; letter-spacing:.11em; text-transform:uppercase; }
+.section-conclusion p { margin:0; color:#202124; }
 .mechanism-flow { display:grid; grid-template-columns:1fr 36px 1fr 36px 1fr 36px 1fr; align-items:stretch; margin:25px 0; }
-.flow-node { padding:17px; background:var(--surface); border-top:4px solid var(--violet); }
-.flow-node:nth-of-type(2) { border-color:var(--cyan); } .flow-node:nth-of-type(3) { border-color:var(--teal); } .flow-node:nth-of-type(4) { border-color:var(--pink); }
-.flow-node b { display:block; color:var(--midnight); }
+.flow-node { padding:17px; background:var(--surface); border-top:2px solid #80868B; }
+.flow-node b { display:block; color:var(--ink); }
 .flow-node small { color:var(--muted); }
-.flow-arrow { display:grid; place-items:center; color:var(--violet); font-size:24px; }
+.flow-arrow { display:grid; place-items:center; color:#5F6368; font-size:24px; }
 .evidence-ledger { display:grid; grid-template-columns:1.2fr 1fr; gap:1px; margin:20px 0; border:1px solid var(--line); background:var(--line); }
 .ledger-row { display:contents; }
 .ledger-row>div { padding:13px 15px; background:var(--surface); }
-.evidence-tag { display:inline-block; margin-right:8px; padding:2px 7px; color:var(--midnight); background:var(--soft-yellow); border:1px solid rgba(118,83,71,.25); font:700 10px/1.5 "Cascadia Mono",Consolas,monospace; text-transform:uppercase; }
+.evidence-tag { display:inline-block; margin-right:8px; padding:2px 7px; color:#3C4043; background:#F1F3F4; border:1px solid #DADCE0; font:700 10px/1.5 "Cascadia Mono",Consolas,monospace; text-transform:uppercase; }
 .next-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
-.next-item { padding:18px 0; border-top:2px solid var(--violet); }
-.next-item:nth-child(2n) { border-top-color:var(--teal); }
-.next-item strong { display:block; color:var(--midnight); }
+.next-item { padding:18px 0; border-top:1px solid #80868B; }
+.next-item strong { display:block; color:var(--ink); }
 footer { padding:25px; color:var(--muted); text-align:center; border-top:1px solid var(--line); font-size:12px; }
 @media (max-width:960px) { .grid4,.notes,.method-strip,.metric-defs,.next-grid { grid-template-columns:repeat(2,1fr); } .controls { grid-template-columns:repeat(3,1fr); } .figures { grid-template-columns:1fr; } .mechanism-flow { grid-template-columns:1fr; gap:0; } .flow-arrow { transform:rotate(90deg); min-height:34px; } }
 @media (max-width:600px) { main { padding-inline:16px; } header { padding-inline:18px; } .grid4,.notes,.method-strip,.metric-defs,.next-grid,.viz-foot,.evidence-ledger { grid-template-columns:1fr; } .ledger-row { display:block; } .controls { grid-template-columns:repeat(2,1fr); } #counter3d { height:500px; } .canvas-wrap { min-height:500px; } }
@@ -4416,8 +4874,8 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
 <main>
 <div class="report-preamble" id="overview">
   <span class="section-kicker">Executive synthesis · 不计入五个证据块</span>
-  <h2>当前最小机制：分布式 evidence aggregation，在后层写入可执行的 answer-query count state</h2>
-  <p class="lede">最符合全部结果的工作模型不是“每个 needle 末尾独立保存一个可直接搬运的整数”，也不是“一个最强 head 均匀数完所有 needles”。更窄、也更可检验的模型是：多个 attention heads 在 <code>Total:</code> query 聚合 occurrence evidence；该聚合对最终 count magnitude 因果必要；随后在模型后段形成一个能够决定首个答案 token 的 query residual state。</p>
+  <h2>当前最小机制：分布式 retrieval bank，在后层写入可执行的 answer-query count state</h2>
+  <p class="lede">最符合全部结果的工作模型不是“每个 needle 末尾独立保存一个可直接搬运的整数”，也不是“一个最强 head 均匀数完所有 needles”。更窄、也更可检验的模型是：多个 attention heads 在 <code>Total:</code> query 聚合 occurrence evidence；被测试的 mixed ranked bank 对维持最终 count magnitude 有因果贡献；随后在模型后段形成一个能够决定首个答案 token 的 query residual state。global broad heads 是否作为一个 phenotype 单独必要，目前仍未被 ablation 分离。</p>
   <div class="mechanism-flow" aria-label="V4 mechanism summary">
     <div class="flow-node"><b>Needle-local states</b><small>span-end 中 count index 可解码，但单 endpoint state 跨 prompt patch 不足以搬运 count。</small></div><div class="flow-arrow">→</div>
     <div class="flow-node"><b>Distributed head bank</b><small>多个 broad / selector / local heads 并存；ranked top-8 bank ablation 比 layer-matched random 更强地导致 undercount。</small></div><div class="flow-arrow">→</div>
@@ -4427,11 +4885,11 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <div class="evidence-ledger">
     <div class="ledger-row"><div><span class="evidence-tag">Descriptive</span>Needle-end count information persists</div><div>v4.4 confirmation R²：Qwen 0.866；Gemma 0.916。</div></div>
     <div class="ledger-row"><div><span class="evidence-tag">Correlational</span>Undercount aligns with low span-end attention</div><div>Omitted-tail overlap exceeds its combinatorial baseline; nested failures more often place the new needle in bottom-k.</div></div>
-    <div class="ledger-row"><div><span class="evidence-tag">Necessary</span>Discovery-ranked head bank preserves count</div><div>Top-8 ranked-minus-random count shift：Qwen −0.331；Gemma −2.156。</div></div>
+    <div class="ledger-row"><div><span class="evidence-tag">Necessary</span>Discovery-ranked mixed head bank preserves count</div><div>Top-8 ranked-minus-random count shift：Qwen −0.331；Gemma −2.156；不归因于单一 phenotype。</div></div>
     <div class="ledger-row"><div><span class="evidence-tag">Sufficient</span>Late query state carries computed prediction</div><div>Final-layer valid eligible rows全部复制 donor prediction；不是 donor gold，也不保证多 token realization。</div></div>
     <div class="ledger-row"><div><span class="evidence-tag">Manipulable</span>Late query geometry moves output</div><div>Geometric-minus-random aligned shift：Qwen L26 +0.958；Gemma L31 +1.388。</div></div>
   </div>
-  <div class="section-conclusion"><span>本节结论</span><p>目前可以主张“broad evidence aggregation → late executable query state”这条 bank-level 机制链；还不能主张存在唯一 scalar counter、单一 broad head、固定 partition circuit，或能够精确设定任意 target count 的线性控制方向。</p></div>
+  <div class="section-conclusion"><span>本节结论</span><p>目前可以主张“distributed retrieval/aggregation → late executable query state”这条 bank-level 机制链；还不能把因果必要性专门归给 global broad heads，也不能主张存在唯一 scalar counter、单一 broad head、固定 partition circuit，或能够精确设定任意 target count 的线性控制方向。</p></div>
 </div>
 <div class="report-preamble" id="design">
   <span class="section-kicker">Experimental design · 全部五块共享</span>
@@ -4455,7 +4913,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
     <tr><td>representation capture shards</td><td>120</td><td>120</td><td>span-end / span-mean hidden states</td></tr>
     <tr><td>raw answer-query attention tensors</td><td>1,200</td><td>1,200</td><td>head ranking、omission、partitioning</td></tr>
     <tr><td>raw attention bytes</td><td>28.36 GB</td><td>1.78 GB</td><td>保留可复算的 query rows</td></tr>
-    <tr><td>causal detail rows / model</td><td>5,360</td><td>5,360</td><td>640 ablation + 720 endpoint patch + 2,560 query patch + 1,440 steering</td></tr>
+    <tr><td>causal detail rows / model</td><td>9,200</td><td>9,200</td><td>640 ablation + 720 endpoint patch + 2,560 query patch + 1,440 initial steering + 3,840 steering v2</td></tr>
   </tbody></table></div>
   <div class="callout"><strong>解释规则。</strong>v4.1 的干净曲线仍可能只是固定 identity、位置或记录顺序编码。只有 signal 在 v4.3/v4.4 仍可跨 seed 解码，才支持相对 content-independent 的 count representation；即便如此，representation 仍不等于机制。</div>
   <div class="section-conclusion"><span>本节结论</span><p>V4.1→V4.4 是逐项释放 nuisance factors 的 paired ladder，而不是四个无关数据集。后续所有 discovery selection 与 confirmation inference 严格分离；实验数据、raw attention、hidden states 和 causal detail rows 均完整，因此报告中的差异可以解释为控制项释放与干预效应，而不是样本缺失。</p></div>
@@ -4492,6 +4950,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <span class="section-kicker">Block 1 / 5 · Behavior analysis</span>
   <h2>Behavior：主要失败边界随 count 增大出现，而不是由某一个 V4 panel 单独触发</h2>
   <p class="lede">图中横轴是真实 needle count N，纵轴是完整 greedy numeric sequence 的 exact-match accuracy；每条线对应一个 V4 panel，每个点包含 10 个 confirmation seeds。黄色背景从 N=5 开始，仅用于帮助观察中高 count 区间，不参与统计。</p>
+  <div class="figure-intro"><p><strong>画什么：</strong>两个模型在 count 1–10 上的完整 greedy 数字答案准确率，以及四种控制释放条件的差异。</p><p><strong>如何得到：</strong>每个点汇总一个 model×panel×gold-count 下 10 个 confirmation seeds；只有最终 continuation 能被严格解析为正确的 1–10 整数序列才记为正确。</p><p><strong>能说明什么：</strong>它定位行为失效从哪个 count 开始、是否随 V4.1→V4.4 系统变化；它本身不解释失败发生在哪个内部计算阶段。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@BEHAVIOR_ACCURACY_SVG@@<figcaption><strong>图 B1-F1 · Confirmation accuracy by count。</strong>横轴：gold count 1–10；纵轴：parsed full-sequence exact-match accuracy（0–1）。颜色：V4.1–V4.4 controlled panels。两模型在小 count 上接近饱和，在 count 4–6 附近进入快速下降区；9–10 几乎全部 undercount。</figcaption></figure></div>
   <h3>Panel-level confirmation summary</h3>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>correct / 100</th><th>accuracy</th><th>mean prediction</th><th>MAE</th><th>undercount</th><th>format valid</th></tr></thead><tbody>@@BEHAVIOR_PANEL_ROWS@@</tbody></table></div>
@@ -4504,7 +4963,9 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <h2>Counter representation：prompt 读取过程与 <code>Total:</code> query 的状态必须分开定位</h2>
   <h3>2.1 哪一层最可解码，哪一层最适合显示 manifold？</h3>
   <p class="lede">原分析的 probe-optimal layer 只用 v4.1 discovery grouped-seed full-space CV-R² 选择：Qwen span-end L1、span-mean L0；Gemma span-end L22、span-mean L0。它回答“哪层在完整 residual space 中最容易线性解码”，不回答“哪层的前三个 PC 最完整展示 count manifold”。因此本报告保留原 probe 结果，同时新增逐层 PCA/manifold sweep，并把 3D 展示层单独命名为 manifold-display layer。</p>
+  <div class="figure-intro"><p><strong>画什么：</strong>在预先选定的 probe-optimal layer 上，span-end 与 span-mean 对 occurrence index/count 的 held-out 线性解码强度。</p><p><strong>如何得到：</strong>每个 panel 只用 discovery seeds 选择 ridge 正则并拟合 full-space probe，再在不相交的 10 个 confirmation seeds 上计算 R²；四个 panel 各自拟合、各自验证。</p><p><strong>能说明什么：</strong>正 R² 说明该位置的完整 residual 含可泛化的线性 count signal；它不说明信号低维、因果必要或可被单点运输。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@REPRESENTATION_R2_SVG@@<figcaption><strong>图 B2-F1 · Held-out count decoding。</strong>横轴：V4 controlled relaxation；纵轴：confirmation R²。实线/圆点是 span-end，虚线/圆点是 span-mean。R²=0 水平线表示不优于用 confirmation mean 预测。span-end 随控制释放逐渐变差但仍保持强正值；span-mean 在 v4.3 释放 city-score order 后明显崩溃。</figcaption></figure></div>
+  <div class="figure-intro"><p><strong>画什么：</strong>每个已捕获 decoder layer 的 full-space 可解码度、前三个 PC 的总方差解释度、前三个 PC 对 count-centroid signal 的保留率，以及跨 seed 紧致度。</p><p><strong>如何得到：</strong>所有曲线只使用 V4.1 discovery states；P 标记 full-space CV-R² 最大层，M 在“距最佳 R²≤0.02”的层中再按 M₃=EVR₃×F₃×compactness 选择。</p><p><strong>能说明什么：</strong>它把“最容易线性读出”与“最适合用 3D 展示”分开，避免仅凭 PCA explained variance 选到主要解释 nuisance 的层。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@LAYER_SWEEP_SVG@@<figcaption><strong>图 B2-F2 · Discovery-only layer sweep。</strong>横轴：zero-based post-block decoder layer；纵轴：0–1 的 discovery-only score。紫色是 full-space grouped-seed CV-R²；青色是前三 PC 的 total EVR；绿色是前三 PC 对 count-centroid signal 的捕获率 F₃；粉色是 leave-one-seed-out compactness C。棕色虚线 P 标记原 probe-optimal 层；靛蓝实线 M 标记 manifold-display 层。高 EVR 单独出现并不够：若 F₃ 或 compactness 低，PCA 可能主要解释 nuisance variance。</figcaption></figure></div>
   <details open><summary>Probe-optimal 与 manifold-display 层的逐项比较</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>pooling</th><th>probe L</th><th>probe full CV R²</th><th>probe EVR₃</th><th>probe F₃</th><th>probe LOO noise/signal</th><th>display L</th><th>display full CV R²</th><th>display EVR₃</th><th>display F₃</th><th>display PCA3 CV R²</th><th>display LOO noise/signal</th><th>M₃</th></tr></thead><tbody>@@LAYER_SELECTION_ROWS@@</tbody></table></div></details>
   <p class="artifact-link">完整逐层数值：<a href="realistic_niah_v4_layer_sweep.csv">realistic_niah_v4_layer_sweep.csv</a>。</p>
@@ -4516,6 +4977,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <span class="section-kicker">Prompt-reading geometry + answer-query geometry</span>
   <h3>2.2 Prompt-reading counter：随 prompt 读取的 needle occurrence states</h3>
   <p class="lede">下面的 3D view 可选择模型、pooling、<strong>任意已捕获 decoder layer</strong>、V4 panel、split 与输出标签。每个 model×pooling×layer 都只用 v4.1 discovery occurrence states 拟合自己的 PC1–PC6，再把同一 basis 应用于 v4.1–v4.4；layer 下拉框默认落在 manifold-display 层。淡点是单 seed×occurrence state，彩色节点/连线是 index 1→10 centroids。不同层分别拟合 PCA，因此只能比较每层内部的顺序、散布与解释度，不能把 PC 坐标值跨层直接相减。</p>
+  <div class="figure-intro"><p><strong>画什么：</strong>模型逐个读入第 1→10 个 needle 时，needle-end 或整段均值 residual 在任意已捕获层形成的三维 trajectory。</p><p><strong>如何得到：</strong>对每个 model×pooling×layer 单独在 V4.1 discovery 拟合 PC1–PC6；交互控件仅切换投影数据、panel、split 和最终行为标签，不重新拟合 PCA。</p><p><strong>能说明什么：</strong>可检查 index trajectory 是否连续、是否接近一维、到哪一层最清楚以及释放 position/order/content 后是否对 seed 敏感；三维外仍可能存在重要 count signal。</p></div>
   <div class="viz-shell">
     <div class="controls">
       <label>Model<select id="model-select"><option>Qwen3-8B</option><option>Gemma4-E4B</option></select></label>
@@ -4543,26 +5005,33 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <div class="figures">@@STATIC_FIGURES@@</div>
   <h3>2.3 Answer-query counter：<code>Total:</code> 位置的聚合状态</h3>
   <p class="lede">这张图使用 geometric-steering discovery capture 中保存的完整 answer-query residual：Qwen L9/L18/L26，Gemma L10/L20/L31。每个点对应一个 variant×discovery seed×gold count prompt，在生成第一个答案 token 之前捕获；它不是 needle token 的均值，也不是首个答案 token 生成后的状态。每层 PCA 只在 v4.1 的 20×10 个 discovery query states 上拟合。</p>
+  <div class="figure-intro"><p><strong>画什么：</strong>生成答案前，prompt-final <code>Total:</code> query 的完整 residual 如何随 gold count 1–10 组织，并比较早、中、后三个保存层。</p><p><strong>如何得到：</strong>每层只在 V4.1 的 20 discovery seeds×10 counts 上拟合 PCA，再同时投影 V4.1 与 V4.4；点是单 prompt，折线是 count centroids。</p><p><strong>能说明什么：</strong>它定位聚合后的 count-conditioned query geometry 何时出现；PCA 仍是描述性证据，后面的 exact donor patch 与 steering 才检验该状态是否能驱动输出。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@ANSWER_QUERY_COUNTER_SVG@@<figcaption><strong>图 B2-F4 · Answer-query count manifold。</strong>每行一个模型，每列一个已保存的 post-block query layer；横/纵轴分别为该层独立拟合的 PC1/PC2 score。淡点为 v4.4 discovery 的 20 seeds×10 counts；实线和彩色节点为 v4.4 count centroids，灰色虚线为 v4.1 centroid reference。panel 顶部给出 PC1+PC2 对 v4.1 discovery 总方差的解释比例。坐标轴符号与尺度不可跨 layer/model 直接比较。</figcaption></figure></div>
   <div class="section-conclusion"><span>当前结论 · 两种表示不能混称</span><p>Prompt-reading 图追踪同一个 N=10 prompt 内第 1→10 个 needle occurrence 的局部状态；answer-query 图比较十个不同 gold-count prompts 在 <code>Total:</code> 位置的聚合状态。前者说明读入过程中哪些 layer 出现可视的 index trajectory，后者说明生成前哪些 layer 已形成 count-conditioned query geometry。只有后者与 late answer-query donor patching/steering 位于同一干预位置，因此不能用 prompt occurrence PCA 直接替代 answer-query counter 的机制证据。</p></div>
   <details><summary>N=10 trajectory 的实际 greedy outcome strata</summary><p class="lede">一条 N=10 trajectory 的十个 occurrence vectors 共同继承该 prompt 的最终输出标签；不是按单 occurrence 重新分类。Qwen confirmation 在四个 panel 都没有正确 N=10 trajectory；Gemma 只有 v4.1 的 1 条，因此 correct/wrong 几何只能作 audit，不能作有 power 的组间比较。</p><div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>split</th><th>correct / n</th><th>accuracy</th><th>mean prediction</th><th>MAE</th></tr></thead><tbody>@@BEHAVIOR_ROWS@@</tbody></table></div></details>
   <div class="section-conclusion"><span>本节结论</span><p>可切换 PCA 中的 centroid trajectory 证明 count-related geometry 具有低维可视结构，但 individual seed scatter、step CV 与 path/chord 显示它既不完全等距，也不总是笔直。PCA 只能说明 representation 的组织方式；是否进入生成读出，需要后面的 attention 与 causal intervention。</p></div>
 
   <h3>2.4 Exact needle-end residual patching：可解码 endpoint 是否是可运输的 count carrier？</h3>
-  <p>该实验只 patch <code>span_end</code>，不是 span mean。Insertion 把 N−1 receiver 的新增 donor endpoint state 贴入，removal 做反向；positive aligned shift 要求 insertion 增大 output、removal 减小 output。<em>Moved</em> 要求到 donor gold 的距离严格缩短，因此 receiver baseline 已等于 donor gold 时不会被误计为 transport success。</p>
+  <p>这不是把一个 count prompt 随意贴到另一个 prompt。Stimuli 采用 nested N−1/N pair：两条序列在十个预留 slot 上等长、同位置；第 N 个 slot 在 N prompt 中是 active needle，在 N−1 prompt 中由 canonical token-length-matched haystack control 占位。Insertion 以 N−1 为 receiver，把 N donor 在<strong>第 N 个 slot 的最后一个 token</strong>上的完整 d<sub>model</sub> post-block residual 复制到 receiver 的同位置；removal 反向把 inactive-control endpoint state 复制到 active N receiver。实验只 patch <code>span_end</code>，既不是 span mean，也不是整段 needle tokens。</p>
+  <div class="callout"><strong>“有 needle → 没 needle”的精确定义。</strong>这里的“没 needle”指<strong>同一个 toggled slot</strong>在 N−1 prompt 中是等长 inactive haystack control，不是整条 prompt 的 gold count=0；本数据注册范围是 1–10，没有 zero-needle baseline。这个 nested contrast 隔离的是新增一条 evidence 的状态是否充分。</div>
+  <p>完成的 protocol 是 <code>cumulative_from_layer</code>：若 start=L18，就在 L18、L19、…、最后一层，每一层都用 donor 在该层保存的 endpoint vector 覆盖 receiver 的同一 endpoint；随后从 receiver prompt 执行完整 greedy generation。这样检验的是“即使该单点状态从某深度起被持续夹持为 donor 值，它是否足以改变答案”。正 aligned shift 要求 insertion 增大生成 count、removal 减小生成 count；<em>moved</em> 还要求最终输出到 donor gold 的距离严格缩短。</p>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>start</th><th>rows / seeds</th><th>changed</th><th>moved [95% CI]</th><th>insertion shift</th><th>removal shift</th><th>aligned shift [95% CI]</th><th>Holm p</th></tr></thead><tbody>@@CAUSAL_PATCHING_ROWS@@</tbody></table></div>
+  <div class="figure-intro"><p><strong>画什么：</strong>从不同 start layer 起持续替换单个 toggled needle endpoint 后，最终生成数字沿 donor count 方向移动了多少。</p><p><strong>如何得到：</strong>每个 nested pair 同时做 insertion/removal；先在 confirmation seed 内平均 panel、pair 与方向，再对 10 个 seeds bootstrap 95% CI，表中 Holm p 来自同一模型多个 start layers 的 exact sign-flip family。</p><p><strong>能说明什么：</strong>若 CI 明显大于零，单 endpoint residual 可作为可运输的充分 carrier；接近零只否定这一单点、累计夹持 protocol，不否定整段或多 endpoint 的分布式状态。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_PATCHING_SVG@@<figcaption><strong>图 B2-F5 · Exact endpoint transport。</strong>横轴：mean direction-aligned generated-count shift；纵轴：model 与 cumulative start layer。圆点/横线为 10 个 confirmation seeds 的等权估计与 95% bootstrap CI；零表示复制单 endpoint state 没有沿 donor count 方向移动输出。</figcaption></figure></div>
-  <div class="section-conclusion"><span>本小节结论 · Endpoint insufficiency</span><p>所有 tested depths 的 aligned-shift CI 都包含 0，严格 moved rate 最高仅 2.1%。因此单个 toggled needle-end state 虽高度 count-decodable，却不是跨 prompt 可直接运输的充分 count state。该 null 不排除完整 needle token sequence、多个 endpoints 的协调状态或 query-side 重新聚合。</p></div>
+  <div class="section-conclusion"><span>本小节结论 · Endpoint insufficiency</span><p>所有 tested depths 的 aligned-shift CI 都包含 0，严格 moved rate 最高仅 2.1%，且两个方向都没有一致效应。因此即使从中层/后层起逐层夹持，单个 toggled needle-end vector 仍不足以跨 prompt 搬运一个 +1/−1 count。它虽然高度可解码，却更可能只是局部记录的一部分；该 null 不排除完整 needle token sequence、多个 endpoints 的协调状态，或必须在 <code>Total:</code> query 重新聚合后才成为可执行状态。</p></div>
 
   <h3>2.5 Exact answer-query residual patching：聚合后的 query state 是否足以搬运模型已经算出的 prediction？</h3>
-  <p>每一行在某一层把 donor prompt-final <code>Total:</code> query 的一个<strong>完整 d<sub>model</sub> residual vector</strong>复制到 receiver，然后执行完整 greedy generation。Primary estimand 只在 receiver 与 donor baseline predictions 不同的 eligible rows 中计算：patched output 是否等于 <em>donor model prediction</em>。它有意不等同于 donor-gold accuracy，因为一个完美 transport 也可以忠实复制 donor 已经算错的数字。</p>
+  <p>这里的 site 与 2.4 完全不同。对同一 panel×seed 的 count pairs 5↔6、7↔8、9↔10、5↔10，先分别保存 donor 与 receiver 在 prompt-final <code>Total:</code> query 的完整 post-block residual。对每个测试层只做一次 <code>single_layer</code> replacement：在 receiver prefill 到达该层后令 h<sub>receiver,query</sub>′=h<sub>donor,query</sub>，其余 prompt positions、其他层和随后生成的 answer-token positions都不 patch；然后从 receiver context 执行最多 16 tokens 的完整 deterministic greedy continuation。这是 sample-wise 全 d<sub>model</sub> 状态替换，不是 PCA coordinate、均值向量或概率比较。</p>
+  <p>Primary estimand 只在 receiver 与 donor baseline predictions 不同的 eligible rows 中计算：patched output 是否等于 <em>donor model prediction</em>。它有意不等同于 donor-gold accuracy，因为一个完美 transport 也可以忠实复制 donor 已经算错的数字。越界或不可严格解析的 continuation 留在分母并记为 transport failure。</p>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>rows / seeds</th><th>valid</th><th>eligible n</th><th>adopts donor prediction [95% CI]</th><th>changed (valid)</th><th>moved to donor gold (valid)</th><th>matches donor prediction (all valid)</th><th>aligned shift (valid) [95% CI]</th><th>adoption vs L0 Holm p</th></tr></thead><tbody>@@ANSWER_QUERY_LAYER_ROWS@@</tbody></table></div>
+  <div class="figure-intro"><p><strong>画什么：</strong>在不同单层替换 answer-query residual 后，receiver 的最终完整数字答案采用 donor baseline prediction 的比例。</p><p><strong>如何得到：</strong>每模型选择 8 个从早到末层的 post-block layers；每层覆盖四个 panels、10 个 confirmation seeds 与四组双向 count pairs。CI 以 seed 聚类，later-layer adoption 与 L0 做配对检验并 Holm 校正。</p><p><strong>能说明什么：</strong>曲线的跃迁定位“已经算出的 prediction”何时写入可运输 query state；它不证明状态是一维 counter，也不保证只 patch prefill query 就能约束多-token continuation 的每一个后续 token。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@ANSWER_QUERY_ADOPTION_SVG@@<figcaption><strong>图 B2-F6 · Layerwise donor-prediction transport。</strong>横轴：eligible rows 中 patched output 等于 donor baseline prediction 的比例；纵轴：model/layer。Strict-invalid continuations 留在分母并记为 failure；横线为 10 个 confirmation seeds 的 95% bootstrap CI，Holm p 比较 later layer 与同模型 L0。</figcaption></figure></div>
   <details><summary>展开：末层按 V4 panel 与 directed count pair 的稳健性</summary>
     <h4>By V4 panel</h4><div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>panel</th><th>rows / seeds</th><th>valid</th><th>eligible adoption [95% CI]</th><th>aligned shift [95% CI]</th></tr></thead><tbody>@@ANSWER_QUERY_VARIANT_ROWS@@</tbody></table></div>
     <h4>By directed count pair</h4><div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>receiver→donor</th><th>rows / seeds</th><th>valid</th><th>eligible n</th><th>eligible adoption [95% CI]</th><th>follows donor prediction (valid)</th><th>aligned shift [95% CI]</th></tr></thead><tbody>@@ANSWER_QUERY_PAIR_ROWS@@</tbody></table></div>
   </details>
   @@ANSWER_QUERY_INVALID@@
+  <div class="callout"><strong>Gemma 的五个 <code>11</code> 是什么？</strong>它们全部来自同一个 V4.1 confirmation family（seed 1263，receiver baseline=5，donor baseline=10），分别出现在 L31/L35/L38/L40/L41。模型实际 continuation 的数字部分是 <code>11</code>：它能解析为整数，但超出注册答案集合 1–10，因此按 strict rule 记为 invalid/failure，而不是把它裁剪为 10。一个合理但仍属机制推断的解释是：late query patch 已把 donor <code>10</code> 的首个数字前缀 <code>1</code> 搬入 receiver readout；后续 answer-token positions 没有被 patch，Gemma 在自回归第二步重复了 <code>1</code> 而没有生成 <code>0</code>。这说明单个 prefill query state 对首个 numeric decision 极强，但完整多-token realization 仍包含后续计算。</div>
   <div class="section-conclusion"><span>本小节结论 · Query-state sufficiency</span><p>Transport 在 Qwen L18→L26 与 Gemma L20→L31 之间突然开启；末层所有合法 eligible rows 都等于 donor prediction。把 Gemma 五个生成 <code>11</code> 的 strict-invalid rows 作为 failure 后，保守 adoption 仍为 Qwen 100%、Gemma 99.58%。这证明 late query state 对“模型已经算出的 prediction”高度充分，但不证明它是单维 scalar counter，也不保证多-token answer 的后续 token 都由同一次 patch 决定。</p></div>
   </div>
   <div class="section-conclusion"><span>Block 2 结论</span><p>Prompt 中 needle-end states 保留稳定、可解码的 index/count information；但单 endpoint patch 近乎为零，说明该信息不是一个可单点搬运的运行计数器。相反，<code>Total:</code> 位置的后层完整 residual 可以近确定性搬运 donor prediction，支持“分布式 evidence 先被聚合，再在 answer-query 侧形成 executable count state”。</p></div>
@@ -4575,53 +5044,68 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
 
   <h3>3.1 全 head attention atlas：每层每 head 都放在同一个坐标系中</h3>
   <p>对每个 N=10 discovery prompt、head 与 needle endpoint，记 attention 为 aᵢ，M=Σᵢaᵢ，pᵢ=aᵢ/M。Entropy breadth 为 C<sub>H</sub>=exp[−Σᵢpᵢlog pᵢ]/10，atlas 色值为 S=M×C<sub>H</sub> 的 log₁₀；它同时要求“对 needles 的总 mass 高”和“分布不只落在少数 needles”。颜色在每个模型内部按 1%–99.5% 分位裁剪，因此可比较同模型的 layer/head/panel，不应把 Qwen 与 Gemma 的颜色绝对值直接相减。</p>
-  <div class="stat-grid"><figure class="stat-figure">@@ATTENTION_HEAD_ATLAS_SVG@@<figcaption><strong>图 B3-F1 · All-head span-end retrieval atlas。</strong>横轴：zero-based head index；纵轴：zero-based post-block layer；四列为 V4.1–V4.4，两行为模型。底色是 discovery log₁₀(S)；空心圆=global broad，空心方框=partition-local broad，实心点=first-needle locator 或其他 targeted retriever。Qwen 显示全部 36×32 heads；Gemma 只有 L5/11/17/23/29/35/41 的 global-attention heads 能看到全部远距 needles，其余 sliding-attention layers 以灰色表示“不可观测全局 retrieval”，不是零效果。</figcaption></figure></div>
+  <div class="figure-intro"><p><strong>画什么：</strong>在选定 V4 panel 中，把每个可观测 attention head 放到 layer×head 网格，直接查看 retrieval strength 与 phenotype 的全局分布。</p><p><strong>如何得到：</strong>只用 discovery 的 N=10 prompts；颜色为 span-end broad-primary score 的模型内 log₁₀ 尺度，符号来自冻结阈值的 global/local/first-selector 分类。四个按钮只切换 panel，颜色尺度在同一模型内保持一致。</p><p><strong>能说明什么：</strong>图可定位候选 head bank 和跨 panel 稳定性；不能仅凭亮度证明某个 head 对输出必要。</p></div>
+  <div class="stat-grid"><figure class="stat-figure">@@ATTENTION_HEAD_ATLAS_HTML@@<figcaption><strong>图 B3-F1 · Switchable all-head span-end retrieval atlas。</strong>按钮：V4.1–V4.4；横轴：zero-based head index；纵轴：zero-based post-block layer；每个 panel 内上行为 Qwen、下行为 Gemma。底色是 discovery log₁₀(S)；空心圆=global broad，空心方框=partition-local broad，黄色实心点=strict first-needle locator，粉色实心点=较弱的 occurrence selector。Qwen 显示全部 36×32 heads；Gemma 只有 global-attention layers 能观察全距 needles，其余灰格表示“该层局部窗口无法覆盖远距 needle”，不是零 attention。</figcaption></figure></div>
   <div class="section-conclusion"><span>本小节结论 · 全局分布</span><p>高 retrieval score 不是单一孤立 head，而是在多个层形成稀疏但重复出现的 bank；同时，颜色高也不等于 broad，因为高 mass 的 selector 也可能排名靠前。因此后续必须把“强度”与“覆盖形状”分开分类。</p></div>
 
-  <h3>3.2 Discovery-only retrieval taxonomy：按可复算规则寻找特定 heads</h3>
-  <p>首先只保留同时满足两项 gate 的候选：needle endpoint attention 高于 matched hard-negative positions，且相对 token-density 的 enrichment&gt;1。然后对每个候选在 20 个 N=10 discovery prompts 上计算 participation effective number N<sub>eff,2</sub>=1/Σᵢpᵢ²、dominant occurrence share、winner occurrence、四个等 normalized-depth quarters 的 row mass，以及 full-span mean profile。以下阈值在看 confirmation outcomes 之前固定；它们是操作性 phenotype，不是神经元“类型”的本体声明。</p>
+  <h3>3.2 Global broad retrieval heads：哪些 head 同时覆盖多数 needles？</h3>
+  <p>这一步不从“最亮的一个 head”出发，而是扫描全部可观察 heads。首先只保留同时满足两项 discovery gate 的候选：needle endpoint attention 高于 matched hard-negative positions，且相对 token-density 的 enrichment&gt;1。然后在 20 个 N=10 discovery prompts 上，把每个 head 对十个 endpoints 的 mass 归一化为 pᵢ，并计算 participation effective number N<sub>eff,2</sub>=1/Σᵢpᵢ²、最大单 occurrence share、winner occurrence、四个 normalized-depth quarters 的 row mass及 full-span profile。阈值在读取 confirmation outcomes 前冻结；这些名称是可复算的 attention-shape 定义，不是先验神经模块标签。</p>
   <div class="metric-defs">
     <div class="definition"><strong>Global broad retrieval</strong><p>mean N<sub>eff,2</sub>≥6，且任何单 occurrence 的 mean normalized share≤0.25。含义：至少约六个 endpoints 有实质贡献，且无单点支配。</p></div>
     <div class="definition"><strong>Partition-local broad retrieval</strong><p>不满足 global；dominant depth quarter 平均至少包含 2 个 needles；quarter 内 local effective fraction≥0.80；该 quarter 占整个 query row attention mass≥0.50。含义：head 在局部深度区间内广泛聚合，而非全局覆盖。</p></div>
     <div class="definition"><strong>First-needle locator</strong><p>先满足 selector gate：mean N<sub>eff,2</sub>≤2 且同一 winner occurrence 的频率≥0.80；再要求 winner mode=1、occurrence 1 mean share≥0.80、每 prompt winner 为 first 的比例≥0.90。</p></div>
-    <div class="definition"><strong>Targeted retrieval</strong><p>满足 selector gate 但不满足 first-locator；<code>target occurrence</code> 是 20 个 discovery prompts 中 winner 的众数。它定位某个 occurrence，不代表它在做计数累加。</p></div>
+    <div class="definition"><strong>Weak targeted-selector bucket</strong><p>满足 selector gate 但不满足 strict first-locator；<code>target occurrence</code> 是 20 个 discovery prompts 中 winner 的众数。这个 residual bucket 原本允许 target=2–10，但实际所有入选 rows 的 target 都是 occurrence 1，因此它最终表示“较弱的 first-focused selector”，而不是其他单一 needle retriever。</p></div>
     <div class="definition"><strong>Broad span-mean only</strong><p>Endpoint 上不属于上述类别，但整个 needle-span token mean 的 N<sub>eff,2</sub>≥6 且最大 occurrence share≤0.25。它说明记录内部有广覆盖，不说明 endpoint counter 被广泛读取。</p></div>
     <div class="definition"><strong>Mixed</strong><p>通过候选 gate，但不满足任何强 phenotype 阈值。保留而不强行归类，避免把连续 profile 人为离散化后遗漏。</p></div>
   </div>
-  <div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>global broad</th><th>local broad</th><th>first locator</th><th>targeted other</th><th>broad span-mean only</th><th>mixed</th><th>all gated candidates</th></tr></thead><tbody>@@ATTENTION_PHENOTYPE_COUNT_ROWS@@</tbody></table></div>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>global broad</th><th>local broad</th><th>strict first locator</th><th>weak first-focused selector</th><th>broad span-mean only</th><th>mixed</th><th>all gated candidates</th></tr></thead><tbody>@@ATTENTION_PHENOTYPE_COUNT_ROWS@@</tbody></table></div>
   <p class="artifact-link">机器可读明细：<a href="realistic_niah_v4_head_atlas.csv">all-head atlas（9,664 model×panel×pooling×layer×head rows）</a>；<a href="realistic_niah_v4_head_phenotypes.csv">gated phenotype profiles（1,030 rows）</a>。CSV 保留每个 head 的原始层号、排名、mass、coverage、enrichment、target occurrence 与十维 endpoint/span profiles。</p>
-  <div class="stat-grid"><figure class="stat-figure">@@ATTENTION_HEAD_PROFILE_SVG@@<figcaption><strong>图 B3-F2 · Representative retrieval profiles（V4.1）。</strong>每行一个模型，每列一个 phenotype；每格选择该 phenotype 中 discovery primary score 最高的 head。横轴：needle occurrence index 1–10；纵轴：20 个 discovery prompts 中每 prompt 先归一化、再平均的 endpoint attention share。标题给出 LxHy、mean N<sub>eff,2</sub> 与 selector target。线形直接显示 global 平坦覆盖、局部分区、first locator 与其他 targeted retrieval 的差异。</figcaption></figure></div>
+  <div class="figure-intro"><p><strong>画什么：</strong>V4.1 中 global broad、local broad、strict first locator 和 weak first-focused bucket 各自最高-primary代表 head 的十维 endpoint profile。</p><p><strong>如何得到：</strong>每个 prompt 内先把十个 endpoint masses 归一化，再跨 20 个 discovery prompts 平均；代表 head 只在对应冻结 phenotype 内按 primary score 选择。</p><p><strong>能说明什么：</strong>线形让“跨多数 needles”“只在一个深度分区内覆盖”和“集中于第一个 needle”可直接区分；代表图用于解释形状，不代表该单 head 最必要。</p></div>
+  <div class="stat-grid"><figure class="stat-figure">@@ATTENTION_HEAD_PROFILE_SVG@@<figcaption><strong>图 B3-F2 · Representative retrieval profiles（V4.1）。</strong>每行一个模型，每列一个 phenotype；每格选择该 phenotype 中 discovery primary score 最高的 head。横轴：needle occurrence index 1–10；纵轴：20 个 discovery prompts 中每 prompt 先归一化、再平均的 endpoint attention share。标题给出 LxHy、mean N<sub>eff,2</sub> 与 selector target。最后一列并未找到 target=2–10 的稳定 selector；实际展示的是未达到 strict first-locator 三个附加阈值的较弱 first-focused head。</figcaption></figure></div>
   <details><summary>展开：每个模型×panel×phenotype 的最高-primary代表 head</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>phenotype</th><th>head</th><th>target</th><th>mean N_eff,2</th><th>endpoint mass</th><th>entropy coverage</th><th>dominant row-quarter mass</th></tr></thead><tbody>@@ATTENTION_REPRESENTATIVE_ROWS@@</tbody></table></div></details>
-  <div class="section-conclusion"><span>本小节结论 · Retrieval heads 不是单一类型</span><p>两个模型都同时存在 global broad、local broad、first locator 与其他 targeted heads。Qwen global broad 从 v4.1 的 34 个降到 v4.4 的 22 个，local broad 从 15 个降到 9 个，而 first locator 始终有 68–79 个；Gemma 在可见的 global layers 中有 9–16 个 global broad、1–5 个 local broad。由此不能把 top-ranked head 自动称为 broad aggregation head，也不能只保留一个“最显著”head 来代表机制。</p></div>
+  <div class="section-conclusion"><span>3.2 结论 · Global broad bank</span><p>Qwen 的 global broad 数量为 34/23/24/22（V4.1→V4.4），其中 14 个 heads 在四个 discovery panels 都保持 global；Gemma 为 16/10/9/11，其中 8 个跨四 panels 稳定。global broad 因此是多个层、多个 heads 组成的 bank，而不是一个孤立 head。释放 position/order/content 后数量下降，但没有消失；这支持稳定的全局 retrieval capacity，尚不等于这些 global heads 作为一类已被单独证明必要。</p></div>
 
-  <h3>3.3 Rank-1 是必要的反例检查，不是最终机制摘要</h3>
-  <p>下面把 discovery primary score 最高的单个 head 单独画出，用来检验“最高排名是否等于最 broad”。这里的 N<sub>eff,H</sub>=exp(H(p))=10×C<sub>H</sub> 是 entropy effective number；它与 taxonomy 使用的 participation N<sub>eff,2</sub> 都在 1–10，但公式不同，不能在同一阈值下混用。</p>
-  <div class="stat-grid"><figure class="stat-figure">@@ATTENTION_BREADTH_SVG@@<figcaption><strong>图 B3-F3 · Rank-1 head breadth。</strong>横轴：V4 panel；纵轴：rank-1 discovery head 的 entropy effective number N<sub>eff,H</sub>（1–10）。Qwen span-end rank-1 几乎只覆盖一个 endpoint；Qwen span-mean 与 Gemma 两种 pooling 约覆盖 5 个 occurrences。这一反例说明 primary 排名同时受总 mass 影响，不能代替 phenotype classification。</figcaption></figure></div>
-  <details><summary>展开：每个 model×panel×pooling 的 rank-1 head 与指标</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>pooling</th><th>rank-1 head</th><th>total mass</th><th>coverage</th><th>N_eff</th><th>primary</th></tr></thead><tbody>@@ATTENTION_TOP_ROWS@@</tbody></table></div></details>
-
-  <h3>3.4 Qwen high-resolution replication：分区内 aggregation 与稳定 global bank</h3>
-  <p>因为 Qwen L29H3 的 rank 很高但 N<sub>eff</sub>≈1，我们没有只看 top-1/top-8，而是对每个 panel 的全部 discovery-eligible candidates（212/226/226/225 heads）计算 endpoint breadth、winner occurrence、query-depth quartile gating 和 full-span breadth，并用以下 post-hoc descriptive rules 分类：</p>
+  <h3>3.3 Partition-local broad retrieval heads：是否先分区、再在区内聚合？</h3>
+  <p>Local broad head 不要求覆盖全部十个 needles，而要求注意力在一个 normalized-depth quarter 内同时覆盖至少两个 occurrences，并且该 quarter 占完整 query row mass 至少 50%。这是对“Qwen 是否先按深度分区、再在区内 aggregation”的直接操作化。我们仍扫描每个 panel 的全部 discovery-eligible candidates（Qwen 212/226/226/225 heads），而不是只看 top-1/top-8；下面的旧 Qwen high-resolution analysis 与统一 raw-row 重算逐 head 对齐，作为索引、position gating 与分类实现的 replication check。</p>
   <div class="metric-defs">
     <div class="definition"><strong>Global endpoint aggregator</strong><p>endpoint N<sub>eff</sub>≥6，且任何单 occurrence 的 mean normalized share≤0.25。</p></div>
     <div class="definition"><strong>Partition-local endpoint aggregator</strong><p>不是 global；winning depth quartile 内至少含 2 个 needles；local effective fraction≥0.8；整个 query row 至少 50% mass 落在同一 depth quartile。</p></div>
     <div class="definition"><strong>Occurrence endpoint selector</strong><p>endpoint N<sub>eff</sub>≤2，且至少 80% examples 选择相同 occurrence。</p></div>
     <div class="definition"><strong>证据边界</strong><p>这些 phenotype 是行为描述，不是模块标签。一个 head 可有 broad span-mean profile，却在 endpoint 上是 selector；attention profile 也没有包含 value vector 与 output projection。</p></div>
   </div>
-  <div class="stat-grid"><figure class="stat-figure">@@PARTITION_PHENOTYPE_SVG@@<figcaption><strong>图 B3-F4 · Qwen discovery-eligible span-end head taxonomy replication。</strong>横轴：V4 panel；纵轴：候选 head 数量。堆叠颜色显示 global aggregator、partition-local aggregator、occurrence selector 与其他 phenotypes。v4.1 的 partition-local 数量较多，但释放 position 后明显减少；global aggregator bank 在四个 panel 都存在。该旧分析与本报告的统一 raw-row 重算在 global/local 两类上逐 head 完全一致，作为索引与规则复现检查。</figcaption></figure></div>
+  <div class="figure-intro"><p><strong>画什么：</strong>Qwen 在四个 V4 panels 中通过 discovery gate 的 heads 被分为 global broad、partition-local broad、occurrence selector 与其他 profile 后的数量。</p><p><strong>如何得到：</strong>对每个候选使用相同十维 span-end profile、normalized-depth quarter 规则和固定阈值；堆叠高度是 head 数，不按 attention mass 加权。</p><p><strong>能说明什么：</strong>可检验 local phenotype 是否随 position 被释放而稳定存在；数量变化支持/反对固定 partition circuit，但不能说明某类 head 的因果贡献大小。</p></div>
+  <div class="stat-grid"><figure class="stat-figure">@@PARTITION_PHENOTYPE_SVG@@<figcaption><strong>图 B3-F3 · Qwen discovery-eligible span-end head taxonomy replication。</strong>横轴：V4 panel；纵轴：候选 head 数量。堆叠颜色显示 global aggregator、partition-local aggregator、occurrence selector 与其他 phenotypes。v4.1 的 partition-local 数量较多，但释放 position 后明显减少；global aggregator bank 在四个 panel 都存在。该旧分析与本报告的统一 raw-row 重算在 global/local 两类上逐 head 完全一致，作为索引与规则复现检查。</figcaption></figure></div>
   <details open><summary>Phenotype bank coverage：等权覆盖潜力与 raw attention 实际权重</summary><div class="table-wrap"><table><thead><tr><th>panel</th><th>phenotype</th><th>heads</th><th>equal-head N_eff</th><th>raw-mass N_eff</th><th>mean summed endpoint mass</th></tr></thead><tbody>@@PARTITION_BANK_ROWS@@</tbody></table></div></details>
-  <div class="callout"><strong>跨 panel×split 稳定的 Qwen global aggregators（13 个）：</strong><code>@@STABLE_GLOBAL_HEADS@@</code>。其中 L6H12 的 endpoint mass 较高；L13H16、L17H22 也是下一轮 bank-specific ablation 的优先候选。L29H3 则在四个 panel 都把约 99% endpoint share 给 occurrence 1；position 变化后它跟随“最早 occurrence”，而不是固定绝对 depth bin。</div>
+  <div class="callout"><strong>跨 panel×split 稳定的 Qwen global aggregators（13 个）：</strong><code>@@STABLE_GLOBAL_HEADS@@</code>。其中 L6H12 的 endpoint mass 较高；L13H16、L17H22 也是下一轮 bank-specific ablation 的优先候选。这个更严格的 13-head replication set 与只要求四个 discovery panels 稳定的 14-head set 不是同一 estimand。</div>
   @@ATTENTION_CONCLUSION@@
 
-  <h3>3.5 Correct versus wrong：答错时 ranked heads 的 retrieval 是否系统变窄？</h3>
+  <div class="section-conclusion"><span>3.3 结论 · Local broad 较弱且对控制释放敏感</span><p>Qwen local broad 数量为 15/7/8/9，四个 discovery panels 间没有同一个 head 始终保持 local；Gemma 为 5/3/2/1，仅 1 个 head 跨四 panels 稳定。Qwen 在全固定 V4.1 中确实有较多“分区后区内聚合”profile，但位置一旦释放就明显减少、转类或换 head。因此目前只能主张局部 aggregation 存在，不能主张一个固定 partition-local circuit 是跨 seed 的核心机制；global broad bank 的稳定性更强。</p></div>
+
+  <h3>3.4 First-needle locator heads：强 selector 主要在找序列的起点</h3>
+  <p>Strict first locator 先要求 selector gate（mean N<sub>eff,2</sub>≤2，且至少 80% discovery prompts 的 winner occurrence 相同），再同时要求 winner mode=1、occurrence 1 的 mean normalized share≥0.80、逐 prompt first-winner rate≥0.90。Qwen 在 V4.1→V4.4 分别找到 68/76/79/75 个，61 个 heads 在四个 discovery panels 都保持 strict first locator；Gemma 为 4/2/3/2，其中 2 个稳定。Qwen L29H3 是最清楚的例子：四个 panels 中约 99% endpoint share 都给 occurrence 1；position 被释放后它仍跟随“最早的 needle”，而不是固定绝对 token-depth bin。</p>
+  <p>Primary score 排名本身不能识别 broad aggregation，因为它同时奖励总 needle mass 与 entropy coverage。以下 rank-1 audit 专门展示这一反例：Qwen 的最高-primary span-end head 往往就是 first locator，而不是 global aggregator。这里 N<sub>eff,H</sub>=exp(H(p))=10×C<sub>H</sub> 是 entropy effective number；它与分类阈值使用的 participation N<sub>eff,2</sub> 公式不同，不能混用同一阈值。</p>
+  <div class="figure-intro"><p><strong>画什么：</strong>每个 model×panel×pooling 的 discovery rank-1 head 实际覆盖多少个 needles。</p><p><strong>如何得到：</strong>先按 primary score S=M×C<sub>H</sub> 选唯一 rank-1，再以 entropy effective number N<sub>eff,H</sub>=exp(H(p)) 汇总十个 occurrences 的覆盖宽度。</p><p><strong>能说明什么：</strong>Qwen span-end rank-1 接近 1，直接否定“最高分 head 必然是 broad aggregator”；这张图是 ranking 反例检查，不估计单 head 必要性。</p></div>
+  <div class="stat-grid"><figure class="stat-figure">@@ATTENTION_BREADTH_SVG@@<figcaption><strong>图 B3-F4 · Rank-1 head breadth。</strong>横轴：V4 panel；纵轴：rank-1 discovery head 的 entropy effective number N<sub>eff,H</sub>（1–10）。Qwen span-end rank-1 几乎只覆盖一个 endpoint；Qwen span-mean 与 Gemma 两种 pooling 约覆盖 5 个 occurrences。这一反例说明 primary 排名同时受总 mass 影响，不能代替 phenotype classification。</figcaption></figure></div>
+  <details><summary>展开：每个 model×panel×pooling 的 rank-1 head 与指标</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>pooling</th><th>rank-1 head</th><th>total mass</th><th>coverage</th><th>N_eff,H</th><th>primary</th></tr></thead><tbody>@@ATTENTION_TOP_ROWS@@</tbody></table></div></details>
+  <div class="section-conclusion"><span>3.4 结论 · 起点定位是强而稳定的 phenotype</span><p>尤其在 Qwen 中，first-locator heads 的数量和跨 panel 稳定性都高于 local broad heads。它们可能提供序列边界、扫描起点或归一化锚点，但 attention shape 本身不能区分这些功能，也不表示它们在做逐项加法；其因果角色需要与 global/local banks 分开 ablate。</p></div>
+
+  <h3>3.5 Targeted retrieval heads：除第一个 needle 外，几乎没有稳定的单-occurrence retrieval</h3>
+  <p>我们原先保留了一个宽松的 <code>targeted_occurrence_retriever</code> residual bucket：满足 selector gate，但未同时达到 strict first-locator 的 first-share 与 first-win 阈值。该定义允许 target occurrence 为 1–10；然而实际 Qwen 的 85 个 model×panel rows、Gemma 的 6 个 rows，winner 众数<strong>全部是 occurrence 1</strong>。跨四个 discovery panels 稳定的 Qwen 5 个、Gemma 1 个也全部 target=1。换言之，数据没有发现稳定关注 occurrence 2–10 中某一个的 targeted head；所谓 “targeted” 只是较弱、较不一致的 first-focused selector。</p>
+  <p>这批 profile 的绝对 endpoint mass 也不强：其 median endpoint pool-sum 约为 Qwen 0.00116、Gemma 0.000536。它们可以在归一化 profile 上显得尖锐，但原始 query row 给 needle endpoints 的总 mass 很小。因此报告不再把它们与 global/local broad 并列解释为独立 retrieval mechanism；保留该 bucket 只是为了完整记录 classifier residual 与负结果。</p>
+  <div class="section-conclusion"><span>3.5 结论 · Targeted-other 是负结果</span><p>除 first needle 外，没有证据支持“每个特定 needle 都由某个专属 head 定位”。当前观察到的是 broad banks 与大量 first-focused selectors，而不是十个 occurrence-specific pointers。这个结论限于 answer-query span-end attention 和已捕获 prompts；它不排除多个 heads 的组合编码或 value vectors 在相似 attention weight 下携带不同内容。</p></div>
+
+  <h3>3.6 Correct versus wrong 与 undercount omission：错误时究竟差在哪里？</h3>
+  <h4>3.6a 同一 gold count 下，wrong prompts 的 retrieval 是否整体更差？</h4>
   <p>该比较只使用 confirmation prompts 和 discovery-ranked top-8 heads，并对 gold count 做显式调整，避免“错误样本本来就集中在大 count”造成伪差异。对每个 gold count c，若正确与错误两组都存在，则计算 Δ<sub>c</sub>=mean(metric|wrong,c)−mean(metric|correct,c)，再以 w<sub>c</sub>=2n<sub>w,c</sub>n<sub>r,c</sub>/(n<sub>w,c</sub>+n<sub>r,c</sub>) 加权；95% CI 以 confirmation seed 为 cluster 重采样。负的 coverage/min-to-mean 表示错误时注意力在 needles 间更窄或尾部更弱；这仍是 outcome association，不是 causal effect。</p>
+  <div class="figure-intro"><p><strong>画什么：</strong>在相同 gold-count strata 内，wrong 减 correct 的 span-end entropy coverage，逐 model×panel×discovery-ranked head 展开。</p><p><strong>如何得到：</strong>先在每个 count 内计算 wrong−correct，再用两组样本量的 harmonic-overlap 权重合并 counts；95% CI 以 confirmation seed 为 cluster。图中的深框只是单 cell CI，不含 family-wise correction。</p><p><strong>能说明什么：</strong>它直接检验错误时 retrieval 是否普遍变窄；稀疏负 cell 支持局部 channel degradation，不支持“所有 heads 在错误时统一关闭”。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@ATTENTION_OUTCOME_EFFECT_SVG@@<figcaption><strong>图 B3-F5 · Count-adjusted wrong−correct attention breadth。</strong>四列为 V4.1–V4.4，两行为模型；每格从上到下是 discovery rank 1–8。单元值为 span-end entropy coverage 的 count-adjusted wrong−correct；粉色（负）表示错误输出时更窄，绿色（正）表示更广，深色边框表示 seed-cluster 95% CI 不含 0。该图比较相同 gold-count strata，不把行为难度梯度误当作 attention 差异。</figcaption></figure></div>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>metric</th><th>head×panel cells</th><th>CI entirely &lt;0</th><th>CI entirely &gt;0</th><th>median wrong−correct</th><th>range</th></tr></thead><tbody>@@ATTENTION_OUTCOME_SUMMARY_ROWS@@</tbody></table></div>
   <p class="artifact-link">全部 512 个 model×panel×pooling×head×metric effects：<a href="realistic_niah_v4_attention_outcome_effects.csv">realistic_niah_v4_attention_outcome_effects.csv</a>。</p>
   <div class="callout"><strong>Multiplicity boundary。</strong>深色边框只表示单个 head×panel 的 seed-bootstrap CI 不含 0，没有对 32 个 cells 做 family-wise correction；因此这里用于定位错误相关 channels，不把任一单格宣称为预注册 confirmatory discovery。</div>
-  <div class="section-conclusion"><span>本小节结论 · 正误差异不是统一的单-head signature</span><p>在 32 个 head×panel cells 中，coverage 的 CI 完全低于 0 者为 Qwen 2 个、Gemma 1 个，完全高于 0 者均为 0；minimum-to-mean 同样是 2/32 与 1/32 为负。Primary score 则更异质：Qwen 6 个显著负、2 个显著正，Gemma 2 个负、0 个正。因而“答错=全部 retrieval 关闭”过强；更符合数据的是少数 evidence channels 变窄或漏项，随后表现为 undercount。</p></div>
+  <div class="section-conclusion"><span>3.6a 结论 · 正误差异稀疏，而非全局 shutoff</span><p>在 32 个 head×panel cells 中，coverage 的 CI 完全低于 0 者为 Qwen 2 个、Gemma 1 个，完全高于 0 者均为 0；minimum-to-mean 也是 2/32 与 1/32 为负。Primary score 更异质：Qwen 6 个负、2 个正，Gemma 2 个负、0 个正。由于这些 cell 未做 family-wise correction，严谨表述是“少数 ranked channels 在 wrong prompts 中显示更窄/更弱的关联信号”，而不是“attention 整体显著下降”。要判断是否恰好漏在少算的 needle 上，需要下面的 occurrence-level diagnostics。</p></div>
 
   <div id="span-end-attention">
-  <h3>3.6 Undercount omission：错误输出是否漏注意了行为上“少算”的同一批 needles？</h3>
+  <h4>3.6b Undercount omission：低 attention 是否恰好落在少算的 needles？</h4>
   <p class="lede">主分析按用户指定只报告 <code>span_end</code>。它检验 answer-query top-8 discovery-ranked ensemble 是否给 undercount 所隐含的 omitted evidence 更低 attention。所有估计只使用 confirmation seeds；每个 head 先归一化到 occurrence mean share=1 后再等权平均，避免高-mass selector 完全淹没 broad heads。</p>
   <div class="method-strip">
     <div><strong>Behavior label</strong>完整 greedy integer output <em>N̂</em>；sequence probability 与 candidate score 均不参与。无法解析或非-undercount rows 不属于该 estimand。</div>
@@ -4630,28 +5114,33 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
     <div><strong>Testing</strong>two-sided exact seed sign-flip；两个 pooled model tests 为一个 Holm family，八个 panel-level tests 为另一个。</div>
   </div>
 
-  <h4>3.6a Behavior-implied omitted tail 与 lowest-attention occurrences</h4>
+  <h4>3.6b-1 Behavior-implied omitted tail 与 lowest-attention occurrences</h4>
   <p>对 gold count <em>N</em> 和 undercount <em>N̂</em>，令 <em>k=N−N̂</em>。行为上“少算”的尾部集合为 <em>T<sub>k</sub>={N−k+1,…,N}</em>；attention-implied 集合 <em>B<sub>k</sub></em> 是 ensemble attention 最低的 k 个 occurrence endpoints。主分数是两个集合的 overlap fraction。</p>
   <div class="formula"><em>S=|B<sub>k</sub>∩T<sub>k</sub>|/k</em>。若 <em>B<sub>k</sub></em> 是均匀随机的 k-subset，则 <em>E[S]=k/N</em>，而 exact set match 的 chance 为 <em>P(B<sub>k</sub>=T<sub>k</sub>)=1/C(N,k)</em>。</div>
   <p class="lede">Primary estimand 是 seed-equal mean 的 <em>S−k/N</em>。Cross-panel aggregate 先在每个 seed 内给四个 panel 等权，再跨 seed 推断，避免选择最有利的 relaxation。<em>Tail/prefix</em> 是 omitted tail 的 mean normalized attention 除以 retained prefix；小于 1 表示 tail evidence 被相对抑制。该 omission 分析为 post-hoc inferential audit，并非 preregistered confirmatory test。</p>
-  <h3>Cross-panel aggregate</h3>
+  <h4>Cross-panel aggregate</h4>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>seeds</th><th>overlap / chance</th><th>Δ [95% seed CI]</th><th>Holm p</th><th>exact / chance</th><th>exact Δ [95% CI]</th><th>tail / prefix</th></tr></thead><tbody>@@SPAN_END_POOLED_ROWS@@</tbody></table></div>
   <details><summary>Panel-level heterogeneity</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>prompts / seeds</th><th>mean k</th><th>overlap</th><th>chance k/N</th><th>Δ [95% seed CI]</th><th>Holm p</th><th>exact / chance</th><th>exact Δ [95% CI]</th><th>tail / prefix</th></tr></thead><tbody>@@SPAN_END_ALIGNMENT_ROWS@@</tbody></table></div></details>
+  <div class="figure-intro"><p><strong>画什么：</strong>每个 undercount prompt 中，attention 最低的 k=N−N̂ 个 endpoints 与行为假设下“被漏掉的最后 k 个 needles”重合多少，并与相同 N,k 的组合随机基线比较。</p><p><strong>如何得到：</strong>top-8 heads 先各自归一化到 occurrence mean share=1，再等权组成 ensemble；四个 panels 先在 seed 内等权，CI/bootstrap 与 exact sign-flip 都以 10 个 confirmation seeds 为推断单位。</p><p><strong>能说明什么：</strong>observed 明显高于 k/N 表示低-attention 集合并非随机，且与 undercount 的尾部结构对齐；它依赖“顺序尾部就是遗漏集合”的行为假设，因此还不是精确 forgotten-item 读出。</p></div>
   <div class="stat-grid">
     <figure class="stat-figure">@@SPAN_END_ALIGNMENT_SVG@@<figcaption><strong>图 B3-F6 · Omitted-tail overlap。</strong>横轴：attention bottom-k 与 behavior-implied omitted tail 的 overlap fraction。圆点：seed-equal observed overlap；菱形：同 k/N 下的 hypergeometric chance；半透明线：observed−chance 的 95% seed-cluster CI 平移回 overlap axis。圆点在菱形右侧表示低 attention occurrences 更像模型行为上少算的尾部。</figcaption></figure>
   </div>
 
-  <h4>3.6b Nested N−1→N 中精确新增的 needle</h4>
+  <p>跨 panel pooled 结果为：Qwen overlap 0.4565、chance 0.2598，Δ=0.1968 [0.1049, 0.2860]；Gemma overlap 0.3636、chance 0.2366，Δ=0.1270 [0.0451, 0.2213]，两个模型的 Holm p 均为 0.015625。Qwen/Gemma 的 omitted-tail attention 相对 retained-prefix 分别只有 0.3348/0.7800。四个单 panel 的点估计方向都为正，但 Holm 校正后各模型仅 V4.1 单 panel 保持显著；因此最稳健的 estimand 是预先声明的 cross-panel aggregate，而不是挑选某个 panel。</p>
+
+  <h4>3.6b-2 Nested N−1→N 中精确新增的 needle</h4>
   <p>Tail 分析把“少算”解释为遗漏后 k 个 occurrences，仍依赖顺序假设。Nested construction 提供更强的 paired check：从 N−1 到 N 新增的 occurrence 精确已知。我们只比较两组最终都仍 undercount 的 transitions：(i) 新 endpoint 是否落在当前 bottom-k attention set；(ii) 新 endpoint 的 normalized share，其中 1 表示在所有 occurrences 间均匀。<em>Failed</em> 表示 output 未增加；<em>registered</em> 表示恰好 +1。先在 seed×panel 内配对，再在 seed 内平均 panels。</p>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>failed / registered n</th><th>paired blocks / seeds</th><th>bottom-k failed / reg.</th><th>risk Δ F−R [95% CI]</th><th>Holm p</th><th>share failed / reg.</th><th>share Δ R−F [95% CI]</th><th>Holm p</th></tr></thead><tbody>@@SPAN_END_NESTED_ROWS@@</tbody></table></div>
+  <div class="figure-intro"><p><strong>画什么：</strong>已知 N−1→N 精确新增的那个 endpoint，在模型未把输出增加 1 与成功增加 1 时，进入 attention bottom-k 的概率。</p><p><strong>如何得到：</strong>只比较两端最终仍 undercount 的 nested transitions，避免简单把 correct 与 wrong 混在一起；先在 seed×panel 内配对 failed/registered，再在 seed 内平均并 bootstrap。</p><p><strong>能说明什么：</strong>failed 组更常把新 needle 放入 bottom-k，直接对齐“哪一个新增 evidence 没有被注册”；但校正后的 p 值决定它目前是 confirmatory 还是方向性支持。</p></div>
   <div class="stat-grid">
     <figure class="stat-figure">@@SPAN_END_NESTED_SVG@@<figcaption><strong>图 B3-F7 · Newly added needle in bottom-k。</strong>横轴：新增 endpoint 进入当前 bottom-k attention set 的概率；纵向分组：模型；粉色/绿色分别为 failed-to-increment 与 registered +1。横线是完整 seed bootstrap 95% CI；右侧 RD=failed−registered 的 paired risk difference。两组最后都 undercount，因而差异不是简单的 correct/wrong 对比。</figcaption></figure>
   </div>
   <div class="notes">@@SPAN_END_CONCLUSION@@</div>
+  <div class="callout"><strong>Nested 的统计强度。</strong>Qwen bottom-k risk difference 为 0.1582 [−0.0010, 0.3088]，Gemma 为 0.1704 [0.0147, 0.3206]；但两者 exact test 经 Holm 后均为 p=0.1406。Normalized-share contrast 对 Qwen 为 0.0388 [−0.0302, 0.1111]，对 Gemma 为 0.1033 [0.0020, 0.2011]，相应 Holm p 为 0.1758。也就是说，Gemma 的 bootstrap CI 给出方向性较强的支持，但预设 family correction 后仍不能称为显著 confirmatory result。</div>
   <div class="callout"><strong>推断边界。</strong>Tail set 是由 behavior 推断出的“可能遗漏集合”，不是模型内部忘记项的直接记录；nested check 虽然精确知道新增 occurrence，但 attention 与 output 仍是相关。它们为 causal ablation/patching 提供靶点，不能替代干预。</div>
-  <div class="section-conclusion"><span>本小节结论</span><p>在 confirmation undercounts 中，span-end ensemble 的最低-attention occurrences 与行为上少算的尾部显著对齐；当 nested pair 未注册新增 occurrence 时，该新 endpoint 更常进入 bottom-k、normalized share 也更低。最合理的描述是“evidence omission 与 undercount 同步出现”，尚不能单凭 attention map 宣称 omission 导致错误。</p></div>
+  <div class="section-conclusion"><span>3.6b 结论 · Pooled tail 对齐稳健，exact-new-needle 为方向性支持</span><p>在 confirmation undercounts 中，span-end ensemble 的最低-attention occurrences 与行为上少算的尾部在两个模型都显著高于组合随机基线；这是目前“attention 差在被漏掉 needles 上”的最强 pooled 证据。Nested comparison 不依赖尾部假设，并同样指向 failed increment 时新增 endpoint attention 更差，但 family-wise 校正后未显著。最准确的结论是：evidence omission 与 undercount 在 occurrence level 同步出现，关联既不是全 head shutoff，也尚未达到单独证明因果的程度。</p></div>
   </div>
-  <div class="section-conclusion"><span>Block 3 结论</span><p>Answer-query retrieval 由多种 heads 共同完成：有跨全 prompt 的 broad bank，也有分区内 aggregation、first-needle locator 与其他 targeted selectors。错误并非统一关闭全部 attention，而更像部分 channels 变窄或漏掉特定 evidence；omission-tail 与 nested-new-needle 两个独立诊断都把低 attention 与 undercount 对齐，但因果方向仍需 ablation 验证。</p></div>
+  <div class="section-conclusion"><span>Block 3 结论</span><p>Answer-query retrieval 由 global broad bank、较不稳定的 partition-local heads 与大量 first-needle locators 共同构成；没有发现 occurrence 2–10 的稳定单-needle targeted heads。错误不是统一关闭全部 attention，而是少数 channels 变窄，并在 pooled undercounts 中把最低 attention 更常分配给行为上少算的 tail；exact-new-needle nested check 方向一致但校正后证据较弱。因而 attention 提供了具体 omission mechanism 的关联靶点，必要性仍需按 phenotype/dose 的 ablation 才能分离。</p></div>
 </section>
 
 <section id="head-ablation">
@@ -4669,42 +5158,62 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <h3>4.1 Discovery-ranked head-bank ablation</h3>
   <p>Primary contrast 是 ranked minus layer-matched random。生成 count shift 定义为 ablated prediction−baseline prediction，因此负 contrast 表示删掉 ranked bank 比删掉同层 random heads 造成更强 undercount。由于高 count baseline-correct prompts 极少，主表按 preregistered screen estimand 合并 correct/wrong；原始 summary/control tables 仍保留 outcome strata。</p>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>set</th><th>prompts (correct)</th><th>changed ranked / random</th><th>Δ changed [95% CI]</th><th>count shift ranked / random</th><th>Δ count shift [95% CI]</th><th>Holm p</th><th>Δ MAE [95% CI]</th></tr></thead><tbody>@@CAUSAL_ABLATION_ROWS@@</tbody></table></div>
+  <div class="figure-intro"><p><strong>画什么：</strong>同时消融 discovery-primary 排名前 k 的 heads，相对消融相同层、相同数量随机 heads 后，生成 count 额外下降多少。</p><p><strong>如何得到：</strong>已完成 k=4 与 k=8；干预只清零这些 heads 在 prompt-final answer-query row 的贡献，随后执行完整 greedy generation。每个 prompt 的 ranked−random contrast 先在 confirmation seed 内平均，再以 10 个 seeds bootstrap 和 exact sign-flip 推断。</p><p><strong>能说明什么：</strong>负效应证明“这个被选中的混合 head bank”对维持输出 magnitude 有因果贡献；因为 bank 同时含 global/local/first-selector，且没有 k=1/2 dose points，它不能证明任一单 head或任一 phenotype 单独必要。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_ABLATION_SVG@@<figcaption><strong>图 B4-F1 · Ranked head-bank ablation。</strong>横轴：paired mean count shift 的 ranked−random contrast；纵轴：model 与 top-k bank。圆点是 seed-equal estimate，横线是 95% seed-bootstrap CI，棕色竖线为零效应。负值表示 ranked bank 被删后额外 undercount；同层 random control 排除了“只是删了若干 heads”的解释。</figcaption></figure></div>
-  <div class="section-conclusion"><span>Block 4 结论 · Necessity</span><p>Top-8 bank 在两个模型都产生稳定负 count-shift contrast（Qwen −0.331；Gemma −2.156，Holm p=0.0078），因此所选 span-end retrieval bank 对保持 output magnitude 因果必要。该结论不证明 bank 中每个 head 单独 broad，也不能区分 global/local/selector 的个体贡献；下一步应按本报告统一 phenotype 做 matched bank ablation，而不是把这一结果解释成单一 broad head 的必要性。</p></div>
+  <h3>4.2 当前能谈哪一种“必要性”？</h3>
+  <p>Top-8 ranked bank 的 ranked−random count-shift contrast 在 Qwen 为 −0.331、Gemma 为 −2.156，两个模型的 Holm p 都为 0.0078。这说明在当前高-count confirmation distribution 和 answer-query-row intervention 下，<strong>被共同删掉的 top-8 mixed bank</strong> 对维持 count magnitude 有可重复的必要贡献。它不等价于以下更强主张：(i) top-8 中每个 head 单独必要；(ii) global broad、local broad 或 first locator 任一 phenotype 单独必要；(iii) top-8 是唯一能完成该功能的 bank；(iv) attention weight 本身而非其 value/output contribution 是因果载体。</p>
+  <p>要得到 dose-resolved necessity，下一轮应冻结同一 discovery ranking，运行 nested k=1,2,…,8（最好延伸到 top-16）并为每个 k 构造逐层数量匹配的多组 random controls；同一 prompts 上画 cumulative effect curve 和 marginal Δ(k)=effect(k)−effect(k−1)。再分别对 stable-global、local 与 first-locator banks 做相同扫描，并加入 leave-one-head-out。若某个 k=1 head 的效应稳定超出同层 random 才能讨论单-head necessity；若只在较大 k 出现效应，则证据支持冗余/分布式 bank。</p>
+  <div class="section-conclusion"><span>Block 4 结论 · 目前只建立 mixed-bank necessity</span><p>现有 ablation 已足以说明 discovery-ranked top-8 mixed bank 对两模型的 count magnitude 有因果贡献，但不足以把必要性归因给 global broad heads、partition-local heads、first locators 或任何单 head。报告因此不再使用“某种 broad head 必要”这一表述；top1→topk dose scan 与 phenotype-specific matched ablation 是把 bank-level 结论分解为机制结论的必要下一步。</p></div>
 
   </section>
 
 <section id="geometry-steering">
   <span class="section-kicker">Block 5 / 5 · Geometry steering</span>
-  <h2>Answer-query geometry steering：count-centroid 方向是否与生成 readout 因果对齐？</h2>
-  <p class="lede">该 block 检验的是 full-dimensional <em>directional manipulability</em>，不是 full-state replacement。Discovery seeds 只拟合 count centroids 与方向；10 个 confirmation seeds、四个 V4 panels 和 7↔8/9↔10/5↔10 directed pairs 用于最终干预评估。每一行在干预后执行完整 greedy generation，并从最终 parsed count 计算 changed、moved、target hit 与 aligned shift。</p>
+  <h2>Answer-query geometry steering：单层或多层 count-centroid 方向能否稳定推动生成 readout？</h2>
+  <p class="lede">该 block 检验 full-dimensional <em>directional manipulability</em>，不是 full-state replacement。对每个被干预层，方向都是该层 discovery centroids 的 Δ<sub>ℓ</sub>=μ<sub>ℓ,target</sub>−μ<sub>ℓ,receiver</sub>；它修改全部 d<sub>model</sub> 维，不只修改 PCA coordinates。Single-layer 只在一个 post-block answer-query state 上加 Δ<sub>ℓ</sub>；multi-layer 在同一次 prefill 的多个层分别加各自的 Δ<sub>ℓ</sub>。每次干预后都执行完整 greedy generation，并以最终 strict parsed count 计算 effect。</p>
   <div class="method-strip">
-    <div><strong>Geometry arm</strong><code>centroid_delta</code>：h′=h+α(μ<sub>target</sub>−μ<sub>receiver</sub>)，本轮 α=1，修改全部 d<sub>model</sub> 维。</div>
-    <div><strong>Matched control</strong>与几何 delta 正交且 L2 norm 完全相同的 random vector；逐 prompt/pair 配对。</div>
+    <div><strong>Geometry arm</strong><code>centroid_delta</code>：h′<sub>ℓ</sub>=h<sub>ℓ</sub>+α(μ<sub>ℓ,target</sub>−μ<sub>ℓ,receiver</sub>)；每层使用自己的 full-dimensional discovery delta。</div>
+    <div><strong>Matched control</strong>每个被干预层使用与该层几何 delta 正交且 L2 norm 相同的 random vector；layer set、α、prompt 与 directed pair 完全匹配。</div>
     <div><strong>Primary estimand</strong>aligned shift=(patched−receiver baseline)×sign(target−receiver)；报告 geometry−random paired difference。</div>
     <div><strong>Not tested</strong><code>centroid_transplant</code> h′=μ<sub>target</sub> 未运行；因此本 block 不回答“均值完整状态是否充分”。</div>
-    <div><strong>Inference</strong>seed 内先平均 panels/pairs，再对 10 个 confirmation seeds bootstrap；exact sign-flip，模型内 layers 做 Holm correction。</div>
+    <div><strong>Strict outcome</strong>越界或无法解析的 generation 不被删除：aligned shift、moved 与 target hit 都记为 0；因此有效率下降会直接惩罚 steering。</div>
   </div>
 
-  <h3>5.1 Centroid-delta intervention</h3>
-  <p>完成实验使用的唯一方法是 <code>centroid_delta</code>、α=1：对 receiver answer-query state 的<strong>全部 d<sub>model</sub> 维</strong>施加 Δ=μ<sub>target</sub>−μ<sub>receiver</sub>，即 h′=h+Δ；control 是与 Δ 正交且 norm 完全相同的 random vector。它不是“只改 PCA 三维”，但也不是“把整个 target state 替换过来”。Primary effect 是沿 target direction 的 generated-count shift，按 prompt/pair 与 control 配对；<em>Moved</em> 与 <em>target hit</em> 都基于最终 parsed count。</p>
-  <div class="callout"><strong>设计边界。</strong>Centroid-delta 适合检验“discovery count direction 是否与生成 readout 对齐”，因为它尽量保留 receiver-specific nuisance residual；但它不能单独检验 target state 的充分性。全状态 donor replacement 已由 9.3 的 answer-query patching 检验；尚缺的对照是同层、同 prompts 上的 <code>centroid_transplant</code>（h′=μ<sub>target</sub>），以及 donor-state / centroid-transplant / centroid-delta 三臂直接比较。</div>
+  <h3>5.1 Initial fixed-layer screen：α=1 的单层方向在哪里开始有效？</h3>
+  <p>第一轮 <code>screen_8h_v1</code> 在预先选定的 Qwen L9/L18/L26 与 Gemma L10/L20/L31 上分别运行单层 centroid delta、固定 α=1。Discovery seeds 仅拟合 centroids；四个 panels、10 个 confirmation seeds 与 7↔8/9↔10/5↔10 的双向 pairs 用于干预。它回答“哪一层的方向进入生成 readout”，但因为 layer 与 α 的报告选择可能参考这批 confirmation 结果，所以这里定位为 initial causal screen，不作为最终方案选择的独立验证。</p>
+  <div class="callout"><strong>设计边界。</strong>Centroid-delta 保留 receiver 相对自身 count centroid 的 nuisance residual，因此适合检验“count direction 是否与 readout 对齐”；但它不是把 target hidden state 整体搬来。完整 sample donor replacement 已由 2.5 的 answer-query patching 检验；仍未运行的第三臂是 <code>centroid_transplant</code>（h′=μ<sub>target</sub>）。</div>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>pairs / seeds</th><th>changed geom. / random</th><th>moved geom. / random</th><th>Δ moved [95% CI]</th><th>target hit geom. / random</th><th>aligned shift geom. / random</th><th>Δ aligned [95% CI]</th><th>Holm p</th></tr></thead><tbody>@@CAUSAL_STEERING_ROWS@@</tbody></table></div>
-  <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_STEERING_SVG@@<figcaption><strong>图 B5-F1 · Geometry versus norm-matched random steering。</strong>横轴：paired aligned-count-shift 的 geometric−random contrast；纵轴：model/layer。正值表示 discovery-fit centroid delta 比等 norm 正交方向更有效地把 held-out output 推向 target。只有 Qwen L26 与 Gemma L31 在 family-wise correction 后明确为正。</figcaption></figure></div>
-  <div class="section-conclusion"><span>当前结论 · 仅限 directional manipulability</span><p>后层 full-dimensional centroid delta 确实进入生成 readout：Qwen L26 的 geometric−random aligned shift 为 +0.958，Gemma L31 为 +1.388（均 Holm p=0.0117）。但 exact target hit 只有 Qwen 8.75%、Gemma 7.5%。因此该实验只支持“count-centroid 方向可操纵”，不能支持“全 hidden state 已被搬运”或“α=1 可精确设置整数”。全 donor state 的强 sufficiency 来自独立的 answer-query replacement experiment；centroid transplant 仍是缺失实验。</p></div>
+  <div class="figure-intro"><p><strong>画什么：</strong>三个固定 depths 中，单层 centroid delta 相对同层等范数正交 random control 的方向对齐 count-shift effect。</p><p><strong>如何得到：</strong>对每个 prompt/pair 先算 geometric−random，再在 confirmation seed 内平均 panel/pair；圆点和 CI 来自 10 个 seeds，模型内三层 exact sign-flip p 值做 Holm 校正。</p><p><strong>能说明什么：</strong>它定位 readout-sensitive depth；后层显著而早层近零说明“可解码”与“被后续生成使用”并不相同，但不能证明方案跨新 seeds 的选择稳定性。</p></div>
+  <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_STEERING_SVG@@<figcaption><strong>图 B5-F1 · Initial single-layer geometry screen。</strong>横轴：paired aligned-count-shift 的 geometric−random contrast；纵轴：model/layer。正值表示 discovery-fit centroid delta 比等 norm 正交方向更有效地把 output 推向 target。Qwen L26 与 Gemma L31 在这一初始 screen 中 family-wise correction 后为正。</figcaption></figure></div>
+  <div class="section-conclusion"><span>5.1 结论 · 初始 screen 支持 late directional manipulability</span><p>Qwen L26 的 geometric−random aligned shift 为 +0.958，Gemma L31 为 +1.388（均 Holm p=0.0117），而 early/middle layers 近零；但 exact target hit 只有 Qwen 8.75%、Gemma 7.5%。所以第一轮只支持“late full-dimensional count direction 能推动输出”，不能支持“α=1 精确设置整数”或“完整 target state 已搬运”。</p></div>
 
-  <h3>5.2 为什么 early decoding 很强，steering 却可能无效？</h3>
+  <h3>5.2 Discovery-locked confirmation：Single-layer 与 Multi-layer steering</h3>
+  <p>为避免从第一轮结果中挑 layer 后仍在同一批 confirmation data 上报告，我们新运行两阶段 v2。<strong>Discovery screen</strong> 只用 seeds 1234–1237：Qwen 候选 layer sets 为 9、18、26、18+26、9+18+26；Gemma 为 10、20、31、20+31、10+20+31；每个 set 扫 α∈{0.25,0.5,1}，共 15 个 plans。Single-layer 候选是三个 singleton sets，multi-layer 候选是两个复合集合。</p>
+  <p>每种 protocol 只锁定一个 plan。选择分数为四个 V4 panels 中最差的 mean paired strict aligned-shift effect，减去 2×geometry invalid rate；若并列，再按总体 mean effect 较大、α 较小决定。锁定后不再改动，使用完全不相交的 seeds 1254–1263 做 <strong>confirmation</strong>：4 panels×10 seeds×6 directed pairs×2 protocols×2 conditions=960 rows/model。Multi-layer 不是把一个向量重复贴到多层，而是在每个 selected layer 分别施加该层自己的 μ<sub>ℓ,target</sub>−μ<sub>ℓ,receiver</sub>。</p>
+  <h4>Discovery 选择记录</h4>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>protocol</th><th>locked layers</th><th>α</th><th>candidate plans / seeds</th><th>mean screen Δ</th><th>worst-panel screen Δ</th><th>positive panels</th><th>valid</th><th>robust score</th></tr></thead><tbody>@@STEERING_V2_SELECTION_ROWS@@</tbody></table></div>
+  <h4>Held-out confirmation aggregate</h4>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>protocol</th><th>layers</th><th>α</th><th>pairs / seeds</th><th>valid geom. / random</th><th>aligned geom. / random</th><th>paired Δ [95% CI]</th><th>Δ moved [95% CI]</th><th>Δ target hit</th><th>Holm p</th></tr></thead><tbody>@@STEERING_V2_SUMMARY_ROWS@@</tbody></table></div>
+  <div class="figure-intro"><p><strong>画什么：</strong>discovery 阶段锁定的一个 single-layer plan 与一个 multi-layer plan，在 10 个独立 confirmation seeds 上相对 matched random control 的 strict aligned-count shift。</p><p><strong>如何得到：</strong>越界输出按零效应保留；每个 seed 内平均四个 panels 与六个 directions，再对 10 个 seeds bootstrap 95% CI。每模型 single/multi 两个 primary tests 做 exact sign-flip 与 Holm correction。</p><p><strong>能说明什么：</strong>CI 与 Holm p 检验方向能否跨新 seeds 复现；single 与 multi 的相对大小说明协调多层干预是否比单层更稳定，但不是对两个 protocols 的直接随机化差异检验。</p></div>
+  <div class="stat-grid"><figure class="stat-figure">@@STEERING_V2_SVG@@<figcaption><strong>图 B5-F2 · Discovery-locked single-layer versus multi-layer steering。</strong>横轴：held-out strict aligned-count-shift 的 geometric−random paired effect；纵轴：模型、protocol、锁定 layer set 与 α。圆点与横线是 seed-equal estimate 和 95% bootstrap CI；越界 generation 已作为零效应进入估计。</figcaption></figure></div>
+  <details open><summary>四个 V4 panels 的 held-out heterogeneity</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>protocol</th><th>panel</th><th>paired rows / seeds</th><th>paired Δ [95% CI]</th><th>panel-family Holm p</th></tr></thead><tbody>@@STEERING_V2_PANEL_ROWS@@</tbody></table></div></details>
+  <div class="notes">@@STEERING_V2_CONCLUSION@@</div>
+  <div class="section-conclusion"><span>5.2 解释规则</span><p>只有 discovery-locked plan 在独立 confirmation seeds 上保持正 effect，才能称为稳定 directional steering。即便 single/multi 都成立，结论仍是“均值差方向可操纵”，不是“target count 被精确设置”；exact donor-state sufficiency 继续由 2.5 的 sample-wise replacement 提供。</p></div>
+
+  <h3>5.3 为什么 early decoding 很强，steering 却可能无效？</h3>
   <p>下表诊断 steering 使用的 10 个 discovery centroids。Endpoint correlation 是 count 与 centroid 在 1→10 chord 上投影的相关；monotonicity 检查该投影是否随 count 单调。Step CV 高表示相邻 count 步长不等；path/chord 高表示曲线弯折。一个方向可以高度可解码，却不一定是后续 readout 使用的 causal coordinate。</p>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>variants</th><th>endpoint corr. mean (min)</th><th>minimum monotone fraction</th><th>mean step CV</th><th>mean successive-step cosine</th><th>mean tortuosity</th></tr></thead><tbody>@@CAUSAL_GEOMETRY_ROWS@@</tbody></table></div>
 
   <div class="section-conclusion"><span>当前结论 · Availability versus usage</span><p>Early/middle layers 的 centroid path 可接近单调、R² 很高，却在 steering 下近乎 inert；late path 更弯、更不等距，反而强烈改变 output。信息“可被线性读出”与模型“实际沿该方向生成”必须分开验证。</p></div>
 
-  <h3>5.3 Artifact and label audit</h3>
+  <h3>5.4 Artifact and label audit</h3>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>ablation shards / rows</th><th>patch families / rows</th><th>steering discovery / families / rows</th><th>greedy-label alignment</th></tr></thead><tbody>@@CAUSAL_AUDIT_ROWS@@</tbody></table></div>
   <div class="callout"><strong>Audit result。</strong>所有 expected shards、detail/summary/control tables 均存在；每个 patch row 成功；discovery NPZ shapes 与 finite values 已核验；causal baseline 与保存的 greedy behavior labels 完全一致；patched correctness 由最终 parsed continuation 重算；logs 中无 Traceback、OOM 或 FAILED marker。</div>
   <h4>Answer-query dense-patching audit</h4>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>family shards / rows</th><th>successful / skipped</th><th>valid / invalid</th><th>eligible donor-prediction rows</th><th>greedy-label alignment</th></tr></thead><tbody>@@ANSWER_QUERY_AUDIT_ROWS@@</tbody></table></div>
-  <div class="section-conclusion"><span>Block 5 结论 · Directional manipulability, not state sufficiency</span><p>Qwen L26 与 Gemma L31 的 full-dimensional centroid delta 相对等 norm 正交控制显著把输出推向 target，但 exact target hit 只有 8.75% 与 7.5%。因此可以主张“late count geometry 与生成 readout 因果对齐”，不能主张“α=1 精确设置整数”或“整个 target hidden state 已搬运”。完整 donor state 的 sufficiency 来自 Block 2 的 sample-wise answer-query replacement；centroid transplant 仍是缺失的第三臂。</p></div>
+  <h4>Steering v2 design and row audit</h4>
+  <div class="table-wrap"><table><thead><tr><th>model</th><th>screen shards / rows</th><th>confirmation shards / rows</th><th>screen design</th><th>confirmation design</th></tr></thead><tbody>@@STEERING_V2_AUDIT_ROWS@@</tbody></table></div>
+  <div class="section-conclusion"><span>Block 5 结论 · Directional manipulability 与 state sufficiency 分开</span><p>Initial screen 定位 late readout-sensitive layers；v2 再以 discovery-only robust rule 锁定 single/multi plans，并在独立 confirmation seeds 上决定其可复现性。无论结果强弱，centroid delta 都只检验方向操纵；完整 donor state 的 sufficiency 来自 Block 2 的 sample-wise answer-query replacement，centroid transplant 仍是缺失的第三臂。</p></div>
 </section>
 
 <div class="report-appendix" id="appendix">
@@ -4869,6 +5378,11 @@ canvas.addEventListener('pointermove',e=>{if(dragging){yaw+=(e.clientX-lastX)*.0
 canvas.addEventListener('pointerup',()=>{dragging=false;canvas.classList.remove('dragging');}); canvas.addEventListener('pointercancel',()=>{dragging=false;canvas.classList.remove('dragging');}); canvas.addEventListener('mouseleave',()=>{tooltip.style.display='none';});
 canvas.addEventListener('wheel',e=>{e.preventDefault();zoom=Math.max(.45,Math.min(2.8,zoom*Math.exp(-e.deltaY*.001)));draw();},{passive:false});
 document.getElementById('count-legend').innerHTML=COLORS.map((c,i)=>`<span><i style="background:${c}"></i>${i+1}</span>`).join('');
+document.querySelectorAll('.atlas-button').forEach(button=>button.addEventListener('click',()=>{
+  const selected=button.dataset.atlasVariant;
+  document.querySelectorAll('.atlas-button').forEach(item=>item.setAttribute('aria-pressed',String(item===button)));
+  document.querySelectorAll('.atlas-panel').forEach(panel=>{panel.hidden=panel.dataset.atlasPanel!==selected;});
+}));
 refreshLayerOptions(); new ResizeObserver(resizeCanvas).observe(canvas); resizeCanvas();
 </script>
 </body>
@@ -4934,6 +5448,12 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
     causal_patching_rows = _causal_patching_rows(causal_frames)
     causal_steering_rows = _causal_steering_rows(causal_frames)
     causal_geometry_rows = _causal_geometry_rows(causal_frames)
+    (
+        steering_v2_selection_rows,
+        steering_v2_summary_rows,
+        steering_v2_panel_rows,
+        steering_v2_audit_rows,
+    ) = _steering_v2_rows(run_root)
     answer_query_frames, answer_query_audit = _answer_query_frames(run_root)
     answer_query_layer_rows = answer_query_frames["layer_summary"].to_dict("records")
     answer_query_variant_rows = _answer_query_final_rows(
@@ -4977,7 +5497,7 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
         ),
         "@@SENSITIVITY_ROWS@@": _table_sensitivity_html(sensitivity_rows),
         "@@ATTENTION_BREADTH_SVG@@": _attention_breadth_svg(attention_top_rows),
-        "@@ATTENTION_HEAD_ATLAS_SVG@@": _attention_head_atlas_svg(
+        "@@ATTENTION_HEAD_ATLAS_HTML@@": _attention_head_atlas_interactive_html(
             attention_atlas_rows, attention_phenotypes
         ),
         "@@ATTENTION_HEAD_PROFILE_SVG@@": _representative_head_profiles_svg(
@@ -5021,6 +5541,21 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
         "@@CAUSAL_ABLATION_ROWS@@": _table_causal_ablation_html(causal_ablation_rows),
         "@@CAUSAL_PATCHING_ROWS@@": _table_causal_patching_html(causal_patching_rows),
         "@@CAUSAL_STEERING_ROWS@@": _table_causal_steering_html(causal_steering_rows),
+        "@@STEERING_V2_SELECTION_ROWS@@": _table_steering_v2_selection_html(
+            steering_v2_selection_rows
+        ),
+        "@@STEERING_V2_SUMMARY_ROWS@@": _table_steering_v2_summary_html(
+            steering_v2_summary_rows
+        ),
+        "@@STEERING_V2_PANEL_ROWS@@": _table_steering_v2_panel_html(
+            steering_v2_panel_rows
+        ),
+        "@@STEERING_V2_AUDIT_ROWS@@": _table_steering_v2_audit_html(
+            steering_v2_audit_rows
+        ),
+        "@@STEERING_V2_CONCLUSION@@": _steering_v2_conclusion_html(
+            steering_v2_summary_rows, steering_v2_panel_rows
+        ),
         "@@CAUSAL_GEOMETRY_ROWS@@": _table_causal_geometry_html(causal_geometry_rows),
         "@@CAUSAL_AUDIT_ROWS@@": _table_causal_audit_html(causal_audit),
         "@@ANSWER_QUERY_LAYER_ROWS@@": _table_answer_query_layer_html(
@@ -5043,7 +5578,7 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
             estimate_key="count_shift_difference",
             low_key="count_shift_difference_low",
             high_key="count_shift_difference_high",
-            title="Discovery-ranked broad-head ablation versus layer-matched random",
+            title="Discovery-ranked mixed head-bank ablation versus layer-matched random",
             axis_label="paired mean count shift: ranked minus random (negative = stronger undercount)",
             label=lambda row: f"{row['model']} top-{row['top_n']}",
         ),
@@ -5064,6 +5599,20 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
             title="Centroid-delta steering versus norm-matched orthogonal random",
             axis_label="paired direction-aligned count shift: geometric minus random",
             label=lambda row: f"{row['model']} L{row['layer']}",
+        ),
+        "@@STEERING_V2_SVG@@": _forest_svg(
+            steering_v2_summary_rows,
+            estimate_key="aligned_effect",
+            low_key="aligned_effect_low",
+            high_key="aligned_effect_high",
+            title="Discovery-locked single-layer and multi-layer steering",
+            axis_label=(
+                "held-out paired strict aligned-count shift: geometric minus random"
+            ),
+            label=lambda row: (
+                f"{row['model']} {row['protocol'].replace('_', '-')} "
+                f"{row['layer_set']} α={float(row['alpha']):g}"
+            ),
         ),
         "@@ANSWER_QUERY_ADOPTION_SVG@@": _forest_svg(
             answer_query_layer_rows,
@@ -5138,6 +5687,9 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
                     "endpoint_patching": len(causal_patching_rows),
                     "steering": len(causal_steering_rows),
                     "centroid_geometry": len(causal_geometry_rows),
+                    "steering_v2_selection": len(steering_v2_selection_rows),
+                    "steering_v2_confirmation": len(steering_v2_summary_rows),
+                    "steering_v2_panels": len(steering_v2_panel_rows),
                 },
                 "answer_query_audit_validated": bool(answer_query_audit["validated"]),
                 "answer_query_summary_rows": {
