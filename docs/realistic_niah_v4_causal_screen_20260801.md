@@ -257,10 +257,11 @@ control tables, discovery centroids, and centroid geometry tables. The bundle
 is an uncommitted run artifact; code, documentation, and the compact HTML
 report are version controlled.
 
-The answer-query follow-up is separately archived as
-`answer_query_patching_dense_v1_bundle.tar.gz` (112 entries, SHA-256
-`94ccc497dd9e3ad9d498061247d0849c987f9fc5eff7beae6894e1a30b4b2d24`).
-Its local extracted analysis includes `layer_summary.csv`,
+The final answer-query follow-up is separately archived as
+`answer_query_patching_dense_v1_final_bundle.tar.gz` (115 entries, 201,744
+bytes, SHA-256
+`93776fdea92a07e358d52594969a7ab0d97ad9ef9107ed543d4a7daaa6567920`).
+It includes `layer_summary.csv`,
 `variant_summary.csv`, `pair_summary.csv`, `outcome_summary.csv`, the complete
 model × layer × direction × pair × panel × baseline-outcome
 `stratum_summary.csv`, `invalid_rows.csv`, and the strict audit JSON.
