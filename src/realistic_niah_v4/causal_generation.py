@@ -235,6 +235,7 @@ def run_generation_head_ablation(
     *,
     baseline_labels: Mapping[str, Mapping[str, Any]],
     rankings: Mapping[tuple[str, str], Sequence[Head]],
+    poolings: Sequence[str] = POOLINGS,
     top_ns: Sequence[int] = (1, 2, 4, 8),
     random_replicates: int = 3,
     scopes: Sequence[str] = ABLATION_SCOPES,
@@ -247,6 +248,13 @@ def run_generation_head_ablation(
         scope not in ABLATION_SCOPES for scope in normalized_scopes
     ):
         raise ValueError(f"Invalid ablation scopes: {normalized_scopes}")
+    normalized_poolings = tuple(str(pooling) for pooling in poolings)
+    if (
+        not normalized_poolings
+        or len(set(normalized_poolings)) != len(normalized_poolings)
+        or any(pooling not in POOLINGS for pooling in normalized_poolings)
+    ):
+        raise ValueError(f"Invalid ablation poolings: {normalized_poolings}")
     normalized_top_ns = tuple(sorted({int(value) for value in top_ns}))
     if not normalized_top_ns or normalized_top_ns[0] <= 0:
         raise ValueError("Ablation top_ns must be positive")
@@ -265,7 +273,7 @@ def run_generation_head_ablation(
             raise KeyError(f"Missing baseline generation label: {encoding.stimulus_id}")
         _validate_baseline_label(encoding, label)
         cache: dict[tuple[str, tuple[Head, ...]], dict[str, Any]] = {}
-        for pooling in POOLINGS:
+        for pooling in normalized_poolings:
             ranking = list(rankings[(encoding.design_variant, pooling)])
             for top_n in normalized_top_ns:
                 selected = tuple(ranking[:top_n])

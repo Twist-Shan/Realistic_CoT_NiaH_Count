@@ -363,6 +363,28 @@ complete discovery split for centroid fitting, even when confirmation seeds
 are filtered. Full representation analysis requires all four panels and all
 30 seeds. Head ablation requires completed discovery broad-head rankings.
 
+### Budgeted `screen_8h_v1` causal campaign
+
+`scripts/launch_realistic_niah_v4_causal_campaign.sh` runs a targeted screen
+whose resolved settings are isolated from the full design by the existing
+design hash. It preserves all four panels and all ten confirmation seeds while
+using the following reduced estimands:
+
+- ablation: counts 7--10, `span_end`, answer-query scope, top-4/top-8 broad
+  heads, and one deterministic layer-matched random set;
+- residual transport: pairs 5--6, 7--8, and 9--10 in both directions, the
+  exact toggled needle-end token, cumulative-from-layer clamping, and three
+  matched depths (25%, 50%, and 75%);
+- steering: adjacent pairs 7--8 and 9--10 plus non-local 5--10 in both
+  directions, residual-preserving centroid delta, the same three depths, and
+  one orthogonal norm-matched random direction.
+
+This is a targeted mechanistic screen rather than a fully powered sweep over
+every count, site, method, and layer. It schedules 2,800 intervention
+generations per model (5,600 total), compared with 99,600 per model in the
+full retained causal design. Discovery-fit head rankings and centroids remain
+strictly separated from confirmation evaluation.
+
 For an explicit GPU smoke, causal designs can be narrowed without editing the
 registered JSON. For example:
 
@@ -382,9 +404,10 @@ PYTHONPATH=src python scripts/run_realistic_niah_v4.py \
 ```
 
 Related overrides are `--causal-top-ns`,
-`--causal-random-replicates`, `--causal-count-pairs`, and
-`--ablation-scopes`. Because the resolved settings are hashed into the design
-directory, smoke and formal shards cannot collide.
+`--causal-random-replicates`, `--causal-count-pairs`,
+`--ablation-scopes`, `--ablation-poolings`, `--residual-patch-sites`, and
+`--residual-patch-protocols`. Because the resolved settings are hashed into
+the design directory, screen, smoke, and full-design shards cannot collide.
 
 ## Outputs
 

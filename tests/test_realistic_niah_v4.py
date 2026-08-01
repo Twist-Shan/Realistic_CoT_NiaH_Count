@@ -34,6 +34,7 @@ from realistic_niah_v4.causal_generation import (
     RESIDUAL_PATCH_SITES,
     _residual_site_states,
     intervention_outcome,
+    run_generation_head_ablation,
 )
 from realistic_niah_v4.geometric_steering import (
     CountCentroidBundle,
@@ -871,6 +872,69 @@ def test_complete_numeric_outcome_handles_multitoken_ten() -> None:
     assert outcome["patched_is_correct"] is True
     assert outcome["generated_count_shift"] == 1
     assert json.loads(outcome["patched_generated_token_ids"]) == [31, 30]
+
+
+def test_generation_ablation_can_select_span_end_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import realistic_niah_v4.causal_generation as causal_generation
+
+    model = ToyLM().eval()
+    adapter = discover_decoder_adapter(model)
+    encoding = _toy_encoding((1, 2, 3, 4))
+    calls: list[tuple[tuple[tuple[int, int], ...], str]] = []
+
+    def fake_ablation(
+        _model,
+        _tokenizer,
+        _adapter,
+        _encoding,
+        heads,
+        *,
+        scope,
+        max_new_tokens,
+    ):
+        del max_new_tokens
+        calls.append((tuple(heads), str(scope)))
+        return {
+            "completion_text": "2",
+            "completion_text_raw": "2",
+            "generated_token_ids": [11, 1],
+            "generation_truncated": False,
+            "intervention_hook_applications": {"0": 1},
+        }
+
+    monkeypatch.setattr(
+        causal_generation, "generate_with_head_ablation", fake_ablation
+    )
+    detail = run_generation_head_ablation(
+        model,
+        None,
+        adapter,
+        [encoding],
+        baseline_labels={
+            encoding.stimulus_id: {
+                "model_label": "toy",
+                "design_variant": "v4.1",
+                "seed": 1,
+                "gold_count": 2,
+                "outcome_group": "correct",
+                "is_correct": True,
+                "format_valid": True,
+                "parsed_count": 2,
+                "count_error": 0,
+            }
+        },
+        rankings={("v4.1", "span_end"): [(0, 0), (1, 0)]},
+        poolings=("span_end",),
+        top_ns=(1,),
+        random_replicates=1,
+        scopes=("answer_query",),
+    )
+    assert set(detail["pooling"]) == {"span_end"}
+    assert set(detail["condition"]) == {"ranked", "layer_matched_random"}
+    assert len(calls) == 2
+    assert all(scope == "answer_query" for _, scope in calls)
 
 
 def test_geometric_chord_and_polyline_are_distinct(tmp_path: Path) -> None:

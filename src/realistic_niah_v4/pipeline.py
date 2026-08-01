@@ -21,6 +21,9 @@ from .attention import (
 from .attention_outcomes import analyze_labeled_attention
 from .behavior import capture_generation_labels
 from .causal_generation import (
+    NEEDLE_PATCH_PROTOCOLS,
+    POOLINGS,
+    RESIDUAL_PATCH_SITES,
     compare_ranked_ablation_to_random,
     load_broad_rankings,
     load_generation_labels,
@@ -592,6 +595,9 @@ def run_model_stage(
     causal_random_replicates: int | None = None,
     causal_count_pairs: Sequence[Sequence[int]] | None = None,
     ablation_scopes: Sequence[str] | None = None,
+    ablation_poolings: Sequence[str] | None = None,
+    residual_patch_sites: Sequence[str] | None = None,
+    residual_patch_protocols: Sequence[str] | None = None,
     steering_count_pairs: Sequence[Sequence[int]] | None = None,
     steering_methods: Sequence[str] | None = None,
     steering_alphas: Sequence[float] | None = None,
@@ -821,6 +827,49 @@ def run_model_stage(
         )
     ):
         raise ValueError(f"Invalid ablation scopes: {resolved_ablation_scopes}")
+    resolved_ablation_poolings = (
+        tuple(str(value) for value in ablation_poolings)
+        if ablation_poolings is not None
+        else POOLINGS
+    )
+    if (
+        not resolved_ablation_poolings
+        or len(set(resolved_ablation_poolings))
+        != len(resolved_ablation_poolings)
+        or any(
+            pooling not in POOLINGS for pooling in resolved_ablation_poolings
+        )
+    ):
+        raise ValueError(
+            f"Invalid ablation poolings: {resolved_ablation_poolings}"
+        )
+    resolved_patch_sites = (
+        tuple(str(value) for value in residual_patch_sites)
+        if residual_patch_sites is not None
+        else tuple(config.patch_sites)
+    )
+    if (
+        not resolved_patch_sites
+        or len(set(resolved_patch_sites)) != len(resolved_patch_sites)
+        or any(site not in RESIDUAL_PATCH_SITES for site in resolved_patch_sites)
+    ):
+        raise ValueError(f"Invalid residual patch sites: {resolved_patch_sites}")
+    resolved_patch_protocols = (
+        tuple(str(value) for value in residual_patch_protocols)
+        if residual_patch_protocols is not None
+        else tuple(config.residual_patch_protocols)
+    )
+    if (
+        not resolved_patch_protocols
+        or len(set(resolved_patch_protocols)) != len(resolved_patch_protocols)
+        or any(
+            protocol not in NEEDLE_PATCH_PROTOCOLS
+            for protocol in resolved_patch_protocols
+        )
+    ):
+        raise ValueError(
+            f"Invalid residual patch protocols: {resolved_patch_protocols}"
+        )
     resolved_patch_pairs = (
         tuple(tuple(int(item) for item in pair) for pair in causal_count_pairs)
         if causal_count_pairs is not None
@@ -896,6 +945,7 @@ def run_model_stage(
         rankings = load_broad_rankings(
             model_output / "attention" / "analysis" / "rankings",
             variants=observed_variants,
+            poolings=resolved_ablation_poolings,
         )
 
     if stage == "ablation":
@@ -905,6 +955,7 @@ def run_model_stage(
             {
                 **selection_payload,
                 "rankings": _ranking_design_payload(rankings),
+                "poolings": list(resolved_ablation_poolings),
                 "top_ns": list(resolved_top_ns),
                 "random_replicates": resolved_random_replicates,
                 "scopes": list(resolved_ablation_scopes),
@@ -915,6 +966,7 @@ def run_model_stage(
         with logger.timer(
             "generation_head_ablation",
             rows=len(confirmation_encodings),
+            poolings=list(resolved_ablation_poolings),
             scopes=list(resolved_ablation_scopes),
         ):
             for encoding in confirmation_encodings:
@@ -937,6 +989,7 @@ def run_model_stage(
                         [encoding],
                         baseline_labels=baseline_labels,
                         rankings=rankings,
+                        poolings=resolved_ablation_poolings,
                         top_ns=resolved_top_ns,
                         random_replicates=resolved_random_replicates,
                         scopes=resolved_ablation_scopes,
@@ -994,8 +1047,8 @@ def run_model_stage(
                 **selection_payload,
                 "layers": list(selected_layers),
                 "directed_count_pairs": [list(pair) for pair in directed_pairs],
-                "sites": list(config.patch_sites),
-                "needle_protocols": list(config.residual_patch_protocols),
+                "sites": list(resolved_patch_sites),
+                "needle_protocols": list(resolved_patch_protocols),
             },
         )
         capture_root = stage_root / "capture"
@@ -1004,8 +1057,8 @@ def run_model_stage(
             "generation_residual_patching",
             families=len(grouped_encodings),
             layers=list(selected_layers),
-            sites=list(config.patch_sites),
-            protocols=list(config.residual_patch_protocols),
+            sites=list(resolved_patch_sites),
+            protocols=list(resolved_patch_protocols),
         ):
             for (variant, seed), family_encodings in sorted(
                 grouped_encodings.items()
@@ -1032,8 +1085,8 @@ def run_model_stage(
                         baseline_labels=baseline_labels,
                         count_pairs=directed_pairs,
                         start_layers=selected_layers,
-                        sites=config.patch_sites,
-                        needle_protocols=config.residual_patch_protocols,
+                        sites=resolved_patch_sites,
+                        needle_protocols=resolved_patch_protocols,
                         max_new_tokens=generation_max_new_tokens,
                     )
                     frame["behavior_metric"] = behavior_metric

@@ -211,6 +211,15 @@ evaluated on held-out confirmation seeds with norm-matched random controls. See
 discovery/confirmation separation, formulas, commands, outputs, and
 interpretation limits.
 
+The default causal launcher runs the explicitly labelled `screen_8h_v1`
+profile. It retains all four variants and all ten confirmation seeds, but
+targets high-count failures: span-end answer-query top-4/top-8 head ablation on
+counts 7--10, cumulative needle-end residual transport on pairs 5--6, 7--8,
+and 9--10, and centroid-delta steering on 7--8, 9--10, and the non-local 5--10
+pair at three matched relative depths. Every intervention keeps one
+layer-matched or norm-matched random control. The reduced design is a causal
+screen, not a replacement for a fully powered all-condition sweep.
+
 Build the self-contained V4 representation report from a downloaded run with:
 
 ```bash

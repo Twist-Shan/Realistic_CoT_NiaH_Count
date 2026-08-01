@@ -127,6 +127,21 @@ def main() -> None:
         help="Comma-separated subset of answer_query,global.",
     )
     parser.add_argument(
+        "--ablation-poolings",
+        help="Comma-separated subset of span_end,span_mean.",
+    )
+    parser.add_argument(
+        "--residual-patch-sites",
+        help=(
+            "Comma-separated subset of answer_query,toggled_needle_end,"
+            "toggled_needle_span."
+        ),
+    )
+    parser.add_argument(
+        "--residual-patch-protocols",
+        help="Comma-separated subset of single_layer,cumulative_from_layer.",
+    )
+    parser.add_argument(
         "--steering-count-pairs",
         type=_count_pairs,
         help="Canonical LOW:HIGH pairs for geometric steering.",
@@ -182,6 +197,11 @@ def main() -> None:
         "causal_random_replicates": args.causal_random_replicates,
         "causal_count_pairs": args.causal_count_pairs,
         "ablation_scopes": _csv_strings(args.ablation_scopes),
+        "ablation_poolings": _csv_strings(args.ablation_poolings),
+        "residual_patch_sites": _csv_strings(args.residual_patch_sites),
+        "residual_patch_protocols": _csv_strings(
+            args.residual_patch_protocols
+        ),
         "steering_count_pairs": args.steering_count_pairs,
         "steering_methods": _csv_strings(args.steering_methods),
         "steering_alphas": _csv_floats(args.steering_alphas),
