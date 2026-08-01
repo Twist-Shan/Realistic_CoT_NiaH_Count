@@ -4788,6 +4788,10 @@ p { max-width:980px; }
 .step strong { display:block; color:var(--ink); font:780 23px/1.15 "Aptos Display","Segoe UI",sans-serif; }
 .step small { color:var(--muted); font-family:"Cascadia Mono",Consolas,monospace; }
 .table-wrap { overflow:auto; border:1px solid var(--line); background:var(--surface); }
+.table-disclosure { margin:14px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.table-disclosure > summary { display:list-item; padding:11px 2px; color:var(--ink); font-weight:720; }
+.table-disclosure[open] > summary { margin-bottom:10px; }
+.table-disclosure > .table-wrap:last-child { margin-bottom:12px; }
 table { width:100%; border-collapse:collapse; font-size:12.5px; font-variant-numeric:tabular-nums; }
 caption { padding:10px 12px; text-align:left; color:var(--muted); }
 th,td { padding:9px 10px; text-align:right; border-bottom:1px solid rgba(129,144,165,.19); white-space:nowrap; }
@@ -4967,10 +4971,10 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <div class="stat-grid"><figure class="stat-figure">@@REPRESENTATION_R2_SVG@@<figcaption><strong>图 B2-F1 · Held-out count decoding。</strong>横轴：V4 controlled relaxation；纵轴：confirmation R²。实线/圆点是 span-end，虚线/圆点是 span-mean。R²=0 水平线表示不优于用 confirmation mean 预测。span-end 随控制释放逐渐变差但仍保持强正值；span-mean 在 v4.3 释放 city-score order 后明显崩溃。</figcaption></figure></div>
   <div class="figure-intro"><p><strong>画什么：</strong>每个已捕获 decoder layer 的 full-space 可解码度、前三个 PC 的总方差解释度、前三个 PC 对 count-centroid signal 的保留率，以及跨 seed 紧致度。</p><p><strong>如何得到：</strong>所有曲线只使用 V4.1 discovery states；P 标记 full-space CV-R² 最大层，M 在“距最佳 R²≤0.02”的层中再按 M₃=EVR₃×F₃×compactness 选择。</p><p><strong>能说明什么：</strong>它把“最容易线性读出”与“最适合用 3D 展示”分开，避免仅凭 PCA explained variance 选到主要解释 nuisance 的层。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@LAYER_SWEEP_SVG@@<figcaption><strong>图 B2-F2 · Discovery-only layer sweep。</strong>横轴：zero-based post-block decoder layer；纵轴：0–1 的 discovery-only score。紫色是 full-space grouped-seed CV-R²；青色是前三 PC 的 total EVR；绿色是前三 PC 对 count-centroid signal 的捕获率 F₃；粉色是 leave-one-seed-out compactness C。棕色虚线 P 标记原 probe-optimal 层；靛蓝实线 M 标记 manifold-display 层。高 EVR 单独出现并不够：若 F₃ 或 compactness 低，PCA 可能主要解释 nuisance variance。</figcaption></figure></div>
-  <details open><summary>Probe-optimal 与 manifold-display 层的逐项比较</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>pooling</th><th>probe L</th><th>probe full CV R²</th><th>probe EVR₃</th><th>probe F₃</th><th>probe LOO noise/signal</th><th>display L</th><th>display full CV R²</th><th>display EVR₃</th><th>display F₃</th><th>display PCA3 CV R²</th><th>display LOO noise/signal</th><th>M₃</th></tr></thead><tbody>@@LAYER_SELECTION_ROWS@@</tbody></table></div></details>
+  <details><summary>Probe-optimal 与 manifold-display 层的逐项比较</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>pooling</th><th>probe L</th><th>probe full CV R²</th><th>probe EVR₃</th><th>probe F₃</th><th>probe LOO noise/signal</th><th>display L</th><th>display full CV R²</th><th>display EVR₃</th><th>display F₃</th><th>display PCA3 CV R²</th><th>display LOO noise/signal</th><th>M₃</th></tr></thead><tbody>@@LAYER_SELECTION_ROWS@@</tbody></table></div></details>
   <p class="artifact-link">完整逐层数值：<a href="realistic_niah_v4_layer_sweep.csv">realistic_niah_v4_layer_sweep.csv</a>。</p>
   @@LAYER_SELECTION_CONCLUSION@@
-  <details open><summary>Primary-layer confirmation metrics</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>pooling</th><th>layer</th><th>panel</th><th>confirm R²</th><th>confirm MAE</th><th>noise / signal</th><th>linear CKA</th><th>distance corr.</th></tr></thead><tbody>@@METRIC_ROWS@@</tbody></table></div></details>
+  <details><summary>Primary-layer confirmation metrics</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>pooling</th><th>layer</th><th>panel</th><th>confirm R²</th><th>confirm MAE</th><th>noise / signal</th><th>linear CKA</th><th>distance corr.</th></tr></thead><tbody>@@METRIC_ROWS@@</tbody></table></div></details>
   <details><summary>Paired confirmation-seed sensitivity：相邻 relaxation 在哪里首次显著变差</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>pooling</th><th>layer</th><th>metric</th><th>step</th><th>Δ mean</th><th>95% seed CI</th><th>CI &gt; 0</th></tr></thead><tbody>@@SENSITIVITY_ROWS@@</tbody></table></div></details>
   @@REPRESENTATION_CONCLUSION@@
   <div id="counter">
@@ -5031,7 +5035,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
     <h4>By directed count pair</h4><div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>receiver→donor</th><th>rows / seeds</th><th>valid</th><th>eligible n</th><th>eligible adoption [95% CI]</th><th>follows donor prediction (valid)</th><th>aligned shift [95% CI]</th></tr></thead><tbody>@@ANSWER_QUERY_PAIR_ROWS@@</tbody></table></div>
   </details>
   @@ANSWER_QUERY_INVALID@@
-  <div class="callout"><strong>Gemma 的五个 <code>11</code> 是什么？</strong>它们全部来自同一个 V4.1 confirmation family（seed 1263，receiver baseline=5，donor baseline=10），分别出现在 L31/L35/L38/L40/L41。模型实际 continuation 的数字部分是 <code>11</code>：它能解析为整数，但超出注册答案集合 1–10，因此按 strict rule 记为 invalid/failure，而不是把它裁剪为 10。一个合理但仍属机制推断的解释是：late query patch 已把 donor <code>10</code> 的首个数字前缀 <code>1</code> 搬入 receiver readout；后续 answer-token positions 没有被 patch，Gemma 在自回归第二步重复了 <code>1</code> 而没有生成 <code>0</code>。这说明单个 prefill query state 对首个 numeric decision 极强，但完整多-token realization 仍包含后续计算。</div>
+  <div class="callout"><strong>Gemma 的五个 <code>11</code> 是什么？</strong>它们全部来自同一个 V4.1 confirmation family（seed 1263，receiver baseline=5，donor baseline=10），分别出现在 L31/L35/L38/L40/L41。保存的 continuation token IDs 是 receiver <code>5</code>=[236810,106]、donor <code>10</code>=[236770,236771,106]、patched <code>11</code>=[236770,236770,106]。<code>11</code> 能解析为整数，但超出注册答案集合 1–10，因此按 strict rule 记为 invalid/failure，而不是裁剪为 10。一个合理但仍属机制推断的解释是：late query patch 已把 donor <code>10</code> 的首个数字 token 搬入 receiver readout；后续 answer-token positions 没有被 patch，Gemma 在自回归第二步重复了 <code>1</code> 而没有生成 <code>0</code>。这说明单个 prefill query state 对首个 numeric decision 极强，但完整多-token realization 仍包含后续计算。</div>
   <div class="section-conclusion"><span>本小节结论 · Query-state sufficiency</span><p>Transport 在 Qwen L18→L26 与 Gemma L20→L31 之间突然开启；末层所有合法 eligible rows 都等于 donor prediction。把 Gemma 五个生成 <code>11</code> 的 strict-invalid rows 作为 failure 后，保守 adoption 仍为 Qwen 100%、Gemma 99.58%。这证明 late query state 对“模型已经算出的 prediction”高度充分，但不证明它是单维 scalar counter，也不保证多-token answer 的后续 token 都由同一次 patch 决定。</p></div>
   </div>
   <div class="section-conclusion"><span>Block 2 结论</span><p>Prompt 中 needle-end states 保留稳定、可解码的 index/count information；但单 endpoint patch 近乎为零，说明该信息不是一个可单点搬运的运行计数器。相反，<code>Total:</code> 位置的后层完整 residual 可以近确定性搬运 donor prediction，支持“分布式 evidence 先被聚合，再在 answer-query 侧形成 executable count state”。</p></div>
@@ -5075,7 +5079,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   </div>
   <div class="figure-intro"><p><strong>画什么：</strong>Qwen 在四个 V4 panels 中通过 discovery gate 的 heads 被分为 global broad、partition-local broad、occurrence selector 与其他 profile 后的数量。</p><p><strong>如何得到：</strong>对每个候选使用相同十维 span-end profile、normalized-depth quarter 规则和固定阈值；堆叠高度是 head 数，不按 attention mass 加权。</p><p><strong>能说明什么：</strong>可检验 local phenotype 是否随 position 被释放而稳定存在；数量变化支持/反对固定 partition circuit，但不能说明某类 head 的因果贡献大小。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@PARTITION_PHENOTYPE_SVG@@<figcaption><strong>图 B3-F3 · Qwen discovery-eligible span-end head taxonomy replication。</strong>横轴：V4 panel；纵轴：候选 head 数量。堆叠颜色显示 global aggregator、partition-local aggregator、occurrence selector 与其他 phenotypes。v4.1 的 partition-local 数量较多，但释放 position 后明显减少；global aggregator bank 在四个 panel 都存在。该旧分析与本报告的统一 raw-row 重算在 global/local 两类上逐 head 完全一致，作为索引与规则复现检查。</figcaption></figure></div>
-  <details open><summary>Phenotype bank coverage：等权覆盖潜力与 raw attention 实际权重</summary><div class="table-wrap"><table><thead><tr><th>panel</th><th>phenotype</th><th>heads</th><th>equal-head N_eff</th><th>raw-mass N_eff</th><th>mean summed endpoint mass</th></tr></thead><tbody>@@PARTITION_BANK_ROWS@@</tbody></table></div></details>
+  <details><summary>Phenotype bank coverage：等权覆盖潜力与 raw attention 实际权重</summary><div class="table-wrap"><table><thead><tr><th>panel</th><th>phenotype</th><th>heads</th><th>equal-head N_eff</th><th>raw-mass N_eff</th><th>mean summed endpoint mass</th></tr></thead><tbody>@@PARTITION_BANK_ROWS@@</tbody></table></div></details>
   <div class="callout"><strong>跨 panel×split 稳定的 Qwen global aggregators（13 个）：</strong><code>@@STABLE_GLOBAL_HEADS@@</code>。其中 L6H12 的 endpoint mass 较高；L13H16、L17H22 也是下一轮 bank-specific ablation 的优先候选。这个更严格的 13-head replication set 与只要求四个 discovery panels 稳定的 14-head set 不是同一 estimand。</div>
   @@ATTENTION_CONCLUSION@@
 
@@ -5196,7 +5200,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <div class="table-wrap"><table><thead><tr><th>model</th><th>protocol</th><th>layers</th><th>α</th><th>pairs / seeds</th><th>valid geom. / random</th><th>aligned geom. / random</th><th>paired Δ [95% CI]</th><th>Δ moved [95% CI]</th><th>Δ target hit</th><th>Holm p</th></tr></thead><tbody>@@STEERING_V2_SUMMARY_ROWS@@</tbody></table></div>
   <div class="figure-intro"><p><strong>画什么：</strong>discovery 阶段锁定的一个 single-layer plan 与一个 multi-layer plan，在 10 个独立 confirmation seeds 上相对 matched random control 的 strict aligned-count shift。</p><p><strong>如何得到：</strong>越界输出按零效应保留；每个 seed 内平均四个 panels 与六个 directions，再对 10 个 seeds bootstrap 95% CI。每模型 single/multi 两个 primary tests 做 exact sign-flip 与 Holm correction。</p><p><strong>能说明什么：</strong>CI 与 Holm p 检验方向能否跨新 seeds 复现；single 与 multi 的相对大小说明协调多层干预是否比单层更稳定，但不是对两个 protocols 的直接随机化差异检验。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@STEERING_V2_SVG@@<figcaption><strong>图 B5-F2 · Discovery-locked single-layer versus multi-layer steering。</strong>横轴：held-out strict aligned-count-shift 的 geometric−random paired effect；纵轴：模型、protocol、锁定 layer set 与 α。圆点与横线是 seed-equal estimate 和 95% bootstrap CI；越界 generation 已作为零效应进入估计。</figcaption></figure></div>
-  <details open><summary>四个 V4 panels 的 held-out heterogeneity</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>protocol</th><th>panel</th><th>paired rows / seeds</th><th>paired Δ [95% CI]</th><th>panel-family Holm p</th></tr></thead><tbody>@@STEERING_V2_PANEL_ROWS@@</tbody></table></div></details>
+  <details><summary>四个 V4 panels 的 held-out heterogeneity</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>protocol</th><th>panel</th><th>paired rows / seeds</th><th>paired Δ [95% CI]</th><th>panel-family Holm p</th></tr></thead><tbody>@@STEERING_V2_PANEL_ROWS@@</tbody></table></div></details>
   <div class="notes">@@STEERING_V2_CONCLUSION@@</div>
   <div class="section-conclusion"><span>5.2 解释规则</span><p>只有 discovery-locked plan 在独立 confirmation seeds 上保持正 effect，才能称为稳定 directional steering。即便 single/multi 都成立，结论仍是“均值差方向可操纵”，不是“target count 被精确设置”；exact donor-state sufficiency 继续由 2.5 的 sample-wise replacement 提供。</p></div>
 
@@ -5221,13 +5225,13 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <h2>综合机制：哪些解释被支持，哪些解释已经不够，哪些仍无法区分？</h2>
   <div class="evidence-ledger">
     <div class="ledger-row"><div><strong>H1 · Needle-end 存有独立、可直接运输的 running count</strong></div><div><span class="evidence-tag">Not sufficient</span>span-end probe 很强，但 exact endpoint patch 全部接近 null；单 endpoint transport 解释不足。</div></div>
-    <div class="ledger-row"><div><strong>H2 · 一个最高排名 broad head 统一汇总所有 needles</strong></div><div><span class="evidence-tag">Rejected for Qwen</span>Qwen L29H3 是 first-occurrence selector；真正 broad coverage 分散在 24–35 个 global heads。</div></div>
-    <div class="ledger-row"><div><strong>H3 · 多-head answer-query aggregation 对 count magnitude 必要</strong></div><div><span class="evidence-tag">Supported</span>ranked top-8 bank ablation 相对 layer-matched random 在两个模型都额外造成 undercount。</div></div>
+    <div class="ledger-row"><div><strong>H2 · 一个最高排名 broad head 统一汇总所有 needles</strong></div><div><span class="evidence-tag">Rejected for Qwen</span>Qwen L29H3 是 first-occurrence selector；真正 broad coverage 分散在每 panel 22–34 个 global heads。</div></div>
+    <div class="ledger-row"><div><strong>H3 · Discovery-ranked mixed head bank 对 count magnitude 必要</strong></div><div><span class="evidence-tag">Supported</span>ranked top-8 bank ablation 相对 layer-matched random 在两个模型都额外造成 undercount；phenotype-specific necessity 仍未分解。</div></div>
     <div class="ledger-row"><div><strong>H4 · Late answer-query residual 携带模型已完成的 count decision</strong></div><div><span class="evidence-tag">Strongly supported</span>single-layer donor patch 在 late layers 近确定性复制 donor prediction，并跨全部 V4 panels/pairs 稳健。</div></div>
     <div class="ledger-row"><div><strong>H5 · Late state 是精确、等距、单维 scalar counter</strong></div><div><span class="evidence-tag">Not established</span>path 弯曲、步长不等；steering exact hit 低；Gemma “11”说明多-token realization 仍依赖后续 computation。</div></div>
     <div class="ledger-row"><div><strong>H6 · Qwen 使用固定的 partition-local aggregation circuit</strong></div><div><span class="evidence-tag">Open</span>存在 local heads，但 phenotype 跨 split/panel 稳定性弱；global bank 更稳定。</div></div>
   </div>
-  <div class="section-conclusion"><span>本节结论</span><p>目前最小且不超出证据的机制是：prompt-reading 阶段在 needle spans 保留 count-related local states；多个 answer-query heads 以不同 breadth/selection profiles 聚合这些证据；该 bank 对避免 undercount 必要；聚合结果在后层 query residual 中变成可直接驱动首个 numeric decision 的 executable state。该链条仍缺少从具体 V/O head contributions 到 query residual 的逐层写入分解。</p></div>
+  <div class="section-conclusion"><span>本节结论</span><p>目前最小且不超出证据的机制是：prompt-reading 阶段在 needle spans 保留 count-related local states；多个 answer-query heads 以不同 breadth/selection profiles 聚合这些证据；被测试的 mixed ranked bank 对避免 undercount 有必要贡献；聚合结果在后层 query residual 中变成可直接驱动首个 numeric decision 的 executable state。该链条仍缺少 phenotype-specific ablation，以及从具体 V/O head contributions 到 query residual 的逐层写入分解。</p></div>
 </div>
 
 <div class="report-appendix" id="limits">
@@ -5241,7 +5245,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
     <div class="next-item"><strong>5. 两模型 phenotype 的 confirmation stability</strong><p>本报告已用统一 raw-row 规则完成 Qwen 与 Gemma 的 discovery taxonomy；但为了避免 outcome leakage，类别定义没有用 confirmation 重选阈值。下一步应冻结规则后在 confirmation raw rows 上测同一 head 的 phenotype stability，并报告跨 panel×split 的 Jaccard/transition matrix，再决定 phenotype-specific ablation bank。</p></div>
     <div class="next-item"><strong>6. Error-correction 与 thinking-mode generalization</strong><p>高 count correct baselines 太少，correct/wrong causal strata power 不足。可通过调节 length/count 难度获得 matched correct/wrong prompts，再检验 patch 是否纠错；最后扩展到 thinking mode，比较 query state 与 CoT progress state 是否分离。</p></div>
   </div>
-  <div class="callout"><strong>不要过度外推。</strong>本轮是 targeted causal screen：selected pairs、三个 steering depths、α=1、一个 matched random replicate，以及八个 query-patch layers。它支持上述具体因果主张，但不替代更大、预注册且多 control replicates 的 full sweep。</div>
+  <div class="callout"><strong>不要过度外推。</strong>初始 causal screen 使用 selected pairs、三个 steering depths、α=1、一个 matched random replicate，以及八个 query-patch layers；steering v2 增加 discovery-only layer-set/α selection 与 held-out confirmation，但仍只有一个 matched random replicate。它支持上述具体因果主张，不替代更大、预注册且多-control-replicate 的 full sweep。</div>
   <div class="section-conclusion"><span>本节结论</span><p>优先级最高的是“stable global aggregator bank 的 phenotype-specific ablation”与“head V/O contribution → query residual 的写入路径”，因为它们直接补上当前机制链中唯一缺失的 causal edge；扩大 PCA 或重复更多同类 attention heatmaps 的信息增益较低。</p></div>
 </div>
 
@@ -5254,8 +5258,44 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <div class="section-conclusion"><span>本节结论</span><p>所有图表的数值来源、坐标含义、计算公式、selection split 与 inference unit 都在报告中显式记录；HTML 为 self-contained artifact，可离线打开并复查交互式 3D geometry。</p></div>
 </div>
 </main>
-<footer>生成时间 @@GENERATED@@ · source run <code>@@RUN_NAME@@</code> · commit <code>@@COMMIT@@</code> · Aurora report system</footer>
+<footer>生成时间 @@GENERATED@@ · source run <code>@@RUN_NAME@@</code> · commit <code>@@COMMIT@@</code> · neutral academic layout / Aurora figures</footer>
 <script>
+function tableMetadata(wrap) {
+  const table=wrap.querySelector('table');
+  if (!table) return {rows:0,columns:[]};
+  const rows=table.querySelectorAll('tbody tr').length;
+  const columns=Array.from(table.querySelectorAll('thead th')).map(th=>th.textContent.trim()).filter(Boolean);
+  return {rows,columns};
+}
+function makeTablesCollapsible() {
+  const groupedDetails=new Set();
+  document.querySelectorAll('.table-wrap').forEach((wrap,index)=>{
+    const existing=wrap.closest('details');
+    if (existing) { groupedDetails.add(existing); return; }
+    const meta=tableMetadata(wrap);
+    const details=document.createElement('details');
+    details.className='table-disclosure';
+    details.dataset.tableIndex=String(index+1);
+    const summary=document.createElement('summary');
+    const columns=meta.columns.slice(0,3).join(' / ')+(meta.columns.length>3?' / …':'');
+    summary.textContent=`展开数据表 · ${meta.rows} 行${columns?` · ${columns}`:''}`;
+    wrap.parentNode.insertBefore(details,wrap);
+    details.append(summary,wrap);
+  });
+  groupedDetails.forEach(details=>{
+    details.removeAttribute('open');
+    details.classList.add('table-disclosure');
+    const wraps=Array.from(details.querySelectorAll('.table-wrap'));
+    const totalRows=wraps.reduce((sum,wrap)=>sum+tableMetadata(wrap).rows,0);
+    const summary=Array.from(details.children).find(child=>child.tagName==='SUMMARY');
+    if (summary && !summary.dataset.tableMetadata) {
+      const suffix=wraps.length>1?` · ${wraps.length} 个表 / ${totalRows} 行`:` · ${totalRows} 行`;
+      summary.append(document.createTextNode(suffix));
+      summary.dataset.tableMetadata='true';
+    }
+  });
+}
+makeTablesCollapsible();
 const REP_DATA = @@REP_DATA@@;
 const COLORS = ['#23165C','#4430A2','#6750E8','#9950F4','#C04DFF','#FF5FA2','#F6E36A','#39E58C','#00D4B4','#00C2FF'];
 const canvas = document.getElementById('counter3d');

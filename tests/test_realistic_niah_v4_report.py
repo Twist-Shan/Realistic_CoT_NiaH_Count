@@ -91,6 +91,9 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     assert "previous!==null" not in template
     assert "background:linear-gradient" not in template
     assert template.count('class="figure-intro"') >= 12
+    assert "function makeTablesCollapsible()" in template
+    assert "展开数据表" in template
+    assert "<details open>" not in template
 
 
 def test_steering_v2_strict_pairing_keeps_invalid_outputs_as_failures() -> None:
