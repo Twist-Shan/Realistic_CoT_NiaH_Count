@@ -2516,6 +2516,10 @@ def _prompt_counter_dynamics_frames(run_root: Path) -> dict[str, pd.DataFrame]:
         "noise": root / "hidden_counter_noise_by_sample.csv.gz",
         "slopes": root / "occurrence_slope_summary.csv",
         "associations": root / "attention_noise_association.csv",
+        "all_head_samples": root / "all_head_attention_by_sample.csv.gz",
+        "all_head_slopes": root / "all_head_occurrence_slope_summary.csv",
+        "all_head_associations": root
+        / "all_head_attention_noise_association.csv",
         "profiles": root / "profile_maps.csv.gz",
     }
     missing = [str(path) for path in paths.values() if not path.exists()]
@@ -2605,12 +2609,13 @@ def _prompt_counter_profile_data(
     return result
 
 
-def _prompt_counter_selected_rows(
-    frames: dict[str, pd.DataFrame],
+def _prompt_counter_selected_rows_for_scope(
+    slopes: pd.DataFrame,
+    associations: pd.DataFrame,
     layer_sweep_rows: list[dict[str, Any]],
+    *,
+    head_scope: str,
 ) -> list[dict[str, Any]]:
-    slopes = frames["slopes"]
-    associations = frames["associations"]
     rows: list[dict[str, Any]] = []
     for model in MODELS:
         for pooling in POOLINGS:
@@ -2696,6 +2701,7 @@ def _prompt_counter_selected_rows(
                         {
                             "model": model,
                             "pooling": pooling,
+                            "head_scope": head_scope,
                             "selection": selection,
                             "layer": int(layer),
                             "variant": variant,
@@ -2747,6 +2753,26 @@ def _prompt_counter_selected_rows(
     return rows
 
 
+def _prompt_counter_selected_rows(
+    frames: dict[str, pd.DataFrame],
+    layer_sweep_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        *_prompt_counter_selected_rows_for_scope(
+            frames["slopes"],
+            frames["associations"],
+            layer_sweep_rows,
+            head_scope="discovery_top8_broad",
+        ),
+        *_prompt_counter_selected_rows_for_scope(
+            frames["all_head_slopes"],
+            frames["all_head_associations"],
+            layer_sweep_rows,
+            head_scope="all_heads_control",
+        ),
+    ]
+
+
 def _table_prompt_counter_dynamics_html(
     rows: list[dict[str, Any]],
 ) -> str:
@@ -2754,6 +2780,7 @@ def _table_prompt_counter_dynamics_html(
         "<tr>"
         f"<td>{html.escape(row['model'])}</td>"
         f"<td>{html.escape(row['pooling'].replace('_', '-'))}</td>"
+        f"<td>{html.escape(row['head_scope'].replace('_', '-'))}</td>"
         f"<td>{html.escape(row['selection'].replace('_', '-'))}</td>"
         f"<td>L{int(row['layer'])}</td>"
         f"<td>{html.escape(row['variant'])}</td>"
@@ -2886,10 +2913,23 @@ def _prompt_counter_dynamics_conclusion_html(
                 if row["model"] == model
                 and row["pooling"] == pooling
                 and row["selection"] == "manifold_display"
+                and row["head_scope"] == "discovery_top8_broad"
+            ]
+            controls = [
+                row
+                for row in rows
+                if row["model"] == model
+                and row["pooling"] == pooling
+                and row["selection"] == "manifold_display"
+                and row["head_scope"] == "all_heads_control"
             ]
             if len(selected) != 4:
                 raise RuntimeError(
                     f"Incomplete manifold dynamics rows for {model}/{pooling}"
+                )
+            if len(controls) != 4:
+                raise RuntimeError(
+                    f"Incomplete all-head dynamics rows for {model}/{pooling}"
                 )
             noise_positive = sum(
                 float(row["counter_noise_slope_low"]) > 0 for row in selected
@@ -2918,6 +2958,16 @@ def _prompt_counter_dynamics_conclusion_html(
                     [row["coverage_noise_correlation"] for row in selected]
                 )
             )
+            control_coverage_slope = float(
+                np.median(
+                    [row["needle_relative_coverage_slope"] for row in controls]
+                )
+            )
+            control_correlation = float(
+                np.median(
+                    [row["coverage_noise_correlation"] for row in controls]
+                )
+            )
             statements.append(
                 f"<strong>{html.escape(model)} · {html.escape(pooling.replace('_', '-'))}</strong> "
                 f"manifold-display layer：relative-coverage slope 中位数 "
@@ -2926,7 +2976,10 @@ def _prompt_counter_dynamics_conclusion_html(
                 f"CI 明确为正/负分别 {noise_positive}/{noise_negative}，coverage–noise 的 "
                 f"occurrence-adjusted correlation 中位数 "
                 f"{_number(median_correlation, 3, signed=True)}，CI 明确为正/负分别 "
-                f"{association_positive}/{association_negative}。"
+                f"{association_positive}/{association_negative}。作为选择偏差控制，all-heads 的 "
+                f"relative-coverage slope / occurrence-adjusted correlation 中位数分别为 "
+                f"{_number(control_coverage_slope, 3, signed=True)} / "
+                f"{_number(control_correlation, 3, signed=True)}。"
             )
     return (
         '<div class="section-conclusion"><span>2.2b 当前结论 · 分开趋势与同-n关联</span><p>'
@@ -6699,7 +6752,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <p class="figure-caption"><strong>图 B2-F3b · Write-side prompt-counter attention map。</strong>纵轴 query occurrence n=1…10，横轴历史 needle occurrence j=1…10；每格是当前 discovery-frozen top-8 bank 在 10 个 confirmation seeds 上的平均值。不可见的上三角 j&gt;n 以灰色叉线标识。<code>within-needle share</code> 将每行可见 needle pools 的质量重新归一到 1，用来比较分布形状；<code>raw attention mass</code> 保留它在整条 prompt attention row 中的绝对质量。Endpoint 模式每个 j 只取 needle 最后一个 key token；full-span 模式对该 needle span 的全部 key tokens 求和。右下文字给出同一条件下 n=1→10 的整行 effective fraction、needle N<sub>eff</sub>、relative coverage 与 full-space counter noise 均值；这些曲线来自 confirmation seeds，不参与 head 选择。</p>
   <div class="figure-intro"><p><strong>画什么：</strong>每层上，top-8 bank 的 relative needle coverage 与 full-space counter noise 在控制 occurrence n 后还剩多少 confirmation-seed 相关。</p><p><strong>如何得到：</strong>在每个 n 内分别减去十个 confirmation seeds 的均值，再把 100 个 seed×occurrence residual pairs 求相关；四条线对应 V4.1–V4.4。棕色虚线为 prompt probe-optimal layer，靛蓝实线为 manifold-display layer。该逐层图是 exploratory localization；表中的两个预定义 layer 才是重点审计位置。</p><p><strong>能说明什么：</strong>正相关表示同一个 n 下 attention 比平均更均匀覆盖 needles 的 seed 也往往有更大的 counter residual；负相关表示更均匀覆盖反而伴随更稳定 counter。即使 CI 不含 0，它仍是同层观察关联，不证明 attention dispersion 导致 hidden noise。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@PROMPT_COUNTER_ASSOCIATION_SVG@@<figcaption><strong>图 B2-F3c · Occurrence-adjusted coverage/noise association across layers。</strong>四格为 Qwen/Gemma×span-end/span-mean；横轴是 zero-based post-block layer，纵轴是 confirmation 中先按 occurrence n 去均值后的 Pearson correlation，范围 −1 到 1，棕色水平线为 0。V4.1–V4.4 分别用靛蓝、紫、青、粉线连接相邻层的点估计；图中不画逐层 CI 以避免遮挡，probe/manifold 两类重点层的 seed-cluster bootstrap 95% CI 在下表给出。正值只表示 seed-level 共变，不是因果方向。</figcaption></figure></div>
-  <details><summary>Probe-optimal / manifold-display 层的 dispersion、noise 与关联</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>pooling</th><th>selection</th><th>layer</th><th>panel</th><th>Δ row N<sub>eff</sub></th><th>Δ row effective fraction</th><th>Δ needle N<sub>eff</sub></th><th>Δ relative coverage</th><th>Δ counter noise [95% CI]</th><th>corr(coverage, noise) [95% CI]</th><th>corr(row fraction, noise) [95% CI]</th></tr></thead><tbody>@@PROMPT_COUNTER_DYNAMICS_ROWS@@</tbody></table></div><p class="formula-note">所有 Δ 都是先在每个 confirmation seed 内对 x=(n−1)/9 做线性回归，再等权平均十个 seed slope，因此表示从 n=1 到 n=10 的完整范围变化，而不是“每增加一个 needle”的变化。Row N<sub>eff</sub> 是整条可见 prompt row 的绝对有效 token 数，row effective fraction 再除以可见 key 数；前者随序列变长可机械增加，后者才衡量相对扩散。相关的 bootstrap 以 seed 为 cluster，并在每次重采样后重新做 occurrence 去均值。</p></details>
+  <details><summary>Probe-optimal / manifold-display 层的 dispersion、noise 与关联</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>pooling</th><th>head scope</th><th>selection</th><th>layer</th><th>panel</th><th>Δ row N<sub>eff</sub></th><th>Δ row effective fraction</th><th>Δ needle N<sub>eff</sub></th><th>Δ relative coverage</th><th>Δ counter noise [95% CI]</th><th>corr(coverage, noise) [95% CI]</th><th>corr(row fraction, noise) [95% CI]</th></tr></thead><tbody>@@PROMPT_COUNTER_DYNAMICS_ROWS@@</tbody></table></div><p class="formula-note"><code>discovery-top8-broad</code> 是每个 model×panel×layer×pooling 仅用 discovery 冻结的 broad bank；<code>all-heads-control</code> 对该层所有 heads 等权平均，检查趋势是否只是 broad-head 选择规则造成。所有 Δ 都是先在每个 confirmation seed 内对 x=(n−1)/9 做线性回归，再等权平均十个 seed slope，因此表示从 n=1 到 n=10 的完整范围变化，而不是“每增加一个 needle”的变化。Row N<sub>eff</sub> 是整条可见 prompt row 的绝对有效 token 数，row effective fraction 再除以可见 key 数；前者随序列变长可机械增加，后者才衡量相对扩散。相关的 bootstrap 以 seed 为 cluster，并在每次重采样后重新做 occurrence 去均值。</p></details>
   @@PROMPT_COUNTER_DYNAMICS_CONCLUSION@@
   <h3>2.3 Answer-query counter：<code>Total:</code> 位置的聚合状态</h3>
   <p class="lede">本轮新增的 <code>answer_query_all_layers_v1</code> capture 对每条 variant×discovery seed×gold count prompt，在生成第一个答案 token 之前、prompt-final <code>Total:</code> query 位置保存<strong>每一个 post-block decoder layer</strong>的完整 residual；Qwen 为 L0–L35，Gemma 为 L0–L41。它不是 needle token 的均值，也不是首个答案 token 生成后的状态。每层同时拟合两个 V4.1 discovery PCA basis：<code>all</code> 使用全部 200 条 prompts；<code>correct_only</code> 只使用最终 greedy 数字严格正确的 prompts。两套 basis 都投影同一批 800 条保存状态。</p>

@@ -105,6 +105,7 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     assert "@@PROMPT_COUNTER_PROFILE_DATA@@" in template
     assert "@@PROMPT_COUNTER_ASSOCIATION_SVG@@" in template
     assert "@@PROMPT_COUNTER_DYNAMICS_ROWS@@" in template
+    assert "all-heads-control" in template
     assert "@@ANSWER_QUERY_PCA_SENSITIVITY_ROWS@@" in template
     assert "@@ANSWER_QUERY_PCA_CONCLUSION@@" in template
     assert "function aqDraw()" in template

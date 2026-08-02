@@ -355,6 +355,45 @@ def _bank_sample_metrics(
     return pd.concat(pieces, ignore_index=True)
 
 
+def _all_head_sample_metrics(
+    metrics: pd.DataFrame,
+    outcomes: dict[tuple[str, int], str],
+) -> pd.DataFrame:
+    """Aggregate the same diagnostics over every head as a selection control."""
+
+    pieces: list[pd.DataFrame] = []
+    keys = [
+        "model",
+        "design_variant",
+        "seed",
+        "split",
+        "query_occurrence",
+        "layer",
+    ]
+    for pooling, spec in POOLING_SPECS.items():
+        renamed = metrics.rename(
+            columns={
+                spec["total"]: "needle_total_mass",
+                spec["effective"]: "needle_effective_number",
+                spec["coverage"]: "needle_relative_coverage",
+                spec["current_share"]: "needle_current_share",
+            }
+        )
+        aggregated = renamed.groupby(keys, as_index=False)[
+            list(ATTENTION_METRICS)
+        ].mean()
+        aggregated["hidden_pooling"] = pooling
+        aggregated["key_pooling"] = spec["key_pooling"]
+        aggregated["outcome"] = [
+            outcomes[(str(variant), int(seed))]
+            for variant, seed in zip(
+                aggregated["design_variant"], aggregated["seed"]
+            )
+        ]
+        pieces.append(aggregated)
+    return pd.concat(pieces, ignore_index=True)
+
+
 def _hidden_counter_noise(
     model_root: Path,
     model: str,
@@ -654,6 +693,7 @@ def analyze_prompt_counter_dynamics(
     )
     bank_frames: list[pd.DataFrame] = []
     sample_frames: list[pd.DataFrame] = []
+    all_head_sample_frames: list[pd.DataFrame] = []
     noise_frames: list[pd.DataFrame] = []
     profile_frames: list[pd.DataFrame] = []
     for model in MODELS:
@@ -667,6 +707,7 @@ def analyze_prompt_counter_dynamics(
             top_n=int(top_n),
         )
         samples = _bank_sample_metrics(metrics, banks, outcomes)
+        all_head_samples = _all_head_sample_metrics(metrics, outcomes)
         noise = _hidden_counter_noise(
             model_root,
             model,
@@ -675,11 +716,13 @@ def analyze_prompt_counter_dynamics(
         profiles = _profile_maps(model_root, model, banks)
         bank_frames.append(banks)
         sample_frames.append(samples)
+        all_head_sample_frames.append(all_head_samples)
         noise_frames.append(noise)
         profile_frames.append(profiles)
         del metrics
     bank = pd.concat(bank_frames, ignore_index=True)
     samples = pd.concat(sample_frames, ignore_index=True)
+    all_head_samples = pd.concat(all_head_sample_frames, ignore_index=True)
     noise = pd.concat(noise_frames, ignore_index=True)
     profiles = pd.concat(profile_frames, ignore_index=True)
     slopes = _slope_summary(
@@ -692,6 +735,16 @@ def analyze_prompt_counter_dynamics(
         noise,
         bootstrap_replicates=int(bootstrap_replicates),
     )
+    all_head_slopes = _slope_summary(
+        all_head_samples,
+        noise,
+        bootstrap_replicates=int(bootstrap_replicates),
+    )
+    all_head_associations = _attention_noise_association(
+        all_head_samples,
+        noise,
+        bootstrap_replicates=int(bootstrap_replicates),
+    )
     paths = {
         "selected_head_bank": output / "selected_head_bank.csv",
         "attention_bank_by_sample": output / "attention_bank_by_sample.csv.gz",
@@ -700,6 +753,12 @@ def analyze_prompt_counter_dynamics(
         "occurrence_slope_summary": output / "occurrence_slope_summary.csv",
         "attention_noise_association": output
         / "attention_noise_association.csv",
+        "all_head_attention_by_sample": output
+        / "all_head_attention_by_sample.csv.gz",
+        "all_head_occurrence_slope_summary": output
+        / "all_head_occurrence_slope_summary.csv",
+        "all_head_attention_noise_association": output
+        / "all_head_attention_noise_association.csv",
         "profile_maps": output / "profile_maps.csv.gz",
         "manifest": output / "analysis_manifest.json",
     }
@@ -708,6 +767,19 @@ def analyze_prompt_counter_dynamics(
     _write_csv(noise, paths["hidden_counter_noise_by_sample"], gzip=True)
     _write_csv(slopes, paths["occurrence_slope_summary"])
     _write_csv(associations, paths["attention_noise_association"])
+    _write_csv(
+        all_head_samples,
+        paths["all_head_attention_by_sample"],
+        gzip=True,
+    )
+    _write_csv(
+        all_head_slopes,
+        paths["all_head_occurrence_slope_summary"],
+    )
+    _write_csv(
+        all_head_associations,
+        paths["all_head_attention_noise_association"],
+    )
     _write_csv(profiles, paths["profile_maps"], gzip=True)
     _write_json(
         {
@@ -725,6 +797,10 @@ def analyze_prompt_counter_dynamics(
                 "top_n_per_model_variant_layer_pooling": int(top_n),
                 "score": "mean(total_needle_mass*relative_coverage)",
             },
+            "head_scope_control": (
+                "the same sample metrics, slopes, and occurrence-adjusted "
+                "associations averaged over every head in each layer"
+            ),
             "hidden_noise": (
                 "confirmation full-space residual norm to the matching "
                 "variant/occurrence discovery centroid, divided by discovery "
@@ -740,6 +816,11 @@ def analyze_prompt_counter_dynamics(
                 "hidden_counter_noise_by_sample": int(len(noise)),
                 "occurrence_slope_summary": int(len(slopes)),
                 "attention_noise_association": int(len(associations)),
+                "all_head_attention_by_sample": int(len(all_head_samples)),
+                "all_head_occurrence_slope_summary": int(len(all_head_slopes)),
+                "all_head_attention_noise_association": int(
+                    len(all_head_associations)
+                ),
                 "profile_maps": int(len(profiles)),
             },
         },
