@@ -294,14 +294,27 @@ The counter block includes an all-layer discovery sweep. It distinguishes the
 `manifold-display` layer, selected only after a decodability gate using 3-PC
 explained variance, count-centroid signal capture, and leave-one-seed-out
 compactness. The Aurora 3D prompt counter exposes every captured post-block
-layer, PC1--PC6, split, panel, and actual greedy outcome; a separate figure
-shows answer-query counter geometry at the three layers saved by the steering
-discovery capture. That answer-query view independently switches final greedy
-`correct`/`wrong`/`invalid` points and compares all-row versus correct-only
-V4.1 PCA fits on one common evaluation set, including EVR, centroid-trajectory,
-and within-count seed-scatter diagnostics. Exact needle-end and exact answer-query
-donor-state patching remain in this block because they test whether the two
-representations are transportable.
+layer, PC1--PC6, split, panel, and actual greedy outcome. A dedicated
+`answer_query_all_layers_v1` capture now stores Qwen L0--L35 and Gemma L0--L41
+at the prompt-final `Total:` query for all four panels, 20 discovery seeds, and
+counts 1--10. Its 3D view independently switches every layer, final greedy
+`correct`/`wrong`/`invalid` points, and all-row versus correct-only V4.1 PCA
+fits on one common evaluation set. The all-layer overview reports PCA3
+grouped-seed CV R2, EVR, count-signal capture, and seed compactness. A joint
+coordinate view pairs prompt occurrence `k` in N=10 with the answer-query state
+from N=`k`, using both raw and role-centered common PCA bases. Exact needle-end
+and exact answer-query donor-state patching remain in this block because they
+test whether the two representations are transportable.
+
+The same block now contains a prompt-counter write-side attention audit. At
+each needle endpoint it captures only the current query row, then separately
+sums keys at historical needle endpoints and over complete needle spans. It
+reports absolute and relative row/needle dispersion, full-space hidden-counter
+noise, N=1-to-10 seed slopes, and occurrence-demeaned confirmation
+correlations. Discovery-frozen top-eight broad banks are always accompanied by
+an all-head layer control, preventing a broad-head selection rule from being
+mistaken for a whole-layer property. No full 10k-by-10k attention matrix is
+stored.
 
 The attention block now recomputes raw N=10 discovery profiles for both models.
 It contains a panel- and pooling-switchable all-head layer×head atlas, frozen rules for global broad,
@@ -317,7 +330,9 @@ Machine-readable outputs are written beside the HTML as
 `realistic_niah_v4_head_atlas.csv`,
 `realistic_niah_v4_head_phenotypes.csv`, and
 `realistic_niah_v4_attention_outcome_effects.csv`; the answer-query PCA audit is
-`realistic_niah_v4_answer_query_pca_sensitivity.csv`.
+`realistic_niah_v4_answer_query_pca_sensitivity.csv`, the joint audit is
+`realistic_niah_v4_joint_counter_layer_metrics.csv`, and the prompt write-side
+summary is `realistic_niah_v4_prompt_counter_dynamics_selected_layers.csv`.
 
 The two causal blocks report seed-cluster intervals for matched head-bank
 ablation and centroid-delta steering. The report explicitly distinguishes

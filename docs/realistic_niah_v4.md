@@ -122,11 +122,13 @@ used to refit the PCA basis or choose the primary layer.
 
 ### Answer-query PCA sensitivity
 
-The answer-query view uses the discovery states already saved for geometric
-steering: Qwen layers 9, 18, and 26, and Gemma layers 10, 20, and 31. These are
-the only answer-query layers present in that capture; the report does not
-interpolate unsaved layers. At each saved layer it fits two six-component PCA
-bases on V4.1 discovery prompts:
+The completed `answer_query_all_layers_v1` capture saves the full residual at
+the prompt-final `Total:` query before the first answer token is generated.
+It stores every zero-based post-block layer: Qwen L0--L35 and Gemma L0--L41.
+For each model the grid is four V4 panels times 20 discovery seeds times ten
+gold counts, or 800 restartable float16 NPZ shards. It does not interpolate
+layers and does not retain full-sequence hidden states. At each saved layer the
+report fits two six-component PCA bases on V4.1 discovery prompts:
 
 - `all`: all 200 rows (20 seeds times 10 counts);
 - `correct_only`: only rows whose complete greedy continuation is strictly
@@ -153,6 +155,36 @@ candidate basis with those under the all-row basis. Per-count correct-only
 support is always shown because a missing high-count class makes that fit a
 sensitivity check rather than a replacement primary analysis.
 
+The all-layer overview reports four discovery-only quantities per layer:
+
+1. seed-grouped CV R2 for a Ridge count probe using PC1--PC3;
+2. cumulative PC1--PC3 explained-variance ratio;
+3. the fraction of full-space count-centroid signal retained by PC1--PC3;
+4. seed compactness `C = 1 / (1 + leave-one-seed-out noise / count signal)`.
+
+The `probe-optimal` answer layer maximizes the first quantity. The
+`manifold-display` layer first must lie within 0.02 of that optimum and then
+maximizes `M3 = EVR3 * count-signal capture * C`. These are descriptive,
+discovery-only layer-selection rules, not causal tests.
+
+### Joint prompt/answer coordinates
+
+Prompt-reading and answer-query trajectories are never overlaid after fitting
+separate PCA bases. For the same model, V4 panel, discovery seed, layer, and
+count `k`, the paired states are:
+
+- the state after occurrence `k` in that seed's N=10 prompt; and
+- the prompt-final `Total:` query state in that seed's N=`k` prompt.
+
+A joint PCA is fit to the concatenated V4.1 state vectors. The raw view retains
+the fixed token-role offset. The role-centered sensitivity view first removes
+the separate V4.1 grand mean for prompt and answer states, then fits one common
+basis. Linear CKA, the correlation of the 45 pairwise centroid distances, and
+successive-step cosine are also computed in full residual space so the
+comparison does not depend on PCA axis signs or rotations. Similar geometry is
+compatible with a shared count organization but does not establish literal
+state transport; that claim requires the donor-patching experiment.
+
 ### Interpretation boundary
 
 In v4.1, occurrence index, content identity, and absolute position are
@@ -160,6 +192,66 @@ one-to-one. A clean curve there establishes only a stable aligned trajectory.
 Position invariance requires v4.2; deconfounding fixed content from index
 requires v4.3; evidence for content-general counting requires v4.4. A probe
 establishes decodability, not causal use.
+
+## Prompt-counter write-side attention
+
+This analysis asks whether the attention row available when the model has just
+read the `n`th realistic record becomes more diffuse as `n` grows, and whether
+that dispersion covaries with hidden-counter noise. The query site is always
+the final token of the current needle. Two separate key reductions are kept:
+
+```text
+endpoint mass m_j = attention to the final key token of historical needle j
+span mass     m_j = sum of attention over every key token in needle span j
+```
+
+Thus `span mass` is literal probability mass in the complete record, not its
+per-token mean and not another query position. A span-mean hidden state averages
+multiple token states and has no unique native attention row. Its sensitivity
+analysis therefore pairs span-mean hidden noise with the same endpoint-query
+row pooled over full needle spans; the report labels this explicitly as a
+key-pooling sensitivity.
+
+For one head and occurrence `n`, let `a` be the normalized attention row over
+all `K` visible prompt keys and let `p_j = m_j / sum_{r<=n} m_r`. The saved
+dispersion statistics are:
+
+```text
+row effective tokens   = exp(-sum_t a_t log a_t)
+row effective fraction = row effective tokens / K
+needle effective count = exp(-sum_{j<=n} p_j log p_j)
+relative coverage      = needle effective count / n
+```
+
+Absolute effective counts can grow mechanically as more tokens or needles
+become visible. `row effective fraction` and `relative coverage` remove those
+two denominators and are the primary relative-dispersion checks. Discovery
+seeds freeze the top eight heads per model, panel, layer, and key pooling using
+mean `(total needle mass * relative coverage)` over occurrences 2--10. The
+confirmation analysis also repeats every statistic after averaging all heads
+in the layer, so a trend induced only by selecting broad heads is visible.
+
+Hidden-counter noise is calculated in full residual space, separately for
+span-end and span-mean states:
+
+```text
+noise(s,n) = ||h(s,n) - discovery_centroid(n)||_2
+             / RMS_n(discovery_centroid(n) - grand_centroid)
+```
+
+Within every confirmation seed, each quantity is regressed on
+`x=(n-1)/9`; the reported slope is therefore the estimated complete change
+from N=1 to N=10, not the per-needle increment. To avoid a spurious correlation
+caused by both variables sharing an N trend, attention and hidden noise are
+separately demeaned within each occurrence before Pearson correlation. The ten
+confirmation seeds are the inference clusters for bootstrap intervals. This
+is an observational association and cannot by itself show that attention
+dispersion causes representation noise.
+
+Storage is bounded by evaluating the prefix once with KV cache and requesting
+one eager query row at each needle endpoint. Compact per-head metrics and a
+10-by-10 occurrence profile are saved; no full 10k-by-10k attention matrix or
+full Q/K/V tensor is materialized.
 
 ## Answer-query attention
 
