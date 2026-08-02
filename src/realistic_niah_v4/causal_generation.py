@@ -1343,10 +1343,10 @@ def run_generation_residual_patching_v2(
         raise ValueError("Causal-v2 residual patch layers are invalid")
     directed_pairs = tuple((int(left), int(right)) for left, right in count_pairs)
     if not directed_pairs or any(
-        left == right or abs(right - left) not in {1, 2, 3, 4, 5}
+        left == right or abs(right - left) not in {1, 3, 5}
         for left, right in directed_pairs
     ):
-        raise ValueError("Causal-v2 pairs must be distinct with k in 1..5")
+        raise ValueError("Causal-v2 pairs must be distinct with k in {1, 3, 5}")
     by_key = _encoding_map(encodings)
     by_variant_count: dict[tuple[str, int], list[PromptEncoding]] = {}
     for encoding in encodings:

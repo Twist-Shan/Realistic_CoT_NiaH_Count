@@ -253,15 +253,17 @@ that completed screen. It adds an audited N=0 member to the nested V4.4
 families and registers: answer-query-only broad/first-locator top-1 through
 top-32 ablation; prompt endpoint and exact full-span residual patching; all-layer
 single and cumulative answer-query patching; and all-layer full-dimensional
-centroid steering for ±k with `k=1,...,5`. Selection uses five screen seeds;
+centroid steering for ±k with `k∈{1,3,5}`. Selection uses five screen seeds;
 every stable exact layer/k condition receives five additional held-out seeds.
 The implementation and request accounting are documented in
 [`docs/realistic_niah_v4_causal_v2.md`](docs/realistic_niah_v4_causal_v2.md).
 The formal tables retain every registered control row, while exact self-patch
 identity controls and duplicate answer-query same-count interventions reuse a
 verified completion; all donor transports remain independently generated. This
-reduces the one-A100 pre-confirmation budget from roughly 80 to 48--55 hours
-without thinning seeds, anchors, k values, layers, sites, or protocols.
+reduces the one-A100 pre-confirmation budget from roughly 80 to 32--38 hours.
+The retained small/medium/large distances keep three anchors, both directions,
+all five screen seeds, every layer, site, and protocol; answer-query head
+ablation independently remains a top-1 through top-32 sweep.
 This paragraph records protocol availability only—causal-v2 has no reported
 effect estimates until its formal run and audit complete.
 

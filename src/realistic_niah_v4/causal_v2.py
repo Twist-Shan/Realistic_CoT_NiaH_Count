@@ -16,20 +16,14 @@ from .attention import Head
 CAUSAL_V2_SCHEMA_VERSION = "realistic_niah_v4_causal_v2_design_v1"
 CAUSAL_V2_VARIANT = "v4.4"
 CAUSAL_V2_VALID_COUNTS = tuple(range(0, 11))
-CAUSAL_V2_K_VALUES = (1, 2, 3, 4, 5)
+CAUSAL_V2_K_VALUES = (1, 3, 5)
 CAUSAL_V2_CANONICAL_PAIRS = (
     (0, 1),
     (4, 5),
     (9, 10),
-    (0, 2),
-    (4, 6),
-    (8, 10),
     (0, 3),
     (3, 6),
     (7, 10),
-    (0, 4),
-    (3, 7),
-    (6, 10),
     (0, 5),
     (2, 7),
     (5, 10),
@@ -130,11 +124,11 @@ class CausalV2Design:
             raise ValueError("Causal-v2 is intentionally restricted to v4.4")
         if self.valid_counts != tuple(range(0, 11)):
             raise ValueError("Causal-v2 valid counts must be exactly 0 through 10")
-        if self.k_values != (1, 2, 3, 4, 5):
-            raise ValueError("Causal-v2 k values must be exactly 1 through 5")
+        if self.k_values != (1, 3, 5):
+            raise ValueError("Causal-v2 k values must be exactly 1, 3, and 5")
         if len(set(self.canonical_pairs)) != len(self.canonical_pairs):
             raise ValueError("Causal-v2 canonical pairs must be unique")
-        if len(self.canonical_pairs) != 15:
+        if len(self.canonical_pairs) != 9:
             raise ValueError("Causal-v2 requires three anchor pairs for every k")
         for k in self.k_values:
             pairs = self.pairs_for_k(k, directed=False)

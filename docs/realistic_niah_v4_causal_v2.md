@@ -12,7 +12,7 @@ V4.1–V4.4 analysis found that the prompt-side needle-end representation remain
 stable after varying position, city-score order, and city-score identity. It
 then asks three different questions:
 
-1. **Head-bank ablation (necessity contrast):** does removing the top-k
+1. **Head-bank ablation (necessity contrast):** does removing the top-n
    discovery-ranked broad-aggregation or first-needle-locator heads at the
    answer query hurt behavior more than removing a random bank with the same
    per-layer allocation?
@@ -56,14 +56,14 @@ The three registered unordered anchor pairs for each k are:
 | k | low anchor | middle anchor | high anchor |
 |---:|---:|---:|---:|
 | 1 | 0↔1 | 4↔5 | 9↔10 |
-| 2 | 0↔2 | 4↔6 | 8↔10 |
 | 3 | 0↔3 | 3↔6 | 7↔10 |
-| 4 | 0↔4 | 3↔7 | 6↔10 |
 | 5 | 0↔5 | 2↔7 | 5↔10 |
 
-Every pair is run in both directions, giving 30 directed pairs. This prevents
-an apparent effect from being driven only by low counts, high counts, or one
-direction.
+The registered distances are therefore `k∈{1,3,5}`: small, medium, and large
+semantic changes. Every pair is run in both directions, giving 18 directed
+pairs. This prevents an apparent effect from being driven only by low counts,
+high counts, or one direction while reducing the dense sweep without reducing
+the five screen seeds used for any retained condition.
 
 ## Outcome and normalization
 
@@ -127,7 +127,9 @@ uses held-out screen or confirmation outcomes.
 ### Intervention and random control
 
 Only the final `Total:` answer-query token is intervened on. There is no global
-ablation. For each phenotype, k is swept through every integer from 1 to 32.
+ablation. For each phenotype, head-bank size n is swept through every integer
+from 1 to 32. This top-n index is separate from semantic count distance
+`k∈{1,3,5}` used by patching and steering.
 The selected pre-`o_proj` head-output slices are zeroed only for that query.
 
 Each ranked bank is compared with three deterministic random banks. A random
@@ -164,7 +166,7 @@ the evaluated model tokenizer. A mismatch is recorded with its slot and the
 formal stage fails rather than dropping that condition or inventing an
 unregistered interpolation. This preflight matters because V4 length matching
 was frozen under the canonical tokenizer. The launcher performs this
-tokenizer-only check for all ten screen/confirmation seeds and all 30 directed
+tokenizer-only check for all ten screen/confirmation seeds and all 18 directed
 pairs for each model before baseline extension or intervention generation.
 
 Both sites have:
@@ -238,14 +240,14 @@ Let D be the decoder-block count (36 for Qwen, 42 for Gemma).
 
 | Stage | Rows per model before confirmation |
 |---|---:|
-| Answer-query ablation | `5 seeds × 4 counts × 2 banks × 32 k × 4 conditions = 5,120` |
-| Prompt patch screen | `5 × 30 pairs × D × 2 sites × 2 protocols × 2 conditions = 1,200D` |
-| Answer patch screen | `5 × 30 × D × 1 site × 2 protocols × 3 conditions = 900D` |
-| Steering screen | `5 × 30 × D × 2 conditions = 300D` |
+| Answer-query ablation | `5 seeds × 4 counts × 2 banks × 32 top-n sizes × 4 conditions = 5,120` |
+| Prompt patch screen | `5 × 18 pairs × D × 2 sites × 2 protocols × 2 conditions = 720D` |
+| Answer patch screen | `5 × 18 × D × 1 site × 2 protocols × 3 conditions = 540D` |
+| Steering screen | `5 × 18 × D × 2 conditions = 180D` |
 | Centroid captures | `20 seeds × 11 counts = 220` NPZ shards |
 
-The pre-confirmation intervention totals are therefore 91,520 Qwen rows and
-105,920 Gemma rows. Confirmation cost depends on how many exact layer/k
+The pre-confirmation intervention totals are therefore 56,960 Qwen rows and
+65,600 Gemma rows. Confirmation cost depends on how many exact layer/k
 conditions pass the frozen screen. This is substantially larger than the old
 8-hour causal screen; the launcher is restartable at one seed/pair or
 seed/count shard and never overwrites completed hash-matched shards.
@@ -271,15 +273,17 @@ mathematically identical controls:
   seed, direction, anchor, k, layer, site, and protocol still receives its own
   real intervention generation.
 
-Consequently, prompt patching executes `600D` donor generations per model
-rather than `1,200D` GPU generations. Answer patching executes `300D` donor
-generations plus at most `110D` unique same-count controls, rather than `900D`.
-The logical detail tables retain their original `1,200D` and `900D` sizes and
+Consequently, prompt patching executes `360D` donor generations per model
+rather than `720D` GPU generations, plus 12 identity-preflight generations.
+Answer patching executes `180D` donor generations plus at most `100D` unique
+same-count controls, plus 6 identity-preflight generations, rather than `540D`.
+The logical detail tables retain their original `720D` and `540D` sizes and
 record `generation_executed` plus `generation_reuse_mode` for every row. On the
 same A100-SXM4-80GB used by the earlier V4 runs, the measured-throughput
-estimate falls from about 79 raw GPU-hours to about 44 raw GPU-hours before
-confirmation; model loading, captures, I/O, and auditing give a practical
-budget of approximately 48--55 hours on one GPU.
+estimate is about 29--31 raw GPU-hours before confirmation; model loading,
+captures, I/O, and auditing give a practical budget of approximately 32--38
+hours on one GPU. Confirmation adds work only for exact retained conditions
+that pass the frozen stability rule.
 
 ## Run, analyze, and audit
 

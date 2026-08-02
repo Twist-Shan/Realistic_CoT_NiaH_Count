@@ -74,21 +74,24 @@ def _encoding(
 def test_causal_v2_design_covers_three_anchors_for_every_k() -> None:
     design = CausalV2Design()
     design.validate()
-    assert len(design.canonical_pairs) == 15
-    assert len(design.directed_pairs) == 30
-    assert design.required_counts == tuple(range(11))
-    for k in range(1, 6):
+    assert len(design.canonical_pairs) == 9
+    assert len(design.directed_pairs) == 18
+    assert design.required_counts == (0, 1, 2, 3, 4, 5, 6, 7, 9, 10)
+    for k in (1, 3, 5):
         pairs = design.pairs_for_k(k, directed=False)
         assert len(pairs) == 3
         assert {right - left for left, right in pairs} == {k}
         assert pairs[0][0] == 0
         assert pairs[-1][1] == 10
+    with pytest.raises(KeyError, match="No registered causal-v2 pairs for k=2"):
+        design.pairs_for_k(2)
 
 
 def test_causal_v2_json_registry_matches_typed_defaults() -> None:
     configured = CausalV2Design.from_json("configs/realistic_niah_v4_causal_v2.json")
     assert configured == CausalV2Design()
     assert configured.ablation_scope == "answer_query"
+    assert configured.ablation_top_ns == tuple(range(1, 33))
     assert configured.prompt_full_span_alignment == "exact_model_token_length_required"
     assert configured.answer_multi_layer_protocol == "cumulative_clamp_L_to_final"
 
@@ -333,10 +336,16 @@ def test_answer_patching_reuses_identity_and_equivalent_same_count_generations(
 ) -> None:
     import realistic_niah_v4.causal_generation as causal_generation
 
+    integration_spans = ((1, 2), (2, 3), (3, 4))
     encodings = tuple(
-        _encoding(stimulus_id=f"seed{seed}-N{count}", count=count, seed=seed)
+        _encoding(
+            stimulus_id=f"seed{seed}-N{count}",
+            count=count,
+            seed=seed,
+            spans=integration_spans,
+        )
         for seed in (1254, 1255)
-        for count in (0, 1, 2)
+        for count in (0, 1, 3)
     )
 
     def label(encoding: PromptEncoding) -> dict[str, object]:
@@ -385,7 +394,7 @@ def test_answer_patching_reuses_identity_and_equivalent_same_count_generations(
         Adapter(),
         encodings,
         baseline_labels=labels,
-        count_pairs=((0, 1), (0, 2)),
+        count_pairs=((0, 1), (0, 3)),
         start_layers=(0, 1),
         sites=("answer_query",),
         protocols=("single_layer",),
@@ -405,7 +414,7 @@ def test_answer_patching_reuses_identity_and_equivalent_same_count_generations(
 
 def _screen_rows() -> pd.DataFrame:
     rows = []
-    anchors = ((0, 2), (4, 6), (8, 10))
+    anchors = ((0, 3), (3, 6), (7, 10))
     for layer, treatment_effect in ((3, 0.5), (4, 0.05)):
         for seed in range(1254, 1259):
             for low, high in anchors:
@@ -420,7 +429,7 @@ def _screen_rows() -> pd.DataFrame:
                                 "site": "answer_query",
                                 "patch_protocol": "single_layer",
                                 "start_layer": layer,
-                                "k": 2,
+                                "k": 3,
                                 "seed": seed,
                                 "receiver_count": receiver,
                                 "donor_count": donor,
@@ -482,7 +491,7 @@ def test_selected_confirmation_excludes_failed_screen_conditions() -> None:
                 "site": "answer_query",
                 "patch_protocol": "single_layer",
                 "start_layer": 3,
-                "k": 2,
+                "k": 3,
             }
         ],
         "selected_condition_count": 1,

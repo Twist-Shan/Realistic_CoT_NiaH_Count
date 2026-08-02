@@ -920,7 +920,10 @@ def _audit_patching(
                 )
             )
             == set(design.directed_pairs),
-            "screen must cover all 30 registered directions",
+            (
+                f"screen must cover all {len(design.directed_pairs)} registered "
+                f"directions for k={design.k_values}"
+            ),
         )
         expected_rows = (
             len(design.screen_seeds)
