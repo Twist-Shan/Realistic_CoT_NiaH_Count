@@ -85,6 +85,20 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     assert "realistic_niah_v4_steering_v2_panels.csv" in template
     assert 'id="layer-select"' in template
     assert "Discovery / confirmation" in template
+    assert 'id="definitions"' not in template
+    assert template.index("Discovery / confirmation") < template.index('<section id="behavior">')
+    assert template.index("Ridge count probe 与 held-out 拟合度") > template.index(
+        '<section id="counter-representation">'
+    )
+    assert template.index("Atlas 色值：总 needle mass × entropy breadth") > template.index(
+        '<section id="attention-representation">'
+    )
+    assert template.index("Ablation 的 paired necessity estimand") > template.index(
+        '<section id="head-ablation">'
+    )
+    assert template.index("三种 full-dimensional residual intervention") > template.index(
+        '<section id="geometry-steering">'
+    )
     assert "Centroid transplant" in template
     assert "Donor-state replacement" in template
     assert "N<sub>eff,H</sub>" in template
@@ -94,6 +108,10 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     assert "controls.layer.value=String(defaultLayer??layers[0])" in template
     assert "previous!==null" not in template
     assert "background:linear-gradient" not in template
+    assert "--paper:#F3EEE4" in template
+    assert "--surface:#FFFDF8" in template
+    assert 'class="equation-row"' in template
+    assert 'class="command-block"' in template
     assert template.count('class="figure-intro"') >= 12
     assert "function makeTablesCollapsible()" in template
     assert "展开数据表" in template

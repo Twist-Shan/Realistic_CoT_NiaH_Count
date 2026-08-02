@@ -4788,22 +4788,23 @@ REPORT_TEMPLATE = r"""<!doctype html>
 :root {
   --midnight:#23165C; --violet:#6750E8; --cyan:#00C2FF; --yellow:#F6E36A;
   --teal:#00D4B4; --green:#39E58C; --magenta:#C04DFF; --pink:#FF5FA2;
-  --ink:#171717; --paper:#FFFFFF; --muted:#5F6368; --frost:#8190A5;
-  --brown:#765347; --line:rgba(129,144,165,.34); --surface:#FFFFFF;
+  --ink:#171717; --paper:#F3EEE4; --muted:#5F6368; --frost:#8190A5;
+  --brown:#765347; --line:rgba(118,83,71,.24); --surface:#FFFDF8;
+  --surface-soft:#EEE6DA; --surface-strong:#FBF7EF;
   --soft-violet:rgba(103,80,232,.08); --soft-cyan:rgba(0,194,255,.09);
   --soft-yellow:rgba(246,227,106,.18); --soft-green:rgba(57,229,140,.10);
 }
 * { box-sizing:border-box; }
 html { scroll-behavior:smooth; }
 body { margin:0; color:var(--ink); background:var(--paper); font:15px/1.68 "Aptos","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif; }
-header { padding:48px max(24px,calc((100vw - 1240px)/2)) 38px; color:var(--ink); background:#FFFFFF; border-bottom:1px solid #DADCE0; }
+header { padding:48px max(24px,calc((100vw - 1240px)/2)) 38px; color:var(--ink); background:var(--surface-strong); border-bottom:1px solid var(--line); }
 header::after { display:none; }
 header .eyebrow { color:var(--muted); text-transform:uppercase; letter-spacing:.12em; font-size:11px; font-weight:700; }
 h1 { max-width:930px; margin:11px 0 15px; font:720 clamp(32px,4.5vw,54px)/1.08 Georgia,"Times New Roman",serif; letter-spacing:-.02em; }
 header p { max-width:920px; margin:0; color:#444746; font-size:16px; }
 .meta { display:flex; flex-wrap:wrap; gap:9px; margin-top:26px; }
-.pill { border:1px solid #DADCE0; padding:6px 10px; color:#3C4043; font:12px/1.3 "Cascadia Mono","SFMono-Regular",Consolas,monospace; background:#F8F9FA; }
-nav { position:sticky; top:0; z-index:20; display:flex; gap:21px; overflow:auto; padding:11px max(24px,calc((100vw - 1240px)/2)); background:#FFFFFF; border-bottom:1px solid #DADCE0; }
+.pill { border:1px solid var(--line); padding:6px 10px; color:#3C4043; font:12px/1.3 "Cascadia Mono","SFMono-Regular",Consolas,monospace; background:var(--surface-soft); }
+nav { position:sticky; top:0; z-index:20; display:flex; gap:21px; overflow:auto; padding:11px max(24px,calc((100vw - 1240px)/2)); background:rgba(251,247,239,.96); border-bottom:1px solid var(--line); backdrop-filter:blur(8px); }
 nav a { color:#3C4043; text-decoration:none; white-space:nowrap; font-weight:650; font-size:13px; }
 nav a:hover { color:#000000; text-decoration:underline; }
 main { max-width:1240px; margin:auto; padding:38px 24px 88px; }
@@ -4811,14 +4812,14 @@ section { margin:0 0 64px; padding-top:4px; scroll-margin-top:62px; }
 .report-preamble,.report-appendix { margin:0 0 56px; padding-top:4px; scroll-margin-top:62px; }
 .report-preamble { padding-bottom:34px; border-bottom:1px solid var(--line); }
 .report-appendix { padding:30px 0 8px; border-top:1px solid var(--line); }
-main>section { padding-top:34px; border-top:1px solid #DADCE0; }
+main>section { padding-top:34px; border-top:1px solid var(--line); }
 .section-kicker { display:block; margin-bottom:8px; color:var(--muted); font:700 11px/1.2 "Cascadia Mono",Consolas,monospace; letter-spacing:.11em; text-transform:uppercase; }
 h2 { max-width:980px; margin:0 0 11px; font:700 clamp(26px,3vw,36px)/1.16 Georgia,"Times New Roman",serif; letter-spacing:-.015em; }
 h3 { margin:28px 0 9px; font-size:18px; line-height:1.3; }
 h4 { margin:22px 0 7px; font-size:14px; color:var(--ink); }
 p { max-width:980px; }
 .lede { max-width:980px; color:#39445A; font-size:16px; }
-.callout { margin:20px 0; padding:16px 18px; border-left:3px solid #80868B; background:#F8F9FA; }
+.callout { margin:20px 0; padding:16px 18px; border-left:3px solid var(--brown); background:var(--surface-soft); }
 .callout strong { color:var(--ink); }
 .grid4 { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; margin:24px 0; border:1px solid var(--line); background:var(--line); }
 .step { min-height:164px; padding:18px; background:var(--surface); border-top:2px solid #80868B; }
@@ -4832,11 +4833,11 @@ p { max-width:980px; }
 table { width:100%; border-collapse:collapse; font-size:12.5px; font-variant-numeric:tabular-nums; }
 caption { padding:10px 12px; text-align:left; color:var(--muted); }
 th,td { padding:9px 10px; text-align:right; border-bottom:1px solid rgba(129,144,165,.19); white-space:nowrap; }
-th { position:sticky; top:0; background:#F1F3F4; color:#3C4043; font:720 10.5px/1.3 "Cascadia Mono",Consolas,monospace; letter-spacing:.035em; text-transform:uppercase; }
+th { position:sticky; top:0; background:var(--surface-soft); color:#3C4043; font:720 10.5px/1.3 "Cascadia Mono",Consolas,monospace; letter-spacing:.035em; text-transform:uppercase; }
 th:first-child,td:first-child,th:nth-child(2),td:nth-child(2) { text-align:left; }
 tbody tr:hover { background:var(--soft-cyan); }
 tr:last-child td { border-bottom:0; }
-code { color:#202124; background:#F1F3F4; padding:2px 5px; border:1px solid #DADCE0; font-family:"Cascadia Mono",Consolas,monospace; }
+code { color:#202124; background:var(--surface-soft); padding:2px 5px; border:1px solid var(--line); font-family:"Cascadia Mono",Consolas,monospace; }
 details { margin:14px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
 summary { cursor:pointer; padding:11px 2px; color:var(--ink); font-weight:720; }
 summary:hover { color:#000000; text-decoration:underline; }
@@ -4857,20 +4858,32 @@ button:hover { background:rgba(103,80,232,.42); } button:active { transform:tran
 .figures { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
 .figure-card { padding:13px; background:var(--surface); border:1px solid var(--line); }
 .figure-kicker { margin:2px 4px 10px; color:#3C4043; font:720 12px/1.3 "Cascadia Mono",Consolas,monospace; }
-.projection-svg,.stat-svg { display:block; width:100%; height:auto; background:#FFFFFF; }
+.projection-svg,.stat-svg { display:block; width:100%; height:auto; background:var(--surface); }
 .figure-caption,.stat-figure figcaption { margin:10px 5px 3px; color:var(--muted); font-size:12px; line-height:1.55; }
 .figure-caption strong,.stat-figure figcaption strong { color:var(--ink); }
 .stat-grid { display:grid; grid-template-columns:1fr; gap:16px; margin:19px 0; }
-.stat-figure { margin:0; padding:14px; background:var(--surface); border:1px solid #DADCE0; }
-.figure-intro { max-width:980px; margin:18px 0 10px; padding:13px 15px; background:#F8F9FA; border:1px solid #E0E0E0; color:#3C4043; font-size:13px; }
+.stat-figure { margin:0; padding:14px; background:var(--surface); border:1px solid var(--line); }
+.figure-intro { max-width:980px; margin:18px 0 10px; padding:13px 15px; background:var(--surface-strong); border:1px solid var(--line); color:#3C4043; font-size:13px; }
 .figure-intro p { margin:4px 0; }
 .figure-intro strong { color:#202124; }
 .atlas-controls { display:flex; gap:8px; margin:0 0 12px; }
-.atlas-controls button { width:auto; min-width:74px; padding:7px 13px; color:#3C4043; background:#FFFFFF; border:1px solid #BDC1C6; }
+.atlas-controls button { width:auto; min-width:74px; padding:7px 13px; color:#3C4043; background:var(--surface); border:1px solid var(--line); }
 .atlas-controls button[aria-pressed="true"] { color:#FFFFFF; background:#3C4043; border-color:#3C4043; }
 .atlas-panel[hidden] { display:none; }
 .atlas-panel .stat-svg { max-height:900px; }
-.formula { margin:16px 0; padding:15px 17px; background:#F8F9FA; border-left:3px solid #80868B; font:15px/1.65 "Cascadia Mono",Consolas,monospace; overflow:auto; }
+.concept-box { max-width:980px; margin:18px 0; padding:15px 17px; background:var(--surface); border:1px solid var(--line); border-left:4px solid var(--brown); }
+.concept-box p { margin:6px 0 0; color:#4E463E; }
+.concept-label { display:block; margin-bottom:4px; color:var(--brown); font:760 11px/1.3 "Cascadia Mono",Consolas,monospace; letter-spacing:.08em; text-transform:uppercase; }
+.formula { max-width:980px; margin:18px 0; padding:16px 18px; background:var(--surface-strong); border:1px solid var(--line); border-left:4px solid var(--brown); overflow-x:auto; }
+.formula-title { margin-bottom:8px; color:var(--brown); font:760 11px/1.3 "Cascadia Mono",Consolas,monospace; letter-spacing:.08em; text-transform:uppercase; }
+.equation-grid { display:grid; gap:0; }
+.equation-row { display:grid; grid-template-columns:minmax(250px,.88fr) minmax(320px,1.4fr); gap:22px; align-items:start; padding:11px 0; border-top:1px solid var(--line); }
+.equation-row:first-child { border-top:0; }
+.equation-expression { color:var(--midnight); font:600 18px/1.55 "Cambria Math","STIX Two Math","Times New Roman",serif; white-space:nowrap; }
+.equation-explain { color:#4E463E; font-size:13px; line-height:1.58; }
+.equation-expression sub,.equation-expression sup { font-size:.72em; }
+.formula-note { margin:10px 0 0; padding-top:10px; border-top:1px solid var(--line); color:var(--muted); font-size:12.5px; }
+.command-block { max-width:980px; margin:16px 0; padding:14px 16px; color:#2F2A24; background:var(--surface-soft); border:1px solid var(--line); font:13px/1.6 "Cascadia Mono",Consolas,monospace; overflow:auto; white-space:nowrap; }
 .method-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; margin:17px 0; border:1px solid var(--line); background:var(--line); }
 .method-strip div { padding:13px; background:var(--surface); font-size:12px; }
 .method-strip strong { display:block; margin-bottom:4px; color:var(--ink); font-size:13px; }
@@ -4881,7 +4894,7 @@ button:hover { background:rgba(103,80,232,.42); } button:active { transform:tran
 .notes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
 .note { padding:17px; background:var(--surface); border-top:2px solid #80868B; }
 .note strong { color:var(--ink); }
-.section-conclusion { margin:24px 0 0; padding:17px 19px 18px; color:var(--ink); background:#F1F3F4; border-left:4px solid #5F6368; }
+.section-conclusion { margin:24px 0 0; padding:17px 19px 18px; color:var(--ink); background:var(--surface-soft); border-left:4px solid var(--brown); }
 .section-conclusion span { display:block; margin-bottom:5px; color:#3C4043; font:760 11px/1.2 "Cascadia Mono",Consolas,monospace; letter-spacing:.11em; text-transform:uppercase; }
 .section-conclusion p { margin:0; color:#202124; }
 .mechanism-flow { display:grid; grid-template-columns:1fr 36px 1fr 36px 1fr 36px 1fr; align-items:stretch; margin:25px 0; }
@@ -4892,12 +4905,13 @@ button:hover { background:rgba(103,80,232,.42); } button:active { transform:tran
 .evidence-ledger { display:grid; grid-template-columns:1.2fr 1fr; gap:1px; margin:20px 0; border:1px solid var(--line); background:var(--line); }
 .ledger-row { display:contents; }
 .ledger-row>div { padding:13px 15px; background:var(--surface); }
-.evidence-tag { display:inline-block; margin-right:8px; padding:2px 7px; color:#3C4043; background:#F1F3F4; border:1px solid #DADCE0; font:700 10px/1.5 "Cascadia Mono",Consolas,monospace; text-transform:uppercase; }
+.evidence-tag { display:inline-block; margin-right:8px; padding:2px 7px; color:#3C4043; background:var(--surface-soft); border:1px solid var(--line); font:700 10px/1.5 "Cascadia Mono",Consolas,monospace; text-transform:uppercase; }
 .next-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
 .next-item { padding:18px 0; border-top:1px solid #80868B; }
 .next-item strong { display:block; color:var(--ink); }
 footer { padding:25px; color:var(--muted); text-align:center; border-top:1px solid var(--line); font-size:12px; }
 @media (max-width:960px) { .grid4,.notes,.method-strip,.metric-defs,.next-grid { grid-template-columns:repeat(2,1fr); } .controls { grid-template-columns:repeat(3,1fr); } .figures { grid-template-columns:1fr; } .mechanism-flow { grid-template-columns:1fr; gap:0; } .flow-arrow { transform:rotate(90deg); min-height:34px; } }
+@media (max-width:720px) { .equation-row { grid-template-columns:1fr; gap:5px; } .equation-expression { white-space:normal; } }
 @media (max-width:600px) { main { padding-inline:16px; } header { padding-inline:18px; } .grid4,.notes,.method-strip,.metric-defs,.next-grid,.viz-foot,.evidence-ledger { grid-template-columns:1fr; } .ledger-row { display:block; } .controls { grid-template-columns:repeat(2,1fr); } #counter3d { height:500px; } .canvas-wrap { min-height:500px; } .stat-figure,.figure-card { overflow-x:auto; } .stat-svg,.projection-svg { min-width:720px; } }
 @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } button { transition:none; } }
 </style>
@@ -4911,7 +4925,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
     <span class="pill">Qwen3-8B + Gemma4-E4B</span><span class="pill">10,000 canonical passage tokens</span><span class="pill">numeric counts 1–10</span><span class="pill">30 paired seeds / panel</span><span class="pill">commit @@COMMIT@@</span>
   </div>
 </header>
-<nav><a href="#behavior">1 · Behavior</a><a href="#counter-representation">2 · Counter representation</a><a href="#attention-representation">3 · Attention representation</a><a href="#head-ablation">4 · Head ablation</a><a href="#geometry-steering">5 · Geometry steering</a><a href="#appendix">定义与复现</a></nav>
+<nav><a href="#behavior">1 · Behavior</a><a href="#counter-representation">2 · Counter representation</a><a href="#attention-representation">3 · Attention representation</a><a href="#head-ablation">4 · Head ablation</a><a href="#geometry-steering">5 · Geometry steering</a><a href="#appendix">综合与复现</a></nav>
 <main>
 <div class="report-preamble" id="overview">
   <span class="section-kicker">Executive synthesis · 不计入五个证据块</span>
@@ -4936,6 +4950,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <span class="section-kicker">Experimental design · 全部五块共享</span>
   <h2>实验设定：用四级 controlled relaxation 定位 seed sensitivity 的来源</h2>
   <p class="lede">两个模型都以 non-thinking mode 直接回答数字。每个 panel 包含 30 个 paired seeds × 10 个 gold counts；seed 1234–1253 仅用于 discovery、模型/层/head/方向选择，seed 1254–1263 仅用于 confirmation。所有 correctness、wrong/undercount 与 causal effect 标签都来自 <code>Total:</code> 后完整 deterministic greedy continuation；数字 10 按完整多-token sequence 解析，不使用 first-token probability。</p>
+  <div class="concept-box"><span class="concept-label">此处定义 · Discovery / confirmation</span><p><strong>Discovery</strong> 是 seeds 1234–1253，只用于选择 layer/head、拟合 PCA basis、Ridge probe、count centroids 与 steering plan；<strong>confirmation</strong> 是完全不相交的 seeds 1254–1263，只用于最终 held-out 估计。任何用 confirmation 观察到的结果都不会回头改变 discovery 阶段的选择。</p></div>
   <div class="grid4">
     <div class="step"><strong>V4.1</strong><small>all fixed</small><p>Needle position、city-score 顺序与具体内容跨 seed 固定，只改变 count 和 haystack。</p></div>
     <div class="step"><strong>V4.2</strong><small>release position</small><p>释放 needle position；city-score 顺序与内容仍固定。</p></div>
@@ -4960,33 +4975,6 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <div class="section-conclusion"><span>本节结论</span><p>V4.1→V4.4 是逐项释放 nuisance factors 的 paired ladder，而不是四个无关数据集。后续所有 discovery selection 与 confirmation inference 严格分离；实验数据、raw attention、hidden states 和 causal detail rows 均完整，因此报告中的差异可以解释为控制项释放与干预效应，而不是样本缺失。</p></div>
 </div>
 
-<div class="report-preamble" id="definitions">
-  <span class="section-kicker">Definitions and estimands · 全部五块共享</span>
-  <h2>新概念与计算方法：先定义“看见了什么”，再讨论“是否因果”</h2>
-  <div class="metric-defs">
-    <div class="definition"><strong>Discovery / confirmation</strong><p><em>Discovery</em> 固定为 seeds 1234–1253（20 个 paired seeds），只用于选择 layer/head、拟合 PCA basis、Ridge α/weights、count centroids 与 steering vector。<em>Confirmation</em> 固定为不相交的 seeds 1254–1263（10 个），只用于最终 behavior、held-out probe、attention-error 与 causal effect 估计。对 prompt-reading representation，一个 discovery cell 是 seed×occurrence index；对 answer-query representation，一个 cell 是 variant×seed×gold count。任何使用 confirmation 的 post-hoc 图都会明确标注，且不参与模型选择。</p></div>
-    <div class="definition"><strong>Hidden-state 位置与 layer 编号</strong><p>这里的 L0 不是 embedding：所有状态都由 decoder block 的 forward hook 在该 block 输出之后捕获。Qwen 有 L0–L35，Gemma 有 L0–L41，均为 zero-based post-block residual。Prompt-reading counter 在 needle tokens 上取 <code>span_end</code> 或 <code>span_mean</code>；answer-query counter 在 prompt 末尾 <code>Total:</code> query token、生成第一个答案 token 之前取整条 residual vector。</p></div>
-    <div class="definition"><strong>Ridge count probe 与 held-out R²</strong><p>对 occurrence state <em>h</em> 拟合 <em>ŷ=wᵀz(h)+b</em>。α 由 discovery seeds 的 5-fold GroupKFold 选择；<em>probe-optimal layer</em> 仅按 v4.1 discovery full-space CV-R² 最大化。每个 panel 的 probe weights 在该 panel discovery 上拟合，再在同 panel confirmation 上评估。R²=1−Σ(y−ŷ)²/Σ(y−ȳ)²；MAE=mean|y−ŷ|。</p></div>
-    <div class="definition"><strong>PCA explained variance 与 count-signal capture</strong><p>EVR₃=Σ<sub>k=1..3</sub>λₖ/Σλ 衡量前三个 PC 对 discovery 全部样本方差的解释比例；它可能被 content/position nuisance 主导。为单独衡量 count manifold，定义 F₃=Σᵢ||P₃(μᵢ−μ̄)||²/Σᵢ||μᵢ−μ̄||²，其中 P₃ 投影到前三个 PC；F₃=1 表示 count-centroid 的全部 between-count variation 都留在 3D 中。</p></div>
-    <div class="definition"><strong>Manifold-display layer</strong><p>先保留 full-space discovery CV-R² 距该 pooling 最优值不超过 0.02 的层，再最大化 M₃=EVR₃×F₃×C，其中 discovery compactness C=1/(1+R<sub>LOO</sub>)，R<sub>LOO</sub> 是每个 seed 相对其余 19 seeds count centroid 的 noise/signal RMS。该规则只为选择忠实的 3D 展示层，属于 discovery-only post-hoc 描述，不替代预注册 probe-optimal 层。</p></div>
-    <div class="definition"><strong>Noise / signal ratio</strong><p>discovery count centroid 为 μ₁,…,μ₁₀，grand mean 为 μ̄。signal RMS=[meanᵢ||μᵢ−μ̄||²]¹ᐟ²；confirmation noise RMS=[meanⱼ||hⱼ−μ<sub>yⱼ</sub>||²]¹ᐟ²；ratio=noise RMS/signal RMS，越小表示跨 seed 散点相对 count separation 越紧。</p></div>
-    <div class="definition"><strong>Geometry stability</strong><p>Linear CKA 比较 discovery 与 confirmation 的 10×10 centered centroid Gram geometry；distance correlation 是两套 centroid pairwise Euclidean distances 的 Pearson correlation。二者越接近 1，跨 split 相对几何越稳定，但不要求坐标轴方向相同。</p></div>
-    <div class="definition"><strong>Attention mass、entropy coverage 与 N<sub>eff,H</sub></strong><p>对第 i 个 needle endpoint/span 的 attention 记作 mᵢ，M=Σmᵢ，M&gt;0 时 pᵢ=mᵢ/M。Entropy coverage C<sub>H</sub>=exp[−Σpᵢlog pᵢ]/N，entropy effective number N<sub>eff,H</sub>=exp[−Σpᵢlog pᵢ]=N×C<sub>H</sub>，此时范围为 1–N；当 M 数值上为 0 时，代码约定 C<sub>H</sub>=N<sub>eff,H</sub>=0。Primary score S=M×C<sub>H</sub>，因此同时奖励总 needle mass 与跨 needles 的广度。S 用于 discovery ranking/atlas，不用于证明 causal necessity。</p></div>
-    <div class="definition"><strong>Participation effective number N<sub>eff,2</sub></strong><p>对归一化 occurrence profile q，N<sub>eff,2</sub>=1/Σqᵢ²。它比 entropy effective number 更强调 dominant occurrence，本报告只用它定义 global/local/selector phenotype 与 bank coverage。N<sub>eff,H</sub> 和 N<sub>eff,2</sub> 都在 1–N，但公式、阈值与用途不同，表图不会把二者简写成同一个无下标 N<sub>eff</sub>。</p></div>
-    <div class="definition"><strong>Full-attention visibility 与灰色 atlas cell</strong><p>一个 head 只有在其 key range 覆盖全部 N=10 needle spans 时，才进入全局 retrieval atlas 与 phenotype 分析。Qwen 36 层均为 full attention；Gemma 只有 L5,11,17,23,29,35,41 的 global-attention layers 满足条件，其余 sliding layers 不能观察远距 needles。灰色表示 estimand 不可定义，不表示 attention=0。</p></div>
-    <div class="definition"><strong>Count-adjusted wrong−correct attention effect</strong><p>对每个 gold count c 且 correct/wrong 两组都存在时，先算 Δ<sub>c</sub>=mean(metric|wrong,c)−mean(metric|correct,c)，再以 w<sub>c</sub>=2n<sub>w,c</sub>n<sub>r,c</sub>/(n<sub>w,c</sub>+n<sub>r,c</sub>) 加权。该 harmonic-overlap 权重在任一组稀少时自动降权；CI 以 confirmation seed 为 cluster。它消除一阶 count composition 差异，但仍是相关 estimand。</p></div>
-    <div class="definition"><strong>Causal effect labels</strong><p><em>Changed</em>：patch/ablation 后 parsed count 与 receiver baseline 不同。<em>Moved</em>：到 donor gold/target 的距离严格变小。<em>Aligned shift</em>=(patched−receiver)×sign(target−receiver)。Query patch 的 primary outcome 是在 receiver/donor baseline predictions 不同的 eligible rows 中，patched prediction 是否等于 donor prediction。</p></div>
-    <div class="definition"><strong>三种 residual intervention 不等价</strong><p><em>Donor-state replacement</em>：h′<sub>r</sub>=h<sub>d</sub>，把一个 donor prompt 在同层同位置的全部 d<sub>model</sub> 维状态复制给 receiver；answer-query patching 已执行这一操作。<em>Centroid transplant</em>：h′<sub>r</sub>=μ<sub>target</sub>，复制 discovery target-count 的全维均值状态。<em>Centroid delta</em>：h′<sub>r</sub>=h<sub>r</sub>+(μ<sub>target</sub>−μ<sub>receiver</sub>)，在全部 d<sub>model</sub> 维上做平移，但保留 receiver 相对其 count centroid 的 residual。完成的 <code>screen_8h_v1</code> 只运行了 centroid-delta；没有运行 centroid-transplant，因此不能把图 12 的结果称为“整个 hidden state 搬运”。</p></div>
-  </div>
-  <div class="method-strip">
-    <div><strong>Uncertainty</strong>先在每个 confirmation seed 内平均 panels/pairs，再对 10 个完整 seeds 做 20,000 次 percentile bootstrap。</div>
-    <div><strong>Testing</strong>paired seed contrast 使用 two-sided exact sign-flip test；每个 intervention family 内用 Holm correction。</div>
-    <div><strong>Evidence hierarchy</strong>PCA/probe=descriptive availability；attention-error alignment=correlation；ablation=necessity；patching=sufficiency；steering=manipulability。</div>
-    <div><strong>Index convention</strong>layer/head 均为 zero-based；<code>L29H3</code> 表示第 30 个 decoder block 的 post-block residual 与其中第 4 个 attention head。</div>
-  </div>
-  <div class="section-conclusion"><span>本节结论</span><p>报告不会把高 R²、漂亮 PCA 或高 attention mass 直接称为“模型真的在用的 counter”。只有 matched-control ablation、跨 prompt patching 和 held-out steering 能把描述性表示推进到不同层级的因果结论。</p></div>
-</div>
-
 <section id="behavior">
   <span class="section-kicker">Block 1 / 5 · Behavior analysis</span>
   <h2>Behavior：主要失败边界随 count 增大出现，而不是由某一个 V4 panel 单独触发</h2>
@@ -5002,15 +4990,34 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
 <section id="counter-representation">
   <span class="section-kicker">Block 2 / 5 · Counter representation</span>
   <h2>Counter representation：prompt 读取过程与 <code>Total:</code> query 的状态必须分开定位</h2>
+  <div class="concept-box"><span class="concept-label">本节先定义 · 状态位置与层号</span><p><strong>L0 不是 embedding。</strong>Qwen 的 L0–L35、Gemma 的 L0–L41 都表示对应 decoder block 输出之后的 zero-based post-block residual。Prompt-reading state 在 needle 的最后一个 token（<code>span_end</code>）或全 span token 均值（<code>span_mean</code>）处捕获；answer-query state 则在 prompt 末尾 <code>Total:</code> query、首个答案 token 尚未生成时捕获。</p></div>
   <h3>2.1 哪一层最可解码，哪一层最适合显示 manifold？</h3>
   <p class="lede">原分析的 probe-optimal layer 只用 v4.1 discovery grouped-seed full-space CV-R² 选择：Qwen span-end L1、span-mean L0；Gemma span-end L22、span-mean L0。它回答“哪层在完整 residual space 中最容易线性解码”，不回答“哪层的前三个 PC 最完整展示 count manifold”。因此本报告保留原 probe 结果，同时新增逐层 PCA/manifold sweep，并把 3D 展示层单独命名为 manifold-display layer。</p>
+  <div class="formula">
+    <div class="formula-title">Ridge count probe 与 held-out 拟合度</div>
+    <div class="equation-grid">
+      <div class="equation-row"><div class="equation-expression">ŷ = w<sup>T</sup>z(h) + b</div><div class="equation-explain"><em>h</em> 是捕获的 residual，<em>z(h)</em> 是标准化后的完整 hidden state；Ridge 的 α 只在 discovery seeds 上用 grouped 5-fold CV 选择。</div></div>
+      <div class="equation-row"><div class="equation-expression">R² = 1 − Σ(y − ŷ)² / Σ(y − ȳ)²</div><div class="equation-explain">R²=1 表示完美预测；R²=0 等同于只预测 confirmation 标签均值；R²&lt;0 表示比该均值基线更差。</div></div>
+    </div>
+    <p class="formula-note">每个 V4 panel 都在自己的 discovery seeds 上拟合，再在同 panel 的 10 个 confirmation seeds 上评估；confirmation 不参与 layer 或 α 的选择。</p>
+  </div>
   <div class="figure-intro"><p><strong>画什么：</strong>在预先选定的 probe-optimal layer 上，span-end 与 span-mean 对 occurrence index/count 的 held-out 线性解码强度。</p><p><strong>如何得到：</strong>每个 panel 只用 discovery seeds 选择 ridge 正则并拟合 full-space probe，再在不相交的 10 个 confirmation seeds 上计算 R²；四个 panel 各自拟合、各自验证。</p><p><strong>能说明什么：</strong>正 R² 说明该位置的完整 residual 含可泛化的线性 count signal；它不说明信号低维、因果必要或可被单点运输。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@REPRESENTATION_R2_SVG@@<figcaption><strong>图 B2-F1 · Held-out count decoding。</strong>左图为 Qwen3-8B，右图为 Gemma4-E4B；横轴从 V4.1 到 V4.4 依次释放 position、city-score order 与 content，纵轴是在 10 个未参与拟合的 confirmation seeds 上得到的 Ridge count-probe R²。青色实线/圆点是 span-end（Qwen L1、Gemma L22），粉色虚线/圆点是 span-mean（两模型均 L0）；线段只连接四个 panel 的离散估计。棕色水平线是 R²=0：位于其上优于用 confirmation 标签均值预测，位于其下则更差。span-end 到 V4.4 仍为正；span-mean 在 V4.3 释放 city-score order 后明显退化，说明其早期可解码性强依赖固定记录结构。</figcaption></figure></div>
+  <div class="formula">
+    <div class="formula-title">选择 3D manifold-display layer 的四个量</div>
+    <div class="equation-grid">
+      <div class="equation-row"><div class="equation-expression">EVR₃ = (λ₁ + λ₂ + λ₃) / Σ<sub>k</sub>λ<sub>k</sub></div><div class="equation-explain">前三个主成分解释的<strong>全部样本方差</strong>比例；高值也可能来自位置或内容等 nuisance variation。</div></div>
+      <div class="equation-row"><div class="equation-expression">F₃ = Σ<sub>i</sub>‖P₃(μ<sub>i</sub>−μ̄)‖² / Σ<sub>i</sub>‖μ<sub>i</sub>−μ̄‖²</div><div class="equation-explain">前三个 PC 保留的<strong>count-centroid between-count signal</strong>比例；μ<sub>i</sub> 是 count/index i 的 discovery centroid。</div></div>
+      <div class="equation-row"><div class="equation-expression">C = 1 / (1 + R<sub>LOO</sub>)</div><div class="equation-explain">跨 seed 紧致度；R<sub>LOO</sub> 是 leave-one-seed-out noise RMS 与 count-centroid signal RMS 的比值，所以 C 越高越紧。</div></div>
+      <div class="equation-row"><div class="equation-expression">M₃ = EVR₃ × F₃ × C</div><div class="equation-explain">先保留 full-space CV-R² 距最优值不超过 0.02 的层，再用 M₃ 最大者作为 3D 展示层。它只选择展示，不替代 probe-optimal layer。</div></div>
+    </div>
+  </div>
   <div class="figure-intro"><p><strong>画什么：</strong>每个已捕获 decoder layer 的 full-space 可解码度、前三个 PC 的总方差解释度、前三个 PC 对 count-centroid signal 的保留率，以及跨 seed 紧致度。</p><p><strong>如何得到：</strong>所有曲线只使用 V4.1 discovery states；P 标记 full-space CV-R² 最大层，M 在“距最佳 R²≤0.02”的层中再按 M₃=EVR₃×F₃×compactness 选择。</p><p><strong>能说明什么：</strong>它把“最容易线性读出”与“最适合用 3D 展示”分开，避免仅凭 PCA explained variance 选到主要解释 nuisance 的层。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@LAYER_SWEEP_SVG@@<figcaption><strong>图 B2-F2 · Discovery-only layer sweep。</strong>四格顺序为：上排 Qwen、下排 Gemma；左列 span-end、右列 span-mean。横轴是 zero-based post-block decoder layer，纵轴统一为 0–1；每条折线连接相邻已捕获层的 discovery-only 数值，不做平滑。紫线是完整 residual space 的 grouped-seed count-probe CV-R²。青线是 EVR₃=(λ₁+λ₂+λ₃)/Σλ，即 PC1–PC3 对全部样本方差的解释比例。绿线是 F₃=Σᵢ||P₃(μᵢ−μ̄)||²/Σᵢ||μᵢ−μ̄||²，即前三个 PC 保留的 between-count centroid signal 比例。<strong>粉线是 seed compactness C=1/(1+R<sub>LOO</sub>)</strong>，其中 R<sub>LOO</sub>=跨 seed noise RMS/count-centroid signal RMS，因此粉线越高表示同一 count 的不同 seeds 相对 count 间距越集中。四条线均为越高越好。棕色虚线 P 标出 full-space CV-R² 最大的 probe-optimal 层；靛蓝实线 M 标出先要求 R² 距最优≤0.02、再最大化 M₃=EVR₃×F₃×C 的 manifold-display 层；每格标题下的 P:Lx/M:Ly 给出层号。该图显示高 EVR 本身不足以保证低维图忠实呈现 count manifold。</figcaption></figure></div>
   <details><summary>Probe-optimal 与 manifold-display 层的逐项比较</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>pooling</th><th>probe L</th><th>probe full CV R²</th><th>probe EVR₃</th><th>probe F₃</th><th>probe LOO noise/signal</th><th>display L</th><th>display full CV R²</th><th>display EVR₃</th><th>display F₃</th><th>display PCA3 CV R²</th><th>display LOO noise/signal</th><th>M₃</th></tr></thead><tbody>@@LAYER_SELECTION_ROWS@@</tbody></table></div></details>
   <p class="artifact-link">完整逐层数值：<a href="realistic_niah_v4_layer_sweep.csv">realistic_niah_v4_layer_sweep.csv</a>。</p>
   @@LAYER_SELECTION_CONCLUSION@@
+  <div class="concept-box"><span class="concept-label">下表使用 · Seed 散点与跨 split 几何</span><p><strong>Noise / signal</strong> 是 confirmation 样本到其 discovery count centroid 的 RMS 距离，除以十个 discovery centroids 相对 grand mean 的 RMS 距离；越小表示同 count 的跨 seed 散点相对 count 间距越紧。<strong>Linear CKA</strong> 比较 discovery/confirmation 的 centered centroid Gram geometry；<strong>distance correlation</strong> 比较两套 centroid 两两距离。后二者越接近 1，跨 split 的相对几何越稳定。</p></div>
   <details><summary>Primary-layer confirmation metrics</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>pooling</th><th>layer</th><th>panel</th><th>confirm R²</th><th>confirm MAE</th><th>noise / signal</th><th>linear CKA</th><th>distance corr.</th></tr></thead><tbody>@@METRIC_ROWS@@</tbody></table></div></details>
   <details><summary>Paired confirmation-seed sensitivity：相邻 relaxation 在哪里首次显著变差</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>pooling</th><th>layer</th><th>metric</th><th>step</th><th>Δ mean</th><th>95% seed CI</th><th>CI &gt; 0</th></tr></thead><tbody>@@SENSITIVITY_ROWS@@</tbody></table></div></details>
   @@REPRESENTATION_CONCLUSION@@
@@ -5040,7 +5047,14 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
     <div class="legend" id="count-legend"></div>
   </div>
   <p class="figure-caption"><strong>图 B2-F3a · Interactive prompt-reading counter trajectory。</strong>交互图追踪一个 N=10 prompt 在读到第 1→10 个 needle 时的 occurrence state；Model、Pooling、Post-block layer、V4 panel、split 与最终 greedy output 标签均可切换。X/Y/Z 下拉框选择该 model×pooling×layer 的 PC1–PC6，默认显示 PC1/PC2/PC3；颜色从靛蓝 N=1 依次过渡到青色 N=10。淡点是当前筛选条件下的单个 seed×occurrence state，彩色大节点和连线是 occurrence 1→10 的 centroids；连线只表示顺序，不是拟合曲线。右下统计给出所选 PC 的 discovery EVR、step CV 与 path/chord。每个 layer 都在 V4.1 discovery 上单独拟合 PCA，因此只可比较同一 model×pooling×layer 内的 panel/split/标签变化，不可跨层比较 PC 绝对坐标；“correct/wrong”是整条 N=10 prompt 的最终输出标签，十个 occurrence 点共享该标签。</p>
-  <div class="formula">step CV = std(||μᵢ₊₁−μᵢ||) / mean(||μᵢ₊₁−μᵢ||)；path/chord = Σ||μᵢ₊₁−μᵢ|| / ||μ₁₀−μ₁||。前者衡量相邻 count 步长是否等距，后者衡量 centroid path 是否接近一条直线；理想等距直线计数轴应同时接近 0 与 1。</div>
+  <div class="formula">
+    <div class="formula-title">3D trajectory 的形状诊断</div>
+    <div class="equation-grid">
+      <div class="equation-row"><div class="equation-expression">step CV = SD(d<sub>i</sub>) / mean(d<sub>i</sub>)</div><div class="equation-explain">其中 d<sub>i</sub>=‖μ<sub>i+1</sub>−μ<sub>i</sub>‖。越接近 0，表示相邻 count 的 centroid 步长越等距。</div></div>
+      <div class="equation-row"><div class="equation-expression">path / chord = Σ<sub>i=1..9</sub>d<sub>i</sub> / ‖μ<sub>10</sub>−μ<sub>1</sub>‖</div><div class="equation-explain">越接近 1，centroid path 越接近直线；明显大于 1 表示弯折或回绕。</div></div>
+    </div>
+    <p class="formula-note">理想的等距直线计数轴应同时满足 step CV≈0 与 path/chord≈1；两项只描述几何，不证明该轴被生成机制使用。</p>
+  </div>
   <div class="callout"><strong>坐标可比性。</strong>同一 model×pooling 内四个 panel 共享 PCA basis；不同模型或不同 pooling 分别拟合，因此 PC 坐标绝对值不可跨 panel group 直接比较。PCA component 的正负号没有语义。</div>
   <h3>Aurora PC1–PC2 audit panels</h3>
   <p>以下四张图与 3D view 使用相同隐藏状态与 v4.1 discovery basis，但固定展示 PC1–PC2，便于比较跨 seed 散点宽度。它们替代旧配色 PNG 作为主报告图；原始 CSV/PNG 仍保留在 run artifact 中。</p>
@@ -5057,6 +5071,14 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <p>这不是把一个 count prompt 随意贴到另一个 prompt。Stimuli 采用 nested N−1/N pair：两条序列在十个预留 slot 上等长、同位置；第 N 个 slot 在 N prompt 中是 active needle，在 N−1 prompt 中由 canonical token-length-matched haystack control 占位。Insertion 以 N−1 为 receiver，把 N donor 在<strong>第 N 个 slot 的最后一个 token</strong>上的完整 d<sub>model</sub> post-block residual 复制到 receiver 的同位置；removal 反向把 inactive-control endpoint state 复制到 active N receiver。实验只 patch <code>span_end</code>，既不是 span mean，也不是整段 needle tokens。</p>
   <div class="callout"><strong>“有 needle → 没 needle”的精确定义。</strong>这里的“没 needle”指<strong>同一个 toggled slot</strong>在 N−1 prompt 中是等长 inactive haystack control，不是整条 prompt 的 gold count=0；本数据注册范围是 1–10，没有 zero-needle baseline。这个 nested contrast 隔离的是新增一条 evidence 的状态是否充分。</div>
   <p>完成的 protocol 是 <code>cumulative_from_layer</code>：若 start=L18，就在 L18、L19、…、最后一层，每一层都用 donor 在该层保存的 endpoint vector 覆盖 receiver 的同一 endpoint；随后从 receiver prompt 执行完整 greedy generation。这样检验的是“即使该单点状态从某深度起被持续夹持为 donor 值，它是否足以改变答案”。正 aligned shift 要求 insertion 增大生成 count、removal 减小生成 count；<em>moved</em> 还要求最终输出到 donor gold 的距离严格缩短。</p>
+  <div class="formula">
+    <div class="formula-title">Needle-end cumulative patch 的实际操作</div>
+    <div class="equation-grid">
+      <div class="equation-row"><div class="equation-expression">h′<sub>r,ℓ,e</sub> = h<sub>d,ℓ,e</sub>, &nbsp; ℓ ≥ L<sub>start</sub></div><div class="equation-explain"><em>e</em> 是 toggled slot 的最后一个 token；从 start layer 到末层，每层都把 receiver endpoint 的完整 d<sub>model</sub> residual 替换为 paired donor 在同层同位置的 residual。</div></div>
+      <div class="equation-row"><div class="equation-expression">aligned shift = s · (ŷ′<sub>r</sub> − ŷ<sub>r</sub>)</div><div class="equation-explain">Insertion 时 s=+1，removal 时 s=−1；正值表示最终 strict parsed count 朝 donor gold 的方向移动。</div></div>
+    </div>
+    <p class="formula-note">没有被替换的是 needle span 的其他 tokens、其他 prompt positions 与 answer-token positions；因此该实验只检验“单 endpoint 状态”的充分性。</p>
+  </div>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>start</th><th>rows / seeds</th><th>changed</th><th>moved [95% CI]</th><th>insertion shift</th><th>removal shift</th><th>aligned shift [95% CI]</th><th>Holm p</th></tr></thead><tbody>@@CAUSAL_PATCHING_ROWS@@</tbody></table></div>
   <div class="figure-intro"><p><strong>画什么：</strong>从不同 start layer 起持续替换单个 toggled needle endpoint 后，最终生成数字沿 donor count 方向移动了多少。</p><p><strong>如何得到：</strong>每个 nested pair 同时做 insertion/removal；先在 confirmation seed 内平均 panel、pair 与方向，再对 10 个 seeds bootstrap 95% CI，表中 Holm p 来自同一模型多个 start layers 的 exact sign-flip family。</p><p><strong>能说明什么：</strong>若 CI 明显大于零，单 endpoint residual 可作为可运输的充分 carrier；接近零只否定这一单点、累计夹持 protocol，不否定整段或多 endpoint 的分布式状态。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@CAUSAL_PATCHING_SVG@@<figcaption><strong>图 B2-F5 · Exact needle-end state transport。</strong>纵向每行是一种 model×cumulative start layer；从该层到最后一层，receiver 在 toggled slot 最后一个 token 的完整 residual 都被逐层替换为 paired donor 的同层 residual。横轴是 direction-aligned generated-count shift：insertion 的生成变化取正方向、removal 取反方向，正值表示朝 donor gold 移动，0 表示无方向性运输。紫色圆点为 Qwen、青绿色圆点为 Gemma；圆点是先在每个 confirmation seed 内平均 panel/pair/direction、再对 10 个 seeds 等权得到的估计，粗半透明横线是 seed-cluster bootstrap 95% CI，棕色竖线是零，右侧文字重复 estimate [CI]。所有 CI 跨 0，说明这个单 endpoint、累计夹持 protocol 没有建立充分运输。</figcaption></figure></div>
@@ -5065,6 +5087,14 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <h3>2.5 Exact answer-query residual patching：聚合后的 query state 是否足以搬运模型已经算出的 prediction？</h3>
   <p>这里的 site 与 2.4 完全不同。对同一 panel×seed 的 count pairs 5↔6、7↔8、9↔10、5↔10，先分别保存 donor 与 receiver 在 prompt-final <code>Total:</code> query 的完整 post-block residual。对每个测试层只做一次 <code>single_layer</code> replacement：在 receiver prefill 到达该层后令 h<sub>receiver,query</sub>′=h<sub>donor,query</sub>，其余 prompt positions、其他层和随后生成的 answer-token positions都不 patch；然后从 receiver context 执行最多 16 tokens 的完整 deterministic greedy continuation。这是 sample-wise 全 d<sub>model</sub> 状态替换，不是 PCA coordinate、均值向量或概率比较。</p>
   <p>Primary estimand 只在 receiver 与 donor baseline predictions 不同的 eligible rows 中计算：patched output 是否等于 <em>donor model prediction</em>。它有意不等同于 donor-gold accuracy，因为一个完美 transport 也可以忠实复制 donor 已经算错的数字。越界或不可严格解析的 continuation 留在分母并记为 transport failure。</p>
+  <div class="formula">
+    <div class="formula-title">Answer-query single-layer donor-state replacement</div>
+    <div class="equation-grid">
+      <div class="equation-row"><div class="equation-expression">h′<sub>r,ℓ,q</sub> = h<sub>d,ℓ,q</sub></div><div class="equation-explain">只在测试层 ℓ、prompt-final query 位置 q，把 donor 的<strong>完整 sample-wise hidden state</strong>复制给 receiver；其他层和位置保持 receiver 原值。</div></div>
+      <div class="equation-row"><div class="equation-expression">adoption = 1[ŷ′<sub>r</sub> = ŷ<sub>d</sub>]</div><div class="equation-explain">只在 receiver 与 donor baseline predictions 不同的 rows 中定义。它检验 patched 输出是否跟随 donor 的<strong>实际模型预测</strong>，而不是 donor gold label。</div></div>
+    </div>
+    <p class="formula-note">不可解析或超出 1–10 的输出保留在分母并记为 adoption=0；因此 Gemma 的 <code>11</code> 不会被裁剪或当成成功。</p>
+  </div>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>rows / seeds</th><th>valid</th><th>eligible n</th><th>adopts donor prediction [95% CI]</th><th>changed (valid)</th><th>moved to donor gold (valid)</th><th>matches donor prediction (all valid)</th><th>aligned shift (valid) [95% CI]</th><th>adoption vs L0 Holm p</th></tr></thead><tbody>@@ANSWER_QUERY_LAYER_ROWS@@</tbody></table></div>
   <div class="figure-intro"><p><strong>画什么：</strong>在不同单层替换 answer-query residual 后，receiver 的最终完整数字答案采用 donor baseline prediction 的比例。</p><p><strong>如何得到：</strong>每模型选择 8 个从早到末层的 post-block layers；每层覆盖四个 panels、10 个 confirmation seeds 与四组双向 count pairs。CI 以 seed 聚类，later-layer adoption 与 L0 做配对检验并 Holm 校正。</p><p><strong>能说明什么：</strong>曲线的跃迁定位“已经算出的 prediction”何时写入可运输 query state；它不证明状态是一维 counter，也不保证只 patch prefill query 就能约束多-token continuation 的每一个后续 token。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@ANSWER_QUERY_ADOPTION_SVG@@<figcaption><strong>图 B2-F6 · Layerwise answer-query donor-prediction transport。</strong>纵向每行是一种 model×single patched layer；该层只在 receiver 的 prompt-final <code>Total:</code> query 位置把完整 residual 替换为 paired donor state，随后从 receiver context 完整 greedy 生成。横轴是在 receiver 与 donor baseline predictions 不同的 eligible rows 中，patched 最终数字严格等于 donor baseline prediction 的比例（0–1）；它衡量复制模型已算出的 prediction，而非 donor-gold accuracy。紫色为 Qwen、青绿色为 Gemma；圆点是 10 个 confirmation seeds 等权估计，粗半透明横线是 seed-cluster bootstrap 95% CI，棕色竖线是 0，右侧文字重复 estimate [CI]。无法解析或生成 1–10 之外数字的 rows 留在分母并按 adoption=0；later-layer 与同模型 L0 的显著性另以 Holm 校正。中后层 adoption 的跃迁表明 prediction 在 late query state 中成为可运输状态。</figcaption></figure></div>
@@ -5083,15 +5113,33 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <span class="section-kicker">Block 3 / 5 · Attention-map representation</span>
   <h2>Answer-query attention：从全 head 图谱到 retrieval phenotype，再到错误关联</h2>
   <p class="lede">分析位置固定为 prompt-final <code>Total:</code> query，所有 attention 都是模型原始 query→prompt rows。Discovery seeds 只用于选 head、定义 phenotype 与排序；correct/wrong、omission 与 nested-increment 诊断只使用 confirmation seeds。主分析采用 <code>span_end</code>，因为它与可解码 counter 及用户指定的 omission 问题位置一致；<code>span_mean</code> 作为“整段是否被覆盖”的补充轴，不与 endpoint retrieval 混称。</p>
+  <div class="concept-box"><span class="concept-label">本节先定义 · Full-attention visibility</span><p>只有 key range 能覆盖全部 N=10 needle spans 的 head 才进入全局 atlas 与 phenotype 分析。Qwen 的 36 层均为 full attention；Gemma 只有 L5、L11、L17、L23、L29、L35、L41 是 global-attention layers。Gemma 其余灰色 atlas rows 表示该全局 estimand<strong>不可定义</strong>，不是 attention=0。Layer/head 均 zero-based，例如 L29H3 是第 30 个 block 的第 4 个 head。</p></div>
 
   <h3>3.1 全 head attention atlas：每层每 head 都放在同一个坐标系中</h3>
-  <p>对每个 N=10 discovery prompt、head 与 needle endpoint，记 attention 为 aᵢ，M=Σᵢaᵢ，pᵢ=aᵢ/M。Entropy breadth 为 C<sub>H</sub>=exp[−Σᵢpᵢlog pᵢ]/10，atlas 色值为 S=M×C<sub>H</sub> 的 log₁₀；它同时要求“对 needles 的总 mass 高”和“分布不只落在少数 needles”。颜色在每个模型内部按 1%–99.5% 分位裁剪，因此可比较同模型的 layer/head/panel，不应把 Qwen 与 Gemma 的颜色绝对值直接相减。</p>
+  <p>Atlas 需要同时表达“一个 head 给 needles 多少总 attention”与“这些 attention 覆盖多少个 needles”。因此先对十个 occurrence masses 归一化，再用 entropy breadth 把总量与广度合成 primary score；该分数只用于 discovery 排序和显示。</p>
+  <div class="formula">
+    <div class="formula-title">Atlas 色值：总 needle mass × entropy breadth</div>
+    <div class="equation-grid">
+      <div class="equation-row"><div class="equation-expression">M = Σ<sub>i=1..N</sub>m<sub>i</sub>, &nbsp; p<sub>i</sub> = m<sub>i</sub>/M</div><div class="equation-explain">m<sub>i</sub> 是 answer-query 对第 i 个 endpoint 或 span 的 attention；M 是落在全部 needles 上的总 mass。</div></div>
+      <div class="equation-row"><div class="equation-expression">N<sub>eff,H</sub> = exp(−Σ<sub>i</sub>p<sub>i</sub>log p<sub>i</sub>)</div><div class="equation-explain">Entropy effective number：1 表示近乎单点，N 表示完全均匀覆盖 N 个 needles。</div></div>
+      <div class="equation-row"><div class="equation-expression">C<sub>H</sub> = N<sub>eff,H</sub>/N, &nbsp; S = M × C<sub>H</sub></div><div class="equation-explain">C<sub>H</sub> 是 0–1 的 entropy coverage；S 同时奖励总 mass 与覆盖广度。Atlas 显示 log₁₀(S)，不把 S 当成 causal importance。</div></div>
+    </div>
+    <p class="formula-note">若 M 数值上为 0，则代码约定 C<sub>H</sub>=N<sub>eff,H</sub>=S=0。颜色在每个模型内部按分位裁剪，不能跨模型比较绝对亮度。</p>
+  </div>
   <div class="figure-intro"><p><strong>画什么：</strong>在选定 V4 panel 中，把每个可观测 attention head 放到 layer×head 网格，直接查看 retrieval strength 与 phenotype 的全局分布。</p><p><strong>如何得到：</strong>只用 discovery 的 N=10 prompts；颜色为 span-end broad-primary score 的模型内 log₁₀ 尺度，符号来自冻结阈值的 global/local/first-selector 分类。四个按钮只切换 panel，颜色尺度在同一模型内保持一致。</p><p><strong>能说明什么：</strong>图可定位候选 head bank 和跨 panel 稳定性；不能仅凭亮度证明某个 head 对输出必要。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@ATTENTION_HEAD_ATLAS_HTML@@<figcaption><strong>图 B3-F1 · Switchable all-head span-end retrieval atlas。</strong>顶部按钮切换 V4.1–V4.4，任一时刻只显示所选 panel；上图为 Qwen3-8B、下图为 Gemma4-E4B。横轴是 zero-based attention-head index H，纵轴是 zero-based post-block layer L，每个格对应一个 LxHy。格底色是 discovery primary score 的 log₁₀(S)：先令 mᵢ 为 answer-query→第 i 个 needle endpoint 的 attention、M=Σmᵢ、pᵢ=mᵢ/M，再定义 entropy coverage C<sub>H</sub>=exp[−Σpᵢlog pᵢ]/N 与 S=M×C<sub>H</sub>；因此 S 同时奖励总 needle mass 与跨 needles 的均匀覆盖。颜色由深靛低值到黄色高值，并在每个模型自身的 99.5th percentile 截断，所以颜色可在同模型内比较，不宜跨模型解释为绝对倍数。绿色空心圆=global broad，青色空心方框=partition-local broad，黄色实心点=strict first-needle locator，粉色实心点=未达到 strict locator 全部阈值的较弱 first-focused head；粉点不代表稳定定位 occurrence 2–10。Qwen 展示 36×32 个 heads；Gemma 灰行是 sliding-local layers 无法覆盖全部远距 needles，表示该全局 estimand 不可定义，不是 attention=0。</figcaption></figure></div>
   <div class="section-conclusion"><span>本小节结论 · 全局分布</span><p>高 retrieval score 不是单一孤立 head，而是在多个层形成稀疏但重复出现的 bank；同时，颜色高也不等于 broad，因为高 mass 的 selector 也可能排名靠前。因此后续必须把“强度”与“覆盖形状”分开分类。</p></div>
 
   <h3>3.2 Global broad retrieval heads：哪些 head 同时覆盖多数 needles？</h3>
-  <p>这一步不从“最亮的一个 head”出发，而是扫描全部可观察 heads。首先只保留同时满足两项 discovery gate 的候选：needle endpoint attention 高于 matched hard-negative positions，且相对 token-density 的 enrichment&gt;1。然后在 20 个 N=10 discovery prompts 上，把每个 head 对十个 endpoints 的 mass 归一化为 pᵢ，并计算 participation effective number N<sub>eff,2</sub>=1/Σᵢpᵢ²、最大单 occurrence share、winner occurrence、四个 normalized-depth quarters 的 row mass及 full-span profile。阈值在读取 confirmation outcomes 前冻结；这些名称是可复算的 attention-shape 定义，不是先验神经模块标签。</p>
+  <p>这一步不从“最亮的一个 head”出发，而是扫描全部可观察 heads。首先只保留同时满足两项 discovery gate 的候选：needle endpoint attention 高于 matched hard-negative positions，且相对 token-density 的 enrichment&gt;1。然后在 20 个 N=10 discovery prompts 上，计算覆盖宽度、最大单 occurrence share、winner occurrence、四个 normalized-depth quarters 的 row mass 及 full-span profile。阈值在读取 confirmation outcomes 前冻结；这些名称是可复算的 attention-shape 定义，不是先验神经模块标签。</p>
+  <div class="formula">
+    <div class="formula-title">Phenotype 分类使用的 participation breadth</div>
+    <div class="equation-grid">
+      <div class="equation-row"><div class="equation-expression">q<sub>i</sub> = m<sub>i</sub>/Σ<sub>j</sub>m<sub>j</sub></div><div class="equation-explain">对每个 prompt，把十个 occurrence masses 归一化为和为 1 的 profile。</div></div>
+      <div class="equation-row"><div class="equation-expression">N<sub>eff,2</sub> = 1 / Σ<sub>i</sub>q<sub>i</sub>²</div><div class="equation-explain">Participation effective number 对 dominant occurrence 更敏感：均匀覆盖 k 个 occurrences 时等于 k，集中单点时接近 1。</div></div>
+    </div>
+    <p class="formula-note">N<sub>eff,2</sub> 用于 global/local/selector phenotype 阈值；3.1 的 N<sub>eff,H</sub> 用于 entropy coverage。二者范围相似但公式和阈值不同，不能互换。</p>
+  </div>
   <div class="metric-defs">
     <div class="definition"><strong>Global broad retrieval</strong><p>mean N<sub>eff,2</sub>≥6，且任何单 occurrence 的 mean normalized share≤0.25。含义：至少约六个 endpoints 有实质贡献，且无单点支配。</p></div>
     <div class="definition"><strong>Partition-local broad retrieval</strong><p>不满足 global；dominant depth quarter 平均至少包含 2 个 needles；quarter 内 local effective fraction≥0.80；该 quarter 占整个 query row attention mass≥0.50。含义：head 在局部深度区间内广泛聚合，而非全局覆盖。</p></div>
@@ -5138,7 +5186,15 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
 
   <h3>3.6 Correct versus wrong 与 undercount omission：错误时究竟差在哪里？</h3>
   <h4>3.6a 同一 gold count 下，wrong prompts 的 retrieval 是否整体更差？</h4>
-  <p>该比较只使用 confirmation prompts 和 discovery-ranked top-8 heads，并对 gold count 做显式调整，避免“错误样本本来就集中在大 count”造成伪差异。对每个 gold count c，若正确与错误两组都存在，则计算 Δ<sub>c</sub>=mean(metric|wrong,c)−mean(metric|correct,c)，再以 w<sub>c</sub>=2n<sub>w,c</sub>n<sub>r,c</sub>/(n<sub>w,c</sub>+n<sub>r,c</sub>) 加权；95% CI 以 confirmation seed 为 cluster 重采样。负的 coverage/min-to-mean 表示错误时注意力在 needles 间更窄或尾部更弱；这仍是 outcome association，不是 causal effect。</p>
+  <p>该比较只使用 confirmation prompts 和 discovery-ranked top-8 heads，并对 gold count 做显式调整，避免“错误样本本来就集中在大 count”造成伪差异。只有同一 count 内同时存在 correct 与 wrong 样本时才形成 contrast；95% CI 以 confirmation seed 为 cluster 重采样。负的 coverage/min-to-mean 表示错误时注意力在 needles 间更窄或尾部更弱；这仍是 outcome association，不是 causal effect。</p>
+  <div class="formula">
+    <div class="formula-title">Count-adjusted wrong − correct effect</div>
+    <div class="equation-grid">
+      <div class="equation-row"><div class="equation-expression">Δ<sub>c</sub> = mean(x | wrong,c) − mean(x | correct,c)</div><div class="equation-explain">先在每个 gold count c 内比较 attention metric x，消除 correct/wrong 两组 count composition 的一阶差异。</div></div>
+      <div class="equation-row"><div class="equation-expression">w<sub>c</sub> = 2n<sub>w,c</sub>n<sub>r,c</sub> / (n<sub>w,c</sub>+n<sub>r,c</sub>)</div><div class="equation-explain">Harmonic-overlap 权重；任一组样本很少时自动降权，任一组缺失时该 count 不进入估计。</div></div>
+      <div class="equation-row"><div class="equation-expression">Δ = Σ<sub>c</sub>w<sub>c</sub>Δ<sub>c</sub> / Σ<sub>c</sub>w<sub>c</sub></div><div class="equation-explain">最终 cell effect。Δ&lt;0 表示同 count 下 wrong prompts 的该 attention metric 更低。</div></div>
+    </div>
+  </div>
   <div class="figure-intro"><p><strong>画什么：</strong>在相同 gold-count strata 内，wrong 减 correct 的 span-end entropy coverage，逐 model×panel×discovery-ranked head 展开。</p><p><strong>如何得到：</strong>先在每个 count 内计算 wrong−correct，再用两组样本量的 harmonic-overlap 权重合并 counts；95% CI 以 confirmation seed 为 cluster。图中的深框只是单 cell CI，不含 family-wise correction。</p><p><strong>能说明什么：</strong>它直接检验错误时 retrieval 是否普遍变窄；稀疏负 cell 支持局部 channel degradation，不支持“所有 heads 在错误时统一关闭”。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@ATTENTION_OUTCOME_EFFECT_SVG@@<figcaption><strong>图 B3-F5 · Count-adjusted wrong−correct attention breadth。</strong>横向四列为 V4.1–V4.4；纵向上半排为 Qwen3-8B、下半排为 Gemma4-E4B，每列从上到下再排列 discovery-ranked span-end heads #1–#8，cell 内同时写 LxHy 与效应值。Entropy coverage 定义为 C<sub>H</sub>=exp[−Σpᵢlog pᵢ]/N，其中 pᵢ 是该 head 在 N 个 needle endpoints 间归一化后的 attention share。每个 cell 先在 gold count c 内计算 Δ<sub>c</sub>=mean(C<sub>H</sub>|wrong,c)−mean(C<sub>H</sub>|correct,c)，再按 correct/wrong harmonic-overlap 样本量加权跨 counts 合并。粉色为负值，表示同 count 下错误输出的 needle attention 更窄；绿色为正值，表示错误时更广；白色约等于 0，色深表示 |Δ| 大小。黑色边框表示该单 cell 的 confirmation-seed cluster bootstrap 95% CI 不含 0，但未做跨 cells 的 family-wise correction。该图是 outcome association，不是 attention 导致错误的因果证据。</figcaption></figure></div>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>metric</th><th>head×panel cells</th><th>CI entirely &lt;0</th><th>CI entirely &gt;0</th><th>median wrong−correct</th><th>range</th></tr></thead><tbody>@@ATTENTION_OUTCOME_SUMMARY_ROWS@@</tbody></table></div>
@@ -5158,7 +5214,14 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
 
   <h4>3.6b-1 Behavior-implied omitted tail 与 lowest-attention occurrences</h4>
   <p>对 gold count <em>N</em> 和 undercount <em>N̂</em>，令 <em>k=N−N̂</em>。行为上“少算”的尾部集合为 <em>T<sub>k</sub>={N−k+1,…,N}</em>；attention-implied 集合 <em>B<sub>k</sub></em> 是 ensemble attention 最低的 k 个 occurrence endpoints。主分数是两个集合的 overlap fraction。</p>
-  <div class="formula"><em>S=|B<sub>k</sub>∩T<sub>k</sub>|/k</em>。若 <em>B<sub>k</sub></em> 是均匀随机的 k-subset，则 <em>E[S]=k/N</em>，而 exact set match 的 chance 为 <em>P(B<sub>k</sub>=T<sub>k</sub>)=1/C(N,k)</em>。</div>
+  <div class="formula">
+    <div class="formula-title">Omitted-tail overlap 与组合随机基线</div>
+    <div class="equation-grid">
+      <div class="equation-row"><div class="equation-expression">S = |B<sub>k</sub> ∩ T<sub>k</sub>| / k</div><div class="equation-explain">B<sub>k</sub> 是 attention 最低的 k 个 endpoints，T<sub>k</sub> 是 behavior 假设下被少算的最后 k 个 needles；S 是两集合的重合比例。</div></div>
+      <div class="equation-row"><div class="equation-expression">E[S<sub>chance</sub>] = k/N</div><div class="equation-explain">若 B<sub>k</sub> 是从 N 个 occurrences 中均匀随机选择的 k-subset，期望 overlap fraction 为 k/N。</div></div>
+      <div class="equation-row"><div class="equation-expression">P(B<sub>k</sub>=T<sub>k</sub>) = 1 / C(N,k)</div><div class="equation-explain">随机条件下两个 k-subsets 完全相同的概率；报告中的 primary effect 是 seed-equal mean 的 S−k/N。</div></div>
+    </div>
+  </div>
   <p class="lede">Primary estimand 是 seed-equal mean 的 <em>S−k/N</em>。Cross-panel aggregate 先在每个 seed 内给四个 panel 等权，再跨 seed 推断，避免选择最有利的 relaxation。<em>Tail/prefix</em> 是 omitted tail 的 mean normalized attention 除以 retained prefix；小于 1 表示 tail evidence 被相对抑制。该 omission 分析为 post-hoc inferential audit，并非 preregistered confirmatory test。</p>
   <h4>Cross-panel aggregate</h4>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>seeds</th><th>overlap / chance</th><th>Δ [95% seed CI]</th><th>Holm p</th><th>exact / chance</th><th>exact Δ [95% CI]</th><th>tail / prefix</th></tr></thead><tbody>@@SPAN_END_POOLED_ROWS@@</tbody></table></div>
@@ -5189,6 +5252,14 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <span class="section-kicker">Block 4 / 5 · Head ablation</span>
   <h2>Head-bank necessity：删掉 discovery-ranked retrieval heads 是否比同层随机 heads 更容易造成 undercount？</h2>
   <p class="lede">干预只作用于 prompt-final <code>Total:</code> query row，并在 intervention 后执行完整 deterministic greedy generation。每模型使用 160 个 confirmation prompt shards（4 panels×10 seeds×counts 7–10），每 shard 同时保留 baseline、discovery-ranked bank ablation 与 layer-matched random control；所有标签都来自最终 parsed continuation，不使用 candidate probability。</p>
+  <div class="formula">
+    <div class="formula-title">Ablation 的 paired necessity estimand</div>
+    <div class="equation-grid">
+      <div class="equation-row"><div class="equation-expression">shift<sub>b</sub> = ŷ<sub>ablated,b</sub> − ŷ<sub>baseline</sub></div><div class="equation-explain">b 是 ranked bank 或 layer-matched random bank；ŷ 是完整 greedy continuation 的 strict parsed count。</div></div>
+      <div class="equation-row"><div class="equation-expression">effect = shift<sub>ranked</sub> − shift<sub>random</sub></div><div class="equation-explain">负值表示删 ranked bank 比删相同层、相同数量 random heads 造成更强 undercount，因此支持该<strong>整组 bank</strong>的必要贡献。</div></div>
+    </div>
+    <p class="formula-note"><strong>Changed</strong> 只表示 ablated prediction 与 baseline 不同；它不区分方向。主推断先在每个 confirmation seed 内平均，再对 10 个 paired seeds bootstrap，并用 exact sign-flip + Holm correction。</p>
+  </div>
   <div class="method-strip">
     <div><strong>Selected bank</strong>按 discovery span-end primary score 取 top-4/top-8；不使用 confirmation outcome 重新排序。</div>
     <div><strong>Matched control</strong>随机 heads 与 ranked bank 的 head 数量、所在 layers 完全匹配，用于排除“只要删若干 heads 就会下降”。</div>
@@ -5213,6 +5284,22 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <span class="section-kicker">Block 5 / 5 · Geometry steering</span>
   <h2>Answer-query geometry steering：单层或多层 count-centroid 方向能否稳定推动生成 readout？</h2>
   <p class="lede">该 block 检验 full-dimensional <em>directional manipulability</em>，不是 full-state replacement。对每个被干预层，方向都是该层 discovery centroids 的 Δ<sub>ℓ</sub>=μ<sub>ℓ,target</sub>−μ<sub>ℓ,receiver</sub>；它修改全部 d<sub>model</sub> 维，不只修改 PCA coordinates。Single-layer 只在一个 post-block answer-query state 上加 Δ<sub>ℓ</sub>；multi-layer 在同一次 prefill 的多个层分别加各自的 Δ<sub>ℓ</sub>。每次干预后都执行完整 greedy generation，并以最终 strict parsed count 计算 effect。</p>
+  <div class="formula">
+    <div class="formula-title">三种 full-dimensional residual intervention：本报告不要混称</div>
+    <div class="equation-grid">
+      <div class="equation-row"><div class="equation-expression">h′<sub>r</sub> = h<sub>d</sub></div><div class="equation-explain"><strong>Donor-state replacement：</strong>搬运某个 donor prompt 的完整 sample state。已在 2.5 的 answer-query patching 中执行。</div></div>
+      <div class="equation-row"><div class="equation-expression">h′<sub>r</sub> = μ<sub>target</sub></div><div class="equation-explain"><strong>Centroid transplant：</strong>把 receiver 整体替换为 discovery target-count 的均值状态。本轮<strong>没有运行</strong>，所以不能据此声称“均值完整状态充分”。</div></div>
+      <div class="equation-row"><div class="equation-expression">h′<sub>r,ℓ</sub> = h<sub>r,ℓ</sub> + α(μ<sub>ℓ,target</sub>−μ<sub>ℓ,receiver</sub>)</div><div class="equation-explain"><strong>Centroid delta / geometry steering：</strong>保留 receiver 相对自身 centroid 的 residual，只沿 full-dimensional count-centroid 方向平移。本 Block 实际执行的是这一种。</div></div>
+    </div>
+    <p class="formula-note">Single-layer 只改一个 ℓ；multi-layer 对每个锁定层分别使用该层自己的 μ<sub>ℓ,target</sub>−μ<sub>ℓ,receiver</sub>，不是把同一个向量重复贴到多层。</p>
+  </div>
+  <div class="formula">
+    <div class="formula-title">Steering 的 primary outcome</div>
+    <div class="equation-grid">
+      <div class="equation-row"><div class="equation-expression">aligned shift = (ŷ′−ŷ<sub>r</sub>) · sign(y<sub>target</sub>−y<sub>receiver</sub>)</div><div class="equation-explain">正值表示最终输出沿 target 方向移动；越界或不可解析输出按 0 记入，而不是删除。</div></div>
+      <div class="equation-row"><div class="equation-expression">paired effect = aligned<sub>geometry</sub> − aligned<sub>random</sub></div><div class="equation-explain">Random arm 在同一层使用与 geometry delta 正交、L2 norm 相同的向量；正 effect 才表示 count geometry 优于等范数任意扰动。</div></div>
+    </div>
+  </div>
   <div class="method-strip">
     <div><strong>Geometry arm</strong><code>centroid_delta</code>：h′<sub>ℓ</sub>=h<sub>ℓ</sub>+α(μ<sub>ℓ,target</sub>−μ<sub>ℓ,receiver</sub>)；每层使用自己的 full-dimensional discovery delta。</div>
     <div><strong>Matched control</strong>每个被干预层使用与该层几何 delta 正交且 L2 norm 相同的 random vector；layer set、α、prompt 与 directed pair 完全匹配。</div>
@@ -5232,6 +5319,13 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <h3>5.2 Discovery-locked confirmation：Single-layer 与 Multi-layer steering</h3>
   <p>为避免从第一轮结果中挑 layer 后仍在同一批 confirmation data 上报告，我们新运行两阶段 v2。<strong>Discovery screen</strong> 只用 seeds 1234–1237：Qwen 候选 layer sets 为 9、18、26、18+26、9+18+26；Gemma 为 10、20、31、20+31、10+20+31；每个 set 扫 α∈{0.25,0.5,1}，共 15 个 plans。Single-layer 候选是三个 singleton sets，multi-layer 候选是两个复合集合。</p>
   <p>每种 protocol 只锁定一个 plan。选择分数为四个 V4 panels 中最差的 mean paired strict aligned-shift effect，减去 2×geometry invalid rate；若并列，再按总体 mean effect 较大、α 较小决定。锁定后不再改动，使用完全不相交的 seeds 1254–1263 做 <strong>confirmation</strong>：4 panels×10 seeds×6 directed pairs×2 protocols×2 conditions=960 rows/model。Multi-layer 不是把一个向量重复贴到多层，而是在每个 selected layer 分别施加该层自己的 μ<sub>ℓ,target</sub>−μ<sub>ℓ,receiver</sub>。</p>
+  <div class="formula">
+    <div class="formula-title">Discovery-only robust plan selection</div>
+    <div class="equation-grid">
+      <div class="equation-row"><div class="equation-expression">score(plan) = min<sub>v∈V4.1..V4.4</sub>Δ<sub>v</sub> − 2·invalid rate</div><div class="equation-explain">Δ<sub>v</sub> 是该 panel 的 discovery paired strict aligned-shift effect。取最差 panel 防止只在一个 relaxation 上表现好；invalid penalty 防止靠破坏输出格式得到表面位移。</div></div>
+    </div>
+    <p class="formula-note">每种 protocol 只按该分数锁定一个 plan；若并列，依次选择总体 mean effect 更大、α 更小者。之后不再调整，并在 seeds 1254–1263 上做 held-out confirmation。</p>
+  </div>
   <h4>Discovery 选择记录</h4>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>protocol</th><th>locked layers</th><th>α</th><th>candidate plans / seeds</th><th>mean screen Δ</th><th>worst-panel screen Δ</th><th>positive panels</th><th>valid</th><th>robust score</th></tr></thead><tbody>@@STEERING_V2_SELECTION_ROWS@@</tbody></table></div>
   <h4>Held-out confirmation aggregate</h4>
@@ -5292,8 +5386,8 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <span class="section-kicker">Appendix C · Reproducibility</span>
   <h2>复现、归档与报告 provenance</h2>
   <p>Source run：<code>@@RUN_NAME@@</code>。本地与 Lambda filesystem 均保留完整 run；最终 answer-query bundle 的 SHA-256 为 <code>93776fdea92a07e358d52594969a7ab0d97ad9ef9107ed543d4a7daaa6567920</code>。报告由保存的 behavior labels、representation NPZ、raw answer-query attention rows、causal detail/summary/control tables 重新生成，不依赖服务器内存状态。</p>
-  <div class="formula">PYTHONPATH=src python scripts/build_realistic_niah_v4_representation_report.py --run-root &lt;run-root&gt; --output reports/realistic_niah_v4_representation_report.html --repo-root .</div>
-  <p>视觉系统固定为 Aurora：Midnight Indigo <code>#23165C</code>、Polar Violet <code>#6750E8</code>、Ice Cyan <code>#00C2FF</code>、Aurora Yellow <code>#F6E36A</code>、Aurora Teal <code>#00D4B4</code>、Aurora Green <code>#39E58C</code>、Polar Magenta <code>#C04DFF</code>、Sunset Pink <code>#FF5FA2</code>；正文/背景/网格分别使用 Night Black、Snow White、Frost Gray。后续 V4+ plots 应复用这一 palette 和语义映射。</p>
+  <div class="command-block">PYTHONPATH=src python scripts/build_realistic_niah_v4_representation_report.py --run-root &lt;run-root&gt; --output reports/realistic_niah_v4_representation_report.html --repo-root .</div>
+  <p>图表视觉系统固定为 Aurora：Midnight Indigo <code>#23165C</code>、Polar Violet <code>#6750E8</code>、Ice Cyan <code>#00C2FF</code>、Aurora Yellow <code>#F6E36A</code>、Aurora Teal <code>#00D4B4</code>、Aurora Green <code>#39E58C</code>、Polar Magenta <code>#C04DFF</code>、Sunset Pink <code>#FF5FA2</code>；图内背景/网格使用 Snow White 与 Frost Gray。报告正文改用低饱和米白页面、象牙白内容面板与 Warm Brown 边界，使文字层级更清楚；后续 V4+ plots 仍应复用 Aurora palette 和语义映射。</p>
   <div class="section-conclusion"><span>本节结论</span><p>所有图表的数值来源、坐标含义、计算公式、selection split 与 inference unit 都在报告中显式记录；HTML 为 self-contained artifact，可离线打开并复查交互式 3D geometry。</p></div>
 </div>
 </main>
