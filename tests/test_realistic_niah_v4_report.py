@@ -69,6 +69,7 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     assert "@@REPRESENTATION_R2_SVG@@" in template
     assert "@@LAYER_SWEEP_SVG@@" in template
     assert "@@ANSWER_QUERY_COUNTER_SVG@@" in template
+    assert "@@ANSWER_QUERY_DATA@@" in template
     assert "@@ATTENTION_HEAD_ATLAS_HTML@@" in template
     assert "@@ATTENTION_HEAD_PROFILE_SVG@@" in template
     assert "@@ATTENTION_OUTCOME_EFFECT_SVG@@" in template
@@ -84,6 +85,9 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     assert "realistic_niah_v4_steering_v2_confirmation.csv" in template
     assert "realistic_niah_v4_steering_v2_panels.csv" in template
     assert 'id="layer-select"' in template
+    assert 'id="answer-counter3d"' in template
+    assert 'id="aq-layer-select"' in template
+    assert "function aqDraw()" in template
     assert "Discovery / confirmation" in template
     assert 'id="definitions"' not in template
     assert template.index("Discovery / confirmation") < template.index('<section id="behavior">')
@@ -277,6 +281,10 @@ def test_answer_query_counter_is_a_separate_layered_figure() -> None:
         for layer in model_layers:
             assert f"L{layer}" in svg
     assert "<title" in svg and "<desc" in svg
+    template = report.REPORT_TEMPLATE
+    assert "Interactive answer-query counter manifold" in template
+    assert "Static answer-query PC1–PC2 audit" in template
+    assert "AQ_DATA" in template
 
 
 def test_core_figures_define_axes_and_accessibility_text() -> None:

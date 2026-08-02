@@ -4848,9 +4848,9 @@ select,button { width:100%; border:1px solid rgba(0,194,255,.42); background:rgb
 button { cursor:pointer; font-weight:720; transition:transform .16s ease,background .16s ease; }
 button:hover { background:rgba(103,80,232,.42); } button:active { transform:translateY(1px); }
 .canvas-wrap { position:relative; min-height:610px; background:#120D31; border:1px solid rgba(0,194,255,.32); }
-#counter3d { display:block; width:100%; height:610px; cursor:grab; }
-#counter3d.dragging { cursor:grabbing; }
-#tooltip { position:absolute; display:none; pointer-events:none; max-width:280px; padding:9px 11px; border:1px solid var(--cyan); background:rgba(22,25,35,.95); color:var(--paper); font-size:12px; box-shadow:0 10px 24px rgba(22,25,35,.35); }
+#counter3d,#answer-counter3d { display:block; width:100%; height:610px; cursor:grab; }
+#counter3d.dragging,#answer-counter3d.dragging { cursor:grabbing; }
+#tooltip,#answer-tooltip { position:absolute; display:none; pointer-events:none; max-width:280px; padding:9px 11px; border:1px solid var(--cyan); background:rgba(22,25,35,.95); color:var(--paper); font-size:12px; box-shadow:0 10px 24px rgba(22,25,35,.35); }
 .viz-foot { display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:12px; color:rgba(248,251,255,.72); font-size:12px; }
 #geometry-stats { color:var(--yellow); text-align:right; }
 .legend { display:flex; flex-wrap:wrap; gap:12px; margin-top:10px; color:rgba(248,251,255,.76); font-size:12px; }
@@ -4912,7 +4912,7 @@ button:hover { background:rgba(103,80,232,.42); } button:active { transform:tran
 footer { padding:25px; color:var(--muted); text-align:center; border-top:1px solid var(--line); font-size:12px; }
 @media (max-width:960px) { .grid4,.notes,.method-strip,.metric-defs,.next-grid { grid-template-columns:repeat(2,1fr); } .controls { grid-template-columns:repeat(3,1fr); } .figures { grid-template-columns:1fr; } .mechanism-flow { grid-template-columns:1fr; gap:0; } .flow-arrow { transform:rotate(90deg); min-height:34px; } }
 @media (max-width:720px) { .equation-row { grid-template-columns:1fr; gap:5px; } .equation-expression { white-space:normal; } }
-@media (max-width:600px) { main { padding-inline:16px; } header { padding-inline:18px; } .grid4,.notes,.method-strip,.metric-defs,.next-grid,.viz-foot,.evidence-ledger { grid-template-columns:1fr; } .ledger-row { display:block; } .controls { grid-template-columns:repeat(2,1fr); } #counter3d { height:500px; } .canvas-wrap { min-height:500px; } .stat-figure,.figure-card { overflow-x:auto; } .stat-svg,.projection-svg { min-width:720px; } }
+@media (max-width:600px) { main { padding-inline:16px; } header { padding-inline:18px; } .grid4,.notes,.method-strip,.metric-defs,.next-grid,.viz-foot,.evidence-ledger { grid-template-columns:1fr; } .ledger-row { display:block; } .controls { grid-template-columns:repeat(2,1fr); } #counter3d,#answer-counter3d { height:500px; } .canvas-wrap { min-height:500px; } .stat-figure,.figure-card { overflow-x:auto; } .stat-svg,.projection-svg { min-width:720px; } }
 @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } button { transition:none; } }
 </style>
 </head>
@@ -5061,8 +5061,27 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <div class="figures">@@STATIC_FIGURES@@</div>
   <h3>2.3 Answer-query counter：<code>Total:</code> 位置的聚合状态</h3>
   <p class="lede">这张图使用 geometric-steering discovery capture 中保存的完整 answer-query residual：Qwen L9/L18/L26，Gemma L10/L20/L31。每个点对应一个 variant×discovery seed×gold count prompt，在生成第一个答案 token 之前捕获；它不是 needle token 的均值，也不是首个答案 token 生成后的状态。每层 PCA 只在 v4.1 的 20×10 个 discovery query states 上拟合。</p>
-  <div class="figure-intro"><p><strong>画什么：</strong>生成答案前，prompt-final <code>Total:</code> query 的完整 residual 如何随 gold count 1–10 组织，并比较早、中、后三个保存层。</p><p><strong>如何得到：</strong>每层只在 V4.1 的 20 discovery seeds×10 counts 上拟合 PCA，再同时投影 V4.1 与 V4.4；点是单 prompt，折线是 count centroids。</p><p><strong>能说明什么：</strong>它定位聚合后的 count-conditioned query geometry 何时出现；PCA 仍是描述性证据，后面的 exact donor patch 与 steering 才检验该状态是否能驱动输出。</p></div>
-  <div class="stat-grid"><figure class="stat-figure">@@ANSWER_QUERY_COUNTER_SVG@@<figcaption><strong>图 B2-F4 · Answer-query count manifold。</strong>上排为 Qwen3-8B 的 L9/L18/L26，下排为 Gemma4-E4B 的 L10/L20/L31；每格横轴/纵轴是该层在 V4.1 discovery answer-query states 上独立拟合的 PC1/PC2 score。颜色编码 gold count：N=1 靛蓝，依次过渡到 N=10 青色；半透明小点是 V4.4 的 20 个 discovery seeds×10 counts。灰色虚线连接 V4.1 的 N=1→10 centroids，黑色实线及彩色节点连接 V4.4 centroids；线段只连接离散均值。为避免早层重叠，只给 V4.4 的 N=1 与 N=10 加文字标签，中间 counts 由顶部色标识别。格顶的 EVR 是 PC1+PC2 对该层 V4.1 discovery 总方差的解释比例。每格独立拟合并缩放，故只能看格内的 count 顺序、间距和 seed 散布，不能跨 layer/model 比较坐标绝对值。</figcaption></figure></div>
+  <div class="figure-intro"><p><strong>画什么：</strong>生成答案前，prompt-final <code>Total:</code> query 的完整 residual 在三维 PCA 空间中如何随 gold count 1–10 组织；可切换模型、保存层、V4 panel 与任意 PC1–PC6 轴组合。</p><p><strong>如何得到：</strong>每个 model×layer 都只用 V4.1 的 20 discovery seeds×10 counts 拟合自己的 PC1–PC6；切换 V4.2–V4.4 时只投影，不重新拟合。淡点是单 prompt，彩色节点与线是十个 gold-count centroids。</p><p><strong>能说明什么：</strong>它检查聚合后的 count-conditioned query manifold 何时出现、是否弯曲、跨 panel 是否散开；PCA 仍是描述性证据，2.5 的 exact donor patch 与第 5 章 steering 才检验该状态是否驱动输出。</p></div>
+  <div class="viz-shell">
+    <div class="controls">
+      <label>Model<select id="aq-model-select"><option>Qwen3-8B</option><option>Gemma4-E4B</option></select></label>
+      <label>Post-block layer<select id="aq-layer-select"></select></label>
+      <label>Variant<select id="aq-variant-select"><option>v4.1</option><option>v4.2</option><option>v4.3</option><option>v4.4</option></select></label>
+      <label>View<button id="aq-reset-view" type="button">reset rotation</button></label>
+      <label>X axis<select id="aq-x-axis"></select></label>
+      <label>Y axis<select id="aq-y-axis"></select></label>
+      <label>Z axis<select id="aq-z-axis"></select></label>
+      <label>Points<select id="aq-points-select"><option value="all">all discovery prompts</option><option value="centroids">centroids only</option></select></label>
+      <label>Scale<select id="aq-scale-select"><option value="metric">equal metric scale</option><option value="normalized">normalize each axis</option></select></label>
+      <label>Preset<select id="aq-axis-preset"><option value="0,1,2">PC1 / PC2 / PC3</option><option value="0,2,3">PC1 / PC3 / PC4</option><option value="1,2,3">PC2 / PC3 / PC4</option><option value="3,4,5">PC4 / PC5 / PC6</option></select></label>
+    </div>
+    <div class="canvas-wrap"><canvas id="answer-counter3d" aria-label="Interactive 3D PCA of the answer-query count manifold"></canvas><div id="answer-tooltip"></div></div>
+    <div class="viz-foot"><div id="aq-pca-stats"></div><div id="aq-geometry-stats"></div></div>
+    <div class="legend" id="aq-count-legend"></div>
+  </div>
+  <p class="figure-caption"><strong>图 B2-F4a · Interactive answer-query counter manifold。</strong>每个淡点是一条 model×V4 panel×discovery seed×gold count prompt 在首个答案 token 生成前、<code>Total:</code> query 位置的完整 post-block residual；颜色从靛蓝 N=1 过渡到青色 N=10。彩色大节点与连线是当前 model×layer×panel 的 N=1→10 centroids，连线只表示 count 顺序，不是拟合曲线。Model、Post-block layer、V4 panel、X/Y/Z 轴、点显示和尺度均可切换；拖动旋转、滚轮缩放、悬停查看 seed/count。左下角列出该层 V4.1 discovery PCA 的 PC1–PC6 EVR，右下角给出当前三轴 centroid trajectory 的 step CV 与 path/chord。每层独立拟合，因此只可比较该层内部的 panel、count 顺序和 seed 散布，不能跨 layer/model 直接比较 PC 坐标绝对值。</p>
+  <div class="figure-intro"><p><strong>画什么：</strong>把同一 answer-query 数据固定到 PC1–PC2，形成两个模型×三个保存层的静态审计图，便于不操作 3D 控件也能直接比较 V4.1 与 V4.4。</p><p><strong>如何得到：</strong>每层沿用上方交互图的 V4.1 discovery PCA basis；灰色虚线路径是 V4.1 centroids，黑色实线路径与半透明散点是 V4.4。</p><p><strong>能说明什么：</strong>它提供可打印、固定视角的 cross-layer audit；只显示 PC1–PC2，不能替代上方可切换 PC3–PC6 的三维检查。</p></div>
+  <div class="stat-grid"><figure class="stat-figure">@@ANSWER_QUERY_COUNTER_SVG@@<figcaption><strong>图 B2-F4b · Static answer-query PC1–PC2 audit。</strong>上排为 Qwen3-8B 的 L9/L18/L26，下排为 Gemma4-E4B 的 L10/L20/L31；每格横轴/纵轴是该层在 V4.1 discovery answer-query states 上独立拟合的 PC1/PC2 score。颜色编码 gold count：N=1 靛蓝，依次过渡到 N=10 青色；半透明小点是 V4.4 的 20 个 discovery seeds×10 counts。灰色虚线连接 V4.1 的 N=1→10 centroids，黑色实线及彩色节点连接 V4.4 centroids；线段只连接离散均值。为避免早层重叠，只给 V4.4 的 N=1 与 N=10 加文字标签，中间 counts 由顶部色标识别。格顶的 EVR 是 PC1+PC2 对该层 V4.1 discovery 总方差的解释比例。每格独立拟合并缩放，故只能看格内的 count 顺序、间距和 seed 散布，不能跨 layer/model 比较坐标绝对值。</figcaption></figure></div>
   <div class="section-conclusion"><span>当前结论 · 两种表示不能混称</span><p>Prompt-reading 图追踪同一个 N=10 prompt 内第 1→10 个 needle occurrence 的局部状态；answer-query 图比较十个不同 gold-count prompts 在 <code>Total:</code> 位置的聚合状态。前者说明读入过程中哪些 layer 出现可视的 index trajectory，后者说明生成前哪些 layer 已形成 count-conditioned query geometry。只有后者与 late answer-query donor patching/steering 位于同一干预位置，因此不能用 prompt occurrence PCA 直接替代 answer-query counter 的机制证据。</p></div>
   <details><summary>N=10 trajectory 的实际 greedy outcome strata</summary><p class="lede">一条 N=10 trajectory 的十个 occurrence vectors 共同继承该 prompt 的最终输出标签；不是按单 occurrence 重新分类。Qwen confirmation 在四个 panel 都没有正确 N=10 trajectory；Gemma 只有 v4.1 的 1 条，因此 correct/wrong 几何只能作 audit，不能作有 power 的组间比较。</p><div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>split</th><th>correct / n</th><th>accuracy</th><th>mean prediction</th><th>MAE</th></tr></thead><tbody>@@BEHAVIOR_ROWS@@</tbody></table></div></details>
   <div class="section-conclusion"><span>本节结论</span><p>可切换 PCA 中的 centroid trajectory 证明 count-related geometry 具有低维可视结构，但 individual seed scatter、step CV 与 path/chord 显示它既不完全等距，也不总是笔直。PCA 只能说明 representation 的组织方式；是否进入生成读出，需要后面的 attention 与 causal intervention。</p></div>
@@ -5430,6 +5449,7 @@ function makeTablesCollapsible() {
 }
 makeTablesCollapsible();
 const REP_DATA = @@REP_DATA@@;
+const AQ_DATA = @@ANSWER_QUERY_DATA@@;
 const COLORS = ['#23165C','#4430A2','#6750E8','#9950F4','#C04DFF','#FF5FA2','#F6E36A','#39E58C','#00D4B4','#00C2FF'];
 const canvas = document.getElementById('counter3d');
 const ctx = canvas.getContext('2d');
@@ -5551,12 +5571,93 @@ canvas.addEventListener('pointermove',e=>{if(dragging){yaw+=(e.clientX-lastX)*.0
 canvas.addEventListener('pointerup',()=>{dragging=false;canvas.classList.remove('dragging');}); canvas.addEventListener('pointercancel',()=>{dragging=false;canvas.classList.remove('dragging');}); canvas.addEventListener('mouseleave',()=>{tooltip.style.display='none';});
 canvas.addEventListener('wheel',e=>{e.preventDefault();zoom=Math.max(.45,Math.min(2.8,zoom*Math.exp(-e.deltaY*.001)));draw();},{passive:false});
 document.getElementById('count-legend').innerHTML=COLORS.map((c,i)=>`<span><i style="background:${c}"></i>${i+1}</span>`).join('');
+
+const aqCanvas=document.getElementById('answer-counter3d');
+const aqCtx=aqCanvas.getContext('2d');
+const aqTooltip=document.getElementById('answer-tooltip');
+const aqControls={
+  model:document.getElementById('aq-model-select'), layer:document.getElementById('aq-layer-select'),
+  variant:document.getElementById('aq-variant-select'), points:document.getElementById('aq-points-select'),
+  scale:document.getElementById('aq-scale-select'), x:document.getElementById('aq-x-axis'),
+  y:document.getElementById('aq-y-axis'), z:document.getElementById('aq-z-axis'),
+  preset:document.getElementById('aq-axis-preset')
+};
+for(const select of [aqControls.x,aqControls.y,aqControls.z]){
+  for(let i=0;i<6;i++){const option=document.createElement('option');option.value=String(i);option.textContent=`PC${i+1}`;select.appendChild(option);}
+}
+aqControls.x.value='0';aqControls.y.value='1';aqControls.z.value='2';
+let aqYaw=-.72,aqPitch=.44,aqZoom=1,aqDragging=false,aqLastX=0,aqLastY=0,aqProjectedPoints=[];
+function aqAvailableLayers(){
+  const prefix=`${aqControls.model.value}|`;
+  return Object.keys(AQ_DATA).filter(key=>key.startsWith(prefix)).map(key=>+key.slice(prefix.length)).sort((a,b)=>a-b);
+}
+function aqRefreshLayerOptions(){
+  const layers=aqAvailableLayers();aqControls.layer.innerHTML='';
+  layers.forEach((layer,index)=>{const option=document.createElement('option');option.value=String(layer);option.textContent=`L${layer}${index===layers.length-1?' · late':''}`;aqControls.layer.appendChild(option);});
+  aqControls.layer.value=String(layers[layers.length-1]);
+}
+function aqActiveData(){return AQ_DATA[`${aqControls.model.value}|${aqControls.layer.value}`];}
+function aqFilteredRows(){const data=aqActiveData();return data?data.rows.filter(row=>row[0]===aqControls.variant.value):[];}
+function aqStatsFor(rows,axes){
+  if(!rows.length)return null;
+  const values=axes.map(axis=>rows.map(row=>row[3+axis]));
+  const mins=values.map(v=>Math.min(...v)),maxs=values.map(v=>Math.max(...v));
+  return {mins,maxs,centers:mins.map((v,i)=>(v+maxs[i])/2),ranges:mins.map((v,i)=>Math.max(maxs[i]-v,1e-8))};
+}
+function aqMakeTransform(rows,axes,width,height){
+  const stats=aqStatsFor(rows,axes);if(!stats)return null;
+  const perAxis=aqControls.scale.value==='normalized',common=Math.max(...stats.ranges),scales=stats.ranges.map(range=>perAxis?1/range:1/common),radius=Math.min(width,height)*.36*aqZoom;
+  return point=>{let x=(point[0]-stats.centers[0])*scales[0]*2,y=(point[1]-stats.centers[1])*scales[1]*2,z=(point[2]-stats.centers[2])*scales[2]*2;const cy=Math.cos(aqYaw),sy=Math.sin(aqYaw),cp=Math.cos(aqPitch),sp=Math.sin(aqPitch);const x1=cy*x+sy*z,z1=-sy*x+cy*z,y1=cp*y-sp*z1,z2=sp*y+cp*z1;return{x:width/2+x1*radius,y:height/2-y1*radius,z:z2};};
+}
+function aqCentroids(rows){
+  const byCount=new Map();for(const row of rows){if(!byCount.has(row[2]))byCount.set(row[2],[]);byCount.get(row[2]).push(row);}
+  const path=[];for(let count=1;count<=10;count++){const group=byCount.get(count)||[];if(!group.length)continue;const point=[];for(let pc=0;pc<6;pc++)point.push(group.reduce((sum,row)=>sum+row[3+pc],0)/group.length);path.push({count,point,n:group.length});}return path;
+}
+function aqGeometryText(path,axes){
+  const points=path.map(item=>axes.map(axis=>item.point[axis]));if(points.length<2)return 'centroid path: insufficient points';
+  const steps=[];for(let i=1;i<points.length;i++)steps.push(Math.hypot(...points[i].map((value,j)=>value-points[i-1][j])));
+  const mean=steps.reduce((a,b)=>a+b,0)/steps.length,sd=Math.sqrt(steps.reduce((a,b)=>a+(b-mean)**2,0)/steps.length),chord=Math.hypot(...points[points.length-1].map((value,j)=>value-points[0][j])),total=steps.reduce((a,b)=>a+b,0);
+  return `current 3D centroid path: step CV ${(sd/Math.max(mean,1e-9)).toFixed(2)} · path/chord ${(total/Math.max(chord,1e-9)).toFixed(2)}`;
+}
+function aqDrawAxes(transform,stats,axes,width,height){
+  const origin=[stats.mins[0],stats.mins[1],stats.mins[2]],ends=[[stats.maxs[0],origin[1],origin[2]],[origin[0],stats.maxs[1],origin[2]],[origin[0],origin[1],stats.maxs[2]]],start=transform(origin);aqCtx.lineWidth=1;aqCtx.font='11px system-ui';aqCtx.textAlign='left';
+  ends.forEach((end,index)=>{const finish=transform(end);aqCtx.strokeStyle=['#00C2FF','#39E58C','#FF5FA2'][index];aqCtx.beginPath();aqCtx.moveTo(start.x,start.y);aqCtx.lineTo(finish.x,finish.y);aqCtx.stroke();aqCtx.fillStyle=aqCtx.strokeStyle;aqCtx.fillText(`PC${axes[index]+1}`,finish.x+4,finish.y-4);});
+}
+function aqDraw(){
+  const rect=aqCanvas.getBoundingClientRect(),width=rect.width,height=rect.height;aqCtx.clearRect(0,0,width,height);aqCtx.fillStyle='#120D31';aqCtx.fillRect(0,0,width,height);
+  const rows=aqFilteredRows(),axes=[+aqControls.x.value,+aqControls.y.value,+aqControls.z.value],data=aqActiveData(),stats=aqStatsFor(rows,axes),transform=aqMakeTransform(rows,axes,width,height);aqProjectedPoints=[];
+  document.getElementById('aq-pca-stats').innerHTML=data?`<strong>${data.model} · answer-query · L${data.layer} · ${aqControls.variant.value}</strong><br>PCA fit: v4.1 discovery · EVR ${data.explained_variance_ratio.slice(0,6).map((value,index)=>`PC${index+1} ${(100*value).toFixed(1)}%`).join(' · ')}`:'';
+  if(!rows.length||!stats||!transform){aqCtx.fillStyle='#F6E36A';aqCtx.font='16px system-ui';aqCtx.textAlign='center';aqCtx.fillText('No answer-query states match this filter.',width/2,height/2);document.getElementById('aq-geometry-stats').textContent='No data';return;}
+  aqDrawAxes(transform,stats,axes,width,height);
+  if(aqControls.points.value!=='centroids'){
+    const points=rows.map(row=>({row,projected:transform(axes.map(axis=>row[3+axis]))})).sort((a,b)=>a.projected.z-b.projected.z);
+    for(const item of points){const row=item.row,point=item.projected;aqCtx.globalAlpha=.28;aqCtx.fillStyle=COLORS[row[2]-1];aqCtx.strokeStyle='#161923';aqCtx.lineWidth=.6;aqCtx.beginPath();aqCtx.arc(point.x,point.y,2.7,0,Math.PI*2);aqCtx.fill();aqCtx.stroke();aqProjectedPoints.push({x:point.x,y:point.y,row});}aqCtx.globalAlpha=1;
+  }
+  const path=aqCentroids(rows),projectedPath=path.map(item=>({...item,projected:transform(axes.map(axis=>item.point[axis]))}));
+  aqCtx.strokeStyle='#F8FBFF';aqCtx.lineWidth=2.5;aqCtx.beginPath();projectedPath.forEach((item,index)=>index?aqCtx.lineTo(item.projected.x,item.projected.y):aqCtx.moveTo(item.projected.x,item.projected.y));aqCtx.stroke();
+  for(const item of projectedPath){aqCtx.fillStyle=COLORS[item.count-1];aqCtx.strokeStyle='#161923';aqCtx.lineWidth=1;aqCtx.beginPath();aqCtx.arc(item.projected.x,item.projected.y,5.8,0,Math.PI*2);aqCtx.fill();aqCtx.stroke();aqCtx.fillStyle='#F8FBFF';aqCtx.font='10px system-ui';aqCtx.textAlign='left';aqCtx.fillText(String(item.count),item.projected.x+7,item.projected.y-6);}
+  aqCtx.fillStyle='#8190A5';aqCtx.font='11px system-ui';aqCtx.textAlign='left';aqCtx.fillText(`${rows.length} prompts · ${new Set(rows.map(row=>row[1])).size} discovery seeds`,12,height-12);
+  document.getElementById('aq-geometry-stats').textContent=aqGeometryText(path,axes);
+}
+function aqResizeCanvas(){const rect=aqCanvas.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);aqCanvas.width=Math.max(1,Math.round(rect.width*dpr));aqCanvas.height=Math.max(1,Math.round(rect.height*dpr));aqCtx.setTransform(dpr,0,0,dpr,0,0);aqDraw();}
+function aqReset(){aqYaw=-.72;aqPitch=.44;aqZoom=1;aqDraw();}
+aqControls.model.addEventListener('change',()=>{aqRefreshLayerOptions();aqDraw();});
+[aqControls.layer,aqControls.variant,aqControls.points,aqControls.scale,aqControls.x,aqControls.y,aqControls.z].forEach(element=>element.addEventListener('change',aqDraw));
+aqControls.preset.addEventListener('change',()=>{const axes=aqControls.preset.value.split(',');aqControls.x.value=axes[0];aqControls.y.value=axes[1];aqControls.z.value=axes[2];aqDraw();});
+document.getElementById('aq-reset-view').addEventListener('click',aqReset);
+aqCanvas.addEventListener('pointerdown',event=>{aqDragging=true;aqLastX=event.clientX;aqLastY=event.clientY;aqCanvas.classList.add('dragging');aqCanvas.setPointerCapture(event.pointerId);});
+aqCanvas.addEventListener('pointermove',event=>{if(aqDragging){aqYaw+=(event.clientX-aqLastX)*.008;aqPitch=Math.max(-1.45,Math.min(1.45,aqPitch+(event.clientY-aqLastY)*.008));aqLastX=event.clientX;aqLastY=event.clientY;aqDraw();return;}const rect=aqCanvas.getBoundingClientRect(),x=event.clientX-rect.left,y=event.clientY-rect.top;let best=null,distance=Infinity;for(const point of aqProjectedPoints){const current=(point.x-x)**2+(point.y-y)**2;if(current<distance){distance=current;best=point;}}if(best&&distance<80){const row=best.row;aqTooltip.style.display='block';aqTooltip.style.left=`${Math.min(rect.width-250,x+14)}px`;aqTooltip.style.top=`${Math.max(8,y-10)}px`;aqTooltip.innerHTML=`<strong>${row[0]} · seed ${row[1]} · gold count ${row[2]}</strong><br>answer-query · L${aqControls.layer.value} · pre-first-answer-token`;}else aqTooltip.style.display='none';});
+aqCanvas.addEventListener('pointerup',()=>{aqDragging=false;aqCanvas.classList.remove('dragging');});aqCanvas.addEventListener('pointercancel',()=>{aqDragging=false;aqCanvas.classList.remove('dragging');});aqCanvas.addEventListener('mouseleave',()=>{aqTooltip.style.display='none';});
+aqCanvas.addEventListener('wheel',event=>{event.preventDefault();aqZoom=Math.max(.45,Math.min(2.8,aqZoom*Math.exp(-event.deltaY*.001)));aqDraw();},{passive:false});
+document.getElementById('aq-count-legend').innerHTML=COLORS.map((color,index)=>`<span><i style="background:${color}"></i>${index+1}</span>`).join('');
+
 document.querySelectorAll('.atlas-button').forEach(button=>button.addEventListener('click',()=>{
   const selected=button.dataset.atlasVariant;
   document.querySelectorAll('.atlas-button').forEach(item=>item.setAttribute('aria-pressed',String(item===button)));
   document.querySelectorAll('.atlas-panel').forEach(panel=>{panel.hidden=panel.dataset.atlasPanel!==selected;});
 }));
-refreshLayerOptions(); new ResizeObserver(resizeCanvas).observe(canvas); resizeCanvas();
+refreshLayerOptions();new ResizeObserver(resizeCanvas).observe(canvas);resizeCanvas();
+aqRefreshLayerOptions();new ResizeObserver(aqResizeCanvas).observe(aqCanvas);aqResizeCanvas();
 </script>
 </body>
 </html>"""
@@ -5667,6 +5768,9 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
         ),
         "@@ANSWER_QUERY_COUNTER_SVG@@": _answer_query_counter_svg(
             answer_query_projections
+        ),
+        "@@ANSWER_QUERY_DATA@@": json.dumps(
+            answer_query_projections, ensure_ascii=False, separators=(",", ":")
         ),
         "@@SENSITIVITY_ROWS@@": _table_sensitivity_html(sensitivity_rows),
         "@@ATTENTION_BREADTH_SVG@@": _attention_breadth_svg(attention_top_rows),
