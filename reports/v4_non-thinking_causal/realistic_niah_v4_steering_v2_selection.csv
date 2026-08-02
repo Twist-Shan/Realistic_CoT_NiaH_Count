@@ -1,0 +1,5 @@
+model,protocol,layer_set,alpha,candidate_plans,screen_seeds,mean_screen_effect,worst_panel_screen_effect,positive_screen_panels,screen_valid_rate,robust_selection_score
+Qwen3-8B,single_layer,26,1.0,15,4,0.9583333333333334,0.5833333333333333,4,1.0,0.5833333333333333
+Qwen3-8B,multi_layer,9+18+26,1.0,15,4,0.9375,0.625,4,1.0,0.625
+Gemma4-E4B,single_layer,31,1.0,15,4,1.15625,0.8333333333333334,4,1.0,0.8333333333333334
+Gemma4-E4B,multi_layer,10+20+31,1.0,15,4,1.2083333333333337,0.8333333333333334,4,1.0,0.8333333333333334

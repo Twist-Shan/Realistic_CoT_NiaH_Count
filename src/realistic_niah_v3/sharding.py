@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from collections.abc import Iterable
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from realistic_niah.spec import QUERY_LAYOUT
@@ -22,7 +23,51 @@ from .spec import (
     V3_RUN_PROTOCOL,
 )
 
-FORMAL_SHARD_PLAN_SCHEMA = "realistic_niah_formal_shard_plan_v3"
+FORMAL_SHARD_PLAN_SCHEMA = (
+    "realistic_niah_formal_shard_plan_v3_resource_aware_v1"
+)
+
+
+@dataclass(frozen=True)
+class ResourceProfile:
+    gpus_required: int
+    tensor_parallel_size: int
+    request_batch_size: int
+    max_num_seqs: int
+    gpu_memory_utilization: float
+    max_model_len: int = 32_768
+
+
+MODEL_RESOURCE_PROFILES = {
+    "Gemma4-31B": ResourceProfile(2, 2, 1, 1, 0.90),
+    "Qwen3-32B": ResourceProfile(1, 1, 1, 1, 0.92),
+    "Gemma4-26B-A4B": ResourceProfile(1, 1, 2, 2, 0.92),
+    "Qwen3-14B": ResourceProfile(1, 1, 2, 2, 0.92),
+    "Gemma4-12B": ResourceProfile(1, 1, 4, 4, 0.90),
+    "Nemotron-Nano-v2-9B": ResourceProfile(1, 1, 4, 4, 0.90),
+    "GLM-4-9B-0414": ResourceProfile(1, 1, 4, 4, 0.90),
+    "GLM-Z1-9B-0414": ResourceProfile(1, 1, 4, 4, 0.90),
+    "Qwen3-8B": ResourceProfile(1, 1, 6, 6, 0.90),
+    "Gemma4-E4B": ResourceProfile(1, 1, 6, 6, 0.90),
+    "Ministral-3-Instruct-8B": ResourceProfile(1, 1, 6, 6, 0.90),
+    "Ministral-3-Reasoning-8B": ResourceProfile(1, 1, 6, 6, 0.90),
+    "Qwen3-4B": ResourceProfile(1, 1, 8, 8, 0.90),
+    "Nemotron-3-Nano-4B": ResourceProfile(1, 1, 8, 8, 0.90),
+}
+
+
+def resource_profile(model_label: str) -> ResourceProfile:
+    try:
+        profile = MODEL_RESOURCE_PROFILES[model_label]
+    except KeyError as exc:
+        raise KeyError(
+            f"No V3 resource profile registered for {model_label}"
+        ) from exc
+    if profile.gpus_required != profile.tensor_parallel_size:
+        raise RuntimeError(
+            f"V3 profile must allocate one GPU per TP rank: {model_label}"
+        )
+    return profile
 
 _MODEL_SCHEDULING_WEIGHT = {
     "Qwen3-4B": 40,
@@ -65,6 +110,7 @@ def formal_shard_tasks() -> list[dict[str, Any]]:
     tasks: list[dict[str, Any]] = []
     for model_label in MODEL_LABELS:
         spec = MODEL_SPECS[model_label]
+        resources = resource_profile(model_label)
         for prompt_mode in spec.prompt_modes:
             tasks.append(
                 {
@@ -80,6 +126,7 @@ def formal_shard_tasks() -> list[dict[str, Any]]:
                     "reasoning_policy": spec.reasoning_policy,
                     "output_collection": _output_collection(model_label),
                     "expected_requests": EXPECTED_STIMULI,
+                    **asdict(resources),
                 }
             )
     tasks.sort(key=lambda task: (-int(task["priority"]), str(task["task_id"])))
@@ -112,6 +159,16 @@ def formal_shard_plan() -> dict[str, Any]:
             len(SWITCHABLE_MODEL_LABELS)
             + len(MATCHED_REASONING_MODEL_LABELS)
         ),
+        "scheduler": {
+            "algorithm": "resource_aware_greedy_backfill",
+            "maximum_supported_gpus": 8,
+            "allocation_unit": "whole visible GPU",
+            "multi_gpu_tasks": [
+                task["task_id"]
+                for task in tasks
+                if int(task["gpus_required"]) > 1
+            ],
+        },
         "tasks_sha256": hashlib.sha256(canonical).hexdigest(),
         "tasks": tasks,
     }

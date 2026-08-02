@@ -86,6 +86,12 @@ def prepare(run_root: Path, repo_root: Path) -> dict[str, Any]:
         "output_collection",
         "expected_requests",
         "model_revision",
+        "gpus_required",
+        "tensor_parallel_size",
+        "request_batch_size",
+        "max_num_seqs",
+        "gpu_memory_utilization",
+        "max_model_len",
     )
     lines = ["\t".join(fields)]
     lines.extend(

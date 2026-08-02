@@ -165,7 +165,14 @@ One checkpoint × mode combination is one resumable shard:
 Thus V3 contains 48 shards, each with 980 requests, for
 `48 × 980 = 47,040` requests. Request IDs begin with the `v3/` namespace.
 
-The worker:
+The resource-aware scheduler supports 2 through 8 visible GPUs. It freezes
+resource requirements inside the shard plan, then greedily packs the highest
+priority pending tasks while allowing one-GPU tasks to backfill unused GPUs.
+Gemma4-31B reserves two GPUs with tensor parallel size 2; Qwen3-32B uses one
+H100 with `gpu_memory_utilization=0.92`; all remaining shards use one GPU.
+GPU assignments never overlap.
+
+Each task runner:
 
 1. atomically claims one shard;
 2. writes request-ID checkpoints after every bounded vLLM batch;
@@ -207,7 +214,27 @@ McNemar p-value, and a Holm-adjusted p-value across the six mode contrasts
 within a behavior slot. The GLM and Ministral native-thinking contrasts remain
 checkpoint-confounded even though their stimuli are paired.
 
-### 6.3 Bias and dispersion
+### 6.3 Native-thinking visible counting style
+
+Native-thinking traces are assigned one mutually exclusive, preregistered
+observable-text class:
+
+- indexed list;
+- bullet list;
+- mixed indexed and bullet structure;
+- word enumeration using two or more distinct ordinal words;
+- inline tally or arithmetic;
+- prose reasoning without a registered list/tally marker;
+- no visible reasoning.
+
+The precedence is mixed structure, index, bullet, ordinal-word enumeration,
+inline tally/arithmetic, prose, then empty. Classification describes the visible trace only; it is not
+evidence that the same device is the model's latent counting mechanism. The
+report gives each class's share and exact-count accuracy overall and by N/L,
+plus deterministic HTML excerpts. The companion JSONL retains the complete
+reasoning and final text for each selected example.
+
+### 6.4 Bias and dispersion
 
 For a successfully parsed response:
 
@@ -236,7 +263,8 @@ response_m(N,L) = alpha_m + f_mode(N,L)
 
 `alpha_m` is a behavior-slot fixed intercept. All `N,L` coefficients are
 shared across slots, so this is not a post-hoc separate formula per model.
-Accuracy uses a logistic link.
+Accuracy is fit as a discrete probability distribution over the number of
+correct seeds in each behavior-slot × N × L cell.
 
 The bounded candidate grid uses:
 
@@ -251,23 +279,43 @@ The bounded candidate grid uses:
 An interaction candidate always includes both parent main effects. No
 higher-order polynomial or interaction is searched.
 
+Every response surface is crossed with four explicit accuracy families:
+
+- Binomial with logit link;
+- Binomial with probit link;
+- Binomial with complementary-log-log link;
+- Beta-Binomial with logit mean and one fitted concentration parameter.
+
+The Beta-Binomial tests whether seed-to-seed outcomes show more dispersion
+than a Binomial law permits. It is not treated as automatically preferable.
+Accuracy probability-distribution results and continuous deviation regressions
+are written to separate comparison tables as well as the complete combined
+table; distributional assumptions are never transferred to the bias targets.
+
 ### 7.1 Validation and selection
 
 Five-fold grouped cross-validation holds out complete seeds. A held-out seed
 is absent from training for every `N`, `L`, checkpoint, and mode, preventing
 same-stimulus leakage.
 
-- accuracy: held-out log loss, Brier score, and deviance explained relative
-  to a per-model training prevalence;
+- accuracy: held-out predictive negative log density of cell success counts,
+  Bernoulli mean-probability log loss, Brier score, and deviance explained
+  relative to a per-model training prevalence;
 - continuous deviation targets: held-out condition-level R², MAE, and RMSE;
 - all fits: convergence status, coefficients, standard errors, p-values, and
   95% intervals.
 
-A fixed \(10^{-8}\) numerical ridge is applied to non-intercept logistic
-coefficients solely to keep perfectly separated folds finite. It is not
-searched or tuned. Logistic Wald intervals and interaction p-values should
-therefore be read as large-sample diagnostics rather than exact finite-sample
-tests.
+A fixed \(10^{-8}\) numerical ridge is applied to non-intercept link-scale
+coefficients solely to keep separated folds finite. It is not searched or
+tuned. Wald intervals and interaction p-values should therefore be read as
+large-sample diagnostics rather than exact finite-sample tests.
+
+After selection, the fitted discrete CDF produces fixed-seed Dunn--Smyth
+randomized quantile residuals. Their Q--Q plots compare residual quantiles to
+standard-normal quantiles. Q--Q correlation R-squared, Shapiro--Wilk, and
+Cramer--von Mises are reported as distribution-adequacy diagnostics. They do
+not select the model, and they are not a conventional Q--Q "significance
+test"; held-out predictive scores remain primary.
 
 A one-standard-error-style rule chooses the simplest near-best candidate.
 Interaction candidates are ineligible when their interaction coefficient has
@@ -319,6 +367,13 @@ On a Linux GPU host:
 bash scripts/launch_realistic_niah_v3.sh /path/to/run 8
 ```
 
+The second argument is the maximum visible GPU count (2--8). The launcher
+starts one scheduler tmux and one finalizer tmux. The scheduler records every
+live task-to-GPU allocation in `orchestration/scheduler_state.json`; a shard
+failure stops new launches while allowing already running shards to finish.
+All outputs and request-ID checkpoints are preserved for an explicit safe
+resume.
+
 After all 48 completion markers, the finalizer performs a lossless merge and
 requires 47,040 rows and 47,040 unique request IDs. It independently checks
 the exact 980 registered stimulus IDs, canonical tokenizer revision, final
@@ -335,9 +390,10 @@ PYTHONPATH=src python scripts/analyze_realistic_niah_v3.py \
 ```
 
 Outputs include request- and condition-level tables, paired mode-comparison
-statistics, the full candidate comparison, selected coefficients, 3×4 model
-panels with observed points and fitted curves, two HTML reports, an analysis
-plan, a resumable state file, and a SHA256 manifest.
+statistics, native-thinking counting-style tables/examples, the full
+response-surface × probability-family comparison, selected coefficients,
+observed/fitted model panels, randomized-residual Q--Q plots and tests, two
+HTML reports, an analysis plan, a resumable state file, and a SHA256 manifest.
 
 ## 9. Interpretation boundary
 

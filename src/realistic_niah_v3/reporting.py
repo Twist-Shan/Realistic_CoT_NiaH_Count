@@ -23,9 +23,10 @@ from realistic_niah.prompts import (
 from .analysis import (
     FEATURE_LABELS,
     behavior_tables,
-    formula_text,
+    native_thinking_style_tables,
     predict_selected_law,
 )
+from .native_thinking import NATIVE_THINKING_STYLE_ORDER
 from .spec import (
     EXPECTED_REQUESTS,
     EXPECTED_STIMULI,
@@ -277,12 +278,102 @@ def plot_condition_accuracy(
     return _save_figure(fig, path)
 
 
+def plot_native_thinking_styles(
+    style_summary: pd.DataFrame,
+    path: Path,
+) -> Path:
+    """Plot native-thinking style share and accuracy in aligned heatmaps."""
+
+    slots = _ordered_slots(style_summary["comparison_slot"])
+    observed = set(style_summary["native_thinking_style"].astype(str))
+    styles = [
+        style for style in NATIVE_THINKING_STYLE_ORDER if style in observed
+    ]
+    share = (
+        style_summary.pivot(
+            index="comparison_slot",
+            columns="native_thinking_style",
+            values="style_share_within_model",
+        )
+        .reindex(index=slots, columns=styles)
+    )
+    accuracy = (
+        style_summary.pivot(
+            index="comparison_slot",
+            columns="native_thinking_style",
+            values="parseable_exact_accuracy",
+        )
+        .reindex(index=slots, columns=styles)
+    )
+    counts = (
+        style_summary.pivot(
+            index="comparison_slot",
+            columns="native_thinking_style",
+            values="requests",
+        )
+        .reindex(index=slots, columns=styles)
+    )
+    labels = [style.replace("_", " ") for style in styles]
+    fig, axes = plt.subplots(1, 2, figsize=(20, 9), sharey=True)
+    for axis, matrix, title, colorbar_label in (
+        (axes[0], share, "Observed counting-style share", "Share"),
+        (
+            axes[1],
+            accuracy,
+            "Parseable exact accuracy within style",
+            "Accuracy",
+        ),
+    ):
+        image = axis.imshow(
+            matrix.to_numpy(dtype=float),
+            vmin=0,
+            vmax=1,
+            cmap="viridis",
+            aspect="auto",
+        )
+        axis.set_xticks(range(len(styles)), labels, rotation=28, ha="right")
+        axis.set_yticks(range(len(slots)), slots)
+        axis.set_title(title)
+        for row in range(len(slots)):
+            for column in range(len(styles)):
+                value = matrix.iloc[row, column]
+                count = counts.iloc[row, column]
+                annotation = (
+                    "NA"
+                    if pd.isna(value)
+                    else f"{value:.0%}\n(n={int(count)})"
+                )
+                color = (
+                    "white"
+                    if not pd.isna(value) and float(value) < 0.55
+                    else "black"
+                )
+                axis.text(
+                    column,
+                    row,
+                    annotation,
+                    ha="center",
+                    va="center",
+                    fontsize=7,
+                    color=color,
+                )
+        fig.colorbar(image, ax=axis, fraction=0.035, label=colorbar_label)
+    axes[0].set_ylabel("Behavior comparison slot")
+    fig.suptitle(
+        "Native-thinking visible counting devices and their accuracy",
+        fontsize=14,
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    return _save_figure(fig, path)
+
+
 def plot_selected_law(
     requests: pd.DataFrame,
     *,
     target: str,
     prompt_mode: str,
     candidate_name: str,
+    distribution_family: str,
     path: Path,
 ) -> Path:
     prediction = predict_selected_law(
@@ -290,6 +381,7 @@ def plot_selected_law(
         target=target,
         prompt_mode=prompt_mode,
         candidate_name=candidate_name,
+        distribution_family=distribution_family,
     )
     slots = _ordered_slots(prediction["comparison_slot"])
     lengths = sorted(prediction["L"].unique())
@@ -346,6 +438,54 @@ def plot_selected_law(
         fontsize=14,
     )
     fig.tight_layout(rect=(0, 0.06, 1, 0.95))
+    return _save_figure(fig, path)
+
+
+def plot_accuracy_quantile_residual_qq(
+    residuals: pd.DataFrame,
+    diagnostics: pd.DataFrame,
+    path: Path,
+) -> Path:
+    """Plot Dunn--Smyth residual Q--Q diagnostics for selected laws."""
+
+    modes = _mode_order(residuals["prompt_mode"])
+    fig, axes = plt.subplots(2, 2, figsize=(11, 10))
+    diagnostic_lookup = diagnostics.set_index("prompt_mode")
+    for axis, mode in zip(axes.flat, modes):
+        rows = residuals.loc[
+            residuals["prompt_mode"] == mode
+        ].sort_values("theoretical_normal_quantile")
+        axis.scatter(
+            rows["theoretical_normal_quantile"],
+            rows["randomized_quantile_residual"],
+            s=11,
+            alpha=0.55,
+            color="#2f6f9f",
+        )
+        bounds = np.array(
+            [
+                rows["theoretical_normal_quantile"].min(),
+                rows["theoretical_normal_quantile"].max(),
+            ]
+        )
+        axis.plot(bounds, bounds, color="#b4453e", linewidth=1.2)
+        diagnostic = diagnostic_lookup.loc[mode]
+        axis.set_title(
+            f"{MODE_LABELS[mode]}\n"
+            f"{diagnostic['distribution_family']}; "
+            f"Q-Q R²={diagnostic['qq_correlation_r2']:.3f}",
+            fontsize=10,
+        )
+        axis.set_xlabel("Theoretical standard-normal quantile")
+        axis.set_ylabel("Randomized quantile residual")
+        axis.grid(alpha=0.22)
+    for axis in axes.flat[len(modes) :]:
+        axis.set_visible(False)
+    fig.suptitle(
+        "Accuracy-distribution adequacy: Dunn–Smyth residual Q–Q plots",
+        fontsize=14,
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
     return _save_figure(fig, path)
 
 
@@ -413,6 +553,9 @@ def write_behavior_report(
     outcomes: pd.DataFrame,
     paired_comparisons: pd.DataFrame,
     plot_paths: list[Path],
+    native_style_summary: pd.DataFrame | None = None,
+    native_style_by_condition: pd.DataFrame | None = None,
+    native_style_examples: pd.DataFrame | None = None,
 ) -> Path:
     weighted = (
         summary.groupby(["comparison_slot", "prompt_mode"])
@@ -461,6 +604,13 @@ def write_behavior_report(
                 "Exclusive error categories sum to one within each model × "
                 "mode. Undercount and overcount require a parsed numeric answer."
             )
+        elif "native_thinking_styles" in path.name:
+            caption = (
+                "Left: share of native-thinking requests assigned to each "
+                "preregistered visible counting style. Right: parseable "
+                "exact-count accuracy conditional on that style. Each cell "
+                "also gives its request count; absent styles are NA."
+            )
         else:
             caption = (
                 "Horizontal axis: true needle count N. Vertical axis: exact "
@@ -469,6 +619,62 @@ def write_behavior_report(
         figures.append(
             f"<figure><img src='{html.escape(relative)}' alt='behavior plot'>"
             f"<figcaption>{html.escape(caption)}</figcaption></figure>"
+        )
+    native_style_summary = (
+        pd.DataFrame()
+        if native_style_summary is None
+        else native_style_summary
+    )
+    native_style_by_condition = (
+        pd.DataFrame()
+        if native_style_by_condition is None
+        else native_style_by_condition
+    )
+    native_style_examples = (
+        pd.DataFrame()
+        if native_style_examples is None
+        else native_style_examples
+    )
+    native_examples_html = ""
+    if not native_style_examples.empty:
+        for row in native_style_examples.itertuples():
+            reasoning = str(row.reasoning_text)
+            if len(reasoning) > 2_000:
+                reasoning = reasoning[:2_000] + "\n[excerpt truncated in HTML]"
+            label = (
+                f"{row.model_label} — "
+                f"{str(row.native_thinking_style).replace('_', ' ')} — "
+                f"N={row.N}, L={row.L}, exact={bool(row.exact_count)}"
+            )
+            native_examples_html += _details(
+                label,
+                "<pre>"
+                + html.escape(reasoning)
+                + "</pre><p><strong>Final text:</strong></p><pre>"
+                + html.escape(str(row.final_text))
+                + "</pre>",
+            )
+    native_section = (
+        "<h3>Native-thinking visible counting styles</h3>"
+        "<p>The classifier is structural and mutually exclusive: numbered "
+        "list, bullet list, mixed numbered+bullet list, ordinal-word "
+        "enumeration, inline tally or arithmetic, prose reasoning, or no "
+        "visible reasoning. It describes "
+        "the emitted trace and does not establish a latent or causal "
+        "mechanism.</p>"
+        + _table_html(native_style_summary)
+        + _details("One deterministic HTML excerpt per model × observed style", native_examples_html)
+        if not native_style_summary.empty
+        else "<h3>Native-thinking visible counting styles</h3><p>No native-thinking rows were available.</p>"
+    )
+    native_long_tables = ""
+    if not native_style_summary.empty:
+        native_long_tables = _details(
+            "Native-thinking style summary",
+            _table_html(native_style_summary),
+        ) + _details(
+            "Native-thinking style by N × L",
+            _table_html(native_style_by_condition),
         )
     long_tables = (
         _details(
@@ -487,6 +693,7 @@ def write_behavior_report(
             "All paired prompt-mode comparisons",
             _table_html(paired_comparisons),
         )
+        + native_long_tables
     )
     body = rf"""
 <h1>Realistic NIAH V3 — Behavior Comparison</h1>
@@ -529,6 +736,7 @@ truncation failures into numeric count errors and never hides them by
 conditioning the accuracy denominator on parsing.</p>
 <h2>4. Results</h2>
 {''.join(figures)}
+{native_section}
 <h3>Best observed mode within each behavior slot</h3>
 {_table_html(best)}
 <p class="small">“Best” is descriptive on the full sample, not a significance
@@ -562,7 +770,11 @@ establish that a reasoning trace causally produced the answer.</p>
     return output_path
 
 
-def _latex_formula(target: str, candidate_name: str) -> str:
+def _latex_formula(
+    target: str,
+    candidate_name: str,
+    distribution_family: str,
+) -> str:
     feature_map = {
         "N": "N",
         "L_k": "L/1000",
@@ -577,11 +789,16 @@ def _latex_formula(target: str, candidate_name: str) -> str:
     candidate = next(
         item for item in CANDIDATES if item.name == candidate_name
     )
-    left = (
-        "\\operatorname{logit}\\Pr(\\hat N=N)"
-        if target == "parseable_exact_accuracy"
-        else "\\mu_{m}(N,L)"
-    )
+    if target == "parseable_exact_accuracy":
+        link = {
+            "binomial_logit": "logit",
+            "beta_binomial_logit": "logit",
+            "binomial_probit": "probit",
+            "binomial_cloglog": "cloglog",
+        }[distribution_family]
+        left = f"\\operatorname{{{link}}}\\Pr(\\hat N=N)"
+    else:
+        left = "\\mu_{m}(N,L)"
     terms = ["\\alpha_m"] + [
         f"\\beta_{index + 1}{feature_map[feature]}"
         for index, feature in enumerate(candidate.features)
@@ -596,15 +813,22 @@ def write_empirical_law_report(
     comparisons: pd.DataFrame,
     coefficients: pd.DataFrame,
     plot_paths: list[Path],
+    accuracy_distribution_diagnostics: pd.DataFrame | None = None,
 ) -> Path:
     selected_sections: list[str] = []
     for row in selected.sort_values(["target", "prompt_mode"]).itertuples():
         target = str(row.target)
         mode = str(row.prompt_mode)
         candidate = str(row.candidate)
+        distribution_family = str(
+            getattr(row, "distribution_family", "gaussian_ols")
+        )
         if target == "parseable_exact_accuracy":
             metrics = (
-                f"held-out log loss={row.cv_log_loss_mean:.4f}; "
+                f"distribution={distribution_family}; "
+                f"held-out predictive NLPD="
+                f"{row.cv_predictive_nlpd_mean:.4f}; "
+                f"Bernoulli log loss={row.cv_log_loss_mean:.4f}; "
                 f"Brier={row.cv_brier_mean:.4f}; "
                 f"deviance explained={row.cv_deviance_explained_mean:.3f}"
             )
@@ -613,15 +837,23 @@ def write_empirical_law_report(
                 f"held-out R²={row.cv_r2_mean:.3f}; "
                 f"MAE={row.cv_mae_mean:.3f}; RMSE={row.cv_rmse_mean:.3f}"
             )
-        term_table = coefficients.loc[
+        term_mask = (
             (coefficients["target"] == target)
             & (coefficients["prompt_mode"] == mode)
             & (coefficients["candidate"] == candidate)
-        ]
+        )
+        if "distribution_family" in coefficients:
+            term_mask &= (
+                coefficients["distribution_family"]
+                == distribution_family
+            )
+        term_table = coefficients.loc[term_mask]
         selected_sections.append(
             f"<h3>{html.escape(TARGET_LABELS[target])} — "
             f"{html.escape(MODE_LABELS[mode])}</h3>"
-            f"<div class='formula'>\\[{_latex_formula(target, candidate)}\\]</div>"
+            f"<div class='formula'>\\["
+            f"{_latex_formula(target, candidate, distribution_family)}"
+            f"\\]</div>"
             f"<p><strong>Selected candidate:</strong> {html.escape(candidate)}; "
             f"{html.escape(metrics)}.</p>"
             + _details(
@@ -634,16 +866,27 @@ def write_empirical_law_report(
     for path in plot_paths:
         relative = _relative_asset(path, output_path)
         stem = path.stem.replace("selected_", "")
+        if path.stem == "accuracy_distribution_qq":
+            caption = (
+                "Each panel is one prompt mode. The horizontal axis is the "
+                "theoretical standard-normal quantile; the vertical axis is "
+                "the fitted discrete distribution's Dunn–Smyth randomized "
+                "quantile residual. The diagonal is ideal agreement."
+            )
+        else:
+            caption = (
+                "Each panel is one behavior-comparison slot. Points are "
+                "observed N×L condition estimates; lines are predictions "
+                "from the selected shared-slope law. The horizontal axis is "
+                "N and color is L."
+            )
         figure_sections.append(
             _details(
                 stem.replace("_", " "),
                 (
                     f"<figure><img src='{html.escape(relative)}' "
                     "alt='observed and fitted empirical law'>"
-                    "<figcaption>Each panel is one behavior-comparison slot. "
-                    "Points are observed N×L condition estimates; lines are "
-                    "predictions from the selected shared-slope law. The "
-                    "horizontal axis is N and color is L.</figcaption></figure>"
+                    f"<figcaption>{html.escape(caption)}</figcaption></figure>"
                 ),
             )
         )
@@ -669,6 +912,26 @@ def write_empirical_law_report(
         else "All selected forms clear the report's descriptive support flag; "
         "this still does not make them causal or valid outside the tested grid."
     )
+    distribution_diagnostic_section = ""
+    if (
+        accuracy_distribution_diagnostics is not None
+        and not accuracy_distribution_diagnostics.empty
+    ):
+        distribution_diagnostic_section = (
+            "<h2>Accuracy-distribution diagnostics</h2>"
+            "<p>For every selected accuracy law, the number of correct "
+            "seeds in each model×N×L cell is mapped through the fitted "
+            "discrete CDF using a fixed-seed Dunn–Smyth randomization. "
+            "If the Binomial or Beta-Binomial family is adequate, these "
+            "residuals should be approximately standard normal. Q–Q "
+            "correlation R², Shapiro–Wilk, and Cramér–von Mises are "
+            "distribution diagnostics, not selection criteria; with many "
+            "cells, formal tests can reject small deviations.</p>"
+            + _table_html(accuracy_distribution_diagnostics)
+            + "<p><strong>Conclusion.</strong> Held-out predictive scores "
+            "select the law; the Q–Q diagnostics reveal residual "
+            "distribution misspecification.</p>"
+        )
     body = rf"""
 <h1>Realistic NIAH V3 — Empirical Laws</h1>
 <p class="lede">Shared-form, model-stratified response surfaces for accuracy
@@ -692,12 +955,16 @@ report.</li>
 measures the direction of numeric errors among responses that supplied a
 number. They answer different questions and are not interchangeable.</p>
 <h2>2. Candidate coordinates and validation</h2>
-<p>The bounded grid compares additive subsets and two hierarchical,
+<p>The bounded response-surface grid compares additive subsets and two hierarchical,
 first-order interactions drawn from
 \(N, L/1000, \ln N, \ln(L/1000), N/(L/1000)\). Interaction models always
-include both parent terms. Five-fold cross-validation holds out complete
-seeds across all N, L, models, and modes. Accuracy is ranked by held-out log
-loss/Brier score; continuous targets by held-out condition-level R², MAE, and
+include both parent terms. Accuracy separately searches four explicit
+distributions: Binomial-logit, Binomial-probit,
+Binomial-complementary-log-log, and Beta-Binomial-logit. The Beta-Binomial
+adds a concentration parameter for extra-binomial seed heterogeneity.
+Five-fold cross-validation holds out complete seeds across all N, L, models,
+and modes. Accuracy is ranked by held-out predictive negative log density,
+then Brier score; continuous targets by held-out condition-level R², MAE, and
 RMSE. A one-standard-error-style rule chooses the simpler near-best form.
 An interaction is eligible only when its fitted interaction coefficient has
 \(p&lt;0.05\).</p>
@@ -709,6 +976,7 @@ best-looking curve.</p>
 <div class="callout"><strong>Support check.</strong> {html.escape(support_note)}</div>
 <h2>4. Observed points and selected curves</h2>
 {''.join(figure_sections)}
+{distribution_diagnostic_section}
 <h2>5. Complete comparison tables</h2>
 {_details("All candidate metrics", _table_html(comparisons))}
 {_details("All fitted coefficients", _table_html(coefficients))}
@@ -737,8 +1005,11 @@ def build_all_plots(
     requests: pd.DataFrame,
     selected: pd.DataFrame,
     output_dir: Path,
+    accuracy_quantile_residuals: pd.DataFrame | None = None,
+    accuracy_distribution_diagnostics: pd.DataFrame | None = None,
 ) -> tuple[list[Path], list[Path]]:
     summary, by_condition, outcomes = behavior_tables(requests)
+    native_summary, _, _ = native_thinking_style_tables(requests)
     behavior_dir = output_dir / "behavior"
     empirical_dir = output_dir / "empirical_law"
     behavior_paths = [
@@ -751,6 +1022,13 @@ def build_all_plots(
             behavior_dir / "outcome_composition.png",
         ),
     ]
+    if not native_summary.empty:
+        behavior_paths.append(
+            plot_native_thinking_styles(
+                native_summary,
+                behavior_dir / "native_thinking_styles.png",
+            )
+        )
     for mode in MODE_ORDER:
         if mode in set(by_condition["prompt_mode"]):
             behavior_paths.append(
@@ -766,16 +1044,33 @@ def build_all_plots(
         target = str(row.target)
         mode = str(row.prompt_mode)
         candidate = str(row.candidate)
+        distribution_family = str(
+            getattr(row, "distribution_family", "gaussian_ols")
+        )
         empirical_paths.append(
             plot_selected_law(
                 requests,
                 target=target,
                 prompt_mode=mode,
                 candidate_name=candidate,
+                distribution_family=distribution_family,
                 path=(
                     empirical_dir
                     / f"selected_{target}_{mode}.png"
                 ),
+            )
+        )
+    if (
+        accuracy_quantile_residuals is not None
+        and not accuracy_quantile_residuals.empty
+        and accuracy_distribution_diagnostics is not None
+        and not accuracy_distribution_diagnostics.empty
+    ):
+        empirical_paths.append(
+            plot_accuracy_quantile_residual_qq(
+                accuracy_quantile_residuals,
+                accuracy_distribution_diagnostics,
+                empirical_dir / "accuracy_distribution_qq.png",
             )
         )
     return behavior_paths, empirical_paths

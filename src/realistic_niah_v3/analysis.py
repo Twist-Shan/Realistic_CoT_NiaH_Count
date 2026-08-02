@@ -15,21 +15,32 @@ import numpy as np
 import pandas as pd
 import scipy
 import sklearn
-from scipy.optimize import minimize
-from scipy.special import expit
-from scipy.stats import binomtest, norm, t
+from scipy.stats import binomtest, t
 from sklearn.metrics import (
-    brier_score_loss,
-    log_loss,
     mean_absolute_error,
     mean_squared_error,
     r2_score,
 )
 from sklearn.model_selection import GroupKFold
 
+from .accuracy_distributions import (
+    ACCURACY_FAMILIES,
+    ACCURACY_FAMILY_BY_NAME,
+    AccuracyFamily,
+    fit_accuracy_distribution,
+    inverse_link,
+    predictive_log_likelihood,
+    quantile_residual_diagnostics,
+    randomized_quantile_residuals,
+)
 from .spec import (
     MATCHED_REASONING_PAIRS,
     PROTOCOL_VERSION,
+)
+from .native_thinking import (
+    NATIVE_THINKING_STYLE_ORDER,
+    classify_native_thinking_style,
+    native_thinking_style_flags,
 )
 
 
@@ -230,6 +241,14 @@ def load_request_table(
             predicted = evaluation.get("predicted_count")
             gold = int(row["gold_count"])
             signed = None if predicted is None else int(predicted) - gold
+            prompt_mode = str(row["prompt_mode"])
+            reasoning_text = str(evaluation.get("reasoning_text") or "")
+            native_flags = native_thinking_style_flags(reasoning_text)
+            native_style = (
+                classify_native_thinking_style(reasoning_text)
+                if prompt_mode == "native_thinking"
+                else "not_applicable"
+            )
             rows.append(
                 {
                     "request_id": str(row["request_id"]),
@@ -239,7 +258,7 @@ def load_request_table(
                     ),
                     "model_id": str(row["model_id"]),
                     "model_revision": str(row["model_revision"]),
-                    "prompt_mode": str(row["prompt_mode"]),
+                    "prompt_mode": prompt_mode,
                     "stimulus_id": str(row["stimulus_id"]),
                     "seed": int(row["seed"]),
                     "N": gold,
@@ -270,6 +289,10 @@ def load_request_table(
                     "reasoning_expected": bool(
                         row.get("reasoning_expected", False)
                     ),
+                    "reasoning_text": reasoning_text,
+                    "final_text": str(evaluation.get("final_text") or ""),
+                    "native_thinking_style": native_style,
+                    **native_flags,
                     "source_file": str(path.relative_to(root)),
                 }
             )
@@ -386,6 +409,119 @@ def behavior_tables(
     )["requests"].transform("sum")
     outcomes["proportion"] = outcomes["requests"] / totals
     return summary, by_condition, outcomes
+
+
+def native_thinking_style_tables(
+    requests: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Summarize observable native-thinking counting devices.
+
+    The summary is descriptive: a textual marker does not prove that the
+    corresponding visible list or tally causally produced the final answer.
+    Style shares use every native-thinking request as the denominator.
+    """
+
+    native = requests.loc[
+        requests["prompt_mode"] == "native_thinking"
+    ].copy()
+    if native.empty:
+        empty = pd.DataFrame()
+        return empty, empty, empty
+    if "native_thinking_style" not in native:
+        reasoning = native.get(
+            "reasoning_text",
+            pd.Series("", index=native.index),
+        )
+        native["native_thinking_style"] = reasoning.map(
+            classify_native_thinking_style
+        )
+    native["native_thinking_style"] = pd.Categorical(
+        native["native_thinking_style"],
+        categories=NATIVE_THINKING_STYLE_ORDER,
+        ordered=True,
+    )
+    grouping = [
+        "comparison_slot",
+        "model_label",
+        "native_thinking_style",
+    ]
+    summary = (
+        native.groupby(grouping, observed=True, dropna=False)
+        .agg(
+            requests=("request_id", "size"),
+            parse_rate=("parse_success", "mean"),
+            parseable_exact_accuracy=("exact_count", "mean"),
+            strict_registered_accuracy=(
+                "strict_registered_success",
+                "mean",
+            ),
+            format_compliance_rate=("format_compliant", "mean"),
+            truncation_rate=("truncated", "mean"),
+            mean_signed_deviation=("signed_deviation", "mean"),
+            mean_absolute_deviation=("absolute_deviation", "mean"),
+            mean_output_tokens=("output_tokens", "mean"),
+        )
+        .reset_index()
+    )
+    totals = summary.groupby(
+        ["comparison_slot", "model_label"],
+        observed=True,
+    )["requests"].transform("sum")
+    summary["style_share_within_model"] = summary["requests"] / totals
+
+    by_condition = (
+        native.groupby(
+            grouping + ["N", "L"],
+            observed=True,
+            dropna=False,
+        )
+        .agg(
+            requests=("request_id", "size"),
+            parse_rate=("parse_success", "mean"),
+            parseable_exact_accuracy=("exact_count", "mean"),
+            truncation_rate=("truncated", "mean"),
+            mean_signed_deviation=("signed_deviation", "mean"),
+        )
+        .reset_index()
+    )
+
+    example_columns = [
+        "comparison_slot",
+        "model_label",
+        "native_thinking_style",
+        "request_id",
+        "stimulus_id",
+        "seed",
+        "N",
+        "L",
+        "exact_count",
+        "parse_success",
+        "truncated",
+        "reasoning_text",
+        "final_text",
+    ]
+    examples = (
+        native.sort_values(
+            [
+                "model_label",
+                "native_thinking_style",
+                "truncated",
+                "exact_count",
+                "N",
+                "L",
+                "request_id",
+            ],
+            ascending=[True, True, True, False, True, True, True],
+        )
+        .groupby(
+            ["model_label", "native_thinking_style"],
+            observed=True,
+            as_index=False,
+        )
+        .head(1)[example_columns]
+        .reset_index(drop=True)
+    )
+    return summary, by_condition, examples
 
 
 def _holm_adjust(p_values: pd.Series) -> pd.Series:
@@ -589,6 +725,20 @@ def aggregate_continuous_target(
     return add_derived_predictors(result.dropna(subset=["target"]))
 
 
+def aggregate_accuracy_target(requests: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate request-level Bernoulli outcomes into Binomial cells."""
+
+    keys = ["comparison_slot", "N", "L"]
+    result = (
+        requests.groupby(keys, dropna=False)["exact_count"]
+        .agg(successes="sum", trials="size")
+        .reset_index()
+    )
+    result["successes"] = result["successes"].astype(int)
+    result["trials"] = result["trials"].astype(int)
+    return add_derived_predictors(result)
+
+
 def _design_matrix(
     frame: pd.DataFrame,
     features: tuple[str, ...],
@@ -630,48 +780,6 @@ def _ols_fit(
     return beta, fitted, standard_error, p_value
 
 
-def _logit_fit(
-    x: np.ndarray,
-    y: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, bool]:
-    # This penalty is deliberately tiny: it only keeps a separated fold from
-    # sending coefficients to numerical infinity. It is not a tunable model
-    # candidate and does not materially regularize identifiable coefficients.
-    ridge = 1e-8
-
-    def objective(beta: np.ndarray) -> tuple[float, np.ndarray]:
-        linear = x @ beta
-        probability = expit(linear)
-        loss = float(np.logaddexp(0.0, linear).sum() - y @ linear)
-        gradient = x.T @ (probability - y)
-        loss += 0.5 * ridge * float(beta[1:] @ beta[1:])
-        gradient[1:] += ridge * beta[1:]
-        return loss, gradient
-
-    result = minimize(
-        lambda beta: objective(beta)[0],
-        np.zeros(x.shape[1], dtype=float),
-        jac=lambda beta: objective(beta)[1],
-        method="L-BFGS-B",
-        options={"maxiter": 2000, "ftol": 1e-10},
-    )
-    beta = np.asarray(result.x, dtype=float)
-    probability = np.clip(expit(x @ beta), 1e-8, 1 - 1e-8)
-    weight = probability * (1.0 - probability)
-    information = x.T @ (x * weight[:, None])
-    information[1:, 1:] += ridge * np.eye(x.shape[1] - 1)
-    covariance = np.linalg.pinv(information)
-    standard_error = np.sqrt(np.clip(np.diag(covariance), 0.0, None))
-    statistic = np.divide(
-        beta,
-        standard_error,
-        out=np.zeros_like(beta),
-        where=standard_error > 0,
-    )
-    p_value = 2.0 * norm.sf(np.abs(statistic))
-    return beta, probability, standard_error, p_value, bool(result.success)
-
-
 def _safe_r2(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     if len(y_true) < 2 or np.allclose(y_true, y_true[0]):
         return math.nan
@@ -687,6 +795,7 @@ def _coefficient_rows(
     beta: np.ndarray,
     standard_error: np.ndarray,
     p_value: np.ndarray,
+    distribution_family: str = "gaussian_ols",
     selected: bool = False,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
@@ -701,6 +810,7 @@ def _coefficient_rows(
                 "target": target,
                 "prompt_mode": prompt_mode,
                 "candidate": candidate.name,
+                "distribution_family": distribution_family,
                 "term": name,
                 "estimate": float(estimate),
                 "standard_error": float(error),
@@ -804,6 +914,10 @@ def cross_validate_continuous(
         "target": target,
         "prompt_mode": prompt_mode,
         "candidate": candidate.name,
+        "distribution_family": "gaussian_ols",
+        "distribution": "gaussian",
+        "link": "identity",
+        "distribution_extra_parameters": 1,
         "features": ",".join(candidate.features),
         "feature_count": len(candidate.features),
         "cv_folds": len(fold_rows),
@@ -826,13 +940,46 @@ def cross_validate_continuous(
     return result, coefficients
 
 
+def _aggregate_bernoulli_log_loss(
+    successes: np.ndarray,
+    trials: np.ndarray,
+    probability: np.ndarray,
+) -> float:
+    successes = np.asarray(successes, dtype=float)
+    trials = np.asarray(trials, dtype=float)
+    probability = np.clip(np.asarray(probability, dtype=float), 1e-8, 1 - 1e-8)
+    loss = -(
+        successes * np.log(probability)
+        + (trials - successes) * np.log1p(-probability)
+    ).sum()
+    return float(loss / trials.sum())
+
+
+def _aggregate_brier_score(
+    successes: np.ndarray,
+    trials: np.ndarray,
+    probability: np.ndarray,
+) -> float:
+    successes = np.asarray(successes, dtype=float)
+    trials = np.asarray(trials, dtype=float)
+    probability = np.asarray(probability, dtype=float)
+    total = (
+        successes * (1.0 - probability) ** 2
+        + (trials - successes) * probability**2
+    ).sum()
+    return float(total / trials.sum())
+
+
 def cross_validate_accuracy(
     requests: pd.DataFrame,
     *,
     prompt_mode: str,
     candidate: Candidate,
+    family: AccuracyFamily = ACCURACY_FAMILIES[0],
     n_splits: int = 5,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Evaluate one explicit accuracy distribution with grouped seed CV."""
+
     mode_rows = requests.loc[
         requests["prompt_mode"] == prompt_mode
     ].copy()
@@ -848,19 +995,39 @@ def cross_validate_accuracy(
         splitter.split(mode_rows, groups=groups),
         start=1,
     ):
-        train = mode_rows.iloc[train_index]
-        test = mode_rows.iloc[test_index]
+        train_requests = mode_rows.iloc[train_index]
+        test_requests = mode_rows.iloc[test_index]
+        train = aggregate_accuracy_target(train_requests)
+        test = aggregate_accuracy_target(test_requests)
         x_train, _ = _design_matrix(train, candidate.features, levels)
         x_test, _ = _design_matrix(test, candidate.features, levels)
-        y_train = train["exact_count"].to_numpy(dtype=float)
-        y_test = test["exact_count"].to_numpy(dtype=float)
-        beta, _, _, _, converged = _logit_fit(x_train, y_train)
-        probability = np.clip(expit(x_test @ beta), 1e-8, 1 - 1e-8)
-        all_converged = all_converged and converged
-        model_prevalence = train.groupby("comparison_slot")[
+        fit = fit_accuracy_distribution(
+            x_train,
+            train["successes"].to_numpy(dtype=int),
+            train["trials"].to_numpy(dtype=int),
+            family,
+            compute_inference=False,
+        )
+        probability = inverse_link(x_test @ fit.beta, family.link)
+        successes = test["successes"].to_numpy(dtype=int)
+        trials = test["trials"].to_numpy(dtype=int)
+        all_converged = all_converged and fit.converged
+        predictive_nlpd = -predictive_log_likelihood(
+            successes,
+            trials,
+            probability,
+            family,
+            concentration=fit.concentration,
+        ) / float(trials.sum())
+        probability_loss = _aggregate_bernoulli_log_loss(
+            successes,
+            trials,
+            probability,
+        )
+        model_prevalence = train_requests.groupby("comparison_slot")[
             "exact_count"
         ].mean()
-        fallback = float(y_train.mean())
+        fallback = float(train_requests["exact_count"].mean())
         baseline = (
             test["comparison_slot"]
             .map(model_prevalence)
@@ -868,50 +1035,78 @@ def cross_validate_accuracy(
             .clip(1e-8, 1 - 1e-8)
             .to_numpy(dtype=float)
         )
-        model_loss = float(log_loss(y_test, probability, labels=[0, 1]))
-        baseline_loss = float(log_loss(y_test, baseline, labels=[0, 1]))
+        baseline_loss = _aggregate_bernoulli_log_loss(
+            successes,
+            trials,
+            baseline,
+        )
         fold_rows.append(
             {
                 "fold": fold,
-                "log_loss": model_loss,
-                "brier": float(brier_score_loss(y_test, probability)),
+                "predictive_nlpd": float(predictive_nlpd),
+                "log_loss": probability_loss,
+                "brier": _aggregate_brier_score(
+                    successes,
+                    trials,
+                    probability,
+                ),
                 "deviance_explained": (
-                    1.0 - model_loss / baseline_loss
+                    1.0 - probability_loss / baseline_loss
                     if baseline_loss > 0
                     else math.nan
                 ),
-                "test_requests": len(test),
+                "test_requests": int(trials.sum()),
+                "test_cells": len(test),
             }
         )
 
-    x_full, names = _design_matrix(
-        mode_rows,
-        candidate.features,
-        levels,
-    )
-    y_full = mode_rows["exact_count"].to_numpy(dtype=float)
-    beta, probability, standard_error, p_value, converged = _logit_fit(
+    full = aggregate_accuracy_target(mode_rows)
+    x_full, names = _design_matrix(full, candidate.features, levels)
+    successes_full = full["successes"].to_numpy(dtype=int)
+    trials_full = full["trials"].to_numpy(dtype=int)
+    fit = fit_accuracy_distribution(
         x_full,
-        y_full,
+        successes_full,
+        trials_full,
+        family,
+        compute_inference=True,
     )
     coefficients = _coefficient_rows(
         target="parseable_exact_accuracy",
         prompt_mode=prompt_mode,
         candidate=candidate,
         names=names,
-        beta=beta,
-        standard_error=standard_error,
-        p_value=p_value,
+        beta=fit.beta,
+        standard_error=fit.standard_error,
+        p_value=fit.p_value,
+        distribution_family=family.name,
     )
     interaction_significant, interaction_p = _interaction_status(coefficients)
     fold_frame = pd.DataFrame(fold_rows)
+    full_probability_loss = _aggregate_bernoulli_log_loss(
+        successes_full,
+        trials_full,
+        fit.probability,
+    )
+    full_predictive_nlpd = -fit.log_likelihood / float(trials_full.sum())
+    concentration = fit.concentration
     result = {
         "target": "parseable_exact_accuracy",
         "prompt_mode": prompt_mode,
         "candidate": candidate.name,
+        "distribution_family": family.name,
+        "distribution": family.distribution,
+        "link": family.link,
+        "distribution_extra_parameters": family.extra_parameters,
         "features": ",".join(candidate.features),
         "feature_count": len(candidate.features),
         "cv_folds": len(fold_rows),
+        "cv_predictive_nlpd_mean": float(
+            fold_frame["predictive_nlpd"].mean()
+        ),
+        "cv_predictive_nlpd_sd": float(
+            fold_frame["predictive_nlpd"].std(ddof=1)
+        ),
         "cv_log_loss_mean": float(fold_frame["log_loss"].mean()),
         "cv_log_loss_sd": float(fold_frame["log_loss"].std(ddof=1)),
         "cv_brier_mean": float(fold_frame["brier"].mean()),
@@ -919,16 +1114,35 @@ def cross_validate_accuracy(
         "cv_deviance_explained_mean": float(
             fold_frame["deviance_explained"].mean()
         ),
-        "full_log_loss": float(log_loss(y_full, probability, labels=[0, 1])),
-        "full_brier": float(brier_score_loss(y_full, probability)),
+        "full_predictive_nlpd": float(full_predictive_nlpd),
+        "full_log_loss": float(full_probability_loss),
+        "full_brier": _aggregate_brier_score(
+            successes_full,
+            trials_full,
+            fit.probability,
+        ),
+        "beta_binomial_concentration": concentration,
+        "beta_binomial_intraclass_correlation": (
+            None if concentration is None else 1.0 / (concentration + 1.0)
+        ),
         "interaction_significant_0_05": interaction_significant,
         "maximum_interaction_p_value": interaction_p,
-        "converged": bool(converged and all_converged),
+        "converged": bool(fit.converged and all_converged),
     }
     return result, coefficients
 
 
-def _select_candidate(comparison: pd.DataFrame, target: str) -> str:
+def _select_model(
+    comparison: pd.DataFrame,
+    target: str,
+) -> tuple[str, str]:
+    """Select one response surface and, for accuracy, one distribution.
+
+    The held-out predictive distribution is primary for accuracy.  Among
+    models within a one-standard-error-style tolerance, we prefer fewer
+    response-surface terms and then fewer distributional parameters.
+    """
+
     eligible = comparison.loc[comparison["converged"].astype(bool)].copy()
     interaction_ok = eligible["interaction_significant_0_05"].astype(bool)
     eligible = eligible.loc[
@@ -940,21 +1154,29 @@ def _select_candidate(comparison: pd.DataFrame, target: str) -> str:
             f"No converged, eligible candidate remained for target {target}"
         )
     if target == "parseable_exact_accuracy":
-        best_index = eligible["cv_log_loss_mean"].idxmin()
+        best_index = eligible["cv_predictive_nlpd_mean"].idxmin()
         best = eligible.loc[best_index]
         tolerance = max(
             0.002,
-            float(best["cv_log_loss_sd"])
+            float(best["cv_predictive_nlpd_sd"])
             / math.sqrt(float(best["cv_folds"])),
         )
         near = eligible.loc[
-            eligible["cv_log_loss_mean"]
-            <= float(best["cv_log_loss_mean"]) + tolerance
+            eligible["cv_predictive_nlpd_mean"]
+            <= float(best["cv_predictive_nlpd_mean"]) + tolerance
         ]
-        return str(
-            near.sort_values(
-                ["feature_count", "cv_brier_mean", "candidate"]
-            ).iloc[0]["candidate"]
+        selected = near.sort_values(
+            [
+                "feature_count",
+                "distribution_extra_parameters",
+                "cv_brier_mean",
+                "distribution_family",
+                "candidate",
+            ]
+        ).iloc[0]
+        return (
+            str(selected["candidate"]),
+            str(selected["distribution_family"]),
         )
     best_index = eligible["cv_r2_mean"].idxmax()
     best = eligible.loc[best_index]
@@ -967,11 +1189,19 @@ def _select_candidate(comparison: pd.DataFrame, target: str) -> str:
         eligible["cv_r2_mean"]
         >= float(best["cv_r2_mean"]) - tolerance
     ]
-    return str(
-        near.sort_values(
-            ["feature_count", "cv_mae_mean", "candidate"]
-        ).iloc[0]["candidate"]
+    selected = near.sort_values(
+        ["feature_count", "cv_mae_mean", "candidate"]
+    ).iloc[0]
+    return (
+        str(selected["candidate"]),
+        str(selected.get("distribution_family", "gaussian_ols")),
     )
+
+
+def _select_candidate(comparison: pd.DataFrame, target: str) -> str:
+    """Compatibility wrapper used by focused selection tests."""
+
+    return _select_model(comparison, target)[0]
 
 
 def fit_candidate_grid(
@@ -988,15 +1218,20 @@ def fit_candidate_grid(
     modes = tuple(sorted(requests["prompt_mode"].unique()))
     for target in targets:
         for prompt_mode in modes:
-            for candidate in CANDIDATES:
-                if target == "parseable_exact_accuracy":
-                    result, terms = cross_validate_accuracy(
-                        requests,
-                        prompt_mode=prompt_mode,
-                        candidate=candidate,
-                        n_splits=n_splits,
-                    )
-                else:
+            if target == "parseable_exact_accuracy":
+                for family in ACCURACY_FAMILIES:
+                    for candidate in CANDIDATES:
+                        result, terms = cross_validate_accuracy(
+                            requests,
+                            prompt_mode=prompt_mode,
+                            candidate=candidate,
+                            family=family,
+                            n_splits=n_splits,
+                        )
+                        comparisons.append(result)
+                        coefficients.extend(terms)
+            else:
+                for candidate in CANDIDATES:
                     result, terms = cross_validate_continuous(
                         requests,
                         prompt_mode=prompt_mode,
@@ -1004,27 +1239,35 @@ def fit_candidate_grid(
                         candidate=candidate,
                         n_splits=n_splits,
                     )
-                comparisons.append(result)
-                coefficients.extend(terms)
+                    comparisons.append(result)
+                    coefficients.extend(terms)
 
     comparison_frame = pd.DataFrame(comparisons)
+    comparison_frame["selected"] = False
     selected_rows: list[dict[str, Any]] = []
     for (target, prompt_mode), group in comparison_frame.groupby(
         ["target", "prompt_mode"],
         sort=True,
     ):
-        selected_name = _select_candidate(group, str(target))
-        selected = group.loc[group["candidate"] == selected_name].iloc[0]
+        selected_name, selected_family = _select_model(group, str(target))
+        selected = group.loc[
+            (group["candidate"] == selected_name)
+            & (group["distribution_family"] == selected_family)
+        ].iloc[0]
         selected_rows.append(selected.to_dict())
         comparison_frame.loc[
-            (comparison_frame["target"] == target)
-            & (comparison_frame["prompt_mode"] == prompt_mode)
-            & (comparison_frame["candidate"] == selected_name),
+            (
+                (comparison_frame["target"] == target)
+                & (comparison_frame["prompt_mode"] == prompt_mode)
+                & (comparison_frame["candidate"] == selected_name)
+                & (
+                    comparison_frame["distribution_family"]
+                    == selected_family
+                )
+            ),
             "selected",
         ] = True
-    comparison_frame["selected"] = (
-        comparison_frame["selected"].fillna(False).astype(bool)
-    )
+    comparison_frame["selected"] = comparison_frame["selected"].astype(bool)
     selected_frame = pd.DataFrame(selected_rows)
     coefficient_frame = pd.DataFrame(coefficients)
     selected_keys = {
@@ -1032,6 +1275,7 @@ def fit_candidate_grid(
             str(row["target"]),
             str(row["prompt_mode"]),
             str(row["candidate"]),
+            str(row["distribution_family"]),
         )
         for row in selected_rows
     }
@@ -1040,6 +1284,7 @@ def fit_candidate_grid(
             str(row.target),
             str(row.prompt_mode),
             str(row.candidate),
+            str(row.distribution_family),
         )
         in selected_keys
         for row in coefficient_frame.itertuples()
@@ -1053,6 +1298,7 @@ def predict_selected_law(
     target: str,
     prompt_mode: str,
     candidate_name: str,
+    distribution_family: str = "binomial_logit",
 ) -> pd.DataFrame:
     candidate = next(
         item for item in CANDIDATES if item.name == candidate_name
@@ -1062,22 +1308,19 @@ def predict_selected_law(
     ].copy()
     levels = tuple(sorted(mode_rows["comparison_slot"].unique()))
     if target == "parseable_exact_accuracy":
-        x, _ = _design_matrix(mode_rows, candidate.features, levels)
-        beta, _, _, _, _ = _logit_fit(
+        family = ACCURACY_FAMILY_BY_NAME[distribution_family]
+        condition = aggregate_accuracy_target(mode_rows)
+        x, _ = _design_matrix(condition, candidate.features, levels)
+        fit = fit_accuracy_distribution(
             x,
-            mode_rows["exact_count"].to_numpy(dtype=float),
+            condition["successes"].to_numpy(dtype=int),
+            condition["trials"].to_numpy(dtype=int),
+            family,
+            compute_inference=False,
         )
-        condition = (
-            mode_rows.groupby(["comparison_slot", "N", "L"])
-            .agg(
-                observed=("exact_count", "mean"),
-                observations=("exact_count", "size"),
-            )
-            .reset_index()
-        )
-        condition = add_derived_predictors(condition)
-        design, _ = _design_matrix(condition, candidate.features, levels)
-        condition["predicted"] = expit(design @ beta)
+        condition["observed"] = condition["successes"] / condition["trials"]
+        condition["observations"] = condition["trials"]
+        condition["predicted"] = fit.probability
         return condition
     condition = aggregate_continuous_target(mode_rows, target)
     x, _ = _design_matrix(condition, candidate.features, levels)
@@ -1093,21 +1336,121 @@ def predict_selected_law(
 def formula_text(
     target: str,
     candidate_name: str,
+    distribution_family: str = "binomial_logit",
 ) -> str:
     candidate = next(
         item for item in CANDIDATES if item.name == candidate_name
     )
-    response = (
-        "logit(P(correct))"
-        if target == "parseable_exact_accuracy"
-        else target
-    )
+    if target == "parseable_exact_accuracy":
+        family = ACCURACY_FAMILY_BY_NAME[distribution_family]
+        link_label = {
+            "logit": "logit",
+            "probit": "probit",
+            "cloglog": "cloglog",
+        }[family.link]
+        response = f"{link_label}(P(correct))"
+    else:
+        response = target
     pieces = ["alpha_model"]
     pieces.extend(
         f"beta_{index + 1}*{FEATURE_LABELS[feature]}"
         for index, feature in enumerate(candidate.features)
     )
     return f"{response} = " + " + ".join(pieces)
+
+
+def accuracy_distribution_diagnostics(
+    requests: pd.DataFrame,
+    selected: pd.DataFrame,
+    *,
+    random_seed: int = 20260802,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Fit selected accuracy laws and compute Dunn--Smyth Q--Q diagnostics."""
+
+    selected_accuracy = selected.loc[
+        selected["target"] == "parseable_exact_accuracy"
+    ].sort_values("prompt_mode")
+    residual_rows: list[dict[str, Any]] = []
+    diagnostic_rows: list[dict[str, Any]] = []
+    for mode_index, row in enumerate(selected_accuracy.itertuples()):
+        prompt_mode = str(row.prompt_mode)
+        candidate_name = str(row.candidate)
+        family_name = str(row.distribution_family)
+        candidate = next(
+            item for item in CANDIDATES if item.name == candidate_name
+        )
+        family = ACCURACY_FAMILY_BY_NAME[family_name]
+        mode_rows = requests.loc[
+            requests["prompt_mode"] == prompt_mode
+        ].copy()
+        condition = aggregate_accuracy_target(mode_rows)
+        levels = tuple(sorted(condition["comparison_slot"].unique()))
+        design, _ = _design_matrix(condition, candidate.features, levels)
+        successes = condition["successes"].to_numpy(dtype=int)
+        trials = condition["trials"].to_numpy(dtype=int)
+        fit = fit_accuracy_distribution(
+            design,
+            successes,
+            trials,
+            family,
+            compute_inference=False,
+        )
+        seed = random_seed + mode_index
+        residuals = randomized_quantile_residuals(
+            successes,
+            trials,
+            fit.probability,
+            family,
+            concentration=fit.concentration,
+            random_seed=seed,
+        )
+        ordered_indices = np.argsort(residuals)
+        theoretical = np.full(len(residuals), np.nan, dtype=float)
+        theoretical[ordered_indices] = scipy.stats.norm.ppf(
+            (np.arange(len(residuals)) + 0.5) / len(residuals)
+        )
+        for condition_row, probability, residual, quantile in zip(
+            condition.to_dict(orient="records"),
+            fit.probability,
+            residuals,
+            theoretical,
+        ):
+            residual_rows.append(
+                {
+                    "prompt_mode": prompt_mode,
+                    "candidate": candidate_name,
+                    "distribution_family": family_name,
+                    "comparison_slot": condition_row["comparison_slot"],
+                    "N": int(condition_row["N"]),
+                    "L": int(condition_row["L"]),
+                    "successes": int(condition_row["successes"]),
+                    "trials": int(condition_row["trials"]),
+                    "fitted_probability": float(probability),
+                    "randomized_quantile_residual": float(residual),
+                    "theoretical_normal_quantile": float(quantile),
+                    "random_seed": seed,
+                }
+            )
+        diagnostics = quantile_residual_diagnostics(residuals)
+        diagnostic_rows.append(
+            {
+                "prompt_mode": prompt_mode,
+                "candidate": candidate_name,
+                "distribution_family": family_name,
+                "distribution": family.distribution,
+                "link": family.link,
+                "converged": fit.converged,
+                "beta_binomial_concentration": fit.concentration,
+                "beta_binomial_intraclass_correlation": (
+                    None
+                    if fit.concentration is None
+                    else 1.0 / (fit.concentration + 1.0)
+                ),
+                "random_seed": seed,
+                **diagnostics,
+            }
+        )
+    return pd.DataFrame(residual_rows), pd.DataFrame(diagnostic_rows)
 
 
 def write_request_table_gzip(path: Path, table: pd.DataFrame) -> None:
@@ -1137,13 +1480,19 @@ def analysis_manifest(
         if path.is_file()
     ]
     return {
-        "schema_version": "realistic_niah_v3_analysis_manifest_v1",
+        "schema_version": "realistic_niah_v3_analysis_manifest_v2",
         "protocol_version": PROTOCOL_VERSION,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "run_root": str(run_root),
         "request_rows": len(requests),
         "unique_request_ids": int(requests["request_id"].nunique()),
         "candidate_grid": [asdict(candidate) for candidate in CANDIDATES],
+        "accuracy_distribution_grid": [
+            asdict(family) for family in ACCURACY_FAMILIES
+        ],
+        "native_thinking_style_order": list(
+            NATIVE_THINKING_STYLE_ORDER
+        ),
         "continuous_targets": list(CONTINUOUS_TARGETS),
         "primary_accuracy": (
             "predicted count is parsed and exactly equals N; parse, format, "

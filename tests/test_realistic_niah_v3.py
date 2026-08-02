@@ -13,6 +13,7 @@ from realistic_niah.stimuli import FreezeSpec, freeze_stimulus
 from realistic_niah_v3.analysis import (
     Candidate,
     _select_candidate,
+    accuracy_distribution_diagnostics,
     add_derived_predictors,
     behavior_tables,
     cross_validate_accuracy,
@@ -20,6 +21,10 @@ from realistic_niah_v3.analysis import (
     exclusive_outcome_class,
     load_request_table,
     paired_mode_comparisons,
+)
+from realistic_niah_v3.accuracy_distributions import ACCURACY_FAMILIES
+from realistic_niah_v3.native_thinking import (
+    classify_native_thinking_style,
 )
 from realistic_niah_v3.reporting import (
     build_all_plots,
@@ -29,7 +34,9 @@ from realistic_niah_v3.reporting import (
 from realistic_niah_v3.sharding import (
     expected_request_ids,
     formal_shard_plan,
+    resource_profile,
 )
+from realistic_niah_v3.scheduler import allocate_pending_tasks
 from realistic_niah_v3.spec import (
     CANONICAL_TOKENIZER_REVISION,
     EXPECTED_REQUESTS,
@@ -83,7 +90,52 @@ def test_v3_formal_plan_has_48_mode_shards() -> None:
     assert plan["raw_checkpoint_count"] == 14
     assert plan["behavior_comparison_slots"] == 12
     assert all(task["expected_requests"] == 980 for task in plan["tasks"])
+    assert all(
+        int(task["gpus_required"])
+        == int(task["tensor_parallel_size"])
+        for task in plan["tasks"]
+    )
     assert len({task["task_id"] for task in plan["tasks"]}) == 48
+
+
+def test_v3_resource_profiles_and_eight_gpu_packing() -> None:
+    assert resource_profile("Gemma4-31B").gpus_required == 2
+    assert resource_profile("Gemma4-31B").tensor_parallel_size == 2
+    assert resource_profile("Qwen3-32B").gpus_required == 1
+    assert resource_profile("Qwen3-32B").gpu_memory_utilization == 0.92
+
+    tasks = formal_shard_plan()["tasks"]
+    allocations = allocate_pending_tasks(
+        tasks,
+        visible_gpu_ids=range(8),
+    )
+    allocated = [gpu for item in allocations for gpu in item.gpu_ids]
+    assert len(allocated) == 8
+    assert len(allocated) == len(set(allocated))
+    assert all(len(item.gpu_ids) in {1, 2} for item in allocations)
+    assert any(len(item.gpu_ids) == 2 for item in allocations)
+
+
+def test_native_thinking_counting_style_classifier() -> None:
+    assert classify_native_thinking_style("1. Paris: 4\n2. Rome: 8") == (
+        "indexed_list"
+    )
+    assert classify_native_thinking_style("- Paris: 4\n- Rome: 8") == (
+        "bullet_list"
+    )
+    assert classify_native_thinking_style("1. Paris\n- Rome") == (
+        "mixed_structured_list"
+    )
+    assert classify_native_thinking_style(
+        "First I found Paris; second I found Rome."
+    ) == "ordinal_word_enumeration"
+    assert classify_native_thinking_style("count so far: 3 -> 4") == (
+        "inline_tally_or_arithmetic"
+    )
+    assert classify_native_thinking_style("I found several records.") == (
+        "prose_reasoning"
+    )
+    assert classify_native_thinking_style("  ") == "no_visible_reasoning"
 
 
 def test_v3_request_ids_are_namespaced_without_changing_v2_default() -> None:
@@ -247,7 +299,43 @@ def test_accuracy_cv_reports_proper_scoring_rules() -> None:
     assert result["cv_log_loss_mean"] >= 0
     assert 0 <= result["cv_brier_mean"] <= 1
     assert np.isfinite(result["cv_deviance_explained_mean"])
+    assert result["distribution_family"] == "binomial_logit"
+    assert result["cv_predictive_nlpd_mean"] >= 0
     assert {row["term"] for row in coefficients} >= {"N", "L_k"}
+
+
+def test_accuracy_distribution_grid_and_qq_diagnostics() -> None:
+    rows = _synthetic_analysis_rows()
+    results = []
+    for family in ACCURACY_FAMILIES:
+        result, _ = cross_validate_accuracy(
+            rows,
+            prompt_mode="direct",
+            candidate=Candidate("linear_additive", ("N", "L_k")),
+            family=family,
+        )
+        results.append(result)
+        assert np.isfinite(result["cv_predictive_nlpd_mean"])
+        assert 0 <= result["cv_brier_mean"] <= 1
+    assert {result["distribution_family"] for result in results} == {
+        family.name for family in ACCURACY_FAMILIES
+    }
+
+    selected = pd.DataFrame(
+        [
+            min(
+                results,
+                key=lambda result: result["cv_predictive_nlpd_mean"],
+            )
+        ]
+    )
+    residuals, diagnostics = accuracy_distribution_diagnostics(
+        rows,
+        selected,
+    )
+    assert len(residuals) == 24
+    assert len(diagnostics) == 1
+    assert diagnostics.iloc[0]["qq_correlation_r2"] > 0
 
 
 def test_nonsignificant_interaction_cannot_win_selection() -> None:
@@ -391,6 +479,16 @@ def test_v3_json_config_matches_python_registry() -> None:
     assert config["expected_stimuli"] == EXPECTED_STIMULI
     assert config["expected_shards"] == EXPECTED_SHARDS
     assert config["expected_requests_total"] == EXPECTED_REQUESTS
+    assert config["accuracy_distribution_families"] == [
+        family.name for family in ACCURACY_FAMILIES
+    ]
+    assert config["formal_scheduler"]["maximum_gpus"] == 8
+    assert (
+        config["formal_scheduler"]["Gemma4-31B"][
+            "tensor_parallel_size"
+        ]
+        == 2
+    )
 
 
 def test_analysis_loader_requires_and_hashes_canonical_provenance(
@@ -541,10 +639,21 @@ def test_v3_html_reports_and_plots_render(tmp_path: Path) -> None:
                 "target": "signed_mean_deviation",
                 "prompt_mode": "direct",
                 "candidate": "linear_N",
+                "distribution_family": "gaussian_ols",
                 "cv_r2_mean": 0.5,
                 "cv_mae_mean": 0.5,
                 "cv_rmse_mean": 0.7,
-            }
+            },
+            {
+                "target": "parseable_exact_accuracy",
+                "prompt_mode": "direct",
+                "candidate": "linear_L",
+                "distribution_family": "binomial_logit",
+                "cv_predictive_nlpd_mean": 0.3,
+                "cv_log_loss_mean": 0.4,
+                "cv_brier_mean": 0.15,
+                "cv_deviance_explained_mean": 0.2,
+            },
         ]
     )
     comparisons = selected.assign(
@@ -558,12 +667,43 @@ def test_v3_html_reports_and_plots_render(tmp_path: Path) -> None:
                 "target": "signed_mean_deviation",
                 "prompt_mode": "direct",
                 "candidate": "linear_N",
+                "distribution_family": "gaussian_ols",
                 "term": "N",
                 "estimate": 0.0,
                 "standard_error": 0.1,
                 "p_value": 1.0,
                 "ci95_low": -0.196,
                 "ci95_high": 0.196,
+            },
+            {
+                "target": "parseable_exact_accuracy",
+                "prompt_mode": "direct",
+                "candidate": "linear_L",
+                "distribution_family": "binomial_logit",
+                "term": "L_k",
+                "estimate": -0.1,
+                "standard_error": 0.05,
+                "p_value": 0.04,
+                "ci95_low": -0.198,
+                "ci95_high": -0.002,
+            },
+        ]
+    )
+    accuracy_residuals = pd.DataFrame(
+        {
+            "prompt_mode": ["direct"] * 5,
+            "theoretical_normal_quantile": [-1.2, -0.5, 0.0, 0.5, 1.2],
+            "randomized_quantile_residual": [-1.1, -0.4, 0.1, 0.6, 1.1],
+        }
+    )
+    accuracy_diagnostics = pd.DataFrame(
+        [
+            {
+                "prompt_mode": "direct",
+                "distribution_family": "binomial_logit",
+                "qq_correlation_r2": 0.99,
+                "shapiro_w": 0.98,
+                "shapiro_p_value": 0.7,
             }
         ]
     )
@@ -572,6 +712,8 @@ def test_v3_html_reports_and_plots_render(tmp_path: Path) -> None:
         requests=requests,
         selected=selected,
         output_dir=tmp_path / "figures",
+        accuracy_quantile_residuals=accuracy_residuals,
+        accuracy_distribution_diagnostics=accuracy_diagnostics,
     )
     behavior_report = write_behavior_report(
         output_path=tmp_path / "reports" / "behavior_report.html",
@@ -587,12 +729,14 @@ def test_v3_html_reports_and_plots_render(tmp_path: Path) -> None:
         comparisons=comparisons,
         coefficients=coefficients,
         plot_paths=empirical_plots,
+        accuracy_distribution_diagnostics=accuracy_diagnostics,
     )
 
     assert behavior_report.stat().st_size > 1_000
     assert empirical_report.stat().st_size > 1_000
     assert all(path.stat().st_size > 1_000 for path in behavior_plots)
     assert all(path.stat().st_size > 1_000 for path in empirical_plots)
+    assert any(path.name == "accuracy_distribution_qq.png" for path in empirical_plots)
     assert "MathJax" in empirical_report.read_text(encoding="utf-8")
     assert "<details" in behavior_report.read_text(encoding="utf-8")
 
@@ -605,9 +749,16 @@ def test_v3_inference_environment_is_pinned() -> None:
     launcher = (
         repo_root / "scripts" / "launch_realistic_niah_v3.sh"
     ).read_text(encoding="utf-8")
+    worker = (
+        repo_root / "scripts" / "run_realistic_niah_v3_worker.sh"
+    ).read_text(encoding="utf-8")
 
     assert "transformers==5.14.1" in requirements
     assert "vllm==0.25.1" in requirements
     assert "mistral-common>=1.8.6,<2" in requirements
     assert 'version("transformers") == "5.14.1"' in launcher
     assert 'version("vllm") == "0.25.1"' in launcher
+    assert "schedule_realistic_niah_v3.py" in launcher
+    assert "--max-gpus" in launcher
+    assert '--tensor-parallel-size "${tensor_parallel_size}"' in worker
+    assert 'CUDA_VISIBLE_DEVICES="${gpu_ids}"' in worker

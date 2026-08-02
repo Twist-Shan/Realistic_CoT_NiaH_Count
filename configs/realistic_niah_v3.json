@@ -112,5 +112,39 @@
     "N/(L/1000)",
     "hierarchical first-order interactions"
   ],
-  "cross_validation": "five-fold grouped by seed across all N, L, models, and modes"
+  "accuracy_distribution_families": [
+    "binomial_logit",
+    "binomial_probit",
+    "binomial_cloglog",
+    "beta_binomial_logit"
+  ],
+  "accuracy_distribution_diagnostics": [
+    "Dunn-Smyth randomized quantile residual Q-Q plot",
+    "Q-Q correlation R-squared",
+    "Shapiro-Wilk",
+    "Cramer-von Mises"
+  ],
+  "native_thinking_counting_styles": [
+    "indexed_list",
+    "bullet_list",
+    "mixed_structured_list",
+    "ordinal_word_enumeration",
+    "inline_tally_or_arithmetic",
+    "prose_reasoning",
+    "no_visible_reasoning"
+  ],
+  "cross_validation": "five-fold grouped by seed across all N, L, models, and modes",
+  "formal_scheduler": {
+    "algorithm": "resource_aware_greedy_backfill",
+    "maximum_gpus": 8,
+    "Gemma4-31B": {
+      "gpus_required": 2,
+      "tensor_parallel_size": 2
+    },
+    "Qwen3-32B": {
+      "gpus_required": 1,
+      "tensor_parallel_size": 1,
+      "gpu_memory_utilization": 0.92
+    }
+  }
 }

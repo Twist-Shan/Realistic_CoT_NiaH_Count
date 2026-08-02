@@ -435,12 +435,18 @@ Every request remains in the denominator. Parse failures, wrong integers,
 format failures, and truncations are retained rather than filtered.
 Additional outputs include strict registered accuracy, parse and format rates,
 enumeration precision/recall, signed deviation, absolute deviation, and
-exclusive failure classes.
+exclusive failure classes. Native-thinking traces are also classified by
+their visible counting style (index, bullet, mixed, ordinal words, inline
+tally/arithmetic, prose, or no visible reasoning), with style frequency and
+accuracy reported.
 
 Mode comparisons use shared stimulus IDs, seed-clustered intervals, exact
 McNemar tests, and Holm adjustment. Empirical-law candidates are evaluated
-with five-fold cross-validation grouped by seed; every attempted formula is
-retained even when no reliable unified law is found.
+with five-fold cross-validation grouped by seed. Accuracy crosses every
+response surface with Binomial-logit, Binomial-probit, Binomial-cloglog, and
+Beta-Binomial-logit, then reports Dunn--Smyth residual Q--Q diagnostics. Every
+attempted formula/distribution is retained even when no reliable unified law
+is found.
 
 V3 supports behavioral statements about accuracy, bias, dispersion, and
 held-out predictive response surfaces. It does **not** establish that visible
@@ -484,9 +490,11 @@ bash scripts/launch_realistic_niah_v3.sh "${RUN_ROOT}" 8
 ```
 
 The launcher validates the environment and clean Git state, prepares the
-frozen shard plan, starts one worker per requested GPU, and starts a finalizer.
-Workers atomically claim shards, checkpoint `requests.jsonl` after bounded
-vLLM batches, preserve failed attempts, and resume only missing request IDs.
+frozen resource plan, starts one central scheduler and one finalizer. The
+scheduler packs shards over 2--8 GPUs without overlap; Gemma4-31B reserves two
+H100s with TP=2, while other shards use one. Task runners atomically claim
+shards, checkpoint `requests.jsonl` after bounded vLLM batches, preserve failed
+attempts, and resume only missing request IDs.
 The finalizer merges only after all 48 completion markers exist and the full
 47,040-row audit passes.
 

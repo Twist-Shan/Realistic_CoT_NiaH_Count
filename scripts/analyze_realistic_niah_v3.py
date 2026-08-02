@@ -10,10 +10,12 @@ from typing import Any
 from realistic_niah_v3.analysis import (
     CANDIDATES,
     CONTINUOUS_TARGETS,
+    accuracy_distribution_diagnostics,
     analysis_manifest,
     behavior_tables,
     fit_candidate_grid,
     load_request_table,
+    native_thinking_style_tables,
     paired_mode_comparisons,
     write_request_table_gzip,
 )
@@ -39,7 +41,7 @@ def _write_state(path: Path, stage: str, **details: Any) -> None:
     _atomic_json(
         path,
         {
-            "schema_version": "realistic_niah_v3_analysis_state_v1",
+            "schema_version": "realistic_niah_v3_analysis_state_v2",
             "updated_at_utc": datetime.now(timezone.utc).isoformat(),
             "stage": stage,
             **details,
@@ -71,6 +73,16 @@ true count N. Parse failure, wrong count, format failure, and truncation remain
 in the denominator. Parse rate and strict registered accuracy are separate
 diagnostics.
 
+## Native-thinking visible counting style
+
+Every native-thinking trace is classified into exactly one frozen observable
+category: indexed list, bullet list, mixed structured list, ordinal-word
+enumeration, inline tally/arithmetic, prose reasoning, or no visible
+reasoning. The analysis reports category frequency and exact accuracy overall
+and by N/L, with HTML excerpts and complete examples in JSONL. This is a
+description of visible text, not a claim about a latent
+mechanism.
+
 ## Numeric-error estimands
 
 For successfully parsed responses, signed deviation is `predicted_count - N`.
@@ -97,12 +109,16 @@ term multiplied by another first-order term.
 ## Validation and selection
 
 Five-fold GroupKFold holds out complete seeds across every N, L, model, and
-mode. Accuracy candidates are evaluated with held-out log loss, Brier score,
-and deviance explained relative to a per-model training prevalence. Continuous
-targets use held-out condition-level R-squared, MAE, and RMSE. Candidate
-selection applies a one-standard-error-style tolerance and chooses the
-simplest near-best form. Interaction candidates are not eligible when the
-interaction coefficient has p >= 0.05.
+mode. Accuracy jointly searches each response surface with Binomial-logit,
+Binomial-probit, Binomial-complementary-log-log, and Beta-Binomial-logit.
+Candidates are evaluated with held-out predictive negative log density,
+Bernoulli log loss, Brier score, and deviance explained relative to a per-model
+training prevalence. Dunn--Smyth randomized quantile residual Q--Q plots,
+Shapiro--Wilk, and Cramer--von Mises diagnose the selected distribution but do
+not select it. Continuous targets use held-out condition-level R-squared, MAE,
+and RMSE. Candidate selection applies a one-standard-error-style tolerance and
+chooses the simplest near-best form. Interaction candidates are not eligible
+when the interaction coefficient has p >= 0.05.
 
 All attempted formulas, convergence flags, validation metrics, and
 coefficients are retained.
@@ -123,9 +139,16 @@ Generated outputs:
 - `tables/condition_summary.csv`
 - `tables/outcome_composition.csv`
 - `tables/paired_mode_comparisons.csv`
+- `tables/native_thinking_style_summary.csv`
+- `tables/native_thinking_style_by_condition.csv`
+- `tables/native_thinking_style_examples.jsonl`
 - `tables/candidate_comparison.csv`
+- `tables/accuracy_probability_distribution_comparison.csv`
+- `tables/deviation_regression_comparison.csv`
 - `tables/selected_laws.csv`
 - `tables/coefficients.csv`
+- `tables/accuracy_randomized_quantile_residuals.csv`
+- `tables/accuracy_distribution_diagnostics.csv`
 - `figures/behavior/`
 - `figures/empirical_law/`
 - `analysis_plan.md`
@@ -188,12 +211,31 @@ def main() -> None:
     )
     summary, by_condition, outcomes = behavior_tables(requests)
     paired_comparisons = paired_mode_comparisons(requests)
+    (
+        native_style_summary,
+        native_style_by_condition,
+        native_style_examples,
+    ) = native_thinking_style_tables(requests)
     summary.to_csv(tables / "model_mode_summary.csv", index=False)
     by_condition.to_csv(tables / "condition_summary.csv", index=False)
     outcomes.to_csv(tables / "outcome_composition.csv", index=False)
     paired_comparisons.to_csv(
         tables / "paired_mode_comparisons.csv",
         index=False,
+    )
+    native_style_summary.to_csv(
+        tables / "native_thinking_style_summary.csv",
+        index=False,
+    )
+    native_style_by_condition.to_csv(
+        tables / "native_thinking_style_by_condition.csv",
+        index=False,
+    )
+    native_style_examples.to_json(
+        tables / "native_thinking_style_examples.jsonl",
+        orient="records",
+        lines=True,
+        force_ascii=False,
     )
     _write_state(
         state_path,
@@ -210,8 +252,31 @@ def main() -> None:
         n_splits=args.cv_folds,
     )
     comparison.to_csv(tables / "candidate_comparison.csv", index=False)
+    comparison.loc[
+        comparison["target"] == "parseable_exact_accuracy"
+    ].to_csv(
+        tables / "accuracy_probability_distribution_comparison.csv",
+        index=False,
+    )
+    comparison.loc[
+        comparison["target"] != "parseable_exact_accuracy"
+    ].to_csv(
+        tables / "deviation_regression_comparison.csv",
+        index=False,
+    )
     selected.to_csv(tables / "selected_laws.csv", index=False)
     coefficients.to_csv(tables / "coefficients.csv", index=False)
+    accuracy_residuals, accuracy_diagnostics = (
+        accuracy_distribution_diagnostics(requests, selected)
+    )
+    accuracy_residuals.to_csv(
+        tables / "accuracy_randomized_quantile_residuals.csv",
+        index=False,
+    )
+    accuracy_diagnostics.to_csv(
+        tables / "accuracy_distribution_diagnostics.csv",
+        index=False,
+    )
     _write_state(
         state_path,
         "candidate_grid_complete",
@@ -223,6 +288,8 @@ def main() -> None:
         requests=requests,
         selected=selected,
         output_dir=figures,
+        accuracy_quantile_residuals=accuracy_residuals,
+        accuracy_distribution_diagnostics=accuracy_diagnostics,
     )
     behavior_report = write_behavior_report(
         output_path=reports / "behavior_report.html",
@@ -231,6 +298,9 @@ def main() -> None:
         outcomes=outcomes,
         paired_comparisons=paired_comparisons,
         plot_paths=behavior_plots,
+        native_style_summary=native_style_summary,
+        native_style_by_condition=native_style_by_condition,
+        native_style_examples=native_style_examples,
     )
     empirical_report = write_empirical_law_report(
         output_path=reports / "empirical_law_report.html",
@@ -238,6 +308,7 @@ def main() -> None:
         comparisons=comparison,
         coefficients=coefficients,
         plot_paths=empirical_plots,
+        accuracy_distribution_diagnostics=accuracy_diagnostics,
     )
     (output / "README.md").write_text(
         _readme(run_root, output),
