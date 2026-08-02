@@ -600,26 +600,38 @@ def _answer_query_projection_data(
 
     result: dict[str, dict[str, Any]] = {}
     for model in MODELS:
-        family_root = (
+        all_layer_capture = (
             run_root
             / model
             / "numeric"
-            / "causal"
-            / "geometric_steering_v1"
+            / "representation"
+            / "answer_query_all_layers_v1"
         )
-        candidates: list[Path] = []
-        for candidate in sorted(family_root.glob("design_*")):
-            design_path = candidate / "design.json"
-            if not design_path.exists():
-                continue
-            design = _read_json(design_path)
-            if design.get("methods") == ["centroid_delta"]:
-                candidates.append(candidate)
-        if len(candidates) != 1:
-            raise RuntimeError(
-                f"{model}: expected one completed centroid-delta steering design"
+        if (all_layer_capture / "capture_index.jsonl").exists():
+            capture_root = all_layer_capture
+            capture_source = "answer_query_all_layers_v1"
+        else:
+            family_root = (
+                run_root
+                / model
+                / "numeric"
+                / "causal"
+                / "geometric_steering_v1"
             )
-        capture_root = candidates[0] / "discovery_capture"
+            candidates: list[Path] = []
+            for candidate in sorted(family_root.glob("design_*")):
+                design_path = candidate / "design.json"
+                if not design_path.exists():
+                    continue
+                design = _read_json(design_path)
+                if design.get("methods") == ["centroid_delta"]:
+                    candidates.append(candidate)
+            if len(candidates) != 1:
+                raise RuntimeError(
+                    f"{model}: expected one completed centroid-delta steering design"
+                )
+            capture_root = candidates[0] / "discovery_capture"
+            capture_source = "geometric_steering_v1_discovery_capture"
         records = _read_jsonl(capture_root / "capture_index.jsonl")
         labels = pd.read_csv(
             run_root
@@ -687,14 +699,16 @@ def _answer_query_projection_data(
             raise RuntimeError(
                 f"{model}: unexpected answer-query discovery shape {states.shape}"
             )
+        all_reference = np.asarray(
+            [item[0] == "v4.1" for item in metadata], dtype=bool
+        )
+        correct_reference = np.asarray(
+            [item[0] == "v4.1" and item[3] == "correct" for item in metadata],
+            dtype=bool,
+        )
+        all_fit_diagnostics: list[dict[str, Any]] = []
+        model_result_keys: list[str] = []
         for layer_axis, layer in enumerate(layer_indices):
-            all_reference = np.asarray(
-                [item[0] == "v4.1" for item in metadata], dtype=bool
-            )
-            correct_reference = np.asarray(
-                [item[0] == "v4.1" and item[3] == "correct" for item in metadata],
-                dtype=bool,
-            )
             for fit_cohort, reference_mask in (
                 ("all", all_reference),
                 ("correct_only", correct_reference),
@@ -723,6 +737,68 @@ def _answer_query_projection_data(
                     )
                     for components in range(1, 7)
                 ]
+                common_counts = np.asarray(
+                    [int(item[2]) for item, keep in zip(metadata, all_reference) if keep],
+                    dtype=int,
+                )
+                common_seeds = np.asarray(
+                    [int(item[1]) for item, keep in zip(metadata, all_reference) if keep],
+                    dtype=int,
+                )
+                full_centroids = np.stack(
+                    [
+                        common_eval[common_counts == count].mean(axis=0)
+                        for count in range(1, 11)
+                    ]
+                )
+                centered_full_centroids = full_centroids - full_centroids.mean(
+                    axis=0, keepdims=True
+                )
+                full_signal = float(np.sum(centered_full_centroids**2))
+                projected_signal = float(
+                    np.sum(
+                        (
+                            centered_full_centroids
+                            @ pca.components_[:3].T
+                        )
+                        ** 2
+                    )
+                )
+                signal_capture = (
+                    projected_signal / full_signal if full_signal > 0 else math.nan
+                )
+                noise_residuals: list[np.ndarray] = []
+                for count in range(1, 11):
+                    group = common_eval[common_counts == count]
+                    group_sum = group.sum(axis=0, dtype=np.float64)
+                    noise_residuals.append(
+                        group.astype(np.float64)
+                        - (group_sum[None, :] - group.astype(np.float64))
+                        / (len(group) - 1)
+                    )
+                noise_rms = float(
+                    np.sqrt(
+                        np.mean(
+                            np.sum(np.concatenate(noise_residuals, axis=0) ** 2, axis=1)
+                        )
+                    )
+                )
+                signal_rms = float(
+                    np.sqrt(np.mean(np.sum(centered_full_centroids**2, axis=1)))
+                )
+                noise_to_signal = (
+                    noise_rms / signal_rms if signal_rms > 0 else math.nan
+                )
+                compactness = (
+                    1.0 / (1.0 + noise_to_signal)
+                    if math.isfinite(noise_to_signal)
+                    else math.nan
+                )
+                pca3_alpha, pca3_cv_r2 = _grouped_pca_ridge_cv(
+                    common_projected[:, :3],
+                    common_counts.astype(float),
+                    common_seeds,
+                )
                 rows: list[list[Any]] = []
                 for (
                     variant,
@@ -752,10 +828,14 @@ def _answer_query_projection_data(
                     )
                     for count in range(1, 11)
                 }
-                result[f"{model}|{int(layer)}|{fit_cohort}"] = {
+                result_key = f"{model}|{int(layer)}|{fit_cohort}"
+                model_result_keys.append(result_key)
+                result[result_key] = {
                     "model": model,
                     "layer": int(layer),
                     "position": "answer_query",
+                    "capture_source": capture_source,
+                    "captured_layer_count": int(len(layer_indices)),
                     "fit_variant": "v4.1",
                     "fit_split": "discovery",
                     "fit_cohort": fit_cohort,
@@ -777,8 +857,67 @@ def _answer_query_projection_data(
                     "common_v41_variance_capture": [
                         round(value, 8) for value in common_capture
                     ],
+                    "pca3_discovery_cv_r2": round(float(pca3_cv_r2), 8),
+                    "pca3_ridge_alpha": float(pca3_alpha),
+                    "count_signal_capture_pc1_3": round(float(signal_capture), 8),
+                    "discovery_loo_noise_to_signal": round(
+                        float(noise_to_signal), 8
+                    ),
+                    "discovery_compactness": round(float(compactness), 8),
+                    "manifold_fidelity_m3": round(
+                        float(
+                            np.sum(pca.explained_variance_ratio_[:3])
+                            * signal_capture
+                            * compactness
+                        ),
+                        8,
+                    ),
                     "rows": rows,
                 }
+                if fit_cohort == "all":
+                    all_fit_diagnostics.append(
+                        {
+                            "layer": int(layer),
+                            "pca3_discovery_cv_r2": float(pca3_cv_r2),
+                            "manifold_fidelity_m3": float(
+                                np.sum(pca.explained_variance_ratio_[:3])
+                                * signal_capture
+                                * compactness
+                            ),
+                        }
+                    )
+        maximum_cv = max(
+            float(row["pca3_discovery_cv_r2"])
+            for row in all_fit_diagnostics
+        )
+        gated = [
+            row
+            for row in all_fit_diagnostics
+            if float(row["pca3_discovery_cv_r2"]) >= maximum_cv - 0.02
+        ]
+        manifold_layer = int(
+            sorted(
+                gated,
+                key=lambda row: (
+                    -float(row["manifold_fidelity_m3"]),
+                    int(row["layer"]),
+                ),
+            )[0]["layer"]
+        )
+        probe_layer = int(
+            sorted(
+                all_fit_diagnostics,
+                key=lambda row: (
+                    -float(row["pca3_discovery_cv_r2"]),
+                    int(row["layer"]),
+                ),
+            )[0]["layer"]
+        )
+        for key in model_result_keys:
+            result[key]["probe_optimal"] = bool(result[key]["layer"] == probe_layer)
+            result[key]["manifold_display"] = bool(
+                result[key]["layer"] == manifold_layer
+            )
         del states
     return result
 
@@ -1670,7 +1809,7 @@ def _layer_selection_conclusion_html(rows: list[dict[str, Any]]) -> str:
 def _answer_query_counter_svg(
     projections: dict[str, dict[str, Any]],
 ) -> str:
-    """Six-panel all-fit PC1/PC2 audit of answer-query count manifolds."""
+    """Six-panel landmark audit; the interactive view retains every layer."""
 
     width, height = 1120, 810
     panel_width, panel_height = 270, 225
@@ -1679,8 +1818,8 @@ def _answer_query_counter_svg(
     parts = [
         f'<svg class="stat-svg" viewBox="0 0 {width} {height}" role="img" '
         'aria-labelledby="answer-query-counter-title answer-query-counter-desc">',
-        '<title id="answer-query-counter-title">Answer-query count manifolds at the geometric-steering capture layers</title>',
-        '<desc id="answer-query-counter-desc">Each row is a model and each column is one saved post-block answer-query layer. PCA is fit to all V4.1 discovery prompts. Point and node color encodes gold count from one, indigo, to ten, cyan. Point outline encodes the final greedy outcome: white correct, dark wrong, and pink invalid. Dashed gray paths connect v4.1 count centroids and solid black paths connect v4.4 centroids.</desc>',
+        '<title id="answer-query-counter-title">Answer-query count manifolds at three decoder-layer landmarks</title>',
+        '<desc id="answer-query-counter-desc">The interactive figure contains every captured post-block answer-query layer. This printable audit chooses three landmarks per model: the first layer, the discovery-selected manifold-display layer when distinct, and the last layer. PCA is fit to all V4.1 discovery prompts. Point and node color encodes gold count from one, indigo, to ten, cyan. Point outline encodes the final greedy outcome: white correct, dark wrong, and pink invalid. Dashed gray paths connect v4.1 count centroids and solid black paths connect v4.4 centroids.</desc>',
         f'<rect width="{width}" height="{height}" fill="{AURORA["snow_white"]}"/>',
         f'<g font-family="Aptos,Segoe UI,system-ui,sans-serif" fill="{AURORA["night_black"]}">',
         f'<line x1="675" y1="30" x2="710" y2="30" stroke="{AURORA["frost_gray"]}" stroke-width="2" stroke-dasharray="6 4"/>',
@@ -1705,8 +1844,31 @@ def _answer_query_counter_svg(
             for key in projections
             if key.startswith(model + "|") and key.endswith("|all")
         )
-        if len(model_layers) != 3:
-            raise RuntimeError(f"{model}: expected three answer-query PCA layers")
+        if len(model_layers) < 3:
+            raise RuntimeError(f"{model}: expected at least three answer-query layers")
+        display_layers = [
+            int(data["layer"])
+            for key, data in projections.items()
+            if key.startswith(model + "|")
+            and key.endswith("|all")
+            and bool(data.get("manifold_display"))
+        ]
+        preferred = [model_layers[0], *display_layers, model_layers[-1]]
+        landmarks: list[int] = []
+        for layer in preferred:
+            if int(layer) not in landmarks:
+                landmarks.append(int(layer))
+        if len(landmarks) < 3:
+            middle = model_layers[len(model_layers) // 2]
+            if middle not in landmarks:
+                landmarks.insert(1, middle)
+        if len(landmarks) < 3:
+            for layer in model_layers:
+                if layer not in landmarks:
+                    landmarks.insert(-1, layer)
+                if len(landmarks) == 3:
+                    break
+        model_layers = sorted(landmarks[:3])
         top = tops[model_index]
         parts.append(
             f'<text x="30" y="{top+panel_height/2:.1f}" transform="rotate(-90 30 {top+panel_height/2:.1f})" text-anchor="middle" font-size="16" font-weight="700">{html.escape(model)}</text>'
@@ -1939,6 +2101,707 @@ def _attention_head_atlas_rows(run_root: Path) -> list[dict[str, Any]]:
                 }
             )
     return rows
+
+
+def _trajectory_linear_cka(left: np.ndarray, right: np.ndarray) -> float:
+    """Linear CKA between two count-centroid trajectories."""
+
+    left = np.asarray(left, dtype=np.float64)
+    right = np.asarray(right, dtype=np.float64)
+    left = left - left.mean(axis=0, keepdims=True)
+    right = right - right.mean(axis=0, keepdims=True)
+    left_gram = left @ left.T
+    right_gram = right @ right.T
+    denominator = math.sqrt(
+        float(np.sum(left_gram**2)) * float(np.sum(right_gram**2))
+    )
+    if denominator <= 0:
+        return math.nan
+    return float(np.sum(left_gram * right_gram) / denominator)
+
+
+def _trajectory_distance_correlation(
+    left: np.ndarray, right: np.ndarray
+) -> float:
+    """Correlation of all 45 pairwise distances among ten centroids."""
+
+    indices = np.triu_indices(10, k=1)
+    left_distances = np.linalg.norm(
+        np.asarray(left)[:, None, :] - np.asarray(left)[None, :, :], axis=-1
+    )[indices]
+    right_distances = np.linalg.norm(
+        np.asarray(right)[:, None, :] - np.asarray(right)[None, :, :], axis=-1
+    )[indices]
+    if np.std(left_distances) <= 0 or np.std(right_distances) <= 0:
+        return math.nan
+    return float(np.corrcoef(left_distances, right_distances)[0, 1])
+
+
+def _successive_step_alignment(left: np.ndarray, right: np.ndarray) -> float:
+    left_steps = np.diff(np.asarray(left, dtype=np.float64), axis=0)
+    right_steps = np.diff(np.asarray(right, dtype=np.float64), axis=0)
+    denominators = np.linalg.norm(left_steps, axis=1) * np.linalg.norm(
+        right_steps, axis=1
+    )
+    valid = denominators > 0
+    if not np.any(valid):
+        return math.nan
+    return float(
+        np.mean(
+            np.sum(left_steps[valid] * right_steps[valid], axis=1)
+            / denominators[valid]
+        )
+    )
+
+
+def _joint_counter_projection_data(
+    run_root: Path,
+    answer_query_projections: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Place prompt-occurrence and answer-query centroids in one PCA basis.
+
+    Each pair has the same model, panel, discovery seed, and count ``k``.  The
+    prompt member is occurrence ``k`` from the N=10 prompt; the answer member
+    is the prompt-final ``Total:`` state from the N=k prompt.  ``raw`` PCA uses
+    the states directly.  ``role_centered`` subtracts separate V4.1 discovery
+    means for the two token roles before fitting the shared PCA.
+    """
+
+    result: dict[str, dict[str, Any]] = {}
+    for model in MODELS:
+        model_root = run_root / model / "numeric"
+        answer_root = (
+            model_root / "representation" / "answer_query_all_layers_v1"
+        )
+        answer_index = answer_root / "capture_index.jsonl"
+        if not answer_index.exists():
+            continue
+        answer_records = _read_jsonl(answer_index)
+        answer_states: list[np.ndarray] = []
+        answer_lookup: dict[tuple[str, int, int], int] = {}
+        layer_indices: np.ndarray | None = None
+        for record in answer_records:
+            key = (
+                str(record["design_variant"]),
+                int(record["seed"]),
+                int(record["count"]),
+            )
+            if key in answer_lookup:
+                raise RuntimeError(f"{model}: duplicate answer-query pair {key}")
+            with np.load(
+                answer_root / str(record["shard_path"]), allow_pickle=False
+            ) as payload:
+                current_layers = np.asarray(payload["layer_indices"], dtype=int)
+                if layer_indices is None:
+                    layer_indices = current_layers
+                elif not np.array_equal(layer_indices, current_layers):
+                    raise RuntimeError(f"{model}: answer-query layer grid changed")
+                answer_states.append(np.asarray(payload["query_states"]))
+            answer_lookup[key] = len(answer_states) - 1
+        if len(answer_states) != 800 or layer_indices is None:
+            raise RuntimeError(
+                f"{model}: expected 800 all-layer answer-query states"
+            )
+        answer_tensor = np.stack(answer_states, axis=0)
+
+        prompt_root = model_root / "representation" / "capture"
+        prompt_records = [
+            record
+            for record in _read_jsonl(prompt_root / "capture_index.jsonl")
+            if str(record["split"]) == "discovery"
+        ]
+        prompt_lookup: dict[tuple[str, int], int] = {}
+        prompt_states: dict[str, list[np.ndarray]] = {
+            pooling: [] for pooling in POOLINGS
+        }
+        for record in prompt_records:
+            key = (str(record["design_variant"]), int(record["seed"]))
+            if key in prompt_lookup:
+                raise RuntimeError(f"{model}: duplicate prompt counter pair {key}")
+            with np.load(
+                prompt_root / str(record["shard_path"]), allow_pickle=False
+            ) as payload:
+                current_layers = np.asarray(payload["layer_indices"], dtype=int)
+                if not np.array_equal(layer_indices, current_layers):
+                    raise RuntimeError(
+                        f"{model}: prompt/answer post-block layer grids differ"
+                    )
+                for pooling in POOLINGS:
+                    prompt_states[pooling].append(np.asarray(payload[pooling]))
+            prompt_lookup[key] = len(prompt_lookup)
+        if len(prompt_lookup) != 80:
+            raise RuntimeError(f"{model}: expected 80 discovery N=10 prompts")
+
+        pair_keys = sorted(
+            answer_lookup,
+            key=lambda item: (VARIANTS.index(item[0]), item[1], item[2]),
+        )
+        if len(pair_keys) != 800:
+            raise RuntimeError(f"{model}: incomplete answer-query pairing grid")
+        variants = np.asarray([key[0] for key in pair_keys])
+        counts = np.asarray([key[2] for key in pair_keys], dtype=int)
+        v41 = variants == "v4.1"
+        answer_order = np.asarray(
+            [answer_lookup[key] for key in pair_keys], dtype=int
+        )
+        for pooling in POOLINGS:
+            prompt_tensor = np.stack(prompt_states[pooling], axis=0)
+            prompt_order = np.asarray(
+                [prompt_lookup[(key[0], key[1])] for key in pair_keys], dtype=int
+            )
+            for layer_axis, layer in enumerate(layer_indices):
+                prompt_layer = np.stack(
+                    [
+                        prompt_tensor[prompt_index, int(layer_axis), count - 1]
+                        for prompt_index, count in zip(prompt_order, counts)
+                    ],
+                    axis=0,
+                ).astype(np.float32)
+                answer_layer = answer_tensor[
+                    answer_order, int(layer_axis)
+                ].astype(np.float32)
+                prompt_mean = prompt_layer[v41].mean(axis=0)
+                answer_mean = answer_layer[v41].mean(axis=0)
+                prompt_centroids_full = np.stack(
+                    [prompt_layer[v41 & (counts == count)].mean(axis=0)
+                     for count in range(1, 11)]
+                )
+                answer_centroids_full = np.stack(
+                    [answer_layer[v41 & (counts == count)].mean(axis=0)
+                     for count in range(1, 11)]
+                )
+                prompt_centered = prompt_centroids_full - prompt_mean
+                answer_centered = answer_centroids_full - answer_mean
+                prompt_scale = float(
+                    np.sqrt(np.mean(np.sum(prompt_centered**2, axis=1)))
+                )
+                answer_scale = float(
+                    np.sqrt(np.mean(np.sum(answer_centered**2, axis=1)))
+                )
+                mean_signal_scale = 0.5 * (prompt_scale + answer_scale)
+                metrics = {
+                    "trajectory_linear_cka": _trajectory_linear_cka(
+                        prompt_centered, answer_centered
+                    ),
+                    "trajectory_distance_correlation": (
+                        _trajectory_distance_correlation(
+                            prompt_centered, answer_centered
+                        )
+                    ),
+                    "successive_step_cosine": _successive_step_alignment(
+                        prompt_centered, answer_centered
+                    ),
+                    "prompt_centroid_rms": prompt_scale,
+                    "answer_centroid_rms": answer_scale,
+                    "answer_to_prompt_scale_ratio": (
+                        answer_scale / prompt_scale if prompt_scale > 0 else math.nan
+                    ),
+                    "role_offset_norm": float(
+                        np.linalg.norm(answer_mean - prompt_mean)
+                    ),
+                    "role_offset_to_count_signal": (
+                        float(np.linalg.norm(answer_mean - prompt_mean))
+                        / mean_signal_scale
+                        if mean_signal_scale > 0
+                        else math.nan
+                    ),
+                }
+                for mode in ("raw", "role_centered"):
+                    if mode == "raw":
+                        prompt_input = prompt_layer
+                        answer_input = answer_layer
+                    else:
+                        prompt_input = prompt_layer - prompt_mean
+                        answer_input = answer_layer - answer_mean
+                    fit = np.concatenate(
+                        [prompt_input[v41], answer_input[v41]], axis=0
+                    )
+                    pca = PCA(
+                        n_components=6,
+                        svd_solver="randomized",
+                        random_state=0,
+                    )
+                    pca.fit(fit)
+                    prompt_projected = pca.transform(prompt_input)
+                    answer_projected = pca.transform(answer_input)
+                    rows: list[list[Any]] = []
+                    for variant in VARIANTS:
+                        for role, projected in (
+                            ("prompt_occurrence", prompt_projected),
+                            ("answer_query", answer_projected),
+                        ):
+                            for count in range(1, 11):
+                                mask = (variants == variant) & (counts == count)
+                                centroid = projected[mask].mean(axis=0)
+                                rows.append(
+                                    [
+                                        variant,
+                                        role,
+                                        int(count),
+                                        int(mask.sum()),
+                                        *[
+                                            round(float(value), 6)
+                                            for value in centroid
+                                        ],
+                                    ]
+                                )
+                    answer_key = f"{model}|{int(layer)}|all"
+                    result[f"{model}|{pooling}|{int(layer)}|{mode}"] = {
+                        "model": model,
+                        "pooling": pooling,
+                        "layer": int(layer),
+                        "mode": mode,
+                        "fit_variant": "v4.1",
+                        "fit_split": "discovery",
+                        "fit_rows": int(len(fit)),
+                        "manifold_display": bool(
+                            answer_query_projections.get(answer_key, {}).get(
+                                "manifold_display", False
+                            )
+                        ),
+                        "explained_variance_ratio": [
+                            round(float(value), 8)
+                            for value in pca.explained_variance_ratio_
+                        ],
+                        **{
+                            key: round(float(value), 8)
+                            for key, value in metrics.items()
+                        },
+                        "rows": rows,
+                    }
+            del prompt_tensor
+        del answer_tensor
+    return result
+
+
+def _prompt_counter_dynamics_frames(run_root: Path) -> dict[str, pd.DataFrame]:
+    root = run_root / "analysis" / "prompt_counter_dynamics_v1"
+    paths = {
+        "banks": root / "selected_head_bank.csv",
+        "samples": root / "attention_bank_by_sample.csv.gz",
+        "noise": root / "hidden_counter_noise_by_sample.csv.gz",
+        "slopes": root / "occurrence_slope_summary.csv",
+        "associations": root / "attention_noise_association.csv",
+        "profiles": root / "profile_maps.csv.gz",
+    }
+    missing = [str(path) for path in paths.values() if not path.exists()]
+    if missing:
+        raise RuntimeError(
+            "Prompt-counter dynamics analysis is incomplete: " + ", ".join(missing)
+        )
+    return {key: pd.read_csv(path) for key, path in paths.items()}
+
+
+def _prompt_counter_profile_data(
+    frames: dict[str, pd.DataFrame],
+) -> dict[str, dict[str, Any]]:
+    profiles = frames["profiles"]
+    samples = frames["samples"]
+    noise = frames["noise"]
+    result: dict[str, dict[str, Any]] = {}
+    keys = ["model", "hidden_pooling", "layer", "design_variant"]
+    curve = samples[samples["split"] == "confirmation"].merge(
+        noise,
+        on=[
+            "model",
+            "design_variant",
+            "seed",
+            "split",
+            "hidden_pooling",
+            "layer",
+            "query_occurrence",
+        ],
+        how="inner",
+        validate="one_to_one",
+    )
+    curve_summary = (
+        curve.groupby([*keys, "query_occurrence"], as_index=False)[
+            [
+                "row_effective_fraction",
+                "row_effective_tokens",
+                "needle_effective_number",
+                "needle_relative_coverage",
+                "counter_noise",
+            ]
+        ]
+        .mean()
+        .sort_values([*keys, "query_occurrence"])
+    )
+    curve_lookup = {
+        tuple(group_key): group
+        for group_key, group in curve_summary.groupby(keys, sort=False)
+    }
+    for group_key, group in profiles.groupby(keys, sort=True):
+        matrix_mass = np.zeros((10, 10), dtype=float)
+        matrix_share = np.zeros((10, 10), dtype=float)
+        for row in group.to_dict("records"):
+            query = int(row["query_occurrence"]) - 1
+            key = int(row["key_occurrence"]) - 1
+            matrix_mass[query, key] = float(row["mean_attention_mass"])
+            matrix_share[query, key] = float(row["within_needle_share"])
+        curves = curve_lookup[tuple(group_key)]
+        result["|".join(str(value) for value in group_key)] = {
+            "model": str(group_key[0]),
+            "pooling": str(group_key[1]),
+            "layer": int(group_key[2]),
+            "variant": str(group_key[3]),
+            "key_pooling": str(group["key_pooling"].iloc[0]),
+            "confirmation_seed_count": int(
+                group["confirmation_seed_count"].iloc[0]
+            ),
+            "mean_attention_mass": [
+                [round(float(value), 8) for value in row]
+                for row in matrix_mass
+            ],
+            "within_needle_share": [
+                [round(float(value), 8) for value in row]
+                for row in matrix_share
+            ],
+            "curves": {
+                metric: [round(float(value), 8) for value in curves[metric]]
+                for metric in (
+                    "row_effective_fraction",
+                    "row_effective_tokens",
+                    "needle_effective_number",
+                    "needle_relative_coverage",
+                    "counter_noise",
+                )
+            },
+        }
+    return result
+
+
+def _prompt_counter_selected_rows(
+    frames: dict[str, pd.DataFrame],
+    layer_sweep_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    slopes = frames["slopes"]
+    associations = frames["associations"]
+    rows: list[dict[str, Any]] = []
+    for model in MODELS:
+        for pooling in POOLINGS:
+            layer_rows = [
+                row
+                for row in layer_sweep_rows
+                if row["model"] == model and row["pooling"] == pooling
+            ]
+            selections = {
+                "probe_optimal": int(
+                    next(row["layer"] for row in layer_rows if row["probe_optimal"])
+                ),
+                "manifold_display": int(
+                    next(
+                        row["layer"]
+                        for row in layer_rows
+                        if row["manifold_display"]
+                    )
+                ),
+            }
+            for selection, layer in selections.items():
+                for variant in VARIANTS:
+                    shared = (
+                        (slopes["model"] == model)
+                        & (slopes["hidden_pooling"] == pooling)
+                        & (pd.to_numeric(slopes["layer"]).astype(int) == layer)
+                        & (slopes["design_variant"] == variant)
+                    )
+
+                    def slope(quantity: str, metric: str) -> pd.Series:
+                        selected = slopes[
+                            shared
+                            & (slopes["quantity"] == quantity)
+                            & (slopes["metric"] == metric)
+                        ]
+                        if len(selected) != 1:
+                            raise RuntimeError(
+                                f"Missing dynamics slope {model}/{pooling}/"
+                                f"{variant}/L{layer}/{quantity}/{metric}"
+                            )
+                        return selected.iloc[0]
+
+                    assoc_mask = (
+                        (associations["model"] == model)
+                        & (associations["hidden_pooling"] == pooling)
+                        & (
+                            pd.to_numeric(associations["layer"]).astype(int)
+                            == layer
+                        )
+                        & (associations["design_variant"] == variant)
+                    )
+
+                    def association(metric: str) -> pd.Series:
+                        selected = associations[
+                            assoc_mask
+                            & (associations["attention_metric"] == metric)
+                        ]
+                        if len(selected) != 1:
+                            raise RuntimeError(
+                                f"Missing dynamics association {model}/{pooling}/"
+                                f"{variant}/L{layer}/{metric}"
+                            )
+                        return selected.iloc[0]
+
+                    row_fraction = slope(
+                        "attention", "row_effective_fraction"
+                    )
+                    row_effective = slope(
+                        "attention", "row_effective_tokens"
+                    )
+                    effective = slope(
+                        "attention", "needle_effective_number"
+                    )
+                    coverage = slope(
+                        "attention", "needle_relative_coverage"
+                    )
+                    counter_noise = slope("hidden_counter", "counter_noise")
+                    coverage_association = association(
+                        "needle_relative_coverage"
+                    )
+                    row_association = association("row_effective_fraction")
+                    rows.append(
+                        {
+                            "model": model,
+                            "pooling": pooling,
+                            "selection": selection,
+                            "layer": int(layer),
+                            "variant": variant,
+                            "row_effective_fraction_slope": float(
+                                row_fraction["mean_slope_per_full_1_to_10_range"]
+                            ),
+                            "row_effective_tokens_slope": float(
+                                row_effective[
+                                    "mean_slope_per_full_1_to_10_range"
+                                ]
+                            ),
+                            "needle_effective_number_slope": float(
+                                effective["mean_slope_per_full_1_to_10_range"]
+                            ),
+                            "needle_relative_coverage_slope": float(
+                                coverage["mean_slope_per_full_1_to_10_range"]
+                            ),
+                            "counter_noise_slope": float(
+                                counter_noise[
+                                    "mean_slope_per_full_1_to_10_range"
+                                ]
+                            ),
+                            "counter_noise_slope_low": float(
+                                counter_noise["ci95_low"]
+                            ),
+                            "counter_noise_slope_high": float(
+                                counter_noise["ci95_high"]
+                            ),
+                            "coverage_noise_correlation": float(
+                                coverage_association["correlation"]
+                            ),
+                            "coverage_noise_correlation_low": float(
+                                coverage_association["ci95_low"]
+                            ),
+                            "coverage_noise_correlation_high": float(
+                                coverage_association["ci95_high"]
+                            ),
+                            "row_dispersion_noise_correlation": float(
+                                row_association["correlation"]
+                            ),
+                            "row_dispersion_noise_correlation_low": float(
+                                row_association["ci95_low"]
+                            ),
+                            "row_dispersion_noise_correlation_high": float(
+                                row_association["ci95_high"]
+                            ),
+                        }
+                    )
+    return rows
+
+
+def _table_prompt_counter_dynamics_html(
+    rows: list[dict[str, Any]],
+) -> str:
+    return "".join(
+        "<tr>"
+        f"<td>{html.escape(row['model'])}</td>"
+        f"<td>{html.escape(row['pooling'].replace('_', '-'))}</td>"
+        f"<td>{html.escape(row['selection'].replace('_', '-'))}</td>"
+        f"<td>L{int(row['layer'])}</td>"
+        f"<td>{html.escape(row['variant'])}</td>"
+        f"<td>{_number(row['row_effective_tokens_slope'], 2, signed=True)}</td>"
+        f"<td>{_number(row['row_effective_fraction_slope'], 4, signed=True)}</td>"
+        f"<td>{_number(row['needle_effective_number_slope'], 3, signed=True)}</td>"
+        f"<td>{_number(row['needle_relative_coverage_slope'], 3, signed=True)}</td>"
+        f"<td>{_number(row['counter_noise_slope'], 3, signed=True)} "
+        f"[{_number(row['counter_noise_slope_low'], 3, signed=True)}, "
+        f"{_number(row['counter_noise_slope_high'], 3, signed=True)}]</td>"
+        f"<td>{_number(row['coverage_noise_correlation'], 3, signed=True)} "
+        f"[{_number(row['coverage_noise_correlation_low'], 3, signed=True)}, "
+        f"{_number(row['coverage_noise_correlation_high'], 3, signed=True)}]</td>"
+        f"<td>{_number(row['row_dispersion_noise_correlation'], 3, signed=True)} "
+        f"[{_number(row['row_dispersion_noise_correlation_low'], 3, signed=True)}, "
+        f"{_number(row['row_dispersion_noise_correlation_high'], 3, signed=True)}]</td>"
+        "</tr>"
+        for row in rows
+    )
+
+
+def _prompt_counter_association_svg(
+    associations: pd.DataFrame,
+    layer_sweep_rows: list[dict[str, Any]],
+) -> str:
+    """All-layer occurrence-adjusted correlation for relative coverage."""
+
+    width, height = 1120, 720
+    panel_width, panel_height = 430, 225
+    lefts = (105, 635)
+    tops = (120, 435)
+    parts = [
+        f'<svg class="stat-svg" viewBox="0 0 {width} {height}" role="img" '
+        'aria-labelledby="prompt-dynamics-title prompt-dynamics-desc">',
+        '<title id="prompt-dynamics-title">Occurrence-adjusted association between needle coverage and counter noise across layers</title>',
+        '<desc id="prompt-dynamics-desc">Four panels show Qwen and Gemma by span-end and span-mean hidden pooling. The horizontal axis is zero-based post-block layer. The vertical axis is the confirmation correlation between top-eight-bank relative needle coverage and full-space counter noise after subtracting each occurrence mean. One line is shown for each V4 panel. Vertical dotted and solid markers identify the prompt probe-optimal and manifold-display layers.</desc>',
+        f'<rect width="{width}" height="{height}" fill="{AURORA["snow_white"]}"/>',
+        f'<g font-family="Aptos,Segoe UI,system-ui,sans-serif" fill="{AURORA["night_black"]}">',
+    ]
+    for variant_index, variant in enumerate(VARIANTS):
+        x = 300 + variant_index * 145
+        parts.extend(
+            [
+                f'<line x1="{x}" y1="42" x2="{x+28}" y2="42" stroke="{VARIANT_COLORS[variant]}" stroke-width="3"/>',
+                f'<text x="{x+36}" y="46" font-size="11">{variant}</text>',
+            ]
+        )
+    for model_index, model in enumerate(MODELS):
+        for pooling_index, pooling in enumerate(POOLINGS):
+            left = lefts[pooling_index]
+            top = tops[model_index]
+            subset = associations[
+                (associations["model"] == model)
+                & (associations["hidden_pooling"] == pooling)
+                & (
+                    associations["attention_metric"]
+                    == "needle_relative_coverage"
+                )
+            ].copy()
+            layers = sorted(pd.to_numeric(subset["layer"]).astype(int).unique())
+            if not layers:
+                raise RuntimeError(f"No dynamics association rows for {model}/{pooling}")
+
+            def project_x(layer: int) -> float:
+                return left + (layer - layers[0]) / max(layers[-1] - layers[0], 1) * panel_width
+
+            def project_y(value: float) -> float:
+                return top + (1.0 - (value + 1.0) / 2.0) * panel_height
+
+            parts.extend(
+                [
+                    f'<rect x="{left}" y="{top}" width="{panel_width}" height="{panel_height}" fill="{AURORA["snow_white"]}" stroke="{AURORA["frost_gray"]}" stroke-opacity=".45"/>',
+                    f'<line x1="{left}" y1="{project_y(0):.2f}" x2="{left+panel_width}" y2="{project_y(0):.2f}" stroke="{AURORA["warm_brown"]}" stroke-width="1" opacity=".65"/>',
+                    f'<text x="{left}" y="{top-18}" font-size="15" font-weight="700">{model} · {pooling.replace("_", "-")}</text>',
+                ]
+            )
+            for tick in (-1.0, -0.5, 0.0, 0.5, 1.0):
+                y = project_y(tick)
+                parts.append(
+                    f'<text x="{left-12}" y="{y+4:.2f}" text-anchor="end" font-size="10" fill="{AURORA["frost_gray"]}">{tick:g}</text>'
+                )
+            selection_rows = [
+                row
+                for row in layer_sweep_rows
+                if row["model"] == model and row["pooling"] == pooling
+            ]
+            for flag, dash, color in (
+                ("probe_optimal", "5 4", AURORA["warm_brown"]),
+                ("manifold_display", "", AURORA["midnight_indigo"]),
+            ):
+                layer = int(next(row["layer"] for row in selection_rows if row[flag]))
+                x = project_x(layer)
+                parts.append(
+                    f'<line x1="{x:.2f}" y1="{top}" x2="{x:.2f}" y2="{top+panel_height}" stroke="{color}" stroke-width="2" stroke-dasharray="{dash}" opacity=".7"/>'
+                )
+            for variant in VARIANTS:
+                group = subset[subset["design_variant"] == variant].sort_values(
+                    "layer"
+                )
+                points = [
+                    (project_x(int(row.layer)), project_y(float(row.correlation)))
+                    for row in group.itertuples()
+                ]
+                path = " ".join(
+                    ("M" if index == 0 else "L") + f" {x:.2f} {y:.2f}"
+                    for index, (x, y) in enumerate(points)
+                )
+                parts.append(
+                    f'<path d="{path}" fill="none" stroke="{VARIANT_COLORS[variant]}" stroke-width="2" opacity=".88"/>'
+                )
+            parts.extend(
+                [
+                    f'<text x="{left+panel_width/2}" y="{top+panel_height+34}" text-anchor="middle" font-size="11">post-block decoder layer</text>',
+                    f'<text x="{left-58}" y="{top+panel_height/2}" transform="rotate(-90 {left-58} {top+panel_height/2})" text-anchor="middle" font-size="11">occurrence-adjusted correlation</text>',
+                ]
+            )
+    parts.extend(["</g>", "</svg>"])
+    return "".join(parts)
+
+
+def _prompt_counter_dynamics_conclusion_html(
+    rows: list[dict[str, Any]],
+) -> str:
+    statements: list[str] = []
+    for model in MODELS:
+        for pooling in POOLINGS:
+            selected = [
+                row
+                for row in rows
+                if row["model"] == model
+                and row["pooling"] == pooling
+                and row["selection"] == "manifold_display"
+            ]
+            if len(selected) != 4:
+                raise RuntimeError(
+                    f"Incomplete manifold dynamics rows for {model}/{pooling}"
+                )
+            noise_positive = sum(
+                float(row["counter_noise_slope_low"]) > 0 for row in selected
+            )
+            noise_negative = sum(
+                float(row["counter_noise_slope_high"]) < 0 for row in selected
+            )
+            association_positive = sum(
+                float(row["coverage_noise_correlation_low"]) > 0
+                for row in selected
+            )
+            association_negative = sum(
+                float(row["coverage_noise_correlation_high"]) < 0
+                for row in selected
+            )
+            median_coverage_slope = float(
+                np.median(
+                    [row["needle_relative_coverage_slope"] for row in selected]
+                )
+            )
+            median_noise_slope = float(
+                np.median([row["counter_noise_slope"] for row in selected])
+            )
+            median_correlation = float(
+                np.median(
+                    [row["coverage_noise_correlation"] for row in selected]
+                )
+            )
+            statements.append(
+                f"<strong>{html.escape(model)} · {html.escape(pooling.replace('_', '-'))}</strong> "
+                f"manifold-display layer：relative-coverage slope 中位数 "
+                f"{_number(median_coverage_slope, 3, signed=True)}，counter-noise slope "
+                f"中位数 {_number(median_noise_slope, 3, signed=True)}；四个 panels 中 noise "
+                f"CI 明确为正/负分别 {noise_positive}/{noise_negative}，coverage–noise 的 "
+                f"occurrence-adjusted correlation 中位数 "
+                f"{_number(median_correlation, 3, signed=True)}，CI 明确为正/负分别 "
+                f"{association_positive}/{association_negative}。"
+            )
+    return (
+        '<div class="section-conclusion"><span>2.2b 当前结论 · 分开趋势与同-n关联</span><p>'
+        + " ".join(statements)
+        + " 上述计数决定证据究竟支持“n 增大时更 diffuse 且更 noisy”、只支持其中一个趋势，"
+        "还是不同 panel/layer 方向不一致。即便二者同向且去除 occurrence 均值后相关仍为正，"
+        "本实验也没有干预 attention，因此只能称为与 counter noise 相伴的 write-side retrieval "
+        "phenomenon；证明‘导致’仍需对 frozen bank 做写入位置的定向 ablation/patching。</p></div>"
+    )
 
 
 def _attention_pooling_alignment_rows(
@@ -5464,8 +6327,9 @@ select,button { width:100%; border:1px solid rgba(0,194,255,.42); background:rgb
 button { cursor:pointer; font-weight:720; transition:transform .16s ease,background .16s ease; }
 button:hover { background:rgba(103,80,232,.42); } button:active { transform:translateY(1px); }
 .canvas-wrap { position:relative; min-height:610px; background:#120D31; border:1px solid rgba(0,194,255,.32); }
-#counter3d,#answer-counter3d { display:block; width:100%; height:610px; cursor:grab; }
-#counter3d.dragging,#answer-counter3d.dragging { cursor:grabbing; }
+#counter3d,#answer-counter3d,#joint-counter3d { display:block; width:100%; height:610px; cursor:grab; }
+#counter3d.dragging,#answer-counter3d.dragging,#joint-counter3d.dragging { cursor:grabbing; }
+#prompt-counter-attention-map { display:block; width:100%; height:650px; }
 #tooltip,#answer-tooltip { position:absolute; display:none; pointer-events:none; max-width:280px; padding:9px 11px; border:1px solid var(--cyan); background:rgba(22,25,35,.95); color:var(--paper); font-size:12px; box-shadow:0 10px 24px rgba(22,25,35,.35); }
 .viz-foot { display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:12px; color:rgba(248,251,255,.72); font-size:12px; }
 #geometry-stats { color:var(--yellow); text-align:right; }
@@ -5528,7 +6392,7 @@ button:hover { background:rgba(103,80,232,.42); } button:active { transform:tran
 footer { padding:25px; color:var(--muted); text-align:center; border-top:1px solid var(--line); font-size:12px; }
 @media (max-width:960px) { .grid4,.notes,.method-strip,.metric-defs,.next-grid { grid-template-columns:repeat(2,1fr); } .controls { grid-template-columns:repeat(3,1fr); } .figures { grid-template-columns:1fr; } .mechanism-flow { grid-template-columns:1fr; gap:0; } .flow-arrow { transform:rotate(90deg); min-height:34px; } }
 @media (max-width:720px) { .equation-row { grid-template-columns:1fr; gap:5px; } .equation-expression { white-space:normal; } }
-@media (max-width:600px) { main { padding-inline:16px; } header { padding-inline:18px; } .grid4,.notes,.method-strip,.metric-defs,.next-grid,.viz-foot,.evidence-ledger { grid-template-columns:1fr; } .ledger-row { display:block; } .controls { grid-template-columns:repeat(2,1fr); } #counter3d,#answer-counter3d { height:500px; } .canvas-wrap { min-height:500px; } .stat-figure,.figure-card { overflow-x:auto; } .stat-svg,.projection-svg { min-width:720px; } }
+@media (max-width:600px) { main { padding-inline:16px; } header { padding-inline:18px; } .grid4,.notes,.method-strip,.metric-defs,.next-grid,.viz-foot,.evidence-ledger { grid-template-columns:1fr; } .ledger-row { display:block; } .controls { grid-template-columns:repeat(2,1fr); } #counter3d,#answer-counter3d,#joint-counter3d { height:500px; } .canvas-wrap { min-height:500px; } .stat-figure,.figure-card { overflow-x:auto; } .stat-svg,.projection-svg { min-width:720px; } }
 @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } button { transition:none; } }
 </style>
 </head>
@@ -5675,9 +6539,37 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <h3>Aurora PC1–PC2 audit panels</h3>
   <p>以下四张图与 3D view 使用相同隐藏状态与 v4.1 discovery basis，但固定展示 PC1–PC2，便于比较跨 seed 散点宽度。它们替代旧配色 PNG 作为主报告图；原始 CSV/PNG 仍保留在 run artifact 中。</p>
   <div class="figures">@@STATIC_FIGURES@@</div>
+  <h3>2.2b Prompt counter 写入时的 attention dispersion 与 hidden-state noise</h3>
+  <div class="concept-box"><span class="concept-label">此处定义 · query site 与 key pooling 是两个轴</span><p><strong>Query site</strong> 固定为模型刚读到第 <em>n</em> 个 needle 的最后一个 token；这是 <code>span_end</code> hidden counter 的原生位置。<strong>Key pooling</strong> 再分别计算该 row 落在历史第 1…<em>n</em> 个 needle 的末 token 上的质量（<code>needle_end</code>），以及落在这些 needle 全部 span tokens 上的质量之和（<code>needle_span_sum</code>）。后者不是只看末 token。<code>span_mean</code> hidden state 是多个 query-token hidden states 的均值，本身没有唯一一条原生 attention row；因此这里把同一个 needle-end query row 的 full-span key mass 与 span-mean hidden noise 配对，并明确称为 key-pooling sensitivity，而不伪称“span-mean attention row”。</p></div>
+  <div class="formula">
+    <div class="formula-title">分散度与 counter noise</div>
+    <div class="equation-grid">
+      <div class="equation-row"><div class="equation-expression">N<sub>eff</sub>=exp[−Σ<sub>j≤n</sub> p<sub>j</sub> log p<sub>j</sub>]</div><div class="equation-explain">先令 m<sub>j</sub> 为该 head 对第 j 个历史 needle key pool 的 attention mass，再令 p<sub>j</sub>=m<sub>j</sub>/Σm。N<sub>eff</sub> 是等效覆盖的 needle 数；若均匀覆盖全部 n 个 needles，则 N<sub>eff</sub>=n。</div></div>
+      <div class="equation-row"><div class="equation-expression">relative coverage=N<sub>eff</sub>/n</div><div class="equation-explain">把“可见 needle 数随 n 机械增加”除掉；接近 1 表示在当前 n 个 needles 间近似均匀，接近 1/n 表示集中在一个 needle。</div></div>
+      <div class="equation-row"><div class="equation-expression">row fraction=exp[H(a)]/K</div><div class="equation-explain">a 是该 head 在整条可见 prompt key axis 上归一化的 attention row，K 是可见 key 数；它衡量对整个 prompt 的扩散，而不是只在 needle pools 内的均匀度。</div></div>
+      <div class="equation-row"><div class="equation-expression">counter noise=‖h<sub>s,n</sub>−μ<sub>disc,n</sub>‖₂ / RMS<sub>n</sub>(μ<sub>disc,n</sub>−μ̄)</div><div class="equation-explain">分子是 confirmation seed 的完整 residual 到相同 panel、occurrence 的 discovery centroid 的距离；分母是 discovery 十个 occurrence centroids 的 count-signal RMS。它在 full hidden space 计算，不是 PCA 散点距离。</div></div>
+    </div>
+  </div>
+  <div class="figure-intro"><p><strong>画什么：</strong>第 n 个 needle 末 token 的 query 对历史第 j 个 needle 的 attention 分布；可切换 endpoint/full-span key pooling、模型、panel 与任意层。</p><p><strong>如何得到：</strong>每个 model×panel×layer×pooling 先在 20 个 discovery seeds 中按 mean(total needle mass×relative coverage) 冻结 top-8 heads；热图再对同一 bank 的 10 个 confirmation seeds 与 8 个 heads 等权平均。行是 query occurrence n，列是历史 key occurrence j；j&gt;n 因 causal mask 不可见。</p><p><strong>能说明什么：</strong>随 n 增大，亮区横向铺开说明覆盖更多历史 needles；切换到 within-needle share 后，颜色趋于均匀才说明相对分布更平。它区分“绝对覆盖数增加”与“相对更均匀”，不能单凭亮格变多断言 attention 更 diffuse。</p></div>
+  <div class="viz-shell">
+    <div class="controls">
+      <label>Model<select id="pcd-model-select"><option>Qwen3-8B</option><option>Gemma4-E4B</option></select></label>
+      <label>Hidden/key pooling<select id="pcd-pooling-select"><option value="span_end">span-end / endpoint keys</option><option value="span_mean">span-mean / full-span keys</option></select></label>
+      <label>Post-block layer<select id="pcd-layer-select"></select></label>
+      <label>Variant<select id="pcd-variant-select"><option>v4.1</option><option>v4.2</option><option>v4.3</option><option>v4.4</option></select></label>
+      <label>Cell value<select id="pcd-metric-select"><option value="within_needle_share">within-needle share</option><option value="mean_attention_mass">raw attention mass</option></select></label>
+    </div>
+    <div class="canvas-wrap"><canvas id="prompt-counter-attention-map" aria-label="Needle-end write-side attention map across prompt occurrences"></canvas><div id="pcd-tooltip"></div></div>
+    <div class="viz-foot"><div id="pcd-map-stats"></div><div id="pcd-curve-stats"></div></div>
+  </div>
+  <p class="figure-caption"><strong>图 B2-F3b · Write-side prompt-counter attention map。</strong>纵轴 query occurrence n=1…10，横轴历史 needle occurrence j=1…10；每格是当前 discovery-frozen top-8 bank 在 10 个 confirmation seeds 上的平均值。不可见的上三角 j&gt;n 以灰色叉线标识。<code>within-needle share</code> 将每行可见 needle pools 的质量重新归一到 1，用来比较分布形状；<code>raw attention mass</code> 保留它在整条 prompt attention row 中的绝对质量。Endpoint 模式每个 j 只取 needle 最后一个 key token；full-span 模式对该 needle span 的全部 key tokens 求和。右下文字给出同一条件下 n=1→10 的整行 effective fraction、needle N<sub>eff</sub>、relative coverage 与 full-space counter noise 均值；这些曲线来自 confirmation seeds，不参与 head 选择。</p>
+  <div class="figure-intro"><p><strong>画什么：</strong>每层上，top-8 bank 的 relative needle coverage 与 full-space counter noise 在控制 occurrence n 后还剩多少 confirmation-seed 相关。</p><p><strong>如何得到：</strong>在每个 n 内分别减去十个 confirmation seeds 的均值，再把 100 个 seed×occurrence residual pairs 求相关；四条线对应 V4.1–V4.4。棕色虚线为 prompt probe-optimal layer，靛蓝实线为 manifold-display layer。该逐层图是 exploratory localization；表中的两个预定义 layer 才是重点审计位置。</p><p><strong>能说明什么：</strong>正相关表示同一个 n 下 attention 比平均更均匀覆盖 needles 的 seed 也往往有更大的 counter residual；负相关表示更均匀覆盖反而伴随更稳定 counter。即使 CI 不含 0，它仍是同层观察关联，不证明 attention dispersion 导致 hidden noise。</p></div>
+  <div class="stat-grid"><figure class="stat-figure">@@PROMPT_COUNTER_ASSOCIATION_SVG@@<figcaption><strong>图 B2-F3c · Occurrence-adjusted coverage/noise association across layers。</strong>四格为 Qwen/Gemma×span-end/span-mean；横轴是 zero-based post-block layer，纵轴是 confirmation 中先按 occurrence n 去均值后的 Pearson correlation，范围 −1 到 1，棕色水平线为 0。V4.1–V4.4 分别用靛蓝、紫、青、粉线连接相邻层的点估计；图中不画逐层 CI 以避免遮挡，probe/manifold 两类重点层的 seed-cluster bootstrap 95% CI 在下表给出。正值只表示 seed-level 共变，不是因果方向。</figcaption></figure></div>
+  <details><summary>Probe-optimal / manifold-display 层的 dispersion、noise 与关联</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>pooling</th><th>selection</th><th>layer</th><th>panel</th><th>Δ row N<sub>eff</sub></th><th>Δ row effective fraction</th><th>Δ needle N<sub>eff</sub></th><th>Δ relative coverage</th><th>Δ counter noise [95% CI]</th><th>corr(coverage, noise) [95% CI]</th><th>corr(row fraction, noise) [95% CI]</th></tr></thead><tbody>@@PROMPT_COUNTER_DYNAMICS_ROWS@@</tbody></table></div><p class="formula-note">所有 Δ 都是先在每个 confirmation seed 内对 x=(n−1)/9 做线性回归，再等权平均十个 seed slope，因此表示从 n=1 到 n=10 的完整范围变化，而不是“每增加一个 needle”的变化。Row N<sub>eff</sub> 是整条可见 prompt row 的绝对有效 token 数，row effective fraction 再除以可见 key 数；前者随序列变长可机械增加，后者才衡量相对扩散。相关的 bootstrap 以 seed 为 cluster，并在每次重采样后重新做 occurrence 去均值。</p></details>
+  @@PROMPT_COUNTER_DYNAMICS_CONCLUSION@@
   <h3>2.3 Answer-query counter：<code>Total:</code> 位置的聚合状态</h3>
-  <p class="lede">这张图使用 geometric-steering discovery capture 中保存的完整 answer-query residual：Qwen L9/L18/L26，Gemma L10/L20/L31。每个点对应一个 variant×discovery seed×gold count prompt，在生成第一个答案 token 之前捕获；它不是 needle token 的均值，也不是首个答案 token 生成后的状态。每层同时拟合两个 V4.1 discovery PCA basis：<code>all</code> 使用全部 200 条 prompts；<code>correct_only</code> 只使用最终 greedy 数字严格正确的 prompts。两套 basis 都投影同一批 800 条保存状态。</p>
-  <div class="callout"><strong>为什么 answer-query 只有三层可选？</strong>这不是报告端抽样：原始 geometric-steering discovery capture 每个模型只保存了三个预注册深度（Qwen L9/L18/L26；Gemma L10/L20/L31），因此当前可复算的 answer-query PCA 也只有这三层。Prompt-reading representation 另有全层 capture，所以 2.2 能逐层扫描；若要把 answer-query 扩为全层，需要重新前向捕获全层 <code>Total:</code> residual，不能从现有三层文件插值得到。</div>
+  <p class="lede">本轮新增的 <code>answer_query_all_layers_v1</code> capture 对每条 variant×discovery seed×gold count prompt，在生成第一个答案 token 之前、prompt-final <code>Total:</code> query 位置保存<strong>每一个 post-block decoder layer</strong>的完整 residual；Qwen 为 L0–L35，Gemma 为 L0–L41。它不是 needle token 的均值，也不是首个答案 token 生成后的状态。每层同时拟合两个 V4.1 discovery PCA basis：<code>all</code> 使用全部 200 条 prompts；<code>correct_only</code> 只使用最终 greedy 数字严格正确的 prompts。两套 basis 都投影同一批 800 条保存状态。</p>
+  <div class="callout"><strong>逐层完整性。</strong>交互图的 layer 下拉框来自新 capture 的实际 <code>layer_indices</code>，不是报告端插值：Qwen 36 层、Gemma 42 层均逐层前向保存。下方静态 PC1–PC2 图为避免 78 个 panel 挤在一页，只显示每个模型的 first / discovery-selected manifold-display / last 三个 landmark；逐层结果必须以上方交互图和导出的 sensitivity CSV 为准。</div>
   <div class="figure-intro"><p><strong>画什么：</strong>生成答案前，prompt-final <code>Total:</code> query 的完整 residual 在三维 PCA 空间中如何随 gold count 1–10 组织；可切换模型、保存层、V4 panel、PCA 拟合 cohort、最终输出标签与任意 PC1–PC6 轴组合。</p><p><strong>如何得到：</strong><code>all-fit</code> 用 V4.1 的 20 discovery seeds×10 counts 拟合；<code>correct-only-fit</code> 只用其中 strict-correct rows 拟合。切换 panel 或 outcome 时只筛选投影点，不重新拟合。淡点是单 prompt，彩色节点与线是当前筛选后十个 gold-count centroids。</p><p><strong>能说明什么：</strong>它检查 count-conditioned query manifold 是否由错误样本驱动，以及正确、错误、非法输出在同一 basis 中是否分离。PCA 仍是描述性证据；2.5 的 exact donor patch 与第 5 章 steering 才检验该状态是否驱动输出。</p></div>
   <div class="viz-shell">
     <div class="controls">
@@ -5700,9 +6592,30 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   </div>
   <p class="figure-caption"><strong>图 B2-F4a · Interactive answer-query counter manifold。</strong>每个淡点是一条 model×V4 panel×discovery seed×gold count prompt 在首个答案 token 生成前、<code>Total:</code> query 位置的完整 post-block residual；填充色从靛蓝 N=1 过渡到青色 N=10，轮廓色编码最终 greedy outcome：白色=correct、深色=wrong、粉色=invalid。彩色大节点与白线是当前筛选后 N=1→10 centroids；若某个 count 在筛选后没有点，该节点缺失，连线只连接仍存在的相邻显示节点，不是回归曲线。<code>PCA fit</code> 切换 all-fit 与 correct-only-fit；<code>Final output</code> 只切换显示点，不重拟合 PCA。左下角同时列出 fit-cohort EVR 与共同 V4.1 全样本上的 variance capture；右下角给出当前三轴 centroid step CV、path/chord、within-count seed RMS、between-count centroid RMS 及二者比值。每层与每个 fit cohort 独立定轴，故跨 basis 比较应使用这些无坐标符号依赖的摘要，不能直接比较 PC 坐标方向。</p>
   <div class="figure-intro"><p><strong>画什么：</strong>把同一 answer-query 数据固定到 PC1–PC2，形成两个模型×三个保存层的静态审计图，便于不操作 3D 控件也能直接比较 V4.1 与 V4.4。</p><p><strong>如何得到：</strong>每层沿用上方交互图的 V4.1 discovery PCA basis；灰色虚线路径是 V4.1 centroids，黑色实线路径与半透明散点是 V4.4。</p><p><strong>能说明什么：</strong>它提供可打印、固定视角的 cross-layer audit；只显示 PC1–PC2，不能替代上方可切换 PC3–PC6 的三维检查。</p></div>
-  <div class="stat-grid"><figure class="stat-figure">@@ANSWER_QUERY_COUNTER_SVG@@<figcaption><strong>图 B2-F4b · Static all-fit answer-query PC1–PC2 audit。</strong>上排为 Qwen3-8B 的 L9/L18/L26，下排为 Gemma4-E4B 的 L10/L20/L31；每格横轴是 PC1 score、纵轴是 PC2 score，固定使用该层由全部 V4.1 discovery prompts 拟合的 basis。点填充色编码 gold count，点轮廓为白=correct、深色=wrong、粉=invalid；半透明小点是 V4.4 的 20 seeds×10 counts。灰色虚线连接 V4.1 centroids，黑色实线和彩色节点连接 V4.4 centroids。它是交互图 all-fit/all-outcomes 的固定审计视角；correct-only 敏感性应在交互控件或下表查看。</figcaption></figure></div>
-  <details><summary>All-fit 与 correct-only-fit PCA 敏感性：12 个 model×layer×fit rows</summary><p class="lede">下表把两种 basis 都固定评估在同一批 V4.1 全部 200 条 prompts 上。<code>fit EVR</code> 的分母是各自拟合 cohort 的方差，仅描述该 cohort；<code>common capture</code> 才是在共同 V4.1 全样本方差分母下可直接比较的 PC1–3/PC1–6 捕获率。Centroid trajectory 与 seed scatter 也都使用共同评估集。<code>per-count fit n range</code> 明示 correct-only cohort 的类别不平衡；若下界为 0，则该 basis 对缺失 count 的投影是敏感性外推，不是由该 count 的正确样本直接拟合。</p><div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>PCA fit</th><th>fit n</th><th>per-count fit n range</th><th>fit EVR PC1–3</th><th>fit EVR PC1–6</th><th>common capture PC1–3</th><th>common capture PC1–6</th><th>step CV</th><th>path/chord</th><th>within-count seed RMS</th><th>between-centroid RMS</th><th>noise/signal</th><th>centroid distance corr vs all-fit</th></tr></thead><tbody>@@ANSWER_QUERY_PCA_SENSITIVITY_ROWS@@</tbody></table></div><p class="formula-note">Within-count seed RMS 是每个 prompt 到其 gold-count centroid 的三维均方根距离；between-centroid RMS 是十个 count centroids 到其总 centroid 的均方根距离；noise/signal 为前者除以后者，越大表示跨 seed 散布相对 count 间分离越强。最后一列比较十个 centroids 的 45 个两两距离，因此不受 PCA 轴正负号或旋转影响。</p></details>
+  <div class="stat-grid"><figure class="stat-figure">@@ANSWER_QUERY_COUNTER_SVG@@<figcaption><strong>图 B2-F4b · Static all-fit answer-query PC1–PC2 landmark audit。</strong>每行一个模型，每列依次为 first、discovery-selected manifold-display 与 last layer（实际层号写在各 panel 标题中）；每格横轴是 PC1 score、纵轴是 PC2 score，固定使用该层由全部 V4.1 discovery prompts 拟合的 basis。点填充色编码 gold count，点轮廓为白=correct、深色=wrong、粉=invalid；半透明小点是 V4.4 的 20 seeds×10 counts。灰色虚线连接 V4.1 centroids，黑色实线和彩色节点连接 V4.4 centroids。该图只提供可打印 landmark 审计，不代表只捕获了三层。</figcaption></figure></div>
+  <details><summary>All-fit 与 correct-only-fit PCA 敏感性：@@ANSWER_QUERY_SENSITIVITY_ROW_COUNT@@ 个 model×layer×fit rows</summary><p class="lede">下表把两种 basis 都固定评估在同一批 V4.1 全部 200 条 prompts 上。<code>fit EVR</code> 的分母是各自拟合 cohort 的方差，仅描述该 cohort；<code>common capture</code> 才是在共同 V4.1 全样本方差分母下可直接比较的 PC1–3/PC1–6 捕获率。Centroid trajectory 与 seed scatter 也都使用共同评估集。<code>per-count fit n range</code> 明示 correct-only cohort 的类别不平衡；若下界为 0，则该 basis 对缺失 count 的投影是敏感性外推，不是由该 count 的正确样本直接拟合。</p><div class="table-wrap"><table><thead><tr><th>model</th><th>layer</th><th>PCA fit</th><th>fit n</th><th>per-count fit n range</th><th>fit EVR PC1–3</th><th>fit EVR PC1–6</th><th>common capture PC1–3</th><th>common capture PC1–6</th><th>step CV</th><th>path/chord</th><th>within-count seed RMS</th><th>between-centroid RMS</th><th>noise/signal</th><th>centroid distance corr vs all-fit</th></tr></thead><tbody>@@ANSWER_QUERY_PCA_SENSITIVITY_ROWS@@</tbody></table></div><p class="formula-note">Within-count seed RMS 是每个 prompt 到其 gold-count centroid 的三维均方根距离；between-centroid RMS 是十个 count centroids 到其总 centroid 的均方根距离；noise/signal 为前者除以后者，越大表示跨 seed 散布相对 count 间分离越强。最后一列比较十个 centroids 的 45 个两两距离，因此不受 PCA 轴正负号或旋转影响。</p></details>
   @@ANSWER_QUERY_PCA_CONCLUSION@@
+  <h3>2.3b Prompt counter 与 answer-query counter 的共同坐标图</h3>
+  <div class="concept-box"><span class="concept-label">此处定义 · paired joint state</span><p>对同一 model、V4 panel、discovery seed 与 count <em>k</em>，prompt 端取 N=10 序列读到第 <em>k</em> 个 needle 后的 <code>span_end</code> 或 <code>span_mean</code> state；answer 端取 N=<em>k</em> 序列末尾 <code>Total:</code> query state。两者来自同一个 post-block layer 和同一 residual 坐标系，因此可以联合拟合 PCA；若分别拟合 PCA 后再叠图，轴没有共同含义，本报告不采用那种做法。</p></div>
+  <div class="figure-intro"><p><strong>画什么：</strong>同一层中，prompt occurrence 的 1→10 centroid path 与 answer-query 的 1→10 centroid path 是否具有相似的距离结构与递增方向。</p><p><strong>如何得到：</strong>每个 centroid 等权平均 20 个 discovery seeds；<code>raw joint PCA</code> 直接拼接两种 token-role states 拟合，<code>role-centered joint PCA</code> 先分别减去两种 role 在 V4.1 discovery 的 grand mean，再在同一 basis 中拟合。四个 panel 只投影，不重新拟合。圆点/实线为 prompt，方点/虚线为 answer；同色细线连接相同 count。</p><p><strong>能说明什么：</strong>若 role-centered 后两条 trajectory 的 CKA、两两距离相关与相邻 step cosine 都高，说明两处 count geometry 在形状和递增方向上相容；这仍不证明 prompt state 被逐字运输到 answer state，因果运输要由 patching 检验。</p></div>
+  <div class="viz-shell">
+    <div class="controls">
+      <label>Model<select id="joint-model-select"><option>Qwen3-8B</option><option>Gemma4-E4B</option></select></label>
+      <label>Prompt pooling<select id="joint-pooling-select"><option value="span_end">span-end</option><option value="span_mean">span-mean</option></select></label>
+      <label>Post-block layer<select id="joint-layer-select"></select></label>
+      <label>Variant<select id="joint-variant-select"><option>v4.1</option><option>v4.2</option><option>v4.3</option><option>v4.4</option></select></label>
+      <label>Joint basis<select id="joint-mode-select"><option value="role_centered">role-centered</option><option value="raw">raw</option></select></label>
+      <label>View<button id="joint-reset-view" type="button">reset rotation</button></label>
+      <label>X axis<select id="joint-x-axis"></select></label>
+      <label>Y axis<select id="joint-y-axis"></select></label>
+      <label>Z axis<select id="joint-z-axis"></select></label>
+    </div>
+    <div class="canvas-wrap"><canvas id="joint-counter3d" aria-label="Joint prompt-occurrence and answer-query PCA trajectories"></canvas></div>
+    <div class="viz-foot"><div id="joint-pca-stats"></div><div id="joint-geometry-stats"></div></div>
+    <div class="legend" id="joint-count-legend"></div>
+  </div>
+  <p class="figure-caption"><strong>图 B2-F4c · Joint prompt/answer counter geometry。</strong>颜色映射 gold count 1–10；圆点和实线只表示 prompt-reading centroids，方点和虚线只表示 answer-query centroids，黄色半透明细线连接同一 count 的两个 role centroid。所有点都是 20 个 discovery seeds 的均值，图中没有 individual-seed scatter。X/Y/Z 是当前 model×pooling×layer×joint-mode 在 V4.1 discovery 联合拟合的 PC score；每层与两种 joint mode 都独立定轴，不能跨图比较绝对 PC 坐标。Raw 模式可能主要显示固定 token-role offset；role-centered 模式去掉该常量位移后再比较 count trajectory。右下角的 linear CKA 比较 centered Gram geometry，distance corr 比较十个 centroids 的 45 个两两距离，step cosine 比较九个相邻 count 增量在原始 full residual space 中的方向；role-offset/signal 量化 raw token-role 差异相对两条 count trajectory 平均 RMS 尺度有多大。</p>
+  <div class="section-conclusion"><span>2.3b 结论边界</span><p>共同 PCA 只回答“两类状态能否在同一个同层坐标系中呈现相容的 count geometry”。Role centering 是预先声明的可视化敏感性处理，不会把 answer state 替换成 prompt state，也不会删除随 count 变化的 role-specific component；若 raw 与 role-centered 结论不同，应解释为固定 token-role offset 对 PCA 方差分配的影响，而不是任选更好看的图。</p></div>
   <div class="section-conclusion"><span>当前结论 · 两种表示不能混称</span><p>Prompt-reading 图追踪同一个 N=10 prompt 内第 1→10 个 needle occurrence 的局部状态；answer-query 图比较十个不同 gold-count prompts 在 <code>Total:</code> 位置的聚合状态。前者说明读入过程中哪些 layer 出现可视的 index trajectory，后者说明生成前哪些 layer 已形成 count-conditioned query geometry。只有后者与 late answer-query donor patching/steering 位于同一干预位置，因此不能用 prompt occurrence PCA 直接替代 answer-query counter 的机制证据。</p></div>
   <details><summary>N=10 trajectory 的实际 greedy outcome strata</summary><p class="lede">一条 N=10 trajectory 的十个 occurrence vectors 共同继承该 prompt 的最终输出标签；不是按单 occurrence 重新分类。Qwen confirmation 在四个 panel 都没有正确 N=10 trajectory；Gemma 只有 v4.1 的 1 条，因此 correct/wrong 几何只能作 audit，不能作有 power 的组间比较。</p><div class="table-wrap"><table><thead><tr><th>model</th><th>panel</th><th>split</th><th>correct / n</th><th>accuracy</th><th>mean prediction</th><th>MAE</th></tr></thead><tbody>@@BEHAVIOR_ROWS@@</tbody></table></div></details>
   <div class="section-conclusion"><span>本节结论</span><p>可切换 PCA 中的 centroid trajectory 证明 count-related geometry 具有低维可视结构，但 individual seed scatter、step CV 与 path/chord 显示它既不完全等距，也不总是笔直。PCA 只能说明 representation 的组织方式；是否进入生成读出，需要后面的 attention 与 causal intervention。</p></div>
@@ -6078,6 +6991,8 @@ function makeTablesCollapsible() {
 makeTablesCollapsible();
 const REP_DATA = @@REP_DATA@@;
 const AQ_DATA = @@ANSWER_QUERY_DATA@@;
+const JOINT_DATA = @@JOINT_COUNTER_DATA@@;
+const PCD_DATA = @@PROMPT_COUNTER_PROFILE_DATA@@;
 const COLORS = ['#23165C','#4430A2','#6750E8','#9950F4','#C04DFF','#FF5FA2','#F6E36A','#39E58C','#00D4B4','#00C2FF'];
 function drawCountLabels(renderCtx,items,width,height){
   const occupied=[];
@@ -6101,6 +7016,46 @@ function drawCountLabels(renderCtx,items,width,height){
   }
   renderCtx.restore();
 }
+
+const pcdCanvas=document.getElementById('prompt-counter-attention-map');
+const pcdCtx=pcdCanvas.getContext('2d');
+const pcdTooltip=document.getElementById('pcd-tooltip');
+const pcdControls={
+  model:document.getElementById('pcd-model-select'),pooling:document.getElementById('pcd-pooling-select'),
+  layer:document.getElementById('pcd-layer-select'),variant:document.getElementById('pcd-variant-select'),
+  metric:document.getElementById('pcd-metric-select')
+};
+let pcdCells=[];
+function pcdAvailableLayers(){
+  const prefix=`${pcdControls.model.value}|${pcdControls.pooling.value}|`;
+  return [...new Set(Object.keys(PCD_DATA).filter(key=>key.startsWith(prefix)).map(key=>+key.split('|')[2]))].sort((a,b)=>a-b);
+}
+function pcdRefreshLayers(){
+  const layers=pcdAvailableLayers();pcdControls.layer.innerHTML='';
+  for(const layer of layers){const rep=REP_DATA[`${pcdControls.model.value}|${pcdControls.pooling.value}|${layer}`],option=document.createElement('option');option.value=String(layer);const role=rep?.manifold_display?' · manifold-display':(rep?.probe_optimal?' · probe-optimal':'');option.textContent=`L${layer}${role}`;pcdControls.layer.appendChild(option);}
+  const preferred=layers.find(layer=>REP_DATA[`${pcdControls.model.value}|${pcdControls.pooling.value}|${layer}`]?.manifold_display);if(layers.length)pcdControls.layer.value=String(preferred??layers[0]);
+}
+function pcdActiveData(){return PCD_DATA[`${pcdControls.model.value}|${pcdControls.pooling.value}|${pcdControls.layer.value}|${pcdControls.variant.value}`];}
+function pcdColor(value,maximum){const t=Math.max(0,Math.min(1,value/Math.max(maximum,1e-12))),start=[35,22,92],middle=[103,80,232],end=[0,194,255];let left,right,u;if(t<.5){left=start;right=middle;u=t*2;}else{left=middle;right=end;u=(t-.5)*2;}const rgb=left.map((channel,index)=>Math.round(channel+(right[index]-channel)*u));return`rgb(${rgb.join(',')})`;}
+function pcdDraw(){
+  const rect=pcdCanvas.getBoundingClientRect(),width=rect.width,height=rect.height;pcdCtx.clearRect(0,0,width,height);pcdCtx.fillStyle='#FFFDF8';pcdCtx.fillRect(0,0,width,height);const data=pcdActiveData();pcdCells=[];
+  if(!data){pcdCtx.fillStyle='#765347';pcdCtx.font='16px system-ui';pcdCtx.textAlign='center';pcdCtx.fillText('Prompt-counter dynamics data are unavailable.',width/2,height/2);return;}
+  const matrix=data[pcdControls.metric.value],visible=[];for(let query=0;query<10;query++)for(let key=0;key<=query;key++)visible.push(matrix[query][key]);const maximum=Math.max(...visible,1e-12),cell=Math.min(45,(width-210)/10,(height-170)/10),gridWidth=cell*10,left=Math.max(105,(width-gridWidth)/2),top=88;
+  pcdCtx.font='12px system-ui';pcdCtx.textAlign='center';pcdCtx.fillStyle='#161923';pcdCtx.fillText('historical needle key occurrence j',left+gridWidth/2,40);pcdCtx.save();pcdCtx.translate(34,top+gridWidth/2);pcdCtx.rotate(-Math.PI/2);pcdCtx.fillText('current needle-end query occurrence n',0,0);pcdCtx.restore();
+  for(let query=0;query<10;query++){
+    pcdCtx.fillStyle='#161923';pcdCtx.textAlign='right';pcdCtx.fillText(String(query+1),left-12,top+(query+.66)*cell);
+    for(let key=0;key<10;key++){
+      const x=left+key*cell,y=top+query*cell,value=matrix[query][key],visibleCell=key<=query;pcdCtx.fillStyle=visibleCell?pcdColor(value,maximum):'#E8E3DA';pcdCtx.fillRect(x,y,cell,cell);pcdCtx.strokeStyle='rgba(129,144,165,.38)';pcdCtx.lineWidth=.7;pcdCtx.strokeRect(x,y,cell,cell);if(!visibleCell){pcdCtx.strokeStyle='rgba(118,83,71,.28)';pcdCtx.beginPath();pcdCtx.moveTo(x+3,y+3);pcdCtx.lineTo(x+cell-3,y+cell-3);pcdCtx.stroke();}pcdCells.push({x,y,w:cell,h:cell,query:query+1,key:key+1,value,visible:visibleCell});
+    }
+  }
+  pcdCtx.textAlign='center';pcdCtx.fillStyle='#161923';for(let key=0;key<10;key++)pcdCtx.fillText(String(key+1),left+(key+.5)*cell,top-12);
+  const legendY=top+gridWidth+46,legendWidth=Math.min(320,gridWidth);for(let index=0;index<100;index++){pcdCtx.fillStyle=pcdColor(maximum*index/99,maximum);pcdCtx.fillRect(left+legendWidth*index/100,legendY,legendWidth/100+1,12);}pcdCtx.fillStyle='#161923';pcdCtx.font='11px system-ui';pcdCtx.textAlign='left';pcdCtx.fillText('0',left,legendY+30);pcdCtx.textAlign='right';pcdCtx.fillText(maximum.toPrecision(3),left+legendWidth,legendY+30);pcdCtx.textAlign='left';pcdCtx.fillText(pcdControls.metric.value==='within_needle_share'?'within-needle normalized share':'raw attention mass in the full prompt row',left,legendY-8);
+  const curves=data.curves,delta=values=>values[9]-values[0];document.getElementById('pcd-map-stats').innerHTML=`<strong>${data.model} · ${data.pooling} hidden / ${data.key_pooling} keys · L${data.layer} · ${data.variant}</strong><br>query = each needle final token · bank frozen on discovery · map averaged over ${data.confirmation_seed_count} confirmation seeds`;
+  document.getElementById('pcd-curve-stats').innerHTML=`confirmation n=1→10 mean change:<br>row N<sub>eff</sub> ${delta(curves.row_effective_tokens).toFixed(2)} · row effective fraction ${delta(curves.row_effective_fraction).toFixed(4)} · needle N<sub>eff</sub> ${delta(curves.needle_effective_number).toFixed(3)} · relative coverage ${delta(curves.needle_relative_coverage).toFixed(3)} · counter noise ${delta(curves.counter_noise).toFixed(3)}`;
+}
+function pcdResize(){const rect=pcdCanvas.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);pcdCanvas.width=Math.max(1,Math.round(rect.width*dpr));pcdCanvas.height=Math.max(1,Math.round(rect.height*dpr));pcdCtx.setTransform(dpr,0,0,dpr,0,0);pcdDraw();}
+[pcdControls.model,pcdControls.pooling].forEach(control=>control.addEventListener('change',()=>{pcdRefreshLayers();pcdDraw();}));[pcdControls.layer,pcdControls.variant,pcdControls.metric].forEach(control=>control.addEventListener('change',pcdDraw));
+pcdCanvas.addEventListener('pointermove',event=>{const rect=pcdCanvas.getBoundingClientRect(),x=event.clientX-rect.left,y=event.clientY-rect.top,cell=pcdCells.find(item=>x>=item.x&&x<=item.x+item.w&&y>=item.y&&y<=item.y+item.h);if(cell){pcdTooltip.style.display='block';pcdTooltip.style.left=`${Math.min(rect.width-245,x+14)}px`;pcdTooltip.style.top=`${Math.max(8,y-10)}px`;pcdTooltip.innerHTML=cell.visible?`<strong>query n=${cell.query} → key j=${cell.key}</strong><br>${pcdControls.metric.value}: ${cell.value.toPrecision(5)}`:`<strong>n=${cell.query}, j=${cell.key}</strong><br>causally unavailable (future needle)`;}else pcdTooltip.style.display='none';});pcdCanvas.addEventListener('mouseleave',()=>{pcdTooltip.style.display='none';});
 const canvas = document.getElementById('counter3d');
 const ctx = canvas.getContext('2d');
 const tooltip = document.getElementById('tooltip');
@@ -6247,8 +7202,9 @@ function aqAvailableLayers(){
 }
 function aqRefreshLayerOptions(){
   const layers=aqAvailableLayers();aqControls.layer.innerHTML='';
-  layers.forEach((layer,index)=>{const option=document.createElement('option');option.value=String(layer);option.textContent=`L${layer}${index===layers.length-1?' · late':''}`;aqControls.layer.appendChild(option);});
-  aqControls.layer.value=String(layers[layers.length-1]);
+  layers.forEach(layer=>{const data=AQ_DATA[`${aqControls.model.value}|${layer}|all`],option=document.createElement('option');option.value=String(layer);const role=data?.manifold_display?' · manifold-display':(data?.probe_optimal?' · PCA3-probe':'');option.textContent=`L${layer}${role}`;aqControls.layer.appendChild(option);});
+  const preferred=layers.find(layer=>AQ_DATA[`${aqControls.model.value}|${layer}|all`]?.manifold_display);
+  if(layers.length)aqControls.layer.value=String(preferred??layers[layers.length-1]);
 }
 function aqActiveData(){return AQ_DATA[`${aqControls.model.value}|${aqControls.layer.value}|${aqControls.fit.value}`];}
 function aqFilteredRows(){const data=aqActiveData();return data?data.rows.filter(row=>row[0]===aqControls.variant.value&&(aqControls.outcome.value==='all'||row[3]===aqControls.outcome.value)):[];}
@@ -6309,6 +7265,65 @@ aqCanvas.addEventListener('pointerup',()=>{aqDragging=false;aqCanvas.classList.r
 aqCanvas.addEventListener('wheel',event=>{event.preventDefault();aqZoom=Math.max(.45,Math.min(2.8,aqZoom*Math.exp(-event.deltaY*.001)));aqDraw();},{passive:false});
 document.getElementById('aq-count-legend').innerHTML=COLORS.map((color,index)=>`<span><i style="background:${color}"></i>${index+1}</span>`).join('');
 
+const jointCanvas=document.getElementById('joint-counter3d');
+const jointCtx=jointCanvas.getContext('2d');
+const jointControls={
+  model:document.getElementById('joint-model-select'),pooling:document.getElementById('joint-pooling-select'),
+  layer:document.getElementById('joint-layer-select'),variant:document.getElementById('joint-variant-select'),
+  mode:document.getElementById('joint-mode-select'),x:document.getElementById('joint-x-axis'),
+  y:document.getElementById('joint-y-axis'),z:document.getElementById('joint-z-axis')
+};
+for(const select of [jointControls.x,jointControls.y,jointControls.z]){
+  for(let i=0;i<6;i++){const option=document.createElement('option');option.value=String(i);option.textContent=`PC${i+1}`;select.appendChild(option);}
+}
+jointControls.x.value='0';jointControls.y.value='1';jointControls.z.value='2';
+let jointYaw=-.72,jointPitch=.44,jointZoom=1,jointDragging=false,jointLastX=0,jointLastY=0;
+function jointAvailableLayers(){
+  const prefix=`${jointControls.model.value}|${jointControls.pooling.value}|`;
+  return [...new Set(Object.keys(JOINT_DATA).filter(key=>key.startsWith(prefix)).map(key=>+key.split('|')[2]))].sort((a,b)=>a-b);
+}
+function jointRefreshLayers(){
+  const layers=jointAvailableLayers();jointControls.layer.innerHTML='';
+  for(const layer of layers){
+    const data=JOINT_DATA[`${jointControls.model.value}|${jointControls.pooling.value}|${layer}|role_centered`];
+    const option=document.createElement('option');option.value=String(layer);option.textContent=`L${layer}${data&&data.manifold_display?' · answer manifold-display':''}`;jointControls.layer.appendChild(option);
+  }
+  const preferred=layers.find(layer=>JOINT_DATA[`${jointControls.model.value}|${jointControls.pooling.value}|${layer}|role_centered`]?.manifold_display);
+  if(layers.length)jointControls.layer.value=String(preferred??layers[layers.length-1]);
+}
+function jointActiveData(){return JOINT_DATA[`${jointControls.model.value}|${jointControls.pooling.value}|${jointControls.layer.value}|${jointControls.mode.value}`];}
+function jointRows(){const data=jointActiveData();return data?data.rows.filter(row=>row[0]===jointControls.variant.value):[];}
+function jointStats(rows,axes){
+  if(!rows.length)return null;const values=axes.map(axis=>rows.map(row=>row[4+axis]));const mins=values.map(v=>Math.min(...v)),maxs=values.map(v=>Math.max(...v));return{mins,maxs,centers:mins.map((v,i)=>(v+maxs[i])/2),ranges:mins.map((v,i)=>Math.max(maxs[i]-v,1e-8))};
+}
+function jointTransform(rows,axes,width,height){
+  const stats=jointStats(rows,axes);if(!stats)return null;const common=Math.max(...stats.ranges),radius=Math.min(width,height)*.36*jointZoom;
+  return point=>{let x=(point[0]-stats.centers[0])*2/common,y=(point[1]-stats.centers[1])*2/common,z=(point[2]-stats.centers[2])*2/common;const cy=Math.cos(jointYaw),sy=Math.sin(jointYaw),cp=Math.cos(jointPitch),sp=Math.sin(jointPitch),x1=cy*x+sy*z,z1=-sy*x+cy*z,y1=cp*y-sp*z1,z2=sp*y+cp*z1;return{x:width/2+x1*radius,y:height/2-y1*radius,z:z2};};
+}
+function jointDraw(){
+  const rect=jointCanvas.getBoundingClientRect(),width=rect.width,height=rect.height;jointCtx.clearRect(0,0,width,height);jointCtx.fillStyle='#120D31';jointCtx.fillRect(0,0,width,height);
+  const data=jointActiveData(),rows=jointRows(),axes=[+jointControls.x.value,+jointControls.y.value,+jointControls.z.value],stats=jointStats(rows,axes),transform=jointTransform(rows,axes,width,height);
+  if(!data||!rows.length||!stats||!transform){jointCtx.fillStyle='#F6E36A';jointCtx.font='16px system-ui';jointCtx.textAlign='center';jointCtx.fillText('Joint all-layer capture is not available.',width/2,height/2);document.getElementById('joint-pca-stats').textContent='No joint data';document.getElementById('joint-geometry-stats').textContent='No joint data';return;}
+  const origin=[stats.mins[0],stats.mins[1],stats.mins[2]],ends=[[stats.maxs[0],origin[1],origin[2]],[origin[0],stats.maxs[1],origin[2]],[origin[0],origin[1],stats.maxs[2]]],start=transform(origin);jointCtx.font='11px system-ui';jointCtx.textAlign='left';ends.forEach((end,index)=>{const finish=transform(end);jointCtx.strokeStyle=['#00C2FF','#39E58C','#FF5FA2'][index];jointCtx.lineWidth=1;jointCtx.beginPath();jointCtx.moveTo(start.x,start.y);jointCtx.lineTo(finish.x,finish.y);jointCtx.stroke();jointCtx.fillStyle=jointCtx.strokeStyle;jointCtx.fillText(`PC${axes[index]+1}`,finish.x+4,finish.y-4);});
+  const roles={prompt_occurrence:[],answer_query:[]};for(const row of rows){roles[row[1]].push({row,count:row[2],point:transform(axes.map(axis=>row[4+axis]))});}for(const role of Object.keys(roles))roles[role].sort((a,b)=>a.count-b.count);
+  const answerByCount=new Map(roles.answer_query.map(item=>[item.count,item]));jointCtx.strokeStyle='rgba(246,227,106,.42)';jointCtx.lineWidth=1;for(const prompt of roles.prompt_occurrence){const answer=answerByCount.get(prompt.count);if(!answer)continue;jointCtx.beginPath();jointCtx.moveTo(prompt.point.x,prompt.point.y);jointCtx.lineTo(answer.point.x,answer.point.y);jointCtx.stroke();}
+  for(const [role,items] of Object.entries(roles)){jointCtx.strokeStyle=role==='prompt_occurrence'?'#F8FBFF':'#F6E36A';jointCtx.lineWidth=role==='prompt_occurrence'?2.7:2.2;jointCtx.setLineDash(role==='prompt_occurrence'?[]:[7,5]);jointCtx.beginPath();items.forEach((item,index)=>index?jointCtx.lineTo(item.point.x,item.point.y):jointCtx.moveTo(item.point.x,item.point.y));jointCtx.stroke();jointCtx.setLineDash([]);for(const item of items){jointCtx.fillStyle=COLORS[item.count-1];jointCtx.strokeStyle=role==='prompt_occurrence'?'#F8FBFF':'#F6E36A';jointCtx.lineWidth=1.4;if(role==='prompt_occurrence'){jointCtx.beginPath();jointCtx.arc(item.point.x,item.point.y,5.5,0,Math.PI*2);jointCtx.fill();jointCtx.stroke();}else{jointCtx.fillRect(item.point.x-4.8,item.point.y-4.8,9.6,9.6);jointCtx.strokeRect(item.point.x-4.8,item.point.y-4.8,9.6,9.6);}}}
+  drawCountLabels(jointCtx,roles.prompt_occurrence.map(item=>({count:item.count,x:item.point.x,y:item.point.y})),width,height);
+  jointCtx.fillStyle='#8190A5';jointCtx.font='11px system-ui';jointCtx.textAlign='left';jointCtx.fillText('circles/solid = prompt · squares/dashed = answer · connectors = same count',12,height-12);
+  document.getElementById('joint-pca-stats').innerHTML=`<strong>${data.model} · ${data.pooling} · L${data.layer} · ${data.mode}</strong><br>shared PCA fit: V4.1 discovery, ${data.fit_rows} role-states · EVR ${data.explained_variance_ratio.slice(0,6).map((value,index)=>`PC${index+1} ${(100*value).toFixed(1)}%`).join(' · ')}`;
+  document.getElementById('joint-geometry-stats').innerHTML=`full-space trajectory agreement: linear CKA ${data.trajectory_linear_cka.toFixed(3)} · distance corr ${data.trajectory_distance_correlation.toFixed(3)} · successive-step cosine ${data.successive_step_cosine.toFixed(3)}<br>answer/prompt trajectory scale ${data.answer_to_prompt_scale_ratio.toFixed(3)} · raw role-offset / count-signal ${data.role_offset_to_count_signal.toFixed(2)}`;
+}
+function jointResize(){const rect=jointCanvas.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);jointCanvas.width=Math.max(1,Math.round(rect.width*dpr));jointCanvas.height=Math.max(1,Math.round(rect.height*dpr));jointCtx.setTransform(dpr,0,0,dpr,0,0);jointDraw();}
+function jointReset(){jointYaw=-.72;jointPitch=.44;jointZoom=1;jointDraw();}
+[jointControls.model,jointControls.pooling].forEach(control=>control.addEventListener('change',()=>{jointRefreshLayers();jointDraw();}));
+[jointControls.layer,jointControls.variant,jointControls.mode,jointControls.x,jointControls.y,jointControls.z].forEach(control=>control.addEventListener('change',jointDraw));
+document.getElementById('joint-reset-view').addEventListener('click',jointReset);
+jointCanvas.addEventListener('pointerdown',event=>{jointDragging=true;jointLastX=event.clientX;jointLastY=event.clientY;jointCanvas.classList.add('dragging');jointCanvas.setPointerCapture(event.pointerId);});
+jointCanvas.addEventListener('pointermove',event=>{if(!jointDragging)return;jointYaw+=(event.clientX-jointLastX)*.008;jointPitch=Math.max(-1.45,Math.min(1.45,jointPitch+(event.clientY-jointLastY)*.008));jointLastX=event.clientX;jointLastY=event.clientY;jointDraw();});
+jointCanvas.addEventListener('pointerup',()=>{jointDragging=false;jointCanvas.classList.remove('dragging');});jointCanvas.addEventListener('pointercancel',()=>{jointDragging=false;jointCanvas.classList.remove('dragging');});
+jointCanvas.addEventListener('wheel',event=>{event.preventDefault();jointZoom=Math.max(.45,Math.min(2.8,jointZoom*Math.exp(-event.deltaY*.001)));jointDraw();},{passive:false});
+document.getElementById('joint-count-legend').innerHTML=COLORS.map((color,index)=>`<span><i style="background:${color}"></i>${index+1}</span>`).join('');
+
 function refreshAttentionAtlas(){
   const variant=document.querySelector('.atlas-button[aria-pressed="true"]').dataset.atlasVariant;
   const pooling=document.querySelector('.atlas-pooling-button[aria-pressed="true"]').dataset.atlasPooling;
@@ -6319,6 +7334,8 @@ document.querySelectorAll('.atlas-pooling-button').forEach(button=>button.addEve
 document.querySelectorAll('.outcome-pooling-button').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('.outcome-pooling-button').forEach(item=>item.setAttribute('aria-pressed',String(item===button)));document.querySelectorAll('.outcome-pooling-panel').forEach(panel=>{panel.hidden=panel.dataset.outcomePooling!==button.dataset.outcomePooling;});}));
 refreshLayerOptions();new ResizeObserver(resizeCanvas).observe(canvas);resizeCanvas();
 aqRefreshLayerOptions();new ResizeObserver(aqResizeCanvas).observe(aqCanvas);aqResizeCanvas();
+jointRefreshLayers();new ResizeObserver(jointResize).observe(jointCanvas);jointResize();
+pcdRefreshLayers();new ResizeObserver(pcdResize).observe(pcdCanvas);pcdResize();
 </script>
 </body>
 </html>"""
@@ -6365,6 +7382,16 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
     answer_query_projections = _answer_query_projection_data(run_root)
     answer_query_pca_sensitivity_rows = _answer_query_pca_sensitivity_rows(
         answer_query_projections
+    )
+    joint_counter_projections = _joint_counter_projection_data(
+        run_root, answer_query_projections
+    )
+    prompt_counter_dynamics = _prompt_counter_dynamics_frames(run_root)
+    prompt_counter_profile_data = _prompt_counter_profile_data(
+        prompt_counter_dynamics
+    )
+    prompt_counter_selected_rows = _prompt_counter_selected_rows(
+        prompt_counter_dynamics, layer_sweep_rows
     )
     metric_rows = _metric_rows(run_root, probe_layers)
     behavior_rows = _behavior_rows(labels_frames)
@@ -6440,6 +7467,26 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
         "@@ANSWER_QUERY_DATA@@": json.dumps(
             answer_query_projections, ensure_ascii=False, separators=(",", ":")
         ),
+        "@@JOINT_COUNTER_DATA@@": json.dumps(
+            joint_counter_projections, ensure_ascii=False, separators=(",", ":")
+        ),
+        "@@PROMPT_COUNTER_PROFILE_DATA@@": json.dumps(
+            prompt_counter_profile_data,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
+        "@@PROMPT_COUNTER_ASSOCIATION_SVG@@": _prompt_counter_association_svg(
+            prompt_counter_dynamics["associations"], layer_sweep_rows
+        ),
+        "@@PROMPT_COUNTER_DYNAMICS_ROWS@@": _table_prompt_counter_dynamics_html(
+            prompt_counter_selected_rows
+        ),
+        "@@PROMPT_COUNTER_DYNAMICS_CONCLUSION@@": (
+            _prompt_counter_dynamics_conclusion_html(
+                prompt_counter_selected_rows
+            )
+        ),
+        "@@ANSWER_QUERY_SENSITIVITY_ROW_COUNT@@": f"{len(answer_query_pca_sensitivity_rows):,}",
         "@@ANSWER_QUERY_PCA_SENSITIVITY_ROWS@@": (
             _table_answer_query_pca_sensitivity_html(
                 answer_query_pca_sensitivity_rows
@@ -6640,6 +7687,21 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
     pd.DataFrame(answer_query_pca_sensitivity_rows).to_csv(
         answer_query_pca_sensitivity_path, index=False
     )
+    prompt_counter_selected_path = output.with_name(
+        "realistic_niah_v4_prompt_counter_dynamics_selected_layers.csv"
+    )
+    pd.DataFrame(prompt_counter_selected_rows).to_csv(
+        prompt_counter_selected_path, index=False
+    )
+    joint_counter_metrics_path = output.with_name(
+        "realistic_niah_v4_joint_counter_layer_metrics.csv"
+    )
+    pd.DataFrame(
+        [
+            {key: value for key, value in item.items() if key != "rows"}
+            for item in joint_counter_projections.values()
+        ]
+    ).to_csv(joint_counter_metrics_path, index=False)
     steering_v2_selection_path = output.with_name(
         "realistic_niah_v4_steering_v2_selection.csv"
     )
@@ -6677,6 +7739,15 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
                 ),
                 "answer_query_pca_sensitivity_csv": str(
                     answer_query_pca_sensitivity_path.resolve()
+                ),
+                "joint_counter_layer_metrics_csv": str(
+                    joint_counter_metrics_path.resolve()
+                ),
+                "prompt_counter_dynamics_selected_layers_csv": str(
+                    prompt_counter_selected_path.resolve()
+                ),
+                "joint_counter_projection_panels": len(
+                    joint_counter_projections
                 ),
                 "steering_v2_selection_csv": str(
                     steering_v2_selection_path.resolve()

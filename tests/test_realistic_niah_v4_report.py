@@ -96,6 +96,14 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     assert 'id="aq-layer-select"' in template
     assert 'id="aq-fit-select"' in template
     assert 'id="aq-outcome-select"' in template
+    assert 'id="joint-counter3d"' in template
+    assert 'id="joint-layer-select"' in template
+    assert 'id="joint-mode-select"' in template
+    assert "@@JOINT_COUNTER_DATA@@" in template
+    assert 'id="prompt-counter-attention-map"' in template
+    assert "@@PROMPT_COUNTER_PROFILE_DATA@@" in template
+    assert "@@PROMPT_COUNTER_ASSOCIATION_SVG@@" in template
+    assert "@@PROMPT_COUNTER_DYNAMICS_ROWS@@" in template
     assert "@@ANSWER_QUERY_PCA_SENSITIVITY_ROWS@@" in template
     assert "@@ANSWER_QUERY_PCA_CONCLUSION@@" in template
     assert "function aqDraw()" in template
@@ -300,8 +308,28 @@ def test_answer_query_counter_is_a_separate_layered_figure() -> None:
     assert "<title" in svg and "<desc" in svg
     template = report.REPORT_TEMPLATE
     assert "Interactive answer-query counter manifold" in template
-    assert "Static all-fit answer-query PC1–PC2 audit" in template
+    assert "Static all-fit answer-query" in template
     assert "AQ_DATA" in template
+    assert "JOINT_DATA" in template
+
+
+def test_joint_counter_geometry_metrics_are_coordinate_invariant() -> None:
+    report = _load_report_module()
+    left = report.np.stack(
+        [
+            report.np.asarray([float(count), float(count**2), 1.0])
+            for count in range(1, 11)
+        ]
+    )
+    rotation = report.np.asarray(
+        [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
+    )
+    right = left @ rotation
+    assert report._trajectory_linear_cka(left, right) == pytest.approx(1.0)
+    assert report._trajectory_distance_correlation(left, right) == pytest.approx(
+        1.0
+    )
+    assert report._successive_step_alignment(left, left) == pytest.approx(1.0)
 
 
 def test_answer_query_pca_sensitivity_uses_common_v41_evaluation() -> None:
