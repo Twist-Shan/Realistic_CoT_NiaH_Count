@@ -4877,7 +4877,7 @@ button:hover { background:rgba(103,80,232,.42); } button:active { transform:tran
 .formula { max-width:980px; margin:18px 0; padding:16px 18px; background:var(--surface-strong); border:1px solid var(--line); border-left:4px solid var(--brown); overflow-x:auto; }
 .formula-title { margin-bottom:8px; color:var(--brown); font:760 11px/1.3 "Cascadia Mono",Consolas,monospace; letter-spacing:.08em; text-transform:uppercase; }
 .equation-grid { display:grid; gap:0; }
-.equation-row { display:grid; grid-template-columns:minmax(250px,.88fr) minmax(320px,1.4fr); gap:22px; align-items:start; padding:11px 0; border-top:1px solid var(--line); }
+.equation-row { display:grid; grid-template-columns:minmax(300px,1fr) minmax(320px,1.45fr); gap:22px; align-items:start; padding:11px 0; border-top:1px solid var(--line); }
 .equation-row:first-child { border-top:0; }
 .equation-expression { color:var(--midnight); font:600 18px/1.55 "Cambria Math","STIX Two Math","Times New Roman",serif; white-space:nowrap; }
 .equation-explain { color:#4E463E; font-size:13px; line-height:1.58; }
@@ -5046,7 +5046,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
     <div class="viz-foot"><div id="pca-stats"></div><div id="geometry-stats"></div></div>
     <div class="legend" id="count-legend"></div>
   </div>
-  <p class="figure-caption"><strong>图 B2-F3a · Interactive prompt-reading counter trajectory。</strong>交互图追踪一个 N=10 prompt 在读到第 1→10 个 needle 时的 occurrence state；Model、Pooling、Post-block layer、V4 panel、split 与最终 greedy output 标签均可切换。X/Y/Z 下拉框选择该 model×pooling×layer 的 PC1–PC6，默认显示 PC1/PC2/PC3；颜色从靛蓝 N=1 依次过渡到青色 N=10。淡点是当前筛选条件下的单个 seed×occurrence state，彩色大节点和连线是 occurrence 1→10 的 centroids；连线只表示顺序，不是拟合曲线。右下统计给出所选 PC 的 discovery EVR、step CV 与 path/chord。每个 layer 都在 V4.1 discovery 上单独拟合 PCA，因此只可比较同一 model×pooling×layer 内的 panel/split/标签变化，不可跨层比较 PC 绝对坐标；“correct/wrong”是整条 N=10 prompt 的最终输出标签，十个 occurrence 点共享该标签。</p>
+  <p class="figure-caption"><strong>图 B2-F3a · Interactive prompt-reading counter trajectory。</strong>交互图追踪一个 N=10 prompt 在读到第 1→10 个 needle 时的 occurrence state；Model、Pooling、Post-block layer、V4 panel、split 与最终 greedy output 标签均可切换。X/Y/Z 下拉框选择该 model×pooling×layer 的 PC1–PC6，默认显示 PC1/PC2/PC3；颜色从靛蓝 N=1 依次过渡到青色 N=10。淡点是当前筛选条件下的单个 seed×occurrence state，彩色大节点和连线是 occurrence 1→10 的 centroids；连线只表示顺序，不是拟合曲线。数字标签会在屏幕坐标中自动避让；过密时省略部分数字，但上方 1–10 色标始终给出完整映射。右下统计给出所选 PC 的 discovery EVR、step CV 与 path/chord。每个 layer 都在 V4.1 discovery 上单独拟合 PCA，因此只可比较同一 model×pooling×layer 内的 panel/split/标签变化，不可跨层比较 PC 绝对坐标；“correct/wrong”是整条 N=10 prompt 的最终输出标签，十个 occurrence 点共享该标签。</p>
   <div class="formula">
     <div class="formula-title">3D trajectory 的形状诊断</div>
     <div class="equation-grid">
@@ -5079,7 +5079,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
     <div class="viz-foot"><div id="aq-pca-stats"></div><div id="aq-geometry-stats"></div></div>
     <div class="legend" id="aq-count-legend"></div>
   </div>
-  <p class="figure-caption"><strong>图 B2-F4a · Interactive answer-query counter manifold。</strong>每个淡点是一条 model×V4 panel×discovery seed×gold count prompt 在首个答案 token 生成前、<code>Total:</code> query 位置的完整 post-block residual；颜色从靛蓝 N=1 过渡到青色 N=10。彩色大节点与连线是当前 model×layer×panel 的 N=1→10 centroids，连线只表示 count 顺序，不是拟合曲线。Model、Post-block layer、V4 panel、X/Y/Z 轴、点显示和尺度均可切换；拖动旋转、滚轮缩放、悬停查看 seed/count。左下角列出该层 V4.1 discovery PCA 的 PC1–PC6 EVR，右下角给出当前三轴 centroid trajectory 的 step CV 与 path/chord。每层独立拟合，因此只可比较该层内部的 panel、count 顺序和 seed 散布，不能跨 layer/model 直接比较 PC 坐标绝对值。</p>
+  <p class="figure-caption"><strong>图 B2-F4a · Interactive answer-query counter manifold。</strong>每个淡点是一条 model×V4 panel×discovery seed×gold count prompt 在首个答案 token 生成前、<code>Total:</code> query 位置的完整 post-block residual；颜色从靛蓝 N=1 过渡到青色 N=10。彩色大节点与连线是当前 model×layer×panel 的 N=1→10 centroids，连线只表示 count 顺序，不是拟合曲线。数字标签会自动换到不遮挡其他 centroid 的方位；空间不足时省略部分数字，完整的 count—颜色映射仍由上方 1–10 色标给出。Model、Post-block layer、V4 panel、X/Y/Z 轴、点显示和尺度均可切换；拖动旋转、滚轮缩放、悬停查看 seed/count。左下角列出该层 V4.1 discovery PCA 的 PC1–PC6 EVR，右下角给出当前三轴 centroid trajectory 的 step CV 与 path/chord。每层独立拟合，因此只可比较该层内部的 panel、count 顺序和 seed 散布，不能跨 layer/model 直接比较 PC 坐标绝对值。</p>
   <div class="figure-intro"><p><strong>画什么：</strong>把同一 answer-query 数据固定到 PC1–PC2，形成两个模型×三个保存层的静态审计图，便于不操作 3D 控件也能直接比较 V4.1 与 V4.4。</p><p><strong>如何得到：</strong>每层沿用上方交互图的 V4.1 discovery PCA basis；灰色虚线路径是 V4.1 centroids，黑色实线路径与半透明散点是 V4.4。</p><p><strong>能说明什么：</strong>它提供可打印、固定视角的 cross-layer audit；只显示 PC1–PC2，不能替代上方可切换 PC3–PC6 的三维检查。</p></div>
   <div class="stat-grid"><figure class="stat-figure">@@ANSWER_QUERY_COUNTER_SVG@@<figcaption><strong>图 B2-F4b · Static answer-query PC1–PC2 audit。</strong>上排为 Qwen3-8B 的 L9/L18/L26，下排为 Gemma4-E4B 的 L10/L20/L31；每格横轴/纵轴是该层在 V4.1 discovery answer-query states 上独立拟合的 PC1/PC2 score。颜色编码 gold count：N=1 靛蓝，依次过渡到 N=10 青色；半透明小点是 V4.4 的 20 个 discovery seeds×10 counts。灰色虚线连接 V4.1 的 N=1→10 centroids，黑色实线及彩色节点连接 V4.4 centroids；线段只连接离散均值。为避免早层重叠，只给 V4.4 的 N=1 与 N=10 加文字标签，中间 counts 由顶部色标识别。格顶的 EVR 是 PC1+PC2 对该层 V4.1 discovery 总方差的解释比例。每格独立拟合并缩放，故只能看格内的 count 顺序、间距和 seed 散布，不能跨 layer/model 比较坐标绝对值。</figcaption></figure></div>
   <div class="section-conclusion"><span>当前结论 · 两种表示不能混称</span><p>Prompt-reading 图追踪同一个 N=10 prompt 内第 1→10 个 needle occurrence 的局部状态；answer-query 图比较十个不同 gold-count prompts 在 <code>Total:</code> 位置的聚合状态。前者说明读入过程中哪些 layer 出现可视的 index trajectory，后者说明生成前哪些 layer 已形成 count-conditioned query geometry。只有后者与 late answer-query donor patching/steering 位于同一干预位置，因此不能用 prompt occurrence PCA 直接替代 answer-query counter 的机制证据。</p></div>
@@ -5451,6 +5451,28 @@ makeTablesCollapsible();
 const REP_DATA = @@REP_DATA@@;
 const AQ_DATA = @@ANSWER_QUERY_DATA@@;
 const COLORS = ['#23165C','#4430A2','#6750E8','#9950F4','#C04DFF','#FF5FA2','#F6E36A','#39E58C','#00D4B4','#00C2FF'];
+function drawCountLabels(renderCtx,items,width,height){
+  const occupied=[];
+  const points=items.map(item=>({x:item.x,y:item.y}));
+  const ordered=[...items].sort((a,b)=>((a.count===1||a.count===10)?0:1)-((b.count===1||b.count===10)?0:1)||a.count-b.count);
+  const candidates=[[9,-13],[9,13],[-9,-13],[-9,13],[0,-18],[0,18],[16,0],[-16,0]];
+  renderCtx.save();renderCtx.font='600 10px system-ui';renderCtx.textBaseline='middle';
+  for(const item of ordered){
+    const text=String(item.count),textWidth=Math.ceil(renderCtx.measureText(text).width),boxWidth=textWidth+8,boxHeight=16;
+    let selected=null;
+    for(const [dx,dy] of candidates){
+      const box={x:item.x+dx-(dx<0?boxWidth:(dx===0?boxWidth/2:0)),y:item.y+dy-boxHeight/2,w:boxWidth,h:boxHeight};
+      const inside=box.x>=3&&box.y>=3&&box.x+box.w<=width-3&&box.y+box.h<=height-3;
+      const overlaps=occupied.some(other=>box.x<other.x+other.w+3&&box.x+box.w+3>other.x&&box.y<other.y+other.h+3&&box.y+box.h+3>other.y);
+      const coversNode=points.some(point=>(point.x!==item.x||point.y!==item.y)&&point.x>=box.x-3&&point.x<=box.x+box.w+3&&point.y>=box.y-3&&point.y<=box.y+box.h+3);
+      if(inside&&!overlaps&&!coversNode){selected=box;break;}
+    }
+    if(!selected)continue;
+    occupied.push(selected);renderCtx.fillStyle='rgba(18,13,49,.84)';renderCtx.fillRect(selected.x,selected.y,selected.w,selected.h);
+    renderCtx.fillStyle='#F8FBFF';renderCtx.textAlign='center';renderCtx.fillText(text,selected.x+selected.w/2,selected.y+selected.h/2+.5);
+  }
+  renderCtx.restore();
+}
 const canvas = document.getElementById('counter3d');
 const ctx = canvas.getContext('2d');
 const tooltip = document.getElementById('tooltip');
@@ -5547,12 +5569,15 @@ function draw() {
   if (!rows.length || !stats || !transform) { ctx.fillStyle='#F6E36A';ctx.font='16px system-ui';ctx.textAlign='center';ctx.fillText('No trajectories match this filter.',width/2,height/2);document.getElementById('geometry-stats').textContent='No data';return; }
   drawAxes(transform,stats,axes,width,height);
   const paths=centroids(rows); const pointMode=controls.points.value;
+  const labelGroup=paths.find(group=>group.split==='confirmation')||paths[0]; let centroidLabels=[];
   for (const group of paths) {
     const pts=group.path.map(d=>({...d,q:transform(axes.map(a=>d.p[a]))}));
     ctx.strokeStyle=group.split==='confirmation'?'#F8FBFF':'#8190A5'; ctx.lineWidth=group.split==='confirmation'?2.5:1.5; ctx.setLineDash(group.split==='confirmation'?[]:[6,5]);
     ctx.beginPath(); pts.forEach((d,i)=>i?ctx.lineTo(d.q.x,d.q.y):ctx.moveTo(d.q.x,d.q.y));ctx.stroke();ctx.setLineDash([]);
-    for (const d of pts) { ctx.fillStyle=COLORS[d.count-1];ctx.strokeStyle='#161923';ctx.lineWidth=1;ctx.beginPath();ctx.arc(d.q.x,d.q.y,5.6,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillStyle='#F8FBFF';ctx.font='10px system-ui';ctx.fillText(String(d.count),d.q.x+7,d.q.y-6); }
+    for (const d of pts) { ctx.fillStyle=COLORS[d.count-1];ctx.strokeStyle='#161923';ctx.lineWidth=1;ctx.beginPath();ctx.arc(d.q.x,d.q.y,5.6,0,Math.PI*2);ctx.fill();ctx.stroke(); }
+    if(group===labelGroup)centroidLabels=pts.map(d=>({count:d.count,x:d.q.x,y:d.q.y}));
   }
+  drawCountLabels(ctx,centroidLabels,width,height);
   if (pointMode!=='centroids') {
     let pointRows=rows; if(pointMode==='confirmation') pointRows=rows.filter(r=>r[2]==='confirmation');
     const pts=pointRows.map(r=>({r,q:transform(axes.map(a=>r[7+a]))})).sort((a,b)=>a.q.z-b.q.z);
@@ -5635,7 +5660,8 @@ function aqDraw(){
   }
   const path=aqCentroids(rows),projectedPath=path.map(item=>({...item,projected:transform(axes.map(axis=>item.point[axis]))}));
   aqCtx.strokeStyle='#F8FBFF';aqCtx.lineWidth=2.5;aqCtx.beginPath();projectedPath.forEach((item,index)=>index?aqCtx.lineTo(item.projected.x,item.projected.y):aqCtx.moveTo(item.projected.x,item.projected.y));aqCtx.stroke();
-  for(const item of projectedPath){aqCtx.fillStyle=COLORS[item.count-1];aqCtx.strokeStyle='#161923';aqCtx.lineWidth=1;aqCtx.beginPath();aqCtx.arc(item.projected.x,item.projected.y,5.8,0,Math.PI*2);aqCtx.fill();aqCtx.stroke();aqCtx.fillStyle='#F8FBFF';aqCtx.font='10px system-ui';aqCtx.textAlign='left';aqCtx.fillText(String(item.count),item.projected.x+7,item.projected.y-6);}
+  for(const item of projectedPath){aqCtx.fillStyle=COLORS[item.count-1];aqCtx.strokeStyle='#161923';aqCtx.lineWidth=1;aqCtx.beginPath();aqCtx.arc(item.projected.x,item.projected.y,5.8,0,Math.PI*2);aqCtx.fill();aqCtx.stroke();}
+  drawCountLabels(aqCtx,projectedPath.map(item=>({count:item.count,x:item.projected.x,y:item.projected.y})),width,height);
   aqCtx.fillStyle='#8190A5';aqCtx.font='11px system-ui';aqCtx.textAlign='left';aqCtx.fillText(`${rows.length} prompts · ${new Set(rows.map(row=>row[1])).size} discovery seeds`,12,height-12);
   document.getElementById('aq-geometry-stats').textContent=aqGeometryText(path,axes);
 }

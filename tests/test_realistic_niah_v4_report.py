@@ -88,6 +88,8 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     assert 'id="answer-counter3d"' in template
     assert 'id="aq-layer-select"' in template
     assert "function aqDraw()" in template
+    assert "function drawCountLabels" in template
+    assert "自动避让" in template
     assert "Discovery / confirmation" in template
     assert 'id="definitions"' not in template
     assert template.index("Discovery / confirmation") < template.index('<section id="behavior">')
