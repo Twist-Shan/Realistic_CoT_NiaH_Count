@@ -6,6 +6,12 @@ The HTML is the primary artifact: it contains the all-layer interactive prompt
 and answer-query counter views, the endpoint/full-span attention atlas, the
 causal forest plots, captions, and collapsed result tables.
 
+The completed evidence summarized here predates the larger ±k causal-v2
+follow-up. That follow-up is now implemented but has no results yet; its frozen
+design, exact patch definitions, request accounting, and audit are in
+[`realistic_niah_v4_causal_v2.md`](realistic_niah_v4_causal_v2.md). Do not mix
+causal-v2 protocol intent with the completed estimates below.
+
 ## Why the report fixes V4.4
 
 The four-panel analysis established that prompt-side `needle-end` count
@@ -124,6 +130,11 @@ the report:
 - a phenotype-pure top-1→top-k head-bank ablation curve;
 - a V4.4-only preregistered discovery/confirmation rerun of every causal test;
 - precise set-to-count steering.
+
+The phenotype-pure top-1…32 sweep, coordinated full-span patches, all-layer
+single/cumulative answer patches, and ±k steering are registered in causal-v2.
+They remain missing *evidence* until the formal causal-v2 run, held-out
+confirmation, and strict audit finish.
 
 ## Rebuild
 

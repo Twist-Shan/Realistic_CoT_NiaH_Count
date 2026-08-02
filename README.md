@@ -55,6 +55,7 @@ Remote: <https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git>
 | Inspect the completed V4 numeric non-thinking run | `run_20260731_v4_numeric_presentation_v3` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md) |
 | Open or rebuild the V4 representation + causal report | [`reports/realistic_niah_v4_representation_report.html`](reports/realistic_niah_v4_representation_report.html), `scripts/build_realistic_niah_v4_representation_report.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md`](docs/realistic_niah_v4_causal_screen_20260801.md) |
 | Read or rebuild the V4.4-only mechanism report | [`reports/realistic_niah_v4_4_mechanism_report.html`](reports/realistic_niah_v4_4_mechanism_report.html), `scripts/build_realistic_niah_v4_4_report.py` | [`docs/realistic_niah_v4_4_mechanism_report.md`](docs/realistic_niah_v4_4_mechanism_report.md) |
+| Run the expanded V4.4 ±k causal-v2 study | `scripts/launch_realistic_niah_v4_causal_v2.sh`, `scripts/audit_realistic_niah_v4_causal_v2.py` | [`docs/realistic_niah_v4_causal_v2.md`](docs/realistic_niah_v4_causal_v2.md) |
 | Audit the completed V4 causal screen | `scripts/audit_realistic_niah_v4_causal.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md#screen-design-and-completion-audit`](docs/realistic_niah_v4_causal_screen_20260801.md#screen-design-and-completion-audit) |
 | Audit and analyze exact answer-query transport | `scripts/analyze_realistic_niah_v4_answer_query_patching.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md#3-late-answer-query-state-transports-the-computed-prediction`](docs/realistic_niah_v4_causal_screen_20260801.md#3-late-answer-query-state-transports-the-computed-prediction) |
 | Analyze all Qwen span-end candidates and multi-head coverage | `scripts/analyze_realistic_niah_v4_partitioning.py` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md#qwen-span-end-full-candidate-bank-and-positional-partitioning) |
@@ -246,6 +247,18 @@ and 9--10, and centroid-delta steering on 7--8, 9--10, and the non-local 5--10
 pair at three matched relative depths. Every intervention keeps one
 layer-matched or norm-matched random control. The reduced design is a causal
 screen, not a replacement for a fully powered all-condition sweep.
+
+The expanded **V4.4 causal-v2** protocol is now implemented separately from
+that completed screen. It adds an audited N=0 member to the nested V4.4
+families and registers: answer-query-only broad/first-locator top-1 through
+top-32 ablation; prompt endpoint and exact full-span residual patching; all-layer
+single and cumulative answer-query patching; and all-layer full-dimensional
+centroid steering for ±k with `k=1,...,5`. Selection uses five screen seeds;
+every stable exact layer/k condition receives five additional held-out seeds.
+The implementation and request accounting are documented in
+[`docs/realistic_niah_v4_causal_v2.md`](docs/realistic_niah_v4_causal_v2.md).
+This paragraph records protocol availability only—causal-v2 has no reported
+effect estimates until its formal run and audit complete.
 
 Audit the completed `screen_8h_v1` causal subtree with:
 

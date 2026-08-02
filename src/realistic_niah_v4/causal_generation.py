@@ -12,6 +12,7 @@ import pandas as pd
 
 from .attention import Head, matched_random_heads
 from .behavior import label_generated_completion
+from .causal_v2 import normalized_transport_metrics
 from .modeling import (
     DecoderAdapter,
     capture_post_block_states,
@@ -53,10 +54,7 @@ def load_generation_labels(path: str | Path) -> dict[str, dict[str, Any]]:
         raise ValueError(f"Generation labels are missing columns: {missing}")
     if frame["stimulus_id"].duplicated().any():
         raise ValueError("Generation labels contain duplicate stimulus IDs")
-    return {
-        str(row["stimulus_id"]): row.to_dict()
-        for _, row in frame.iterrows()
-    }
+    return {str(row["stimulus_id"]): row.to_dict() for _, row in frame.iterrows()}
 
 
 def load_broad_rankings(
@@ -156,11 +154,13 @@ def intervention_outcome(
     completion: Mapping[str, Any],
     encoding: PromptEncoding,
     baseline_label: Mapping[str, Any],
+    *,
+    valid_counts: Sequence[int] = tuple(range(1, 11)),
 ) -> dict[str, Any]:
     labeled = label_generated_completion(
         str(completion["completion_text"]),
         gold_count=int(encoding.count),
-        valid_counts=tuple(range(1, 11)),
+        valid_counts=tuple(int(value) for value in valid_counts),
     )
     baseline_pred = _optional_int(baseline_label.get("parsed_count"))
     patched_pred = _optional_int(labeled.get("parsed_count"))
@@ -442,6 +442,262 @@ def compare_ranked_ablation_to_random(
     return pd.DataFrame(rows)
 
 
+def _causal_v2_control_sets(
+    rankings: Mapping[str, Sequence[Head]],
+    adapter: DecoderAdapter,
+    *,
+    top_ns: Sequence[int],
+    random_replicates: int,
+) -> dict[tuple[str, int, int], tuple[Head, ...]]:
+    """Freeze unbiased per-layer random banks for each ranked top-k size.
+
+    Each random bank is drawn without replacement from all heads in exactly
+    the same layers and with exactly the same per-layer counts as the ranked
+    bank.  Ranked/random overlap is allowed and reported: forbidding the full
+    discovery candidate union can make a top-32 layer match mathematically
+    impossible when phenotype heads cluster within a layer.
+    """
+    controls: dict[tuple[str, int, int], tuple[Head, ...]] = {}
+    for bank, ranking in sorted(rankings.items()):
+        normalized = tuple((int(layer), int(head)) for layer, head in ranking)
+        for top_n in top_ns:
+            selected = normalized[: int(top_n)]
+            if len(selected) != int(top_n):
+                raise ValueError(f"{bank} has fewer than top_n={top_n} heads")
+            for replicate in range(int(random_replicates)):
+                controls[(str(bank), int(top_n), int(replicate))] = tuple(
+                    matched_random_heads(
+                        selected,
+                        adapter,
+                        seed=_stable_seed(
+                            f"causal-v2:{bank}:top{top_n}:random:{replicate}"
+                        ),
+                        exclude_selected=False,
+                    )
+                )
+    return controls
+
+
+def run_generation_head_ablation_v2(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    encodings: Sequence[PromptEncoding],
+    *,
+    baseline_labels: Mapping[str, Mapping[str, Any]],
+    rankings: Mapping[str, Sequence[Head]],
+    top_ns: Sequence[int] = tuple(range(1, 33)),
+    random_replicates: int = 3,
+    require_full_sweep: bool = True,
+    valid_counts: Sequence[int] = tuple(range(0, 11)),
+    max_new_tokens: int = 16,
+) -> pd.DataFrame:
+    """Run the V4.4 answer-query-only broad/first-locator top-k sweep."""
+
+    expected_banks = {"broad_aggregation", "first_locator"}
+    if set(rankings) != expected_banks:
+        raise ValueError(
+            "Causal-v2 ablation requires broad_aggregation and first_locator banks"
+        )
+    normalized_top_ns = tuple(sorted({int(value) for value in top_ns}))
+    if require_full_sweep and normalized_top_ns != tuple(range(1, 33)):
+        raise ValueError("Causal-v2 ablation must sweep every top-k from 1 to 32")
+    if (
+        not normalized_top_ns
+        or min(normalized_top_ns) < 1
+        or max(normalized_top_ns) > 32
+    ):
+        raise ValueError("Causal-v2 ablation top-k values must lie in [1, 32]")
+    if int(random_replicates) < 1:
+        raise ValueError("Causal-v2 ablation requires matched random controls")
+    controls = _causal_v2_control_sets(
+        rankings,
+        adapter,
+        top_ns=normalized_top_ns,
+        random_replicates=int(random_replicates),
+    )
+    rows: list[dict[str, Any]] = []
+    for example_index, encoding in enumerate(encodings):
+        if encoding.design_variant != "v4.4":
+            raise ValueError("Causal-v2 ablation is restricted to v4.4")
+        label = baseline_labels.get(encoding.stimulus_id)
+        if label is None:
+            raise KeyError(f"Missing baseline generation label: {encoding.stimulus_id}")
+        _validate_baseline_label(encoding, label)
+        cache: dict[tuple[Head, ...], dict[str, Any]] = {}
+        for bank, ranking in sorted(rankings.items()):
+            normalized_ranking = tuple(
+                (int(layer), int(head)) for layer, head in ranking
+            )
+            for top_n in normalized_top_ns:
+                selected = normalized_ranking[:top_n]
+                conditions: list[tuple[str, int, tuple[Head, ...]]] = [
+                    ("ranked", -1, selected)
+                ]
+                conditions.extend(
+                    (
+                        "layer_matched_random",
+                        replicate,
+                        controls[(bank, top_n, replicate)],
+                    )
+                    for replicate in range(int(random_replicates))
+                )
+                for condition, replicate, heads in conditions:
+                    if heads not in cache:
+                        cache[heads] = generate_with_head_ablation(
+                            model,
+                            tokenizer,
+                            adapter,
+                            encoding,
+                            heads,
+                            scope="answer_query",
+                            max_new_tokens=max_new_tokens,
+                        )
+                    rows.append(
+                        {
+                            **_base_metadata(encoding),
+                            **_baseline_metadata(label),
+                            "example_index": int(example_index),
+                            "head_bank": str(bank),
+                            "scope": "answer_query",
+                            "condition": condition,
+                            "top_n": int(top_n),
+                            "random_replicate": int(replicate),
+                            "heads": ",".join(
+                                f"L{layer}H{head}" for layer, head in heads
+                            ),
+                            "ranked_random_head_overlap": int(
+                                len(set(heads) & set(selected))
+                                if condition == "layer_matched_random"
+                                else len(selected)
+                            ),
+                            "random_sampling_population": (
+                                "all_heads_in_matched_layers_without_replacement"
+                                if condition == "layer_matched_random"
+                                else "discovery_ranked_prefix"
+                            ),
+                            **intervention_outcome(
+                                cache[heads],
+                                encoding,
+                                label,
+                                valid_counts=valid_counts,
+                            ),
+                        }
+                    )
+        print(
+            "[v4 causal-v2 ablation] "
+            f"{example_index + 1}/{len(encodings)} seed={encoding.seed} "
+            f"N={encoding.count}",
+            flush=True,
+        )
+    if not rows:
+        raise ValueError("No causal-v2 head-ablation rows were produced")
+    return pd.DataFrame(rows)
+
+
+def summarize_generation_head_ablation_v2(detail: pd.DataFrame) -> pd.DataFrame:
+    groups = [
+        "model_label",
+        "design_variant",
+        "head_bank",
+        "condition",
+        "top_n",
+        "baseline_outcome",
+    ]
+    return (
+        detail.groupby(groups, as_index=False, dropna=False)
+        .agg(
+            examples=("stimulus_id", "size"),
+            seeds=("seed", "nunique"),
+            baseline_accuracy=("baseline_is_correct", "mean"),
+            patched_accuracy=("patched_is_correct", "mean"),
+            patched_valid_rate=("patched_format_valid", "mean"),
+            mean_accuracy_delta=("accuracy_delta", "mean"),
+            mean_generated_count_shift=("generated_count_shift", "mean"),
+            mean_absolute_error_delta=("absolute_error_delta", "mean"),
+            prediction_changed_rate=("prediction_changed", "mean"),
+        )
+        .sort_values(groups)
+        .reset_index(drop=True)
+    )
+
+
+def compare_head_ablation_v2_to_random(
+    detail: pd.DataFrame,
+    *,
+    bootstrap_repetitions: int = 10_000,
+) -> pd.DataFrame:
+    identifiers = [
+        "model_label",
+        "stimulus_id",
+        "seed",
+        "gold_count",
+        "head_bank",
+        "top_n",
+        "baseline_outcome",
+    ]
+    metrics = ["accuracy_delta", "absolute_error_delta", "prediction_changed"]
+    ranked = detail[detail["condition"].astype(str).eq("ranked")].copy()
+    random = detail[detail["condition"].astype(str).eq("layer_matched_random")].copy()
+    random_mean = (
+        random.groupby(identifiers, as_index=False, dropna=False)[metrics]
+        .mean()
+        .rename(columns={metric: f"{metric}_random_mean" for metric in metrics})
+    )
+    paired = ranked.merge(
+        random_mean, on=identifiers, how="inner", validate="one_to_one"
+    )
+    if len(paired) != len(ranked):
+        raise ValueError("Causal-v2 ablation has incomplete matched random controls")
+    group_columns = [
+        "model_label",
+        "head_bank",
+        "top_n",
+        "baseline_outcome",
+    ]
+    rows: list[dict[str, Any]] = []
+    for keys, frame in paired.groupby(group_columns, sort=True, dropna=False):
+        metadata = dict(zip(group_columns, keys))
+        for metric in metrics:
+            seed_means = (
+                frame.assign(difference=frame[metric] - frame[f"{metric}_random_mean"])
+                .groupby("seed")["difference"]
+                .mean()
+                .dropna()
+                .to_numpy(dtype=float)
+            )
+            if len(seed_means) == 0:
+                mean = low = high = math.nan
+            else:
+                rng = np.random.default_rng(
+                    _stable_seed(
+                        "causal-v2-ablation:"
+                        + ":".join(str(metadata[name]) for name in group_columns)
+                        + f":{metric}"
+                    )
+                )
+                indices = rng.integers(
+                    0,
+                    len(seed_means),
+                    size=(int(bootstrap_repetitions), len(seed_means)),
+                )
+                distribution = seed_means[indices].mean(axis=1)
+                low, high = np.quantile(distribution, [0.025, 0.975])
+                mean = float(seed_means.mean())
+            rows.append(
+                {
+                    **metadata,
+                    "metric": metric,
+                    "ranked_minus_random_mean": mean,
+                    "ci95_low": float(low),
+                    "ci95_high": float(high),
+                    "screen_seeds": int(len(seed_means)),
+                    "bootstrap_repetitions": int(bootstrap_repetitions),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 def _encoding_map(
     encodings: Sequence[PromptEncoding],
 ) -> dict[tuple[str, int, int], PromptEncoding]:
@@ -483,6 +739,12 @@ def transport_fields(
         else math.nan
     )
     generated_shift = outcome.get("generated_count_shift", math.nan)
+    normalized = normalized_transport_metrics(
+        baseline_prediction=receiver_prediction,
+        intervened_prediction=patched,
+        receiver_count=int(receiver_count),
+        target_count=int(donor_count),
+    )
     return {
         "gold_count_offset": int(gold_offset),
         "baseline_prediction_offset": predicted_offset,
@@ -515,6 +777,7 @@ def transport_fields(
             if patched is not None and receiver_prediction is not None
             else math.nan
         ),
+        **normalized,
     }
 
 
@@ -612,9 +875,7 @@ def run_generation_residual_patching(
     seeds = sorted({int(item.seed) for item in encodings})
     for variant in variants:
         for seed in seeds:
-            state_cache: dict[
-                tuple[str, int], tuple[list[int], dict[int, Any]]
-            ] = {}
+            state_cache: dict[tuple[str, int], tuple[list[int], dict[int, Any]]] = {}
             for receiver_count, donor_count in count_pairs:
                 receiver = by_key.get((variant, seed, int(receiver_count)))
                 donor = by_key.get((variant, seed, int(donor_count)))
@@ -696,9 +957,7 @@ def run_generation_residual_patching(
                                 if protocol == "single_layer"
                                 else tuple(range(int(start_layer), adapter.num_layers))
                             )
-                            interventions: dict[
-                                int, tuple[Sequence[int], Any]
-                            ] = {}
+                            interventions: dict[int, tuple[Sequence[int], Any]] = {}
                             executable = True
                             skip_reason = ""
                             for layer in intervention_layers:
@@ -820,3 +1079,432 @@ def summarize_generation_residual_patching(detail: pd.DataFrame) -> pd.DataFrame
             }
         )
     return pd.DataFrame(rows)
+
+
+def _causal_v2_semantic_positions(
+    encoding: PromptEncoding,
+    slot_indices: Sequence[int],
+) -> tuple[tuple[int, ...], dict[int, tuple[int, int]]]:
+    """Return query + selected slot positions and slices into captured states."""
+
+    positions: list[int] = [int(encoding.query_position)]
+    slices: dict[int, tuple[int, int]] = {}
+    by_slot = {int(span.slot_index): span for span in encoding.slot_spans}
+    for raw_slot in slot_indices:
+        slot = int(raw_slot)
+        if slot not in by_slot:
+            raise KeyError(f"Encoding {encoding.stimulus_id} has no slot {slot}")
+        span = by_slot[slot]
+        start = len(positions)
+        positions.extend(range(int(span.start), int(span.end)))
+        end = len(positions)
+        if end <= start:
+            raise RuntimeError(f"Slot {slot} has an empty model-token span")
+        slices[slot] = (start, end)
+    if len(set(positions)) != len(positions):
+        raise RuntimeError("Causal-v2 semantic patch positions overlap")
+    return tuple(positions), slices
+
+
+def _causal_v2_patch_payload(
+    *,
+    site: str,
+    layer_states: Any,
+    state_slices: Mapping[int, tuple[int, int]],
+    receiver: PromptEncoding,
+    source: PromptEncoding,
+    slot_indices: Sequence[int],
+) -> tuple[tuple[int, ...], Any, bool, str]:
+    if site == "answer_query":
+        return (int(receiver.query_position),), layer_states[0:1], True, ""
+    receiver_spans = {int(span.slot_index): span for span in receiver.slot_spans}
+    source_spans = {int(span.slot_index): span for span in source.slot_spans}
+    receiver_positions: list[int] = []
+    source_rows: list[Any] = []
+    for raw_slot in slot_indices:
+        slot = int(raw_slot)
+        receiver_span = receiver_spans[slot]
+        source_span = source_spans[slot]
+        state_start, state_end = state_slices[slot]
+        source_state = layer_states[state_start:state_end]
+        if int(source_state.shape[0]) != int(source_span.model_token_length):
+            raise RuntimeError("Captured source span length disagrees with metadata")
+        if site == "toggled_needle_end":
+            receiver_positions.append(int(receiver_span.end) - 1)
+            source_rows.append(source_state[-1:])
+            continue
+        if site != "toggled_needle_span":
+            raise ValueError(f"Unknown causal-v2 patch site: {site}")
+        if int(receiver_span.model_token_length) != int(source_span.model_token_length):
+            return (), source_state, False, f"slot_{slot}_model_token_length_mismatch"
+        receiver_positions.extend(
+            range(int(receiver_span.start), int(receiver_span.end))
+        )
+        source_rows.append(source_state)
+    if not source_rows:
+        raise RuntimeError("Causal-v2 prompt patch selected no slot states")
+    import torch
+
+    states = torch.cat(source_rows, dim=0)
+    if int(states.shape[0]) != len(receiver_positions):
+        raise RuntimeError("Causal-v2 patch state/position lengths differ")
+    return tuple(receiver_positions), states, True, ""
+
+
+def _next_same_count_source(
+    receiver: PromptEncoding,
+    by_variant_count: Mapping[tuple[str, int], Sequence[PromptEncoding]],
+) -> PromptEncoding:
+    candidates = sorted(
+        (
+            item
+            for item in by_variant_count[
+                (str(receiver.design_variant), int(receiver.count))
+            ]
+            if int(item.seed) != int(receiver.seed)
+        ),
+        key=lambda item: int(item.seed),
+    )
+    if not candidates:
+        raise ValueError("same_count_seed control requires at least two seeds")
+    later = [item for item in candidates if int(item.seed) > int(receiver.seed)]
+    return later[0] if later else candidates[0]
+
+
+def causal_v2_prompt_span_alignment_table(
+    encodings: Sequence[PromptEncoding],
+    *,
+    count_pairs: Sequence[tuple[int, int]],
+    evaluation_seeds: Sequence[int],
+) -> pd.DataFrame:
+    """Preflight exact donor/receiver model-token alignment for full-span patches."""
+
+    by_key = _encoding_map(encodings)
+    rows: list[dict[str, Any]] = []
+    for seed in sorted({int(value) for value in evaluation_seeds}):
+        for receiver_count, donor_count in count_pairs:
+            receiver = by_key.get(("v4.4", seed, int(receiver_count)))
+            donor = by_key.get(("v4.4", seed, int(donor_count)))
+            if receiver is None or donor is None:
+                raise KeyError(
+                    f"Missing causal-v2 alignment pair seed={seed} "
+                    f"N={receiver_count}<-{donor_count}"
+                )
+            receiver_spans = {
+                int(span.slot_index): span for span in receiver.slot_spans
+            }
+            donor_spans = {int(span.slot_index): span for span in donor.slot_spans}
+            lower = min(int(receiver_count), int(donor_count))
+            upper = max(int(receiver_count), int(donor_count))
+            for slot in range(lower + 1, upper + 1):
+                receiver_length = int(receiver_spans[slot].model_token_length)
+                donor_length = int(donor_spans[slot].model_token_length)
+                rows.append(
+                    {
+                        "model_label": receiver.model_label,
+                        "seed": int(seed),
+                        "receiver_count": int(receiver_count),
+                        "donor_count": int(donor_count),
+                        "k": int(upper - lower),
+                        "slot_index": int(slot),
+                        "receiver_model_token_length": receiver_length,
+                        "donor_model_token_length": donor_length,
+                        "exact_model_token_alignment": bool(
+                            receiver_length == donor_length
+                        ),
+                    }
+                )
+    if not rows:
+        raise ValueError("No causal-v2 prompt span alignments were checked")
+    return pd.DataFrame(rows)
+
+
+def run_generation_residual_patching_v2(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    encodings: Sequence[PromptEncoding],
+    *,
+    baseline_labels: Mapping[str, Mapping[str, Any]],
+    count_pairs: Sequence[tuple[int, int]],
+    start_layers: Sequence[int],
+    sites: Sequence[str],
+    protocols: Sequence[str] = NEEDLE_PATCH_PROTOCOLS,
+    control_conditions: Sequence[str] = ("donor_transport",),
+    condition_filter: set[tuple[str, str, int, int]] | None = None,
+    evaluation_seeds: Sequence[int] | None = None,
+    valid_counts: Sequence[int] = tuple(range(0, 11)),
+    max_new_tokens: int = 16,
+) -> pd.DataFrame:
+    """Run V4.4 multi-slot +/-k prompt or answer-query residual transport.
+
+    A pair that differs by ``k`` patches all ``k`` nested slots that change
+    activation status.  Full-span interventions replace every aligned token;
+    endpoint interventions replace one final token per changed slot.  Both
+    sites support a one-layer replacement and the registered L-to-final
+    cumulative clamp.  The answer-query site patches only the final ``Total:``
+    prompt position.
+    """
+
+    requested_sites = tuple(str(site) for site in sites)
+    if not requested_sites or any(
+        site not in RESIDUAL_PATCH_SITES for site in requested_sites
+    ):
+        raise ValueError(f"Invalid causal-v2 residual patch sites: {requested_sites}")
+    requested_protocols = tuple(str(protocol) for protocol in protocols)
+    if not requested_protocols or any(
+        protocol not in NEEDLE_PATCH_PROTOCOLS for protocol in requested_protocols
+    ):
+        raise ValueError(f"Invalid causal-v2 patch protocols: {requested_protocols}")
+    conditions = tuple(str(value) for value in control_conditions)
+    allowed_conditions = {"donor_transport", "self_patch", "same_count_seed"}
+    if (
+        not conditions
+        or len(set(conditions)) != len(conditions)
+        or any(value not in allowed_conditions for value in conditions)
+    ):
+        raise ValueError(f"Invalid causal-v2 patch conditions: {conditions}")
+    if "donor_transport" not in conditions:
+        raise ValueError("Causal-v2 patching must include donor_transport")
+    starts = tuple(sorted({int(layer) for layer in start_layers}))
+    if not starts or starts[0] < 0 or starts[-1] >= adapter.num_layers:
+        raise ValueError("Causal-v2 residual patch layers are invalid")
+    directed_pairs = tuple((int(left), int(right)) for left, right in count_pairs)
+    if not directed_pairs or any(
+        left == right or abs(right - left) not in {1, 2, 3, 4, 5}
+        for left, right in directed_pairs
+    ):
+        raise ValueError("Causal-v2 pairs must be distinct with k in 1..5")
+    by_key = _encoding_map(encodings)
+    by_variant_count: dict[tuple[str, int], list[PromptEncoding]] = {}
+    for encoding in encodings:
+        by_variant_count.setdefault(
+            (str(encoding.design_variant), int(encoding.count)), []
+        ).append(encoding)
+    rows: list[dict[str, Any]] = []
+    variants = sorted({str(item.design_variant) for item in encodings})
+    available_seeds = sorted({int(item.seed) for item in encodings})
+    seeds = (
+        sorted({int(value) for value in evaluation_seeds})
+        if evaluation_seeds is not None
+        else available_seeds
+    )
+    if not seeds or not set(seeds).issubset(set(available_seeds)):
+        raise ValueError("Causal-v2 evaluation seeds are missing from encodings")
+    state_cache: dict[
+        tuple[str, tuple[int, ...]], tuple[tuple[int, ...], dict[int, Any]]
+    ] = {}
+
+    def states_for(
+        source: PromptEncoding,
+        slot_indices: tuple[int, ...],
+    ) -> tuple[dict[int, Any], dict[int, tuple[int, int]]]:
+        positions, slices = _causal_v2_semantic_positions(source, slot_indices)
+        key = (source.stimulus_id, positions)
+        if key not in state_cache:
+            _logits, captured = capture_post_block_states(
+                model,
+                adapter,
+                source,
+                positions,
+                layers=starts if requested_protocols == ("single_layer",) else None,
+            )
+            state_cache[key] = (positions, captured)
+        cached_positions, captured = state_cache[key]
+        if cached_positions != positions:
+            raise RuntimeError("Causal-v2 cached semantic positions changed")
+        return captured, slices
+
+    for variant in variants:
+        if variant != "v4.4":
+            raise ValueError("Causal-v2 residual patching is restricted to v4.4")
+        for seed in seeds:
+            for receiver_count, donor_count in directed_pairs:
+                receiver = by_key.get((variant, seed, receiver_count))
+                donor = by_key.get((variant, seed, donor_count))
+                if receiver is None or donor is None:
+                    raise KeyError(
+                        f"Missing causal-v2 pair {variant} seed={seed} "
+                        f"N={receiver_count}<-{donor_count}"
+                    )
+                _validate_pair(receiver, donor)
+                receiver_label = baseline_labels[receiver.stimulus_id]
+                donor_label = baseline_labels[donor.stimulus_id]
+                _validate_baseline_label(receiver, receiver_label)
+                _validate_baseline_label(donor, donor_label)
+                lower = min(receiver_count, donor_count)
+                upper = max(receiver_count, donor_count)
+                slot_indices = tuple(range(lower + 1, upper + 1))
+                k = upper - lower
+                if len(slot_indices) != k:
+                    raise RuntimeError("Causal-v2 changed-slot accounting failed")
+                source_conditions: list[tuple[str, PromptEncoding]] = []
+                for condition in conditions:
+                    if condition == "donor_transport":
+                        source_conditions.append((condition, donor))
+                    elif condition == "self_patch":
+                        source_conditions.append((condition, receiver))
+                    else:
+                        source_conditions.append(
+                            (
+                                condition,
+                                _next_same_count_source(receiver, by_variant_count),
+                            )
+                        )
+                for condition, state_source in source_conditions:
+                    source_label = baseline_labels[state_source.stimulus_id]
+                    _validate_baseline_label(state_source, source_label)
+                    source_states, source_slices = states_for(
+                        state_source, slot_indices
+                    )
+                    for site in requested_sites:
+                        for start_layer in starts:
+                            for protocol in requested_protocols:
+                                filter_key = (site, protocol, int(start_layer), int(k))
+                                if (
+                                    condition_filter is not None
+                                    and filter_key not in condition_filter
+                                ):
+                                    continue
+                                intervention_layers = (
+                                    (int(start_layer),)
+                                    if protocol == "single_layer"
+                                    else tuple(
+                                        range(int(start_layer), adapter.num_layers)
+                                    )
+                                )
+                                interventions: dict[int, tuple[Sequence[int], Any]] = {}
+                                executable = True
+                                skip_reason = ""
+                                for layer in intervention_layers:
+                                    if layer not in source_states:
+                                        raise RuntimeError(
+                                            f"Causal-v2 source state cache lacks layer {layer}"
+                                        )
+                                    positions, states, ok, reason = (
+                                        _causal_v2_patch_payload(
+                                            site=site,
+                                            layer_states=source_states[layer],
+                                            state_slices=source_slices,
+                                            receiver=receiver,
+                                            source=state_source,
+                                            slot_indices=slot_indices,
+                                        )
+                                    )
+                                    if not ok:
+                                        executable = False
+                                        skip_reason = reason
+                                        break
+                                    interventions[int(layer)] = (positions, states)
+                                metadata = {
+                                    **_base_metadata(receiver),
+                                    **_baseline_metadata(receiver_label),
+                                    "receiver_stimulus_id": receiver.stimulus_id,
+                                    "donor_stimulus_id": donor.stimulus_id,
+                                    "state_donor_stimulus_id": state_source.stimulus_id,
+                                    "receiver_count": int(receiver_count),
+                                    "donor_count": int(donor_count),
+                                    "state_donor_count": int(state_source.count),
+                                    "donor_baseline_outcome": str(
+                                        donor_label["outcome_group"]
+                                    ),
+                                    "donor_baseline_predicted_count": _optional_int(
+                                        donor_label.get("parsed_count")
+                                    ),
+                                    "state_donor_baseline_outcome": str(
+                                        source_label["outcome_group"]
+                                    ),
+                                    "condition": condition,
+                                    "direction": (
+                                        "needle_insertion"
+                                        if donor_count > receiver_count
+                                        else "needle_removal"
+                                    ),
+                                    "target_direction": (
+                                        "increase"
+                                        if donor_count > receiver_count
+                                        else "decrease"
+                                    ),
+                                    "k": int(k),
+                                    "site": site,
+                                    "patch_protocol": protocol,
+                                    "start_layer": int(start_layer),
+                                    "patched_layer_count": len(intervention_layers),
+                                    "changed_slot_indices": json.dumps(
+                                        list(slot_indices)
+                                    ),
+                                    "changed_slot_count": len(slot_indices),
+                                    "status": "ok" if executable else "skipped",
+                                    "skip_reason": skip_reason,
+                                }
+                                if not executable:
+                                    rows.append(metadata)
+                                    continue
+                                completion = generate_with_residual_interventions(
+                                    model,
+                                    tokenizer,
+                                    adapter,
+                                    receiver,
+                                    interventions,
+                                    max_new_tokens=max_new_tokens,
+                                )
+                                outcome = intervention_outcome(
+                                    completion,
+                                    receiver,
+                                    receiver_label,
+                                    valid_counts=valid_counts,
+                                )
+                                rows.append(
+                                    {
+                                        **metadata,
+                                        **outcome,
+                                        **transport_fields(
+                                            outcome,
+                                            receiver_label=receiver_label,
+                                            donor_label=donor_label,
+                                            receiver_count=receiver_count,
+                                            donor_count=donor_count,
+                                        ),
+                                    }
+                                )
+                print(
+                    "[v4 causal-v2 patch] "
+                    f"{variant} seed={seed} N={receiver_count}<-{donor_count} k={k}",
+                    flush=True,
+                )
+    if not rows:
+        raise ValueError("No causal-v2 residual-patching rows were produced")
+    return pd.DataFrame(rows)
+
+
+def summarize_generation_residual_patching_v2(detail: pd.DataFrame) -> pd.DataFrame:
+    successful = detail[detail["status"].astype(str).eq("ok")].copy()
+    if successful.empty:
+        raise ValueError("No successful causal-v2 residual patches")
+    groups = [
+        "model_label",
+        "site",
+        "patch_protocol",
+        "start_layer",
+        "k",
+        "target_direction",
+        "condition",
+        "baseline_outcome",
+    ]
+    return (
+        successful.groupby(groups, as_index=False, dropna=False)
+        .agg(
+            examples=("receiver_stimulus_id", "size"),
+            seeds=("seed", "nunique"),
+            patched_valid_rate=("patched_format_valid", "mean"),
+            prediction_changed_rate=("prediction_changed", "mean"),
+            mean_generated_count_shift=("generated_count_shift", "mean"),
+            mean_normalized_transport=("normalized_transport", "mean"),
+            mean_strict_normalized_transport=("strict_normalized_transport", "mean"),
+            mean_target_conformity=("target_conformity", "mean"),
+            mean_strict_target_conformity=("strict_target_conformity", "mean"),
+            target_hit_rate=("strict_target_hit", "mean"),
+        )
+        .sort_values(groups)
+        .reset_index(drop=True)
+    )

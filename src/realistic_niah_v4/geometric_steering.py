@@ -595,6 +595,7 @@ def run_generation_geometric_steering(
     methods: Sequence[str] = GEOMETRIC_METHODS,
     alphas: Sequence[float] = (0.25, 0.5, 0.75, 1.0),
     random_replicates: int = 1,
+    valid_counts: Sequence[int] = tuple(range(1, 11)),
     max_new_tokens: int = 16,
 ) -> pd.DataFrame:
     """Steer held-out answer-query residuals and greedily generate answers."""
@@ -703,7 +704,10 @@ def run_generation_geometric_steering(
                                     max_new_tokens=max_new_tokens,
                                 )
                                 outcome = intervention_outcome(
-                                    completion, receiver, receiver_label
+                                    completion,
+                                    receiver,
+                                    receiver_label,
+                                    valid_counts=valid_counts,
                                 )
                                 patched = _optional_int(
                                     outcome.get("patched_predicted_count")
@@ -868,6 +872,7 @@ def run_generation_layer_set_centroid_delta(
     count_pairs: Sequence[tuple[int, int]],
     plans: Sequence[LayerSetSteeringPlan],
     random_replicates: int = 1,
+    valid_counts: Sequence[int] = tuple(range(1, 11)),
     max_new_tokens: int = 16,
 ) -> pd.DataFrame:
     """Run registered single- and multi-layer answer-query steering.
@@ -993,7 +998,10 @@ def run_generation_layer_set_centroid_delta(
                             max_new_tokens=max_new_tokens,
                         )
                         outcome = intervention_outcome(
-                            completion, receiver, receiver_label
+                            completion,
+                            receiver,
+                            receiver_label,
+                            valid_counts=valid_counts,
                         )
                         patched = _optional_int(
                             outcome.get("patched_predicted_count")

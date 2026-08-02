@@ -543,9 +543,22 @@ def matched_random_heads(
     adapter: DecoderAdapter,
     *,
     seed: int,
+    excluded: Sequence[Head] = (),
+    exclude_selected: bool = True,
 ) -> list[Head]:
+    """Sample an exact per-layer matched head bank.
+
+    ``excluded`` removes explicitly forbidden heads.  By default selected
+    heads are also removed, preserving the legacy ablation control.  A
+    phenotype-vs-random top-k study can set ``exclude_selected=False`` to draw
+    an unbiased layer-stratified subset from the complete layer population;
+    overlap with the ranked set is then measured and retained in the output.
+    Sampling never uses replacement.
+    """
+
     rng = random.Random(int(seed))
     selected_set = {(int(layer), int(head)) for layer, head in selected}
+    excluded_set = {(int(layer), int(head)) for layer, head in excluded}
     result: list[Head] = []
     counts_by_layer: dict[int, int] = {}
     for layer, _head in selected:
@@ -554,7 +567,8 @@ def matched_random_heads(
         candidates = [
             (layer, head)
             for head in range(adapter.num_heads[layer])
-            if (layer, head) not in selected_set
+            if (not exclude_selected or (layer, head) not in selected_set)
+            and (layer, head) not in excluded_set
         ]
         if len(candidates) < requested:
             raise RuntimeError(

@@ -736,11 +736,28 @@ def build_controlled_family(
     tokenizer: TokenizerAdapter,
     freeze_spec: ControlledFreezeSpec,
     fixed_needles: Sequence[dict[str, Any]] | None = None,
+    active_counts: Sequence[int] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Build the nested N=1..10 family for one design variant and seed."""
+    """Build one nested family, optionally including the causal N=0 extension."""
 
     freeze_spec.validate()
     config = freeze_spec.config
+    counts = (
+        tuple(int(value) for value in active_counts)
+        if active_counts is not None
+        else tuple(int(value) for value in config.needle_counts)
+    )
+    if (
+        not counts
+        or tuple(sorted(set(counts))) != counts
+        or counts[0] < 0
+        or counts[-1] > max(config.needle_counts)
+        or any(right != left + 1 for left, right in zip(counts, counts[1:]))
+    ):
+        raise ValueError(
+            "active_counts must be unique, increasing, consecutive, and lie in "
+            f"[0, {max(config.needle_counts)}]"
+        )
     if variant not in config.design_variants:
         raise ValueError(f"Unknown registered V4 design variant: {variant}")
     if int(seed) not in set(config.seeds):
@@ -808,7 +825,7 @@ def build_controlled_family(
             permutation=permutation,
             content_seed=content_seed,
         )
-        for count in config.needle_counts
+        for count in counts
     ]
     _verify_nested_family_token_identity(stimuli, tokenizer=tokenizer)
     metadata = {
@@ -1009,6 +1026,175 @@ def freeze_v4_grid(
                 }
                 for variant in config.design_variants
                 for count in config.needle_counts
+            ]
+        ),
+    )
+    checksum_lines = []
+    for name in ("stimuli", "manifest", "cell_counts"):
+        payload = paths[name].read_bytes()
+        checksum_lines.append(
+            f"{hashlib.sha256(payload).hexdigest()}  {paths[name].name}"
+        )
+    _atomic_write(
+        paths["sha256"],
+        ("\n".join(checksum_lines) + "\n").encode("utf-8"),
+    )
+    return paths
+
+
+def freeze_v4_causal_v2_grid(
+    *,
+    output_dir: str | Path,
+    freeze_spec: ControlledFreezeSpec | None = None,
+    base_stimuli_path: str | Path | None = None,
+    require_huggingface_tokenizer: bool = True,
+    overwrite: bool = False,
+) -> dict[str, Path]:
+    """Freeze the V4.4-only N=0..10 nested grid used by causal-v2.
+
+    Counts 1..10 are regenerated from the immutable V4 procedure.  When the
+    original stimulus file is supplied, every regenerated passage hash and
+    slot schedule is checked against the corresponding frozen V4.4 row before
+    any output is committed.  Only N=0 is a new semantic condition.
+    """
+
+    resolved = freeze_spec or ControlledFreezeSpec()
+    resolved.validate()
+    config = resolved.config
+    output = Path(output_dir)
+    stimuli_path = output / "stimuli_v4_4_causal_v2.jsonl"
+    if stimuli_path.exists() and not overwrite:
+        raise FileExistsError(f"{stimuli_path} exists; pass overwrite=True explicitly")
+    tokenizer = TokenizerAdapter(
+        config.canonical_tokenizer,
+        revision=config.canonical_tokenizer_revision,
+        cache_dir=resolved.tokenizer_cache_dir,
+    )
+    if require_huggingface_tokenizer and tokenizer.backend != "huggingface":
+        raise RuntimeError(
+            "Canonical V4 tokenizer failed to load for causal-v2: "
+            f"{tokenizer.load_error}"
+        )
+    fixed_needles = _pilot_needles(
+        tokenizer=tokenizer,
+        freeze_spec=resolved,
+        content_seed=config.fixed_needle_seed,
+        seed=int(config.seeds[0]),
+    )
+    active_counts = tuple(range(0, max(config.needle_counts) + 1))
+    rows: list[dict[str, Any]] = []
+    families: list[dict[str, Any]] = []
+    for seed in config.seeds:
+        family_rows, family_metadata = build_controlled_family(
+            variant="v4.4",
+            seed=int(seed),
+            tokenizer=tokenizer,
+            freeze_spec=resolved,
+            fixed_needles=fixed_needles,
+            active_counts=active_counts,
+        )
+        rows.extend(family_rows)
+        families.append(family_metadata)
+        print(
+            f"[v4 causal-v2 freeze] variant=v4.4 seed={seed} rows={len(rows)}",
+            flush=True,
+        )
+    expected = len(config.seeds) * len(active_counts)
+    if len(rows) != expected:
+        raise RuntimeError(f"Expected {expected} causal-v2 stimuli, generated {len(rows)}")
+    if len({str(row["stimulus_id"]) for row in rows}) != len(rows):
+        raise RuntimeError("Duplicate causal-v2 stimulus IDs")
+
+    base_sha256: str | None = None
+    matched_base_rows = 0
+    if base_stimuli_path is not None:
+        base_path = Path(base_stimuli_path)
+        base_sha256 = hashlib.sha256(base_path.read_bytes()).hexdigest()
+        base_rows = [
+            json.loads(line)
+            for line in base_path.read_text(encoding="utf-8").split("\n")
+            if line.strip()
+        ]
+        expected_base = {
+            (int(row["seed"]), int(row["gold_count"])): row
+            for row in base_rows
+            if str(row.get("design_variant")) == "v4.4"
+        }
+        for row in rows:
+            count = int(row["gold_count"])
+            if count == 0:
+                continue
+            key = (int(row["seed"]), count)
+            original = expected_base.get(key)
+            if original is None:
+                raise RuntimeError(f"Original V4.4 stimulus is missing for {key}")
+            comparisons = {
+                "passage_sha256": row["passage_sha256"],
+                "slot_final_starts": row["design"]["slot_final_starts"],
+                "content_permutation_zero_based": row["design"][
+                    "content_permutation_zero_based"
+                ],
+                "active_needle_spans": row["active_needle_spans"],
+            }
+            observed = {
+                "passage_sha256": original["passage_sha256"],
+                "slot_final_starts": original["design"]["slot_final_starts"],
+                "content_permutation_zero_based": original["design"][
+                    "content_permutation_zero_based"
+                ],
+                "active_needle_spans": original["active_needle_spans"],
+            }
+            if comparisons != observed:
+                raise RuntimeError(
+                    "Regenerated causal-v2 row differs from frozen V4.4: "
+                    f"seed={key[0]} count={key[1]}"
+                )
+            matched_base_rows += 1
+        expected_matches = len(config.seeds) * len(config.needle_counts)
+        if matched_base_rows != expected_matches:
+            raise RuntimeError(
+                f"Matched {matched_base_rows} original rows; expected {expected_matches}"
+            )
+
+    jsonl = b"".join(
+        json.dumps(row, ensure_ascii=True, sort_keys=True).encode("utf-8") + b"\n"
+        for row in rows
+    )
+    manifest = {
+        "schema_version": "realistic_niah_v4_causal_v2_stimulus_manifest_v1",
+        "protocol_version": PROTOCOL_VERSION,
+        "design_variant": "v4.4",
+        "counts": list(active_counts),
+        "seeds": list(config.seeds),
+        "rows": len(rows),
+        "rows_per_count": len(config.seeds),
+        "base_v4_stimuli_sha256": base_sha256,
+        "base_v4_rows_exactly_matched": matched_base_rows,
+        "new_condition": "N=0 only; N=1..10 exactly reproduce frozen V4.4",
+        "config": config.to_dict(),
+        "freeze_spec": {
+            key: value for key, value in asdict(resolved).items() if key != "config"
+        },
+        "families": families,
+    }
+    paths = {
+        "stimuli": stimuli_path,
+        "manifest": output / "manifest_v4_4_causal_v2.json",
+        "cell_counts": output / "cell_counts_v4_4_causal_v2.json",
+        "sha256": output / "SHA256SUMS_v4_4_causal_v2",
+    }
+    _atomic_write(paths["stimuli"], jsonl)
+    _atomic_write(paths["manifest"], _json_bytes(manifest))
+    _atomic_write(
+        paths["cell_counts"],
+        _json_bytes(
+            [
+                {
+                    "design_variant": "v4.4",
+                    "num_needles": count,
+                    "rows": sum(int(row["gold_count"]) == count for row in rows),
+                }
+                for count in active_counts
             ]
         ),
     )

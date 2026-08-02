@@ -1,0 +1,401 @@
+from __future__ import annotations
+
+import json
+
+import pandas as pd
+import pytest
+import torch
+
+from realistic_niah_v4.attention import matched_random_heads
+from realistic_niah_v4.causal_generation import (
+    _causal_v2_patch_payload,
+    causal_v2_prompt_span_alignment_table,
+)
+from realistic_niah_v4.causal_v2 import (
+    CausalV2Design,
+    _exact_sign_flip_p,
+    confirmation_statistics,
+    head_phenotype_scores,
+    normalized_transport_metrics,
+    rank_head_phenotypes,
+    stable_layer_k_conditions,
+)
+from realistic_niah_v4.prompts import PromptEncoding, TokenSpan
+from scripts.run_realistic_niah_v4_causal_v2 import (
+    _load_attention_phenotype_source,
+    _selected_confirmation_detail,
+)
+
+
+def _encoding(
+    *,
+    stimulus_id: str,
+    count: int,
+    spans: tuple[tuple[int, int], ...] = ((1, 3), (4, 6)),
+) -> PromptEncoding:
+    slot_spans = tuple(
+        TokenSpan(
+            slot_index=index,
+            start=start,
+            end=end,
+            active=index <= count,
+            kind="needle" if index <= count else "length_matched_control",
+            canonical_length=end - start,
+            model_token_length=end - start,
+        )
+        for index, (start, end) in enumerate(spans, start=1)
+    )
+    return PromptEncoding(
+        stimulus_id=stimulus_id,
+        design_variant="v4.4",
+        seed=1254,
+        split="confirmation",
+        count=count,
+        model_label="toy",
+        answer_format="numeric",
+        text="toy",
+        generation_prompt="toy",
+        input_ids=tuple(range(8)),
+        attention_mask=(1,) * 8,
+        query_position=7,
+        slot_spans=slot_spans,
+        needle_spans=tuple(span for span in slot_spans if span.active),
+        hard_negative_spans=(),
+        count_candidate_texts=(),
+        count_candidate_answer_token_ids=(),
+        count_candidate_token_ids=(),
+    )
+
+
+def test_causal_v2_design_covers_three_anchors_for_every_k() -> None:
+    design = CausalV2Design()
+    design.validate()
+    assert len(design.canonical_pairs) == 15
+    assert len(design.directed_pairs) == 30
+    assert design.required_counts == tuple(range(11))
+    for k in range(1, 6):
+        pairs = design.pairs_for_k(k, directed=False)
+        assert len(pairs) == 3
+        assert {right - left for left, right in pairs} == {k}
+        assert pairs[0][0] == 0
+        assert pairs[-1][1] == 10
+
+
+def test_causal_v2_json_registry_matches_typed_defaults() -> None:
+    configured = CausalV2Design.from_json("configs/realistic_niah_v4_causal_v2.json")
+    assert configured == CausalV2Design()
+    assert configured.ablation_scope == "answer_query"
+    assert configured.prompt_full_span_alignment == "exact_model_token_length_required"
+    assert configured.answer_multi_layer_protocol == "cumulative_clamp_L_to_final"
+
+
+def test_normalized_transport_keeps_reversal_overshoot_and_invalid_visible() -> None:
+    ideal = normalized_transport_metrics(
+        baseline_prediction=5,
+        intervened_prediction=10,
+        receiver_count=5,
+        target_count=10,
+    )
+    assert ideal["normalized_transport"] == pytest.approx(1.0)
+    assert ideal["target_conformity"] == pytest.approx(1.0)
+    reverse = normalized_transport_metrics(
+        baseline_prediction=5,
+        intervened_prediction=4,
+        receiver_count=5,
+        target_count=10,
+    )
+    assert reverse["normalized_transport"] == pytest.approx(-0.2)
+    assert reverse["target_conformity"] == pytest.approx(-0.2)
+    overshoot = normalized_transport_metrics(
+        baseline_prediction=5,
+        intervened_prediction=11,
+        receiver_count=5,
+        target_count=10,
+    )
+    assert overshoot["normalized_transport"] == pytest.approx(1.2)
+    assert overshoot["target_conformity"] == pytest.approx(0.8)
+    invalid = normalized_transport_metrics(
+        baseline_prediction=5,
+        intervened_prediction=None,
+        receiver_count=5,
+        target_count=10,
+    )
+    assert pd.isna(invalid["normalized_transport"])
+    assert invalid["strict_normalized_transport"] == pytest.approx(0.0)
+    assert invalid["strict_target_hit"] is False
+
+
+def test_head_phenotypes_separate_uniform_broad_and_first_locator() -> None:
+    rows = []
+    for seed in (1234, 1235):
+        for head, masses, primary in (
+            (0, [0.25, 0.25, 0.25], 0.75),
+            (1, [0.70, 0.05, 0.05], 0.30),
+        ):
+            rows.append(
+                {
+                    "model_label": "toy",
+                    "design_variant": "v4.4",
+                    "split": "discovery",
+                    "seed": seed,
+                    "count": 3,
+                    "layer": 1,
+                    "head": head,
+                    "broad_mass": sum(masses),
+                    "broad_coverage": primary / sum(masses),
+                    "broad_primary": primary,
+                    "needle_span_masses": json.dumps(masses),
+                }
+            )
+    scores = head_phenotype_scores(pd.DataFrame(rows))
+    rankings = rank_head_phenotypes(scores, top_n=2)
+    assert rankings["broad_aggregation"][0] == (1, 0)
+    assert rankings["first_locator"][0] == (1, 1)
+    locator = scores[scores["head"] == 1].iloc[0]
+    assert locator["first_locator_score"] == pytest.approx(0.65)
+
+
+def test_attention_source_loads_model_capture_index_without_pooling_summary(
+    tmp_path,
+) -> None:
+    capture = tmp_path / "Qwen3-8B" / "numeric" / "attention" / "capture"
+    index_rows = []
+    for count in (1, 2):
+        stimulus_id = f"V4_4_T10000_N{count}_seed1234"
+        relative = f"shards/v4.4/{stimulus_id}.csv.gz"
+        shard = capture / relative
+        shard.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(
+            [
+                {
+                    "stimulus_id": stimulus_id,
+                    "design_variant": "v4.4",
+                    "model_label": "Qwen3-8B",
+                    "seed": 1234,
+                    "split": "discovery",
+                    "count": count,
+                    "layer": 0,
+                    "head": 0,
+                    "broad_mass": 0.2,
+                    "broad_coverage": 1.0,
+                    "broad_primary": 0.2,
+                    "needle_span_masses": json.dumps([0.2] * count),
+                }
+            ]
+        ).to_csv(shard, index=False, compression="gzip")
+        index_rows.append(
+            {
+                "stimulus_id": stimulus_id,
+                "design_variant": "v4.4",
+                "model_label": "Qwen3-8B",
+                "seed": 1234,
+                "split": "discovery",
+                "count": count,
+                "shard_path": relative,
+            }
+        )
+    capture.mkdir(parents=True, exist_ok=True)
+    (capture / "attention_capture_index.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in index_rows),
+        encoding="utf-8",
+    )
+    detail, manifest = _load_attention_phenotype_source(
+        tmp_path,
+        model_label="Qwen3-8B",
+        expected_seeds=(1234,),
+        expected_counts=(1, 2),
+    )
+    assert len(detail) == 2
+    assert manifest["source_kind"] == "attention_capture_index"
+    assert manifest["file_count"] == 2
+    assert manifest["prompt_count"] == 2
+    assert manifest["portable_run_relative_source"] == (
+        "Qwen3-8B/numeric/attention/capture/attention_capture_index.jsonl"
+    )
+    assert len(manifest["source_index_sha256"]) == 64
+    assert len(manifest["aggregate_sha256"]) == 64
+
+
+def test_v2_random_baseline_can_sample_full_layer_population() -> None:
+    class Adapter:
+        num_heads = {0: 2}
+
+    selected = [(0, 0), (0, 1)]
+    with pytest.raises(RuntimeError):
+        matched_random_heads(selected, Adapter(), seed=1)
+    sampled = matched_random_heads(
+        selected,
+        Adapter(),
+        seed=1,
+        exclude_selected=False,
+    )
+    assert set(sampled) == set(selected)
+
+
+def test_multi_slot_patch_payload_uses_every_endpoint_or_full_span_token() -> None:
+    receiver = _encoding(stimulus_id="receiver", count=0)
+    source = _encoding(stimulus_id="source", count=2)
+    # Captured rows are query, slot-1 token 1/2, slot-2 token 1/2.
+    states = torch.arange(15, dtype=torch.float32).reshape(5, 3)
+    slices = {1: (1, 3), 2: (3, 5)}
+    positions, endpoint_states, ok, reason = _causal_v2_patch_payload(
+        site="toggled_needle_end",
+        layer_states=states,
+        state_slices=slices,
+        receiver=receiver,
+        source=source,
+        slot_indices=(1, 2),
+    )
+    assert ok and not reason
+    assert positions == (2, 5)
+    assert torch.equal(endpoint_states, states[[2, 4]])
+    positions, span_states, ok, reason = _causal_v2_patch_payload(
+        site="toggled_needle_span",
+        layer_states=states,
+        state_slices=slices,
+        receiver=receiver,
+        source=source,
+        slot_indices=(1, 2),
+    )
+    assert ok and not reason
+    assert positions == (1, 2, 4, 5)
+    assert torch.equal(span_states, states[1:])
+
+
+def test_prompt_full_span_alignment_preflight_reports_each_changed_slot() -> None:
+    receiver = _encoding(stimulus_id="receiver", count=0)
+    donor = _encoding(stimulus_id="donor", count=2)
+    aligned = causal_v2_prompt_span_alignment_table(
+        (receiver, donor),
+        count_pairs=((0, 2),),
+        evaluation_seeds=(1254,),
+    )
+    assert aligned["slot_index"].tolist() == [1, 2]
+    assert aligned["exact_model_token_alignment"].all()
+
+    mismatched_donor = _encoding(
+        stimulus_id="mismatched-donor",
+        count=2,
+        spans=((1, 4), (4, 6)),
+    )
+    mismatched = causal_v2_prompt_span_alignment_table(
+        (receiver, mismatched_donor),
+        count_pairs=((0, 2),),
+        evaluation_seeds=(1254,),
+    )
+    assert mismatched["exact_model_token_alignment"].tolist() == [False, True]
+
+
+def _screen_rows() -> pd.DataFrame:
+    rows = []
+    anchors = ((0, 2), (4, 6), (8, 10))
+    for layer, treatment_effect in ((3, 0.5), (4, 0.05)):
+        for seed in range(1254, 1259):
+            for low, high in anchors:
+                for receiver, donor in ((low, high), (high, low)):
+                    for condition, effect in (
+                        ("donor_transport", treatment_effect),
+                        ("self_patch", 0.0),
+                    ):
+                        rows.append(
+                            {
+                                "model_label": "toy",
+                                "site": "answer_query",
+                                "patch_protocol": "single_layer",
+                                "start_layer": layer,
+                                "k": 2,
+                                "seed": seed,
+                                "receiver_count": receiver,
+                                "donor_count": donor,
+                                "target_direction": (
+                                    "increase" if donor > receiver else "decrease"
+                                ),
+                                "condition": condition,
+                                "strict_normalized_transport": effect,
+                                "patched_format_valid": True,
+                                "transport_numeric_valid": True,
+                            }
+                        )
+    return pd.DataFrame(rows)
+
+
+def test_stability_selection_locks_only_replicated_layer_k_conditions() -> None:
+    scores, manifest = stable_layer_k_conditions(
+        _screen_rows(), family="answer_patching"
+    )
+    selected = scores[scores["stable"]]
+    assert selected["start_layer"].tolist() == [3]
+    assert manifest["selected_condition_count"] == 1
+    assert manifest["held_out_confirmation_seeds"] == list(range(1259, 1264))
+    json.dumps(manifest)
+
+
+def test_confirmation_statistics_uses_seed_cluster_and_matched_control() -> None:
+    result = confirmation_statistics(
+        _screen_rows().query("start_layer == 3"),
+        family="answer_patching",
+        bootstrap_repetitions=200,
+    )
+    assert len(result) == 1
+    assert result.iloc[0]["mean_control_adjusted_transport"] == pytest.approx(0.5)
+    assert result.iloc[0]["positive_seed_fraction"] == pytest.approx(1.0)
+    assert _exact_sign_flip_p(pd.Series([1.0] * 5).to_numpy()) == pytest.approx(2 / 32)
+
+
+def test_stability_refuses_skipped_full_span_rows() -> None:
+    frame = _screen_rows().query("start_layer == 3").copy()
+    frame["status"] = "ok"
+    frame["skip_reason"] = ""
+    frame.loc[frame.index[0], "status"] = "skipped"
+    frame.loc[frame.index[0], "skip_reason"] = "slot_1_model_token_length_mismatch"
+    with pytest.raises(ValueError, match="skipped interventions"):
+        stable_layer_k_conditions(frame, family="answer_patching")
+
+
+def test_selected_confirmation_excludes_failed_screen_conditions() -> None:
+    screen = _screen_rows()
+    confirmation = screen.query("start_layer == 3").copy()
+    confirmation["seed"] = confirmation["seed"].astype(int) + 5
+    payload = {
+        "family": "answer_patching",
+        "selection_split": "screen",
+        "selected": [
+            {
+                "model_label": "toy",
+                "site": "answer_query",
+                "patch_protocol": "single_layer",
+                "start_layer": 3,
+                "k": 2,
+            }
+        ],
+        "selected_condition_count": 1,
+    }
+    combined = _selected_confirmation_detail(
+        screen,
+        confirmation,
+        family="answer_patching",
+        selection_payload=payload,
+        model_label="toy",
+        design=CausalV2Design(),
+    )
+    assert set(combined["start_layer"].astype(int)) == {3}
+    assert set(combined["seed"].astype(int)) == set(range(1254, 1264))
+    result = confirmation_statistics(
+        combined,
+        family="answer_patching",
+        bootstrap_repetitions=200,
+    )
+    assert set(result["evidence_scope"]) == {
+        "held_out_only",
+        "screen_plus_held_out",
+    }
+    held_out = result[result["evidence_scope"].eq("held_out_only")].iloc[0]
+    combined_row = result[result["evidence_scope"].eq("screen_plus_held_out")].iloc[0]
+    assert held_out["seeds"] == 5
+    assert held_out["screen_seeds"] == 0
+    assert held_out["held_out_confirmation_seeds"] == 5
+    assert bool(held_out["is_primary_confirmation"])
+    assert combined_row["seeds"] == 10
+    assert combined_row["screen_seeds"] == 5
+    assert combined_row["held_out_confirmation_seeds"] == 5
+    assert not bool(combined_row["is_primary_confirmation"])
