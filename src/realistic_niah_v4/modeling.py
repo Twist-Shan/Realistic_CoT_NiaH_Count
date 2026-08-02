@@ -886,12 +886,13 @@ def _attention_tensor(value: Any) -> torch.Tensor:
 
 
 @torch.inference_mode()
-def query_attention_outputs(
+def position_attention_outputs(
     model: nn.Module,
     adapter: DecoderAdapter,
     encoding: PromptEncoding,
+    query_position: int,
 ) -> tuple[list[torch.Tensor], list[int], torch.Tensor]:
-    """Return answer-query attention rows, absolute key starts, and logits.
+    """Return one prompt-position attention row per layer without a T-by-T map.
 
     The long prefix is evaluated with the configured efficient backend and a
     KV cache. Only the one-token query step switches to eager attention, so the
@@ -899,9 +900,11 @@ def query_attention_outputs(
     """
 
     input_ids, attention_mask = _encoding_tensors(model, encoding)
-    query = int(encoding.query_position)
-    if query <= 0 or query != input_ids.shape[1] - 1:
-        raise ValueError("V4 answer query must be the final non-initial token")
+    query = int(query_position)
+    if not 0 < query < input_ids.shape[1]:
+        raise ValueError(
+            f"Attention query position {query} is outside the non-initial prompt"
+        )
     prefix_ids = input_ids[:, :query]
     prefix_mask = attention_mask[:, :query]
     prefix_output = model(
@@ -958,6 +961,24 @@ def query_attention_outputs(
         rows.append(row)
         key_starts.append(key_start)
     return rows, key_starts, _last_logits(query_output)
+
+
+@torch.inference_mode()
+def query_attention_outputs(
+    model: nn.Module,
+    adapter: DecoderAdapter,
+    encoding: PromptEncoding,
+) -> tuple[list[torch.Tensor], list[int], torch.Tensor]:
+    """Return final answer-query attention rows, absolute key starts, and logits."""
+
+    if int(encoding.query_position) != int(encoding.sequence_length) - 1:
+        raise ValueError("V4 answer query must be the final non-initial token")
+    return position_attention_outputs(
+        model,
+        adapter,
+        encoding,
+        int(encoding.query_position),
+    )
 
 
 @torch.inference_mode()

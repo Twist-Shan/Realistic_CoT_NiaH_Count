@@ -53,6 +53,7 @@ from .modeling import (
     run_with_residual_patch,
 )
 from .prompts import PromptEncoding, render_v4_prompt
+from .prompt_counter_attention import capture_prompt_counter_attention_shards
 from .representation import (
     analyze_representation_captures,
     capture_answer_query_representation_shards,
@@ -611,6 +612,7 @@ def run_model_stage(
         "behavior",
         "representation-capture",
         "answer-query-representation-capture",
+        "prompt-counter-attention-capture",
         "attention",
         "ablation",
         "patching",
@@ -753,6 +755,41 @@ def run_model_stage(
                     / "answer_query_all_layers_v1"
                 ),
                 save_dtype=config.hidden_save_dtype,
+                overwrite=overwrite,
+            )
+        return {
+            "preflight": str(preflight_path),
+            "capture_index": str(index_path),
+        }
+
+    if stage == "prompt-counter-attention-capture":
+        prompt_counter_rows = [
+            row
+            for row in selected
+            if int(row["gold_count"]) == int(config.representation_count)
+        ]
+        with logger.timer(
+            "prompt_counter_attention_capture",
+            rows=len(prompt_counter_rows),
+            query_site="needle_end",
+            query_occurrences=int(config.representation_count),
+            key_poolings="needle_end,needle_span_sum",
+        ):
+            index_path = capture_prompt_counter_attention_shards(
+                model,
+                adapter,
+                render_encodings(
+                    prompt_counter_rows,
+                    tokenizer=tokenizer,
+                    model_label=model_spec.label,
+                    config=config,
+                    answer_format=answer_format,
+                ),
+                output_dir=(
+                    model_output
+                    / "representation"
+                    / "prompt_counter_attention_v1"
+                ),
                 overwrite=overwrite,
             )
         return {

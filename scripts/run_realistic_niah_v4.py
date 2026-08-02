@@ -17,6 +17,7 @@ MODEL_STAGES = (
     "behavior",
     "representation-capture",
     "answer-query-representation-capture",
+    "prompt-counter-attention-capture",
     "attention",
     "ablation",
     "patching",

@@ -57,6 +57,7 @@ from realistic_niah_v4.modeling import (
     discover_decoder_adapter,
     generate_with_head_ablation,
     generate_with_residual_interventions,
+    position_attention_outputs,
     query_attention_rows,
     run_last_logits,
     run_with_head_ablation,
@@ -75,6 +76,9 @@ from realistic_niah_v4.representation import (
     analyze_representation_captures,
     capture_answer_query_representation_shards,
     label_representation_analysis_by_generation,
+)
+from realistic_niah_v4.prompt_counter_attention import (
+    prompt_counter_attention_metrics,
 )
 from realistic_niah_v4.spec import (
     DESIGN_VARIANTS,
@@ -836,6 +840,34 @@ def test_answer_query_representation_capture_is_all_layer_and_restartable(
     assert manifest["full_sequence_hidden_states_materialized"] is False
 
 
+def test_prompt_counter_attention_metrics_separate_query_and_key_pooling() -> None:
+    adapter = discover_decoder_adapter(ToyLM().eval())
+    encoding = _toy_encoding((1, 2, 3, 4))
+    frame = prompt_counter_attention_metrics(
+        [
+            np.asarray([[0.1, 0.2, 0.7], [0.8, 0.1, 0.1]]),
+            np.asarray([[0.3, 0.7], [0.6, 0.4]]),
+        ],
+        [0, 1],
+        adapter=adapter,
+        encoding=encoding,
+        occurrence_index=1,
+    )
+    assert len(frame) == 4
+    assert set(frame["query_site"]) == {"needle_end"}
+    assert set(frame["query_occurrence"]) == {2}
+    assert set(frame["visible_needle_endpoints"]) == {2}
+    assert set(frame["visible_complete_needle_spans"]) == {2}
+    selected = frame[(frame["layer"] == 0) & (frame["head"] == 0)].iloc[0]
+    assert selected["needle_end_total_mass"] == pytest.approx(0.9)
+    assert selected["needle_span_total_mass"] == pytest.approx(0.9)
+    assert selected["needle_end_current_share"] == pytest.approx(0.7 / 0.9)
+    assert selected["current_endpoint_self_mass"] == pytest.approx(0.7)
+    assert selected["prior_needle_endpoint_mass"] == pytest.approx(0.2)
+    assert selected["non_needle_mass"] == pytest.approx(0.1)
+    assert np.isfinite(frame["row_entropy_nats"]).all()
+
+
 def test_decoder_hooks_ablation_and_residual_patch() -> None:
     model = ToyLM().eval()
     adapter = discover_decoder_adapter(model)
@@ -1430,6 +1462,12 @@ def test_tiny_transformers_architectures_support_v4_hooks() -> None:
         baseline = run_last_logits(model, item)
         captured = capture_span_states(model, adapter, item)
         rows, key_starts = query_attention_rows(model, adapter, item)
+        prompt_rows, prompt_key_starts, _ = position_attention_outputs(
+            model,
+            adapter,
+            item,
+            item.needle_spans[-1].end - 1,
+        )
         ablated = run_with_head_ablation(
             model, adapter, item, [(0, 0)], scope="answer_query"
         )
@@ -1470,6 +1508,19 @@ def test_tiny_transformers_architectures_support_v4_hooks() -> None:
         )
         assert [tuple(row.shape) for row in rows] == expected_attention_shapes
         assert key_starts == ([4, 0] if label == "gemma4" else [0, 0])
+        prompt_key_end = item.needle_spans[-1].end
+        assert all(
+            key_start + row.shape[-1] == prompt_key_end
+            for row, key_start in zip(prompt_rows, prompt_key_starts)
+        )
+        assert all(
+            torch.isfinite(row).all() and torch.allclose(
+                row.sum(dim=-1),
+                torch.ones(row.shape[0]),
+                atol=1e-5,
+            )
+            for row in prompt_rows
+        )
         assert not torch.allclose(baseline, ablated)
         assert not torch.allclose(baseline, patched)
         assert generated_ablation["completion_text"] == "2"
