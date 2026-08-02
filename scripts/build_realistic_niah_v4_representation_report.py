@@ -1971,6 +1971,140 @@ def _answer_query_counter_svg(
     return "".join(parts)
 
 
+def _answer_query_layer_sweep_svg(
+    projections: dict[str, dict[str, Any]],
+) -> str:
+    """Discovery-only all-layer diagnostics for the answer-query state."""
+
+    width, height = 1120, 470
+    panel_width, panel_height = 430, 250
+    lefts = (105, 635)
+    top = 125
+    line_specs = (
+        ("pca3_discovery_cv_r2", AURORA["polar_violet"], "PCA3 grouped-seed CV R²"),
+        ("evr3", AURORA["ice_cyan"], "PC1–3 total EVR"),
+        (
+            "count_signal_capture_pc1_3",
+            AURORA["aurora_green"],
+            "PC1–3 count-signal capture",
+        ),
+        (
+            "discovery_compactness",
+            AURORA["sunset_pink"],
+            "seed compactness",
+        ),
+    )
+    parts = [
+        f'<svg class="stat-svg" viewBox="0 0 {width} {height}" role="img" '
+        'aria-labelledby="aq-layer-sweep-title aq-layer-sweep-desc">',
+        '<title id="aq-layer-sweep-title">All-layer answer-query manifold diagnostics</title>',
+        '<desc id="aq-layer-sweep-desc">Two panels show Qwen and Gemma. The horizontal axis is zero-based post-block decoder layer. Four discovery-only curves report PCA-three grouped-seed count-probe R squared, cumulative explained variance of the first three principal components, the fraction of count-centroid signal retained by those components, and seed compactness. P and M vertical markers identify the PCA-three probe and manifold-display layers.</desc>',
+        f'<rect width="{width}" height="{height}" fill="{AURORA["snow_white"]}"/>',
+        f'<g font-family="Aptos,Segoe UI,system-ui,sans-serif" fill="{AURORA["night_black"]}">',
+    ]
+    for legend_index, (_metric, color, label) in enumerate(line_specs):
+        x = 150 + (legend_index % 2) * 430
+        y = 35 + (legend_index // 2) * 32
+        parts.extend(
+            [
+                f'<line x1="{x}" y1="{y}" x2="{x+35}" y2="{y}" stroke="{color}" stroke-width="3"/>',
+                f'<text x="{x+45}" y="{y+4}" font-size="11">{html.escape(label)}</text>',
+            ]
+        )
+    for model_index, model in enumerate(MODELS):
+        left = lefts[model_index]
+        data_rows = sorted(
+            [
+                data
+                for key, data in projections.items()
+                if key.startswith(model + "|") and key.endswith("|all")
+            ],
+            key=lambda item: int(item["layer"]),
+        )
+        layers = [int(item["layer"]) for item in data_rows]
+        if len(layers) < 3:
+            raise RuntimeError(f"{model}: insufficient answer-query layer sweep")
+        values_by_metric = {
+            "pca3_discovery_cv_r2": [
+                float(item["pca3_discovery_cv_r2"]) for item in data_rows
+            ],
+            "evr3": [
+                float(np.sum(item["explained_variance_ratio"][:3]))
+                for item in data_rows
+            ],
+            "count_signal_capture_pc1_3": [
+                float(item["count_signal_capture_pc1_3"]) for item in data_rows
+            ],
+            "discovery_compactness": [
+                float(item["discovery_compactness"]) for item in data_rows
+            ],
+        }
+        minimum = min(
+            -0.05,
+            min(values_by_metric["pca3_discovery_cv_r2"]),
+        )
+        maximum = 1.0
+
+        def project_x(layer: int) -> float:
+            return left + (layer - layers[0]) / max(layers[-1] - layers[0], 1) * panel_width
+
+        def project_y(value: float) -> float:
+            return top + (maximum - value) / (maximum - minimum) * panel_height
+
+        parts.extend(
+            [
+                f'<rect x="{left}" y="{top}" width="{panel_width}" height="{panel_height}" fill="{AURORA["snow_white"]}" stroke="{AURORA["frost_gray"]}" stroke-opacity=".45"/>',
+                f'<text x="{left}" y="{top-18}" font-size="15" font-weight="700">{model}</text>',
+            ]
+        )
+        for tick in np.linspace(minimum, maximum, 5):
+            y = project_y(float(tick))
+            parts.extend(
+                [
+                    f'<line x1="{left}" y1="{y:.2f}" x2="{left+panel_width}" y2="{y:.2f}" stroke="{AURORA["frost_gray"]}" opacity=".14"/>',
+                    f'<text x="{left-12}" y="{y+4:.2f}" text-anchor="end" font-size="10" fill="{AURORA["frost_gray"]}">{tick:.2f}</text>',
+                ]
+            )
+        for metric, color, _label in line_specs:
+            points = [
+                (project_x(layer), project_y(value))
+                for layer, value in zip(layers, values_by_metric[metric])
+            ]
+            path = " ".join(
+                ("M" if index == 0 else "L") + f" {x:.2f} {y:.2f}"
+                for index, (x, y) in enumerate(points)
+            )
+            parts.append(
+                f'<path d="{path}" fill="none" stroke="{color}" stroke-width="2.5"/>'
+            )
+        for flag, label, color, dash in (
+            ("probe_optimal", "P", AURORA["warm_brown"], "5 4"),
+            ("manifold_display", "M", AURORA["midnight_indigo"], ""),
+        ):
+            selected = [item for item in data_rows if bool(item.get(flag))]
+            if len(selected) != 1:
+                raise RuntimeError(f"{model}: expected one answer-query {flag} layer")
+            layer = int(selected[0]["layer"])
+            x = project_x(layer)
+            label_x = x - 5 if layer >= layers[0] + 0.75 * (layers[-1] - layers[0]) else x + 5
+            label_anchor = "end" if label_x < x else "start"
+            label_y = top + (15 if flag == "probe_optimal" else 31)
+            parts.extend(
+                [
+                    f'<line x1="{x:.2f}" y1="{top}" x2="{x:.2f}" y2="{top+panel_height}" stroke="{color}" stroke-width="2.2" stroke-dasharray="{dash}" opacity=".85"/>',
+                    f'<text x="{label_x:.2f}" y="{label_y}" text-anchor="{label_anchor}" font-size="11" font-weight="700" paint-order="stroke" stroke="{AURORA["snow_white"]}" stroke-width="3" fill="{color}">{label}:L{layer}</text>',
+                ]
+            )
+        parts.extend(
+            [
+                f'<text x="{left+panel_width/2}" y="{top+panel_height+38}" text-anchor="middle" font-size="11">post-block decoder layer index</text>',
+                f'<text x="{left-62}" y="{top+panel_height/2}" transform="rotate(-90 {left-62} {top+panel_height/2})" text-anchor="middle" font-size="11">discovery-only score</text>',
+            ]
+        )
+    parts.extend(["</g>", "</svg>"])
+    return "".join(parts)
+
+
 def _representation_conclusion_html(
     rows: list[dict[str, Any]], sensitivity_rows: list[dict[str, Any]]
 ) -> str:
@@ -6570,6 +6704,8 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <h3>2.3 Answer-query counter：<code>Total:</code> 位置的聚合状态</h3>
   <p class="lede">本轮新增的 <code>answer_query_all_layers_v1</code> capture 对每条 variant×discovery seed×gold count prompt，在生成第一个答案 token 之前、prompt-final <code>Total:</code> query 位置保存<strong>每一个 post-block decoder layer</strong>的完整 residual；Qwen 为 L0–L35，Gemma 为 L0–L41。它不是 needle token 的均值，也不是首个答案 token 生成后的状态。每层同时拟合两个 V4.1 discovery PCA basis：<code>all</code> 使用全部 200 条 prompts；<code>correct_only</code> 只使用最终 greedy 数字严格正确的 prompts。两套 basis 都投影同一批 800 条保存状态。</p>
   <div class="callout"><strong>逐层完整性。</strong>交互图的 layer 下拉框来自新 capture 的实际 <code>layer_indices</code>，不是报告端插值：Qwen 36 层、Gemma 42 层均逐层前向保存。下方静态 PC1–PC2 图为避免 78 个 panel 挤在一页，只显示每个模型的 first / discovery-selected manifold-display / last 三个 landmark；逐层结果必须以上方交互图和导出的 sensitivity CSV 为准。</div>
+  <div class="figure-intro"><p><strong>画什么：</strong>先沿 decoder depth 总览每一层的 answer-query count geometry，再进入逐层三维图。四条曲线都只使用 V4.1 discovery prompts；横轴是 zero-based post-block layer，纵轴是定义在该层上的 discovery score（交叉验证 R² 偶尔可低于 0）。</p><p><strong>如何得到：</strong>每层在全部 20 seeds×10 counts 上独立拟合六维 PCA。紫线是在 PC1–3 上用 seed-grouped 五折 Ridge 预测 gold count 的 held-out R²；青线是 PC1–3 对该层全部 prompt 方差的累计解释率；绿线是十个 count centroids 的 full-space 离均差平方和中被 PC1–3 保留的比例；粉线是 <em>C</em>=1/(1+noise/signal)，其中 noise 是同 count leave-one-seed-out residual RMS，signal 是十个 count centroids 相对总 centroid 的 RMS。棕色虚线 P 标记紫线最高层；深靛实线 M 先保留紫线距最高值不超过 0.02 的层，再最大化 M₃=EVR₃×count-signal capture×C。</p><p><strong>能说明什么：</strong>P 回答“三维坐标在哪层最能跨 seed 解码 count”，M 回答“在几乎同等可解码的层里，哪层兼顾方差覆盖、count-signal 覆盖和 seed 紧致度，最适合展示 manifold”。任何单条曲线都不能独立证明因果 counter；它们只是 discovery-only 层选择诊断。</p></div>
+  <div class="stat-grid"><figure class="stat-figure">@@ANSWER_QUERY_LAYER_SWEEP_SVG@@<figcaption><strong>图 B2-F4-overview · Answer-query 逐层 discovery diagnostics。</strong>左图为 Qwen3-8B L0–L35，右图为 Gemma4-E4B L0–L41；横轴均为 zero-based post-block decoder layer，纵轴为该层的 discovery-only score。紫线=PCA3 seed-grouped CV R²；青线=PC1–3 cumulative EVR；绿线=PC1–3 count-centroid signal capture；粉线=seed compactness C=1/(1+leave-one-seed-out noise-to-signal)。棕色虚线 P 是三维 count probe 的最高-CV层；深靛实线 M 是先通过“CV 距最优不超过 0.02”门槛、再最大化 M₃ 的展示层。线只连接相邻保存层以帮助读取，不表示跨层连续拟合；四个指标共用纵轴但定义不同，必须按上述图注分别解释。</figcaption></figure></div>
   <div class="figure-intro"><p><strong>画什么：</strong>生成答案前，prompt-final <code>Total:</code> query 的完整 residual 在三维 PCA 空间中如何随 gold count 1–10 组织；可切换模型、保存层、V4 panel、PCA 拟合 cohort、最终输出标签与任意 PC1–PC6 轴组合。</p><p><strong>如何得到：</strong><code>all-fit</code> 用 V4.1 的 20 discovery seeds×10 counts 拟合；<code>correct-only-fit</code> 只用其中 strict-correct rows 拟合。切换 panel 或 outcome 时只筛选投影点，不重新拟合。淡点是单 prompt，彩色节点与线是当前筛选后十个 gold-count centroids。</p><p><strong>能说明什么：</strong>它检查 count-conditioned query manifold 是否由错误样本驱动，以及正确、错误、非法输出在同一 basis 中是否分离。PCA 仍是描述性证据；2.5 的 exact donor patch 与第 5 章 steering 才检验该状态是否驱动输出。</p></div>
   <div class="viz-shell">
     <div class="controls">
@@ -7462,6 +7598,9 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
             metric_rows, sensitivity_rows
         ),
         "@@ANSWER_QUERY_COUNTER_SVG@@": _answer_query_counter_svg(
+            answer_query_projections
+        ),
+        "@@ANSWER_QUERY_LAYER_SWEEP_SVG@@": _answer_query_layer_sweep_svg(
             answer_query_projections
         ),
         "@@ANSWER_QUERY_DATA@@": json.dumps(

@@ -70,6 +70,7 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     assert "@@BEHAVIOR_ACCURACY_SVG@@" in template
     assert "@@REPRESENTATION_R2_SVG@@" in template
     assert "@@LAYER_SWEEP_SVG@@" in template
+    assert "@@ANSWER_QUERY_LAYER_SWEEP_SVG@@" in template
     assert "@@ANSWER_QUERY_COUNTER_SVG@@" in template
     assert "@@ANSWER_QUERY_DATA@@" in template
     assert "@@ATTENTION_HEAD_ATLAS_HTML@@" in template
@@ -296,6 +297,11 @@ def test_answer_query_counter_is_a_separate_layered_figure() -> None:
                 "layer": layer,
                 "fit_cohort": "all",
                 "explained_variance_ratio": [0.4, 0.3, 0.1, 0.1, 0.05, 0.05],
+                "pca3_discovery_cv_r2": 0.7 + 0.01 * model_layers.index(layer),
+                "count_signal_capture_pc1_3": 0.8,
+                "discovery_compactness": 0.6,
+                "probe_optimal": layer == model_layers[1],
+                "manifold_display": layer == model_layers[2],
                 "rows": rows,
             }
     svg = report._answer_query_counter_svg(projections)
@@ -306,8 +312,14 @@ def test_answer_query_counter_is_a_separate_layered_figure() -> None:
         for layer in model_layers:
             assert f"L{layer}" in svg
     assert "<title" in svg and "<desc" in svg
+    layer_sweep_svg = report._answer_query_layer_sweep_svg(projections)
+    assert "All-layer answer-query manifold diagnostics" in layer_sweep_svg
+    assert "PCA3 grouped-seed CV R²" in layer_sweep_svg
+    assert "seed compactness" in layer_sweep_svg
+    assert "P:L" in layer_sweep_svg and "M:L" in layer_sweep_svg
     template = report.REPORT_TEMPLATE
     assert "Interactive answer-query counter manifold" in template
+    assert "Answer-query 逐层 discovery diagnostics" in template
     assert "Static all-fit answer-query" in template
     assert "AQ_DATA" in template
     assert "JOINT_DATA" in template
