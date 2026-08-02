@@ -2950,6 +2950,12 @@ def _prompt_counter_dynamics_conclusion_html(
                     [row["needle_relative_coverage_slope"] for row in selected]
                 )
             )
+            median_row_tokens_slope = float(
+                np.median([row["row_effective_tokens_slope"] for row in selected])
+            )
+            median_row_fraction_slope = float(
+                np.median([row["row_effective_fraction_slope"] for row in selected])
+            )
             median_noise_slope = float(
                 np.median([row["counter_noise_slope"] for row in selected])
             )
@@ -2970,7 +2976,11 @@ def _prompt_counter_dynamics_conclusion_html(
             )
             statements.append(
                 f"<strong>{html.escape(model)} · {html.escape(pooling.replace('_', '-'))}</strong> "
-                f"manifold-display layer：relative-coverage slope 中位数 "
+                f"manifold-display layer：row effective-token count / visible-key fraction 的 "
+                f"N=1→10 变化中位数分别为 "
+                f"{_number(median_row_tokens_slope, 2, signed=True)} / "
+                f"{_number(median_row_fraction_slope, 4, signed=True)}；"
+                f"relative-coverage slope 中位数 "
                 f"{_number(median_coverage_slope, 3, signed=True)}，counter-noise slope "
                 f"中位数 {_number(median_noise_slope, 3, signed=True)}；四个 panels 中 noise "
                 f"CI 明确为正/负分别 {noise_positive}/{noise_negative}，coverage–noise 的 "
@@ -2984,10 +2994,12 @@ def _prompt_counter_dynamics_conclusion_html(
     return (
         '<div class="section-conclusion"><span>2.2b 当前结论 · 分开趋势与同-n关联</span><p>'
         + " ".join(statements)
-        + " 上述计数决定证据究竟支持“n 增大时更 diffuse 且更 noisy”、只支持其中一个趋势，"
-        "还是不同 panel/layer 方向不一致。即便二者同向且去除 occurrence 均值后相关仍为正，"
-        "本实验也没有干预 attention，因此只能称为与 counter noise 相伴的 write-side retrieval "
-        "phenomenon；证明‘导致’仍需对 frozen bank 做写入位置的定向 ablation/patching。</p></div>"
+        + " <strong>综合结论：</strong>绝对有效 token/needle 数通常随 n 增长，但四个 model×pooling "
+        "组合的 relative coverage 都下降，说明有效覆盖增长慢于可用 needle 数。关键是没有任何组合出现 "
+        "CI 明确为正的 hidden-noise 趋势：Qwen 基本持平，Gemma 在若干 panels 反而下降。因此当前数据不支持 "
+        "‘n 增大 → retrieval 更 diffuse → counter 更 noisy’这一普遍链条。Gemma span-end 的 3/4 panels "
+        "存在有限的同-n正相关，但方向是相对覆盖更广的样本更 noisy；它既不是 across-n 趋势，也未干预 "
+        "attention。证明因果仍需对 frozen bank 做写入位置的定向 ablation/patching。</p></div>"
     )
 
 

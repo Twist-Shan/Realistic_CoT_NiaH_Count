@@ -253,6 +253,19 @@ one eager query row at each needle endpoint. Compact per-head metrics and a
 10-by-10 occurrence profile are saved; no full 10k-by-10k attention matrix or
 full Q/K/V tensor is materialized.
 
+### Completed-run interpretation boundary
+
+In the completed numeric run, absolute effective token/needle counts usually
+increase with `n`, while relative needle coverage decreases in every
+model/pooling pair. Qwen hidden-counter noise is flat and Gemma noise decreases
+in several panels; no pair has a significantly positive N=1-to-10 noise slope.
+The data therefore reject a universal observational chain from larger `n` to
+more diffuse retrieval to a noisier hidden counter. The restricted positive
+same-occurrence association for Gemma span-end remains descriptive and requires
+a write-site intervention before any causal wording is licensed. Exact values
+and all-head controls are reported in
+[`realistic_niah_v4_numeric_results_20260731.md`](realistic_niah_v4_numeric_results_20260731.md).
+
 ## Answer-query attention
 
 Let `a(t)` be one head's answer-query attention row, and let `S_i` be active

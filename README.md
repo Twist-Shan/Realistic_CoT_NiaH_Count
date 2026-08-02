@@ -26,6 +26,15 @@ transport; late answer-query geometry is steerable; and exact answer-query
 residual patching transfers the donor model prediction on 100% of eligible
 Qwen final-layer rows and 99.58% of Gemma rows when strict-invalid outputs are
 conservatively counted as failures.
+The new all-layer audit locates the answer-query display manifolds at Qwen L29
+and Gemma L37 and shows that their count-centroid geometry is stable under a
+correct-only PCA sensitivity fit. Prompt and answer states have similar global
+role-centered count geometry but nearly orthogonal adjacent count steps, so
+they should not be described as the same trajectory. During prompt reading,
+attention spreads over more absolute tokens and needles as `n` grows while its
+relative needle coverage falls; the hidden-state noise does not increase, so
+the completed observational test does not support a universal
+"more-diffuse-attention causes a noisier counter" account.
 
 The repository was consolidated non-destructively from
 `NIAH_repo_and_local_runs_001` and `NIAH_repo_and_local_runs_002`. The original
@@ -306,6 +315,14 @@ from N=`k`, using both raw and role-centered common PCA bases. Exact needle-end
 and exact answer-query donor-state patching remain in this block because they
 test whether the two representations are transportable.
 
+The answer-query `manifold-display` layers are Qwen L29 and Gemma L37; the
+independently selected `probe-optimal` layers are L35 and L39. At the display
+layers, correct-only versus all-row fits retain closely related count-centroid
+geometry (distance correlations 0.977 and 0.999). In role-centered full space,
+prompt/answer linear CKA is 0.798--0.851 and centroid-distance correlation is
+0.761--0.901, but adjacent-step cosine is only -0.004--0.042. These numbers
+support a related global count organization, not literal stepwise identity.
+
 The same block now contains a prompt-counter write-side attention audit. At
 each needle endpoint it captures only the current query row, then separately
 sums keys at historical needle endpoints and over complete needle spans. It
@@ -315,6 +332,14 @@ correlations. Discovery-frozen top-eight broad banks are always accompanied by
 an all-head layer control, preventing a broad-head selection rule from being
 mistaken for a whole-layer property. No full 10k-by-10k attention matrix is
 stored.
+
+At the manifold-display layers, the median N=1-to-10 relative-coverage change
+is negative for every model/pooling pair (-0.232 to -0.687). Qwen hidden noise
+is statistically flat in all panels, while Gemma noise decreases in two or
+three panels depending on pooling. The all-head controls preserve the main
+coverage direction. A limited same-`n` positive coverage--noise association
+appears for Gemma span-end, but it is observational and does not turn the
+across-`n` result into a causal claim.
 
 The attention block now recomputes raw N=10 discovery profiles for both models.
 It contains a panel- and pooling-switchable all-head layer×head atlas, frozen rules for global broad,

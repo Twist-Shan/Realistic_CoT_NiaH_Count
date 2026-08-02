@@ -69,11 +69,26 @@ accuracy alone hides a sharp capacity/failure boundary around counts 4--6.
 
 ## Prompt-reading representations
 
-Layers were selected only from v4.1 discovery data by maximum grouped-seed
-ridge cross-validation R2. The selected layers were Qwen L1 (`span_end`) and L0
-(`span_mean`), and Gemma L22 (`span_end`) and L0 (`span_mean`). The same fitted
-protocol was then evaluated on confirmation seeds and progressively relaxed
-panels.
+Layers were selected only from v4.1 discovery data. The registered
+`probe-optimal` layer maximizes grouped-seed full-space Ridge CV R2: Qwen L1
+(`span_end`) and L0 (`span_mean`), and Gemma L22 (`span_end`) and L0
+(`span_mean`). The separately selected `manifold-display` layer must remain
+within 0.02 of the best full-space CV R2 and then maximizes
+`M3 = EVR3 * PC1--3 count-signal capture * seed compactness`. This second rule
+selects a three-dimensional view that is faithful to the count signal rather
+than merely choosing the best probe. The same frozen protocol was then
+evaluated on confirmation seeds and progressively relaxed panels.
+
+| Model / pooling | Probe-optimal | Manifold-display | Display-layer PCA3 CV R2 | EVR3 | PC1--3 count-signal capture | Seed compactness |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Qwen span-end | L1 | L8 | 0.835 | 0.725 | 0.962 | 0.555 |
+| Qwen span-mean | L0 | L35 | 0.891 | 0.883 | 0.976 | 0.654 |
+| Gemma span-end | L22 | L9 | 0.369 | 0.610 | 0.926 | 0.426 |
+| Gemma span-mean | L0 | L41 | 0.844 | 0.898 | 0.984 | 0.692 |
+
+The probe and display layers are therefore deliberately different in all four
+cases. In particular, a high-dimensional count probe can peak early even when
+the cleanest three-dimensional manifold is late.
 
 ### Confirmation metrics at the registered primary layers
 
@@ -112,14 +127,14 @@ and a current-conclusion block after every section. The interactive 3D count
 manifold keeps individual seed points and split-specific 1--10 centroid paths,
 and allows switching model, span-end/span-mean pooling, v4.1--v4.4,
 discovery/confirmation, actual greedy output strata, and any displayed axes
-among PC1--PC6. A separate answer-query 3D view uses every layer available in
-the saved steering discovery capture (Qwen L9/L18/L26 and Gemma L10/L20/L31),
-switches `correct`/`wrong`/`invalid` final greedy outcomes, and compares an
-all-V4.1 PCA basis with a correct-only sensitivity basis. Both bases project
-the same 800 saved states per model. The report compares fit-cohort EVR, common
-all-V4.1 variance capture, count-centroid trajectory geometry, and within-count
-seed scatter; it reports per-count correct-only support because high-count
-correct rows can be absent.
+among PC1--PC6. A separate all-layer answer-query 3D view uses Qwen L0--L35 and
+Gemma L0--L41 at the prompt-final `Total:` query, switches
+`correct`/`wrong`/`invalid` final greedy outcomes, and compares an all-V4.1 PCA
+basis with a correct-only sensitivity basis. At every selected layer, both
+bases project the same 800 saved states per model. The report compares
+fit-cohort EVR, common all-V4.1 variance capture, count-centroid trajectory
+geometry, and within-count seed scatter; it reports per-count correct-only
+support because high-count correct rows can be absent.
 
 Each model/pooling basis is fit only on v4.1 discovery states at that pooling's
 registered primary layer, then reused across all four variants. Bases are not
@@ -130,33 +145,94 @@ no correct N=10 confirmation trajectory; Gemma has one in v4.1 and none in
 v4.2--v4.4. The outcome switch is therefore an audit, not a powered group
 comparison.
 
-### Answer-query PCA fit-cohort sensitivity
+### Answer-query all-layer selection and PCA fit-cohort sensitivity
 
-The answer-query capture contains three layers per model rather than a full
-layer sweep: Qwen L9/L18/L26 and Gemma L10/L20/L31. At each layer, `all` fits
-on all 200 V4.1 discovery rows; `correct_only` fits on the strictly correct
-subset (89 Qwen rows and 76 Gemma rows). Both bases project the same 800 saved
-states, and every geometry comparison below is evaluated on the common set of
-all 200 V4.1 rows. Thus fit-cohort EVR and common-set capture are deliberately
-reported as different quantities.
+The restartable answer-query capture contains every zero-based post-block
+layer: Qwen L0--L35 and Gemma L0--L41. Each layer contains all 800 rows
+(4 panels x 20 discovery seeds x 10 counts). Layer selection uses only the 200
+V4.1 discovery rows. The answer-query `manifold-display` layers are Qwen L29
+and Gemma L37; the independently selected PCA3 `probe-optimal` layers are Qwen
+L35 and Gemma L39.
 
-| Model / layer | Fit EVR PC1--3, all / correct-only | Common-set capture PC1--3, all / correct-only | Seed-noise / count-signal, all / correct-only | Correct-only centroid-distance correlation to all-fit |
-| --- | ---: | ---: | ---: | ---: |
-| Qwen L9 | 0.551 / 0.559 | 0.551 / 0.544 | 21.10 / 16.96 | 0.969 |
-| Qwen L18 | 0.530 / 0.529 | 0.530 / 0.522 | 16.15 / 16.41 | 0.991 |
-| Qwen L26 | 0.757 / 0.812 | 0.757 / 0.727 | 0.276 / 0.275 | 0.995 |
-| Gemma L10 | 0.524 / 0.519 | 0.524 / 0.510 | 24.39 / 26.35 | 0.993 |
-| Gemma L20 | 0.700 / 0.745 | 0.700 / 0.664 | 0.514 / 0.481 | 0.9997 |
-| Gemma L31 | 0.767 / 0.808 | 0.767 / 0.749 | 0.234 / 0.235 | 0.9997 |
+At each layer, `all` fits on all 200 V4.1 discovery rows; `correct_only` fits on
+the strictly correct subset (89 Qwen rows and 76 Gemma rows). Both bases project
+the same 800 saved states, and every geometry comparison below is evaluated on
+the common set of all 200 V4.1 rows. Thus fit-cohort EVR and common-set capture
+are deliberately different quantities.
 
-The late saved layers have both the highest common-set variance capture and a
-much lower seed-noise/count-signal ratio. Their ten-count centroid geometry is
-nearly unchanged by excluding wrong rows, so the late manifold is not merely
-an artifact of fitting the failures. The early-layer ratios above 16 mean that
-the count-centroid separation is tiny relative to within-count seed scatter,
-despite nonzero PCA variance. Correct-only remains a sensitivity analysis:
-Qwen has zero correct fit support for one count, while Gemma's least-supported
-count has only one row.
+| Model / display layer | Fit EVR PC1--3, all / correct-only | Common-set capture PC1--3, all / correct-only | Seed-noise / count-signal, all / correct-only | Correct-only centroid-distance correlation to all-fit | Correct-only support per count |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Qwen L29 | 0.769 / 0.798 | 0.769 / 0.713 | 0.318 / 0.320 | 0.977 | 0--20 |
+| Gemma L37 | 0.843 / 0.880 | 0.843 / 0.824 | 0.268 / 0.260 | 0.999 | 1--20 |
+
+The late answer-query count-centroid geometry is therefore not an artifact of
+fitting wrong rows. Correct-only remains a sensitivity analysis rather than the
+primary basis: Qwen has zero correct fit support for one count, while Gemma's
+least-supported count has only one row.
+
+### Joint prompt-reading and answer-query geometry
+
+Prompt and answer states are overlaid only after fitting one common basis to
+paired V4.1 states: prompt occurrence `k` from an N=10 trajectory is paired
+with the answer-query state from the N=`k` prompt at the same model, seed,
+panel, and layer. The primary sensitivity view removes the separate prompt and
+answer grand means before fitting, so a fixed token-role offset cannot create
+an apparently shared count curve. Full-space linear CKA, the correlation of the
+45 inter-count centroid distances, and the cosine between adjacent count steps
+do not depend on PCA axis signs or rotations.
+
+| Model / pooling / answer display layer | Role-centered linear CKA | Centroid-distance correlation | Adjacent-step cosine | Answer/prompt count-signal scale | Raw role-offset / count-signal |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Qwen span-end L29 | 0.798 | 0.761 | -0.004 | 0.995 | 3.383 |
+| Qwen span-mean L29 | 0.848 | 0.829 | 0.042 | 1.835 | 3.847 |
+| Gemma span-end L37 | 0.798 | 0.839 | 0.017 | 1.494 | 2.290 |
+| Gemma span-mean L37 | 0.851 | 0.901 | 0.032 | 3.078 | 2.259 |
+
+After role centering, prompt and answer trajectories share a strong global
+count organization, especially under span-mean pooling. Their adjacent steps
+are nevertheless nearly orthogonal, and the raw role offset is 2.26--3.85
+times the count-signal scale. The licensed conclusion is therefore "related
+global geometry," not "the same counter state is copied from prompt to
+answer."
+
+### Prompt-counter write-side attention dispersion and hidden noise
+
+At each current needle end, the saved query row is pooled in two ways over
+historical needles: `needle_end` keeps one key token per record, while
+`needle_span_sum` sums literal attention over every token in each record. For a
+normalized full row `a`, `row N_eff = exp(H(a))`; for normalized occurrence
+masses `p_j`, `needle N_eff = exp(H(p))` and `relative coverage = needle
+N_eff/n`. Hidden noise is the full-space distance to the matching discovery
+count centroid, normalized by discovery count-signal RMS. Every number below is
+the median across v4.1--v4.4 of the confirmation-seed regression's complete
+N=1-to-10 change. Correlations first remove the occurrence-`n` mean from both
+variables and use seed-cluster bootstrap intervals.
+
+| Model / hidden pooling / display layer | Row N_eff change | Row effective-fraction change | Needle N_eff change | Relative-coverage change | Hidden-noise change | Same-n coverage--noise r | Panels with positive / negative noise CI | Panels with positive r CI |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Qwen span-end L8 | +51.00 | -0.0016 | +3.33 | -0.449 | +0.012 | +0.432 | 0 / 0 | 1 / 4 |
+| Qwen span-mean L35 | +116.45 | -0.0323 | +0.74 | -0.668 | -0.024 | +0.097 | 0 / 0 | 0 / 4 |
+| Gemma span-end L9 | +0.80 | +0.0016 | +0.01 | -0.687 | -0.250 | +0.209 | 0 / 3 | 3 / 4 |
+| Gemma span-mean L41 | +784.38 | +0.0283 | +6.56 | -0.232 | -0.064 | +0.110 | 0 / 2 | 1 / 4 |
+
+The positive absolute effective-count changes mean that attention is spread
+over more tokens or needles as the prompt grows, but in every pair the number
+of effectively covered needles grows much more slowly than `n`, so relative
+coverage falls. The all-head controls preserve this conclusion (Qwen
+span-end/span-mean relative-coverage medians -0.611/-0.663; Gemma is identical
+to its eight-head bank at these layers). Crucially, no model/pooling has a
+significantly positive hidden-noise slope: Qwen is flat and Gemma becomes less
+noisy in several panels. A limited positive same-`n` coverage--noise
+association survives in Gemma span-end, but it is not the proposed across-`n`
+chain and is not causal. The completed data therefore do **not** support the
+general claim that larger `n` makes retrieval more diffuse and thereby makes
+the counter noisier.
+
+For `span_mean` hidden states, there is no single native attention row because
+the hidden state averages several query positions. The analysis explicitly
+pairs span-mean hidden noise with the same needle-end query row and full-span
+key pooling as a sensitivity check; it must not be read as attention emitted by
+a hypothetical mean query.
 
 All V4 and later visualizations use the Aurora palette registered in the report
 builder and repository README. Count colors are ordered blends of the supplied
