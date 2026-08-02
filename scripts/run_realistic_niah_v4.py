@@ -16,6 +16,7 @@ MODEL_STAGES = (
     "preflight",
     "behavior",
     "representation-capture",
+    "answer-query-representation-capture",
     "attention",
     "ablation",
     "patching",

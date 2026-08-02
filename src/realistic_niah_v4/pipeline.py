@@ -55,6 +55,7 @@ from .modeling import (
 from .prompts import PromptEncoding, render_v4_prompt
 from .representation import (
     analyze_representation_captures,
+    capture_answer_query_representation_shards,
     capture_representation_shards,
     label_representation_analysis_by_generation,
 )
@@ -609,6 +610,7 @@ def run_model_stage(
         "preflight",
         "behavior",
         "representation-capture",
+        "answer-query-representation-capture",
         "attention",
         "ablation",
         "patching",
@@ -720,6 +722,36 @@ def run_model_stage(
                     answer_format=answer_format,
                 ),
                 output_dir=model_output / "representation" / "capture",
+                save_dtype=config.hidden_save_dtype,
+                overwrite=overwrite,
+            )
+        return {
+            "preflight": str(preflight_path),
+            "capture_index": str(index_path),
+        }
+
+    if stage == "answer-query-representation-capture":
+        with logger.timer(
+            "answer_query_representation_capture",
+            rows=len(selected),
+            layers=int(adapter.num_layers),
+            position="prompt_final_total_query",
+        ):
+            index_path = capture_answer_query_representation_shards(
+                model,
+                adapter,
+                render_encodings(
+                    selected,
+                    tokenizer=tokenizer,
+                    model_label=model_spec.label,
+                    config=config,
+                    answer_format=answer_format,
+                ),
+                output_dir=(
+                    model_output
+                    / "representation"
+                    / "answer_query_all_layers_v1"
+                ),
                 save_dtype=config.hidden_save_dtype,
                 overwrite=overwrite,
             )

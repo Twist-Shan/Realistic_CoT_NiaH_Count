@@ -73,6 +73,7 @@ from realistic_niah_v4.prompts import (
 )
 from realistic_niah_v4.representation import (
     analyze_representation_captures,
+    capture_answer_query_representation_shards,
     label_representation_analysis_by_generation,
 )
 from realistic_niah_v4.spec import (
@@ -786,6 +787,53 @@ def _toy_encoding(input_ids: tuple[int, ...]) -> PromptEncoding:
         count_candidate_answer_token_ids=((1, (10,)), (2, (11,)), (3, (12,))),
         count_candidate_token_ids=((1, (10, 1)), (2, (11, 1)), (3, (12, 1))),
     )
+
+
+def test_answer_query_representation_capture_is_all_layer_and_restartable(
+    tmp_path: Path,
+) -> None:
+    model = ToyLM().eval()
+    adapter = discover_decoder_adapter(model)
+    encoding = _toy_encoding((1, 2, 3, 4))
+    output = tmp_path / "answer_query_all_layers_v1"
+
+    index_path = capture_answer_query_representation_shards(
+        model,
+        adapter,
+        [encoding],
+        output_dir=output,
+        save_dtype="float32",
+    )
+    records = [
+        json.loads(line)
+        for line in index_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(records) == 1
+    assert records[0]["layer_indices"] == [0, 1]
+    assert records[0]["position"] == "prompt_final_total_query"
+    shard = output / records[0]["shard_path"]
+    with np.load(shard, allow_pickle=False) as saved:
+        assert saved["layer_indices"].tolist() == [0, 1]
+        assert saved["query_states"].shape == (2, 4)
+        assert saved["query_position"].tolist() == [3]
+        first_capture = np.asarray(saved["query_states"]).copy()
+
+    restarted = capture_answer_query_representation_shards(
+        model,
+        adapter,
+        [encoding],
+        output_dir=output,
+        save_dtype="float32",
+    )
+    assert restarted == index_path
+    with np.load(shard, allow_pickle=False) as saved:
+        assert np.array_equal(saved["query_states"], first_capture)
+    manifest = json.loads(
+        (output / "capture_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["rows"] == 1
+    assert manifest["layer_indices"] == [0, 1]
+    assert manifest["full_sequence_hidden_states_materialized"] is False
 
 
 def test_decoder_hooks_ablation_and_residual_patch() -> None:

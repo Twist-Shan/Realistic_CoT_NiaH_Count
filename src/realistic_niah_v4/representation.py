@@ -17,7 +17,7 @@ from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from .modeling import DecoderAdapter, capture_span_states
+from .modeling import DecoderAdapter, capture_post_block_states, capture_span_states
 from .prompts import PromptEncoding
 from .spec import CAPTURE_SCHEMA_VERSION, V4Config
 
@@ -161,6 +161,172 @@ def capture_representation_shards(
                 {str(row["design_variant"]) for row in index_rows}
             ),
             "poolings": ["span_end", "span_mean"],
+            "restartable_shards": True,
+            "full_sequence_hidden_states_materialized": False,
+        },
+    )
+    return index_path
+
+
+@torch.inference_mode()
+def capture_answer_query_representation_shards(
+    model: Any,
+    adapter: DecoderAdapter,
+    encodings: Iterable[PromptEncoding],
+    *,
+    output_dir: str | Path,
+    save_dtype: str = "float16",
+    layers: Iterable[int] | None = None,
+    overwrite: bool = False,
+) -> Path:
+    """Capture the prompt-final ``Total:`` query residual at every layer.
+
+    This capture is deliberately independent of geometric steering.  Steering
+    may use a sparse intervention layer grid, whereas a representation sweep
+    needs every post-block decoder state.  Each restartable shard stores only
+    ``[layers, hidden]`` for one prompt; no sequence-wide hidden states are
+    materialized or serialized.
+    """
+
+    output = Path(output_dir)
+    dtype = _numpy_dtype(save_dtype)
+    if layers is None:
+        selected_layers = tuple(range(int(adapter.num_layers)))
+    else:
+        selected_layers = tuple(sorted({int(layer) for layer in layers}))
+    if not selected_layers:
+        raise ValueError("At least one answer-query layer is required")
+    invalid = [
+        layer
+        for layer in selected_layers
+        if not 0 <= int(layer) < int(adapter.num_layers)
+    ]
+    if invalid:
+        raise ValueError(f"Invalid answer-query decoder layers: {invalid}")
+
+    index_rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for example_index, encoding in enumerate(encodings):
+        if encoding.stimulus_id in seen:
+            raise ValueError(
+                f"Duplicate answer-query capture stimulus: {encoding.stimulus_id}"
+            )
+        seen.add(encoding.stimulus_id)
+        relative = (
+            Path("shards") / encoding.design_variant / f"{encoding.stimulus_id}.npz"
+        )
+        shard = output / relative
+        if shard.exists() and not overwrite:
+            with np.load(shard, allow_pickle=False) as saved:
+                if set(saved.files) != {
+                    "layer_indices",
+                    "query_states",
+                    "query_position",
+                    "sequence_length",
+                }:
+                    raise RuntimeError(
+                        f"Incomplete answer-query representation shard: {shard}"
+                    )
+                observed_layers = tuple(
+                    int(value) for value in saved["layer_indices"]
+                )
+                query_states = np.asarray(saved["query_states"])
+                query_position = int(saved["query_position"][0])
+                sequence_length = int(saved["sequence_length"][0])
+            if observed_layers != selected_layers:
+                raise RuntimeError(
+                    f"Answer-query layer grid mismatch in {shard}: "
+                    f"{observed_layers} != {selected_layers}"
+                )
+            if query_states.ndim != 2 or query_states.shape[0] != len(
+                selected_layers
+            ):
+                raise RuntimeError(
+                    f"Invalid answer-query state shape in {shard}: "
+                    f"{query_states.shape}"
+                )
+            if query_position != int(encoding.query_position):
+                raise RuntimeError(f"Answer-query position mismatch in {shard}")
+            if sequence_length != int(encoding.sequence_length):
+                raise RuntimeError(f"Sequence-length mismatch in {shard}")
+        else:
+            _logits, captured = capture_post_block_states(
+                model,
+                adapter,
+                encoding,
+                [int(encoding.query_position)],
+                layers=selected_layers,
+            )
+            query_states = np.stack(
+                [captured[layer][0].numpy() for layer in selected_layers],
+                axis=0,
+            ).astype(dtype, copy=False)
+            if query_states.ndim != 2 or not np.isfinite(query_states).all():
+                raise RuntimeError("Invalid answer-query residual capture")
+            shard.parent.mkdir(parents=True, exist_ok=True)
+            temporary = shard.with_name(shard.name + ".tmp")
+            with temporary.open("wb") as handle:
+                np.savez(
+                    handle,
+                    layer_indices=np.asarray(selected_layers, dtype=np.int64),
+                    query_states=query_states,
+                    query_position=np.asarray(
+                        [encoding.query_position], dtype=np.int64
+                    ),
+                    sequence_length=np.asarray(
+                        [encoding.sequence_length], dtype=np.int64
+                    ),
+                )
+            temporary.replace(shard)
+
+        index_rows.append(
+            {
+                "schema_version": "realistic_niah_v4_answer_query_capture_v1",
+                "example_index": int(example_index),
+                "stimulus_id": encoding.stimulus_id,
+                "design_variant": encoding.design_variant,
+                "model_label": encoding.model_label,
+                "answer_format": encoding.answer_format,
+                "seed": int(encoding.seed),
+                "split": encoding.split,
+                "count": int(encoding.count),
+                "sequence_length": int(encoding.sequence_length),
+                "query_position": int(encoding.query_position),
+                "position": "prompt_final_total_query",
+                "layer_indices": list(selected_layers),
+                "array_shape": [int(value) for value in query_states.shape],
+                "save_dtype": str(dtype),
+                "shard_path": relative.as_posix(),
+            }
+        )
+        print(
+            "[v4 answer-query representation] "
+            f"{example_index + 1} variant={encoding.design_variant} "
+            f"seed={encoding.seed} count={encoding.count} shard={shard}",
+            flush=True,
+        )
+    if not index_rows:
+        raise ValueError("No V4 answer-query encodings were supplied")
+    index_path = output / "capture_index.jsonl"
+    _atomic_jsonl(index_path, index_rows)
+    _atomic_json(
+        output / "capture_manifest.json",
+        {
+            "schema_version": "realistic_niah_v4_answer_query_capture_v1",
+            "rows": len(index_rows),
+            "model_labels": sorted(
+                {str(row["model_label"]) for row in index_rows}
+            ),
+            "answer_formats": sorted(
+                {str(row["answer_format"]) for row in index_rows}
+            ),
+            "design_variants": sorted(
+                {str(row["design_variant"]) for row in index_rows}
+            ),
+            "splits": sorted({str(row["split"]) for row in index_rows}),
+            "counts": sorted({int(row["count"]) for row in index_rows}),
+            "layer_indices": list(selected_layers),
+            "position": "prompt_final_total_query",
             "restartable_shards": True,
             "full_sequence_hidden_states_materialized": False,
         },
