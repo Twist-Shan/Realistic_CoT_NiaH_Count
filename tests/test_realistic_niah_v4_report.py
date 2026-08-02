@@ -432,8 +432,9 @@ def test_every_static_figure_caption_is_self_contained() -> None:
         r"<figcaption>(.*?)</figcaption>", report.REPORT_TEMPLATE, flags=re.DOTALL
     )
     # The four B2-F3b cards are emitted by _static_figure_html rather than
-    # stored literally in REPORT_TEMPLATE; the template itself has 16 figures.
-    assert len(captions) == 16
+    # stored literally in REPORT_TEMPLATE; the template itself has 18 figures
+    # after adding the joint-counter, prompt-dynamics, and answer-layer views.
+    assert len(captions) == 18
     for caption in captions:
         assert any(marker in caption for marker in ("横轴", "横向"))
         assert any(marker in caption for marker in ("纵轴", "纵向", "上排"))
