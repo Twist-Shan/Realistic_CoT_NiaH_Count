@@ -20,6 +20,7 @@ from realistic_niah_v4.attention import (
 )
 from realistic_niah_v4.attention_outcomes import (
     POOL_METRICS,
+    confirmation_outcome_effects,
     discovery_seed_bootstrap_stability,
     layer_pooling_metrics,
     nested_increment_diagnostics,
@@ -351,7 +352,7 @@ def test_numeric_generation_labels_use_actual_strict_completion() -> None:
     assert out_of_range["parsed_count"] is None
 
 
-def test_span_end_and_span_mean_attention_metrics_are_distinct() -> None:
+def test_span_end_mean_and_sum_attention_metrics_are_distinct() -> None:
     needles = (
         TokenSpan(1, 2, 4, True, "needle", 2, 2),
         TokenSpan(2, 6, 8, True, "needle", 2, 2),
@@ -370,6 +371,62 @@ def test_span_end_and_span_mean_attention_metrics_are_distinct() -> None:
     assert metrics["span_mean"]["pool_sum"][0] == pytest.approx(0.21)
     assert metrics["span_mean"]["pool_sum"][1] == pytest.approx(0.21)
     assert np.allclose(metrics["span_mean"]["pool_coverage"], 1.0)
+    assert metrics["span_sum"]["pool_sum"][0] == pytest.approx(0.42)
+    assert metrics["span_sum"]["pool_sum"][1] == pytest.approx(0.42)
+    assert np.allclose(metrics["span_sum"]["pool_coverage"], 1.0)
+    # Span-sum retains literal full-span mass, but its negative-control
+    # contrast and enrichment are computed from per-token density.  For
+    # equal-length spans they therefore match span-mean exactly.
+    assert np.allclose(
+        metrics["span_sum"]["pool_contrast"],
+        metrics["span_mean"]["pool_contrast"],
+    )
+    assert np.allclose(
+        metrics["span_sum"]["pool_enrichment"],
+        metrics["span_mean"]["pool_enrichment"],
+    )
+
+
+def test_vectorized_attention_outcome_bootstrap_preserves_estimand() -> None:
+    rows = []
+    for seed in (11, 12, 13):
+        for count in (2, 3):
+            for outcome, base in (("correct", 0.8), ("wrong", 0.5)):
+                rows.append(
+                    {
+                        "stimulus_id": f"{seed}-{count}-{outcome}",
+                        "split": "confirmation",
+                        "design_variant": "v4.1",
+                        "pooling": "span_sum",
+                        "layer": 0,
+                        "head": 0,
+                        "seed": seed,
+                        "count": count,
+                        "outcome_group": outcome,
+                        "pool_primary": base + 0.001 * seed,
+                        "pool_coverage": base + 0.001 * seed,
+                        "pool_enrichment": base + 0.001 * seed,
+                        "pool_min_to_mean": base + 0.001 * seed,
+                    }
+                )
+    result = confirmation_outcome_effects(
+        pd.DataFrame(rows),
+        {("v4.1", "span_sum"): ((0, 0),)},
+        bootstrap_replicates=100,
+        seed=17,
+    )
+    assert len(result) == 4
+    assert set(result["counts_with_both_outcomes"]) == {2}
+    assert np.allclose(result["wrong_minus_correct_count_adjusted"], -0.3)
+    assert set(result["bootstrap_valid_replicates"]) == {100}
+
+    one_seed = confirmation_outcome_effects(
+        pd.DataFrame(rows).query("seed == 11"),
+        {("v4.1", "span_sum"): ((0, 0),)},
+        bootstrap_replicates=100,
+        seed=17,
+    )
+    assert set(one_seed["bootstrap_valid_replicates"]) == {0}
 
 
 def test_broad_candidate_ranking_requires_full_grid_visibility() -> None:

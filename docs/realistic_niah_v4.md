@@ -120,6 +120,39 @@ actual correct/wrong/invalid output, and per-seed probe/curve residual tables
 carry the same labels. This is a descriptive association; the label is not
 used to refit the PCA basis or choose the primary layer.
 
+### Answer-query PCA sensitivity
+
+The answer-query view uses the discovery states already saved for geometric
+steering: Qwen layers 9, 18, and 26, and Gemma layers 10, 20, and 31. These are
+the only answer-query layers present in that capture; the report does not
+interpolate unsaved layers. At each saved layer it fits two six-component PCA
+bases on V4.1 discovery prompts:
+
+- `all`: all 200 rows (20 seeds times 10 counts);
+- `correct_only`: only rows whose complete greedy continuation is strictly
+  correct.
+
+Both bases then project the same 800 saved discovery states (four panels times
+20 seeds times 10 counts). The interactive `correct`/`wrong`/`invalid` switch
+filters displayed points after projection and therefore never refits PCA. Fit
+cohort EVR is reported only as an in-cohort diagnostic. The directly
+comparable sensitivity quantity is common-set variance capture, evaluated on
+all 200 V4.1 rows:
+
+```text
+capture_k(B) = sum_{j=1..k} Var(X_all B_j) / sum_d Var(X_all,d)
+```
+
+Here `B_j` is PCA direction `j` from either fit and `X_all` is the common
+all-row V4.1 evaluation matrix. Count centroids and within-count seed RMS are
+also computed on this same common set. `seed noise / count signal` is the RMS
+distance from each row to its count centroid divided by the RMS distance of
+the ten count centroids from their grand centroid. Finally, centroid-distance
+correlation compares the 45 pairwise distances among count centroids under a
+candidate basis with those under the all-row basis. Per-count correct-only
+support is always shown because a missing high-count class makes that fit a
+sensitivity check rather than a replacement primary analysis.
+
 ### Interpretation boundary
 
 In v4.1, occurrence index, content identity, and absolute position are
@@ -131,18 +164,21 @@ establishes decodability, not causal use.
 ## Answer-query attention
 
 Let `a(t)` be one head's answer-query attention row, and let `S_i` be active
-needle span `i`. Two occurrence-level evidence definitions are analyzed:
+needle span `i`, with model-token length `L_i`. Three occurrence-level
+reductions are analyzed and must not be conflated:
 
 ```text
 span-end:  m_i = a(last token of S_i)
-span-mean: m_i = mean_{t in S_i} a(t)
+span-sum:  m_i = sum_{t in S_i} a(t)
+span-mean: m_i = span-sum / L_i
 ```
 
 Span-end asks whether the query reads the same token sites whose hidden states
-formed the cleanest occurrence-index trajectories. Span-mean asks whether it
-reads information distributed across the complete realistic record and
-normalizes away model-token span length. Full-span total attention mass is
-also retained as a descriptive quantity.
+formed the cleanest occurrence-index trajectories. Span-sum is the literal
+fraction of the query row assigned anywhere inside the complete realistic
+records (when needle spans do not overlap). Span-mean is per-token attention
+density and controls tokenizer-dependent record length; its sum across records
+is not a query-row mass.
 
 For N active spans, define
 
@@ -158,7 +194,8 @@ one span dominates. The analysis also saves length-normalized coverage,
 coefficient of variation, effective number of attended spans, and per-token
 contrast against ten length-matched hard-negative spans.
 
-Discovery heads are ranked by mean `broad primary` over N=2 through N=10.
+Discovery heads are ranked separately for each reduction by mean `broad
+primary` over N=2 through N=10.
 Eligibility requires that the layer can see every needle and matched hard
 negative on the complete discovery grid, mean needle-minus-negative density is
 positive, and needle density exceeds the head's prompt-wide baseline. There is
@@ -166,7 +203,11 @@ no fallback to negative-contrast heads. N=1 is excluded because its coverage
 is identically one. Confirmation seeds are used for locked correct/wrong
 comparisons, never head selection. A discovery-seed bootstrap additionally
 reports each candidate's top-k selection frequency and rank variability, while
-cross-panel and cross-pooling top-k Jaccard scores quantify rank stability.
+cross-panel and cross-pooling top-k Jaccard scores quantify rank stability. For
+`span_sum`, mass, coverage, primary score, occurrence profiles, and omission
+diagnostics use literal span sums, but the matched-negative contrast and
+enrichment eligibility gate reuses `span_mean` density so longer records do not
+win merely because they contain more tokens.
 
 The 10k-token prefix is evaluated once with an efficient KV cache. Only the
 single final answer-query token is evaluated with eager attention. The code
@@ -453,8 +494,12 @@ Within each model's `attention/` directory, `capture/shards/` contains
 per-head metrics and `capture/raw_shards/` contains the complete float16
 answer-query rows. `behavior/capture/generation_labels.csv` contains the
 actual greedy outputs and strict labels. `attention/analysis/` contains
-restartable span-end/span-mean pooling shards, discovery rankings, held-out
-correct/wrong effects, occurrence-level omission diagnostics, and figures.
+the original restartable span-end/span-mean pooling shards, discovery
+rankings, held-out correct/wrong effects, occurrence-level omission
+diagnostics, and figures. For the completed numeric run, the non-destructive
+`attention/analysis_span_sum_v3/` sibling adds literal span-sum shards,
+end-versus-mean/sum alignment, and three-pooling outcome/omission tables while
+preserving the original analysis tree.
 
 Within `causal/`, each intervention family has a versioned directory. Each
 resolved CLI/config selection is isolated under `design_<12-char SHA>/`, whose

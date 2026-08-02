@@ -12,7 +12,7 @@ from .attention import Head
 from .prompts import PromptEncoding, TokenSpan
 
 
-POOLINGS = ("span_end", "span_mean")
+POOLINGS = ("span_end", "span_mean", "span_sum")
 POOL_METRICS = (
     "pool_sum",
     "pool_mean",
@@ -71,14 +71,23 @@ def _span_arrays(
     spans: Sequence[TokenSpan],
     *,
     key_start: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return end weights, span means, and full-visibility flags by span."""
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Return end weights, span means, span sums, and visibility by span.
+
+    The three reductions answer different questions and must not be conflated:
+
+    - ``span_end`` is the attention weight on the final token only;
+    - ``span_mean`` is attention density per model token in the complete span;
+    - ``span_sum`` is the literal fraction of the query row assigned anywhere
+      inside the complete span.
+    """
 
     values = np.asarray(rows, dtype=np.float32)
     if values.ndim != 2:
         raise ValueError("Expected [heads, keys] attention rows")
     ends: list[np.ndarray] = []
     means: list[np.ndarray] = []
+    sums: list[np.ndarray] = []
     visible: list[bool] = []
     key_end = int(key_start) + values.shape[1]
     for span in spans:
@@ -90,11 +99,14 @@ def _span_arrays(
             segment = values[:, local_start:local_end]
             ends.append(values[:, local_end - 1])
             means.append(segment.mean(axis=1, dtype=np.float32))
+            sums.append(segment.sum(axis=1, dtype=np.float32))
         else:
             ends.append(np.zeros(values.shape[0], dtype=np.float32))
             means.append(np.zeros(values.shape[0], dtype=np.float32))
+            sums.append(np.zeros(values.shape[0], dtype=np.float32))
     if not spans:
         return (
+            np.zeros((values.shape[0], 0), dtype=np.float32),
             np.zeros((values.shape[0], 0), dtype=np.float32),
             np.zeros((values.shape[0], 0), dtype=np.float32),
             np.zeros(0, dtype=bool),
@@ -102,6 +114,7 @@ def _span_arrays(
     return (
         np.stack(ends, axis=1),
         np.stack(means, axis=1),
+        np.stack(sums, axis=1),
         np.asarray(visible, dtype=bool),
     )
 
@@ -112,12 +125,26 @@ def _pool_scalar_arrays(
     *,
     row_sums: np.ndarray,
     key_length: int,
+    density_evidence: np.ndarray | None = None,
+    density_negatives: np.ndarray | None = None,
     epsilon: float = 1e-12,
 ) -> dict[str, np.ndarray]:
     values = np.asarray(evidence, dtype=np.float64)
     controls = np.asarray(negatives, dtype=np.float64)
     if values.ndim != 2 or controls.shape != values.shape or values.shape[1] == 0:
         raise ValueError("Needle and hard-negative evidence must be [heads, N]")
+    density_values = (
+        values
+        if density_evidence is None
+        else np.asarray(density_evidence, dtype=np.float64)
+    )
+    density_controls = (
+        controls
+        if density_negatives is None
+        else np.asarray(density_negatives, dtype=np.float64)
+    )
+    if density_values.shape != values.shape or density_controls.shape != values.shape:
+        raise ValueError("Density evidence must align with occurrence evidence")
     total = values.sum(axis=1)
     mean = values.mean(axis=1)
     probabilities = values / np.maximum(total[:, None], epsilon)
@@ -143,8 +170,14 @@ def _pool_scalar_arrays(
         "pool_mean": mean,
         "pool_coverage": coverage,
         "pool_primary": total * coverage,
-        "pool_contrast": mean - controls.mean(axis=1),
-        "pool_enrichment": mean / np.maximum(global_mean, epsilon),
+        # Contrast and enrichment are density comparisons.  In particular,
+        # span-sum keeps literal full-span mass for total/coverage/primary but
+        # uses span-mean density here so a longer record is not automatically
+        # declared more needle-selective than its matched negative.
+        "pool_contrast": density_values.mean(axis=1)
+        - density_controls.mean(axis=1),
+        "pool_enrichment": density_values.mean(axis=1)
+        / np.maximum(global_mean, epsilon),
         "pool_cv": np.where(mean > epsilon, std / mean, np.nan),
         "pool_effective_number": coverage * values.shape[1],
         "pool_min": minimum,
@@ -160,12 +193,14 @@ def layer_pooling_metrics(
     *,
     key_start: int,
 ) -> dict[str, dict[str, Any]]:
-    """Compute comparable span-end and span-mean broadness metrics.
+    """Compute end, mean-density, and literal full-span broadness metrics.
 
     Span-end uses one attention weight per occurrence. Span-mean first averages
     attention over every token in an occurrence, preventing longer realistic
-    records from receiving an automatic advantage. Both then apply the V10
-    mass/coverage/effective-number logic across occurrences.
+    records from receiving an automatic advantage. Span-sum instead preserves
+    the literal attention mass assigned to all tokens in each record. All
+    three then apply the V10 mass/coverage/effective-number logic across
+    occurrences; span-sum eligibility controls remain length-normalized.
     """
 
     rows = np.asarray(attention_rows, dtype=np.float32)
@@ -173,10 +208,10 @@ def layer_pooling_metrics(
     negatives = [negative_by_slot[int(span.slot_index)] for span in needle_spans]
     if len(negatives) != len(needle_spans):
         raise ValueError("Every active needle requires a matched hard negative")
-    needle_end, needle_mean, needle_visible = _span_arrays(
+    needle_end, needle_mean, needle_sum, needle_visible = _span_arrays(
         rows, needle_spans, key_start=key_start
     )
-    negative_end, negative_mean, negative_visible = _span_arrays(
+    negative_end, negative_mean, negative_sum, negative_visible = _span_arrays(
         rows, negatives, key_start=key_start
     )
     row_sums = rows.sum(axis=1, dtype=np.float64)
@@ -189,9 +224,10 @@ def layer_pooling_metrics(
         "all_hard_negatives_visible": bool(negative_visible.all()),
     }
     result: dict[str, dict[str, Any]] = {}
-    for pooling, evidence, controls in (
-        ("span_end", needle_end, negative_end),
-        ("span_mean", needle_mean, negative_mean),
+    for pooling, evidence, controls, density_evidence, density_controls in (
+        ("span_end", needle_end, negative_end, needle_end, negative_end),
+        ("span_mean", needle_mean, negative_mean, needle_mean, negative_mean),
+        ("span_sum", needle_sum, negative_sum, needle_mean, negative_mean),
     ):
         result[pooling] = {
             **base,
@@ -200,6 +236,8 @@ def layer_pooling_metrics(
                 controls,
                 row_sums=row_sums,
                 key_length=rows.shape[1],
+                density_evidence=density_evidence,
+                density_negatives=density_controls,
             ),
             "needle_occurrence_values": evidence,
             "hard_negative_occurrence_values": controls,
@@ -866,6 +904,81 @@ def confirmation_outcome_effects(
 ) -> pd.DataFrame:
     """Estimate count-adjusted wrong-minus-correct effects on held-out seeds."""
 
+    def vectorized_effects(
+        selected: pd.DataFrame,
+        metric: str,
+        seeds: np.ndarray,
+        *,
+        replicates: int,
+        rng: np.random.Generator,
+    ) -> tuple[float, int, np.ndarray]:
+        """Match seed-cluster resampling without repeated DataFrame concat."""
+
+        if not len(seeds):
+            return math.nan, 0, np.asarray([], dtype=float)
+        counts = np.asarray(sorted(selected["count"].unique()), dtype=int)
+        seed_index = {int(value): index for index, value in enumerate(seeds)}
+        count_index = {int(value): index for index, value in enumerate(counts)}
+        outcome_index = {"correct": 0, "wrong": 1}
+        sums = np.zeros((len(seeds), len(counts), 2), dtype=float)
+        sample_sizes = np.zeros_like(sums)
+        finite = selected[np.isfinite(pd.to_numeric(selected[metric], errors="coerce"))]
+        grouped = finite.groupby(["seed", "count", "outcome_group"])[metric].agg(
+            ["sum", "count"]
+        )
+        for (seed_value, count_value, outcome), row in grouped.iterrows():
+            seed_axis = seed_index[int(seed_value)]
+            count_axis = count_index[int(count_value)]
+            outcome_axis = outcome_index[str(outcome)]
+            sums[seed_axis, count_axis, outcome_axis] = float(row["sum"])
+            sample_sizes[seed_axis, count_axis, outcome_axis] = float(row["count"])
+
+        def effects_from_multiplicity(multiplicity: np.ndarray) -> np.ndarray:
+            total_sums = np.einsum("rs,sco->rco", multiplicity, sums)
+            total_sizes = np.einsum("rs,sco->rco", multiplicity, sample_sizes)
+            means = np.divide(
+                total_sums,
+                total_sizes,
+                out=np.zeros_like(total_sums),
+                where=total_sizes > 0,
+            )
+            valid = (total_sizes[:, :, 0] > 0) & (total_sizes[:, :, 1] > 0)
+            weights = np.divide(
+                2.0 * total_sizes[:, :, 0] * total_sizes[:, :, 1],
+                total_sizes[:, :, 0] + total_sizes[:, :, 1],
+                out=np.zeros_like(total_sizes[:, :, 0]),
+                where=valid,
+            )
+            deltas = means[:, :, 1] - means[:, :, 0]
+            denominator = weights.sum(axis=1)
+            return np.divide(
+                (deltas * weights).sum(axis=1),
+                denominator,
+                out=np.full(multiplicity.shape[0], np.nan, dtype=float),
+                where=denominator > 0,
+            )
+
+        observed_multiplicity = np.ones((1, len(seeds)), dtype=int)
+        observed = effects_from_multiplicity(observed_multiplicity)[0]
+        observed_sizes = sample_sizes.sum(axis=0)
+        cells = int(
+            np.sum((observed_sizes[:, 0] > 0) & (observed_sizes[:, 1] > 0))
+        )
+        if len(seeds) < 2 or not np.isfinite(observed):
+            return float(observed), cells, np.asarray([], dtype=float)
+        sampled_indices = rng.integers(
+            0, len(seeds), size=(int(replicates), len(seeds))
+        )
+        multiplicity = np.stack(
+            [
+                np.bincount(sample, minlength=len(seeds))
+                for sample in sampled_indices
+            ],
+            axis=0,
+        )
+        bootstrap = effects_from_multiplicity(multiplicity)
+        return float(observed), cells, bootstrap[np.isfinite(bootstrap)]
+
     rows: list[dict[str, Any]] = []
     metrics = (
         "pool_primary",
@@ -886,17 +999,14 @@ def confirmation_outcome_effects(
             ].copy()
             seeds = np.asarray(sorted(selected["seed"].unique()), dtype=int)
             for metric in metrics:
-                observed, cells = _count_adjusted_delta(selected, metric)
-                bootstrap: list[float] = []
-                if len(seeds) >= 2 and np.isfinite(observed):
-                    for _ in range(int(bootstrap_replicates)):
-                        sampled = rng.choice(seeds, size=len(seeds), replace=True)
-                        pieces = [selected[selected["seed"] == value] for value in sampled]
-                        value, _cells = _count_adjusted_delta(
-                            pd.concat(pieces, ignore_index=True), metric
-                        )
-                        if np.isfinite(value):
-                            bootstrap.append(value)
+                observed, cells, bootstrap_values = vectorized_effects(
+                    selected,
+                    metric,
+                    seeds,
+                    replicates=int(bootstrap_replicates),
+                    rng=rng,
+                )
+                bootstrap = bootstrap_values.tolist()
                 rows.append(
                     {
                         "design_variant": variant,
@@ -1064,55 +1174,73 @@ def _pooling_comparison(
 
     fully_visible = summary[np.isclose(summary["full_visibility_rate"], 1.0)]
     end = fully_visible[fully_visible["pooling"] == "span_end"]
-    mean = fully_visible[fully_visible["pooling"] == "span_mean"]
     keys = ["model_label", "design_variant", "layer", "head", "layer_type"]
-    merged = end[keys + ["pool_primary"]].merge(
-        mean[keys + ["pool_primary"]],
-        on=keys,
-        suffixes=("_span_end", "_span_mean"),
-        how="inner",
-        validate="one_to_one",
-    )
-    variants = sorted(merged["design_variant"].unique())
+    comparisons = ("span_mean", "span_sum")
+    merged_by_pooling: dict[str, pd.DataFrame] = {}
+    for comparison in comparisons:
+        other = fully_visible[fully_visible["pooling"] == comparison]
+        merged_by_pooling[comparison] = end[keys + ["pool_primary"]].merge(
+            other[keys + ["pool_primary"]],
+            on=keys,
+            suffixes=("_span_end", f"_{comparison}"),
+            how="inner",
+            validate="one_to_one",
+        )
+    variants = sorted(fully_visible["design_variant"].unique())
     rows: list[dict[str, Any]] = []
-    figure, axes = plt.subplots(2, 2, figsize=(10, 8), sharex=False, sharey=False)
-    for axis, variant in zip(axes.flat, variants):
-        frame = merged[merged["design_variant"] == variant]
-        x = frame["pool_primary_span_end"].to_numpy(dtype=float)
-        y = frame["pool_primary_span_mean"].to_numpy(dtype=float)
-        axis.scatter(x, y, s=10, alpha=0.35)
-        axis.set_xscale("symlog", linthresh=1e-8)
-        axis.set_yscale("symlog", linthresh=1e-8)
-        axis.set_title(str(variant))
-        axis.set_xlabel("span-end primary")
-        axis.set_ylabel("span-mean primary")
-        axis.grid(alpha=0.15)
-        end_top = set(rankings.get((str(variant), "span_end"), ())[:top_k])
-        mean_top = set(rankings.get((str(variant), "span_mean"), ())[:top_k])
-        rank_x = pd.Series(x).rank().to_numpy(dtype=float)
-        rank_y = pd.Series(y).rank().to_numpy(dtype=float)
-        correlation = (
-            float(np.corrcoef(rank_x, rank_y)[0, 1]) if len(frame) >= 2 else math.nan
-        )
-        union = end_top | mean_top
-        rows.append(
-            {
-                "design_variant": variant,
-                "heads_compared": len(frame),
-                "spearman_primary": correlation,
-                "top_k": int(top_k),
-                "top_k_intersection": len(end_top & mean_top),
-                "top_k_jaccard": (
-                    len(end_top & mean_top) / len(union) if union else math.nan
-                ),
-            }
-        )
-    figure.suptitle("Span-end versus span-mean head scores")
+    figure, axes = plt.subplots(
+        len(comparisons), len(variants), figsize=(14, 7.2), squeeze=False
+    )
+    for row_index, comparison in enumerate(comparisons):
+        merged = merged_by_pooling[comparison]
+        for column_index, variant in enumerate(variants):
+            axis = axes[row_index, column_index]
+            frame = merged[merged["design_variant"] == variant]
+            x = frame["pool_primary_span_end"].to_numpy(dtype=float)
+            y = frame[f"pool_primary_{comparison}"].to_numpy(dtype=float)
+            axis.scatter(x, y, s=10, alpha=0.35)
+            axis.set_xscale("symlog", linthresh=1e-8)
+            axis.set_yscale("symlog", linthresh=1e-8)
+            axis.set_title(str(variant))
+            axis.set_xlabel("span-end primary")
+            axis.set_ylabel(f"{comparison.replace('_', '-')} primary")
+            axis.grid(alpha=0.15)
+            end_top = set(
+                rankings.get((str(variant), "span_end"), ())[:top_k]
+            )
+            other_top = set(
+                rankings.get((str(variant), comparison), ())[:top_k]
+            )
+            rank_x = pd.Series(x).rank().to_numpy(dtype=float)
+            rank_y = pd.Series(y).rank().to_numpy(dtype=float)
+            correlation = (
+                float(np.corrcoef(rank_x, rank_y)[0, 1])
+                if len(frame) >= 2
+                else math.nan
+            )
+            union = end_top | other_top
+            rows.append(
+                {
+                    "design_variant": variant,
+                    "left_pooling": "span_end",
+                    "right_pooling": comparison,
+                    "heads_compared": len(frame),
+                    "spearman_primary": correlation,
+                    "top_k": int(top_k),
+                    "top_k_intersection": len(end_top & other_top),
+                    "top_k_jaccard": (
+                        len(end_top & other_top) / len(union)
+                        if union
+                        else math.nan
+                    ),
+                }
+            )
+    figure.suptitle("Does endpoint retrieval align with complete-span retrieval?")
     figure.tight_layout()
-    figure_path = output / "span_end_vs_span_mean_heads.png"
+    figure_path = output / "span_end_alignment_heads.png"
     figure.savefig(figure_path, dpi=180, bbox_inches="tight")
     plt.close(figure)
-    table_path = output / "span_end_vs_span_mean_heads.csv"
+    table_path = output / "span_end_alignment_heads.csv"
     pd.DataFrame(rows).to_csv(table_path, index=False)
     return figure_path, table_path
 
@@ -1360,7 +1488,11 @@ def _plot_omission_diagnostics(prompts: pd.DataFrame, output: Path) -> list[Path
     figure, axes = plt.subplots(2, 2, figsize=(10.5, 7.5), sharex=True, sharey=True)
     for axis, variant in zip(axes.flat, variants):
         frame = under[under["design_variant"] == variant]
-        for pooling, marker in (("span_end", "o"), ("span_mean", "x")):
+        for pooling, marker in (
+            ("span_end", "o"),
+            ("span_mean", "x"),
+            ("span_sum", "s"),
+        ):
             selected = frame[
                 (frame["pooling"] == pooling)
                 & frame["low_attention_threshold_available"].astype(bool)
@@ -1629,7 +1761,9 @@ def _plot_representative_maps(
             continue
         correct_row = matched.sort_values("seed").iloc[0]
         examples = [("correct", correct_row), ("wrong", wrong_row)]
-        figure, axes = plt.subplots(2, 2, figsize=(13, 7.5), sharex=True)
+        figure, axes = plt.subplots(
+            2, len(POOLINGS), figsize=(17, 7.5), sharex=True, squeeze=False
+        )
         for row_axis, (outcome, metadata) in enumerate(examples):
             stimulus_id = str(metadata["stimulus_id"])
             encoding = encodings[stimulus_id]
@@ -1848,7 +1982,7 @@ def analyze_labeled_attention(
     _atomic_json(
         manifest_path,
         {
-            "schema_version": "realistic_niah_v4_labeled_attention_analysis_v2",
+            "schema_version": "realistic_niah_v4_labeled_attention_analysis_v3",
             "behavior_label_source": str(Path(generation_labels_path)),
             "behavior_label_rule": (
                 "strict correctness of the actual greedy-generated continuation; "
@@ -1862,6 +1996,11 @@ def analyze_labeled_attention(
                 "span_end": "one attention weight at each needle span's final token",
                 "span_mean": (
                     "mean attention per token within each complete needle span"
+                ),
+                "span_sum": (
+                    "literal sum of attention over every token in each complete "
+                    "needle span; contrast and enrichment use per-token density "
+                    "to control record length"
                 ),
             },
             "v10_metrics": [

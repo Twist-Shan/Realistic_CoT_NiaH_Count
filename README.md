@@ -212,8 +212,11 @@ Then invoke `scripts/run_realistic_niah_v4.py` once per model and stage:
 `attention`, and `attention-analyze`. Causal stages are `ablation`,
 `patching` and `geometric-steering`. The `attention` stage
 only captures restartable raw query rows; `attention-analyze` joins strict
-greedy labels and runs span-end/span-mean broad-head, correct/wrong, and
-omission-candidate diagnostics on CPU. Causal stages likewise score the actual
+greedy labels and runs span-end, span-mean-density, and literal full-span-sum
+broad-head, correct/wrong, and omission-candidate diagnostics on CPU. Only
+`span_sum` is the fraction of the answer-query row assigned anywhere inside
+the complete needle spans; `span_end` is the endpoint subset and `span_mean`
+controls model-token span length. Causal stages likewise score the actual
 complete greedy numeric continuation, including multi-token `10`; they do not
 use a first-token candidate softmax. Residual patching copies either the
 needle-end state or the complete equal-length token-state sequence—never a
@@ -263,6 +266,20 @@ PYTHONPATH=src python scripts/build_realistic_niah_v4_representation_report.py \
   --repo-root .
 ```
 
+For a completed run whose original analysis predates literal full-span mass,
+derive `span_sum` from the saved raw answer-query rows without rerunning either
+model or overwriting the original `attention/analysis` tree:
+
+```bash
+PYTHONPATH=src python scripts/backfill_realistic_niah_v4_span_sum.py \
+  --run-root /path/to/run_20260731_v4_numeric_presentation_v3 \
+  --models Qwen3-8B,Gemma4-E4B
+```
+
+The restartable result is written to each model's
+`numeric/attention/analysis_span_sum_v3` directory. The report builder prefers
+that directory only after its completion manifest exists.
+
 The report is the unified V4 result artifact and contains exactly five main
 evidence blocks: (1) behavior, (2) prompt-reading and answer-query counter
 representations, (3) answer-query attention representations, (4) head-bank
@@ -278,21 +295,29 @@ The counter block includes an all-layer discovery sweep. It distinguishes the
 explained variance, count-centroid signal capture, and leave-one-seed-out
 compactness. The Aurora 3D prompt counter exposes every captured post-block
 layer, PC1--PC6, split, panel, and actual greedy outcome; a separate figure
-shows answer-query counter geometry. Exact needle-end and exact answer-query
+shows answer-query counter geometry at the three layers saved by the steering
+discovery capture. That answer-query view independently switches final greedy
+`correct`/`wrong`/`invalid` points and compares all-row versus correct-only
+V4.1 PCA fits on one common evaluation set, including EVR, centroid-trajectory,
+and within-count seed-scatter diagnostics. Exact needle-end and exact answer-query
 donor-state patching remain in this block because they test whether the two
 representations are transportable.
 
 The attention block now recomputes raw N=10 discovery profiles for both models.
-It contains an all-head layer×head atlas, frozen rules for global broad,
+It contains a panel- and pooling-switchable all-head layer×head atlas, frozen rules for global broad,
 partition-local broad, first-needle locator, weak first-focused selection,
 span-mean-only breadth, and mixed candidates. No strong non-first targeted
 retriever is found: every gated targeted candidate selects occurrence 1. The
-block also includes a count-adjusted correct/wrong comparison and both
-omitted-tail and exact nested-new-needle diagnostics.
+block also reports fixed-head span-end versus span-mean/span-sum ranking
+alignment, a count-adjusted correct/wrong comparison for all three poolings,
+and both omitted-tail and exact nested-new-needle diagnostics. The omission
+sensitivity holds the undercount prompts fixed while comparing endpoint values
+with full-span token sums.
 Machine-readable outputs are written beside the HTML as
 `realistic_niah_v4_head_atlas.csv`,
 `realistic_niah_v4_head_phenotypes.csv`, and
-`realistic_niah_v4_attention_outcome_effects.csv`.
+`realistic_niah_v4_attention_outcome_effects.csv`; the answer-query PCA audit is
+`realistic_niah_v4_answer_query_pca_sensitivity.csv`.
 
 The two causal blocks report seed-cluster intervals for matched head-bank
 ablation and centroid-delta steering. The report explicitly distinguishes

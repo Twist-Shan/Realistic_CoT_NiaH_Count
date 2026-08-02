@@ -112,7 +112,14 @@ and a current-conclusion block after every section. The interactive 3D count
 manifold keeps individual seed points and split-specific 1--10 centroid paths,
 and allows switching model, span-end/span-mean pooling, v4.1--v4.4,
 discovery/confirmation, actual greedy output strata, and any displayed axes
-among PC1--PC6.
+among PC1--PC6. A separate answer-query 3D view uses every layer available in
+the saved steering discovery capture (Qwen L9/L18/L26 and Gemma L10/L20/L31),
+switches `correct`/`wrong`/`invalid` final greedy outcomes, and compares an
+all-V4.1 PCA basis with a correct-only sensitivity basis. Both bases project
+the same 800 saved states per model. The report compares fit-cohort EVR, common
+all-V4.1 variance capture, count-centroid trajectory geometry, and within-count
+seed scatter; it reports per-count correct-only support because high-count
+correct rows can be absent.
 
 Each model/pooling basis is fit only on v4.1 discovery states at that pooling's
 registered primary layer, then reused across all four variants. Bases are not
@@ -123,6 +130,34 @@ no correct N=10 confirmation trajectory; Gemma has one in v4.1 and none in
 v4.2--v4.4. The outcome switch is therefore an audit, not a powered group
 comparison.
 
+### Answer-query PCA fit-cohort sensitivity
+
+The answer-query capture contains three layers per model rather than a full
+layer sweep: Qwen L9/L18/L26 and Gemma L10/L20/L31. At each layer, `all` fits
+on all 200 V4.1 discovery rows; `correct_only` fits on the strictly correct
+subset (89 Qwen rows and 76 Gemma rows). Both bases project the same 800 saved
+states, and every geometry comparison below is evaluated on the common set of
+all 200 V4.1 rows. Thus fit-cohort EVR and common-set capture are deliberately
+reported as different quantities.
+
+| Model / layer | Fit EVR PC1--3, all / correct-only | Common-set capture PC1--3, all / correct-only | Seed-noise / count-signal, all / correct-only | Correct-only centroid-distance correlation to all-fit |
+| --- | ---: | ---: | ---: | ---: |
+| Qwen L9 | 0.551 / 0.559 | 0.551 / 0.544 | 21.10 / 16.96 | 0.969 |
+| Qwen L18 | 0.530 / 0.529 | 0.530 / 0.522 | 16.15 / 16.41 | 0.991 |
+| Qwen L26 | 0.757 / 0.812 | 0.757 / 0.727 | 0.276 / 0.275 | 0.995 |
+| Gemma L10 | 0.524 / 0.519 | 0.524 / 0.510 | 24.39 / 26.35 | 0.993 |
+| Gemma L20 | 0.700 / 0.745 | 0.700 / 0.664 | 0.514 / 0.481 | 0.9997 |
+| Gemma L31 | 0.767 / 0.808 | 0.767 / 0.749 | 0.234 / 0.235 | 0.9997 |
+
+The late saved layers have both the highest common-set variance capture and a
+much lower seed-noise/count-signal ratio. Their ten-count centroid geometry is
+nearly unchanged by excluding wrong rows, so the late manifold is not merely
+an artifact of fitting the failures. The early-layer ratios above 16 mean that
+the count-centroid separation is tiny relative to within-count seed scatter,
+despite nonzero PCA variance. Correct-only remains a sensitivity analysis:
+Qwen has zero correct fit support for one count, while Gemma's least-supported
+count has only one row.
+
 All V4 and later visualizations use the Aurora palette registered in the report
 builder and repository README. Count colors are ordered blends of the supplied
 Aurora anchors; model, panel, pooling, control, and zero-reference colors keep
@@ -130,8 +165,14 @@ fixed meanings across figures.
 
 ## Answer-query attention
 
-Discovery-only rankings are stable under 500 seed bootstraps, but `span_end`
-and `span_mean` expose different mechanisms.
+The expanded analysis keeps three non-interchangeable occurrence reductions:
+`span_end` is one final-token weight, `span_sum` is the literal attention sum
+over every token in the complete needle span, and `span_mean=span_sum/L_i` is
+per-token density. Only the sum over `span_sum` occurrences is the fraction of
+the query row assigned to all needle-span tokens. Discovery-only rankings are
+stable under 500 seed bootstraps, but the reductions can expose different
+head banks. Span-sum uses literal mass for breadth and omission diagnostics;
+its matched-negative eligibility gate remains length-normalized.
 
 - Qwen `span_end`: L29H3 is rank 1 in all four panels with top-8 selection
   frequency 1.0. Its coverage is only about 0.22 and its effective number is
@@ -140,10 +181,25 @@ and `span_mean` expose different mechanisms.
 - Qwen `span_mean`: L27H18 is rank 1 in v4.1, v4.3, and v4.4; L28H19 is rank 1
   in v4.2. Coverage is about 0.79--0.86 and the effective number is about
   4.8--5.2, which is much closer to broad aggregation.
+- Qwen `span_sum`: the same rank-1 identities are recovered; literal total
+  needle-span mass is 0.64--0.70, coverage is 0.79--0.86, and effective number
+  is 4.77--5.17.
 - Gemma `span_end`: the top head is L5H2 in v4.1 and L29H6 in v4.2--v4.4.
   Coverage is about 0.85--0.89 and the effective number is about 5.0--5.3.
 - Gemma `span_mean`: L35H2 is rank 1 in every panel. Coverage is about
   0.76--0.80 and the effective number is about 4.6--4.8.
+- Gemma `span_sum`: L35H2 is again rank 1 in every panel; literal needle-span
+  mass is 0.41--0.43, coverage is 0.76--0.80, and effective number is
+  4.58--4.83.
+
+Span-mean and span-sum select the same top-8 head set in every model and panel,
+which is expected because these realistic record spans have nearly equal token
+lengths. Endpoint rankings are not interchangeable with full-span rankings.
+For Qwen, end-versus-sum Spearman correlation is only 0.624--0.626 and their
+top-8 sets have zero overlap in every panel. For Gemma the correlation is
+0.772--0.797 and top-8 overlap ranges from 2/8 to 5/8. The full-span result
+therefore supports a distinct record-reading bank, especially in Qwen, rather
+than treating the endpoint as a lossless proxy for all needle tokens.
 
 ### Qwen span-end: full candidate bank and positional partitioning
 
@@ -208,10 +264,14 @@ have different value vectors and output-projection slices. The causal follow-up
 must therefore ablate the stable aggregator bank separately from
 L29H3-like selectors and use layer-matched random controls.
 
-Most count-adjusted wrong-minus-correct bootstrap intervals include zero:
-only 36 of 256 Qwen comparisons and 24 of 256 Gemma comparisons exclude zero
-before any multiplicity correction. Aggregate needle mass alone therefore does
-not reliably separate correct from wrong answers.
+Most count-adjusted wrong-minus-correct bootstrap intervals include zero. Of
+384 model-specific comparisons (four panels times eight discovery-ranked heads
+times four metrics times three poolings), 56 Qwen and 43 Gemma intervals
+exclude zero before any multiplicity correction. Broken down by pooling, the
+negative/positive counts are Qwen end 14/5, mean 9/9, sum 11/8; Gemma end 3/0,
+mean 5/15, sum 4/16. These are sparse, uncorrected outcome associations, so
+aggregate needle mass alone does not reliably separate correct from wrong
+answers.
 
 ## Omission and nested-increment diagnostics
 
@@ -221,14 +281,18 @@ interventions.
 - For Qwen undercounts, `span_end` attention to the omitted tail relative to
   the retained prefix averages 0.28--0.37 across panels; the low-attention
   bottom-k set overlaps the omitted tail by 0.38--0.58. The analogous
-  `span_mean` tail ratio is 0.79--0.84.
+  `span_mean` tail ratio is 0.79--0.84. Pooled across panels, `span_sum` gives
+  tail/prefix 0.807 and bottom-k overlap 0.346, close to span-mean (0.816 and
+  0.339) but much less omission-aligned than span-end (0.336 and 0.460).
 - For Gemma undercounts, the `span_end` tail ratio is 0.68--0.93 and bottom-k
   overlap is 0.29--0.46. The `span_mean` tail ratio is usually above 1, with
-  only 0.11--0.16 bottom-k overlap.
+  only 0.11--0.16 bottom-k overlap. Pooled `span_sum` is likewise 1.161 with
+  bottom-k overlap 0.139, versus endpoint 0.779 and 0.383.
 - When a nested N to N+1 pair registers the increment, attention assigned to
   the newly added needle is higher than when it fails to increment: Qwen
-  `span_end` 0.474 versus 0.379 and `span_mean` 1.099 versus 0.808; Gemma
-  `span_end` 0.824 versus 0.692 and `span_mean` 1.324 versus 0.983.
+  `span_end` 0.474 versus 0.379, `span_mean` 1.099 versus 0.808, and `span_sum`
+  1.096 versus 0.802; Gemma `span_end` 0.824 versus 0.692, `span_mean` 1.324
+  versus 0.983, and `span_sum` 1.324 versus 0.983.
 
 The omission hypothesis is consequently most visible for Qwen `span_end`, and
 the nested-pair association appears in both models. Neither establishes that
@@ -314,8 +378,17 @@ machine-readable summaries are
 
 The run root is `run_20260731_v4_numeric_presentation_v3`. Each model directory
 contains behavior labels, representation captures, raw answer-query attention,
-analysis manifests, tables, and figures. Reproduce the Qwen partition analysis
-from the saved answer-query rows with:
+analysis manifests, tables, and figures. Recompute literal full-span attention
+mass from the saved rows without rerunning the models or overwriting the
+original two-pooling analysis with:
+
+```bash
+PYTHONPATH=src python scripts/backfill_realistic_niah_v4_span_sum.py \
+  --run-root <run-root> --models Qwen3-8B,Gemma4-E4B
+```
+
+This writes the restartable `analysis_span_sum_v3` sibling. Reproduce the Qwen
+partition analysis from the saved answer-query rows with:
 
 ```bash
 PYTHONPATH=src python scripts/analyze_realistic_niah_v4_partitioning.py \

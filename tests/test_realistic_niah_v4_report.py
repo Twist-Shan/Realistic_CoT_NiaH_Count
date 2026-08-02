@@ -4,6 +4,8 @@ import importlib.util
 import re
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "build_realistic_niah_v4_representation_report.py"
@@ -71,8 +73,13 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     assert "@@ANSWER_QUERY_COUNTER_SVG@@" in template
     assert "@@ANSWER_QUERY_DATA@@" in template
     assert "@@ATTENTION_HEAD_ATLAS_HTML@@" in template
+    assert "@@ATTENTION_ATLAS_ROW_COUNT@@" in template
+    assert "@@ATTENTION_PHENOTYPE_ROW_COUNT@@" in template
+    assert "@@ATTENTION_POOLING_ALIGNMENT_CONCLUSION@@" in template
     assert "@@ATTENTION_HEAD_PROFILE_SVG@@" in template
     assert "@@ATTENTION_OUTCOME_EFFECT_SVG@@" in template
+    assert "@@ATTENTION_OUTCOME_CONCLUSION@@" in template
+    assert "@@ATTENTION_OMISSION_POOLING_CONCLUSION@@" in template
     assert "@@ATTENTION_BREADTH_SVG@@" in template
     assert "@@CAUSAL_ABLATION_SVG@@" in template
     assert "@@ANSWER_QUERY_ADOPTION_SVG@@" in template
@@ -87,6 +94,10 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     assert 'id="layer-select"' in template
     assert 'id="answer-counter3d"' in template
     assert 'id="aq-layer-select"' in template
+    assert 'id="aq-fit-select"' in template
+    assert 'id="aq-outcome-select"' in template
+    assert "@@ANSWER_QUERY_PCA_SENSITIVITY_ROWS@@" in template
+    assert "@@ANSWER_QUERY_PCA_CONCLUSION@@" in template
     assert "function aqDraw()" in template
     assert "function drawCountLabels" in template
     assert "自动避让" in template
@@ -96,7 +107,7 @@ def test_report_template_covers_the_full_mechanistic_argument() -> None:
     assert template.index("Ridge count probe 与 held-out 拟合度") > template.index(
         '<section id="counter-representation">'
     )
-    assert template.index("Atlas 色值：总 needle mass × entropy breadth") > template.index(
+    assert template.index("每个 occurrence 的三种 attention pooling") > template.index(
         '<section id="attention-representation">'
     )
     assert template.index("Ablation 的 paired necessity estimand") > template.index(
@@ -261,6 +272,9 @@ def test_answer_query_counter_is_a_separate_layered_figure() -> None:
                                 variant,
                                 seed,
                                 count,
+                                "correct" if seed == 1234 else "wrong",
+                                count if seed == 1234 else max(1, count - 1),
+                                0 if seed == 1234 else -1,
                                 float(count),
                                 float(count * count + seed % 2),
                                 0.0,
@@ -269,9 +283,10 @@ def test_answer_query_counter_is_a_separate_layered_figure() -> None:
                                 0.0,
                             ]
                         )
-            projections[f"{model}|{layer}"] = {
+            projections[f"{model}|{layer}|all"] = {
                 "model": model,
                 "layer": layer,
+                "fit_cohort": "all",
                 "explained_variance_ratio": [0.4, 0.3, 0.1, 0.1, 0.05, 0.05],
                 "rows": rows,
             }
@@ -285,8 +300,55 @@ def test_answer_query_counter_is_a_separate_layered_figure() -> None:
     assert "<title" in svg and "<desc" in svg
     template = report.REPORT_TEMPLATE
     assert "Interactive answer-query counter manifold" in template
-    assert "Static answer-query PC1–PC2 audit" in template
+    assert "Static all-fit answer-query PC1–PC2 audit" in template
     assert "AQ_DATA" in template
+
+
+def test_answer_query_pca_sensitivity_uses_common_v41_evaluation() -> None:
+    report = _load_report_module()
+    projections = {}
+    for cohort, offset in (("all", 0.0), ("correct_only", 0.2)):
+        rows = []
+        for seed in (1, 2):
+            for count in range(1, 11):
+                rows.append(
+                    [
+                        "v4.1",
+                        seed,
+                        count,
+                        "correct" if seed == 1 else "wrong",
+                        count,
+                        0,
+                        count + offset,
+                        count * 0.5,
+                        seed * 0.1,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ]
+                )
+        projections[f"Qwen3-8B|9|{cohort}"] = {
+            "model": "Qwen3-8B",
+            "layer": 9,
+            "fit_cohort": cohort,
+            "fit_rows": 20 if cohort == "all" else 10,
+            "fit_count_support": {
+                str(count): 2 if cohort == "all" else 1
+                for count in range(1, 11)
+            },
+            "explained_variance_ratio": [0.5, 0.2, 0.1, 0.05, 0.03, 0.02],
+            "common_v41_variance_capture": [0.5, 0.7, 0.8, 0.85, 0.88, 0.9],
+            "rows": rows,
+        }
+    summary = report._answer_query_pca_sensitivity_rows(projections)
+    assert len(summary) == 2
+    assert {row["fit_cohort"] for row in summary} == {"all", "correct_only"}
+    assert all(row["fit_count_support_min"] > 0 for row in summary)
+    assert summary[1]["centroid_distance_corr_to_all"] == pytest.approx(1.0)
+    conclusion = report._answer_query_pca_conclusion_html(summary)
+    assert "common PC1–3 capture" in conclusion
+    assert "noise/signal" in conclusion
+    assert "centroid-distance" in conclusion
 
 
 def test_core_figures_define_axes_and_accessibility_text() -> None:
@@ -343,6 +405,42 @@ def test_every_static_figure_caption_is_self_contained() -> None:
     assert "灰线只连接 chance 与 observed" in template
     assert "右侧文字重复 estimate [CI]" in template
     assert "图 B2-F3a · Interactive prompt-reading counter trajectory" in template
+
+
+def test_attention_pooling_sensitivity_conclusions_require_paired_rows() -> None:
+    report = _load_report_module()
+    alignment = [
+        {
+            "model": model,
+            "design_variant": variant,
+            "left_pooling": "span_end",
+            "right_pooling": right,
+            "spearman_primary": 0.75,
+            "top_k_intersection": 4,
+            "top_k": 8,
+        }
+        for model in report.MODELS
+        for variant in report.VARIANTS
+        for right in ("span_mean", "span_sum")
+    ]
+    alignment_html = report._attention_pooling_alignment_conclusion_html(alignment)
+    assert "end↔sum Spearman" in alignment_html
+    assert "top-8 overlap" in alignment_html
+
+    omission = [
+        {
+            "model": model,
+            "pooling": pooling,
+            "prompts": 20,
+            "delta": 0.1 if pooling == "span_end" else 0.08,
+            "tail_prefix_ratio": 0.4 if pooling == "span_end" else 0.5,
+        }
+        for model in report.MODELS
+        for pooling in ("span_end", "span_sum")
+    ]
+    omission_html = report._attention_omission_pooling_conclusion_html(omission)
+    assert "span-end→span-sum" in omission_html
+    assert "同一 20 条 undercount prompts" in omission_html
 
 
 def test_layer_sweep_and_forest_layouts_reserve_annotation_space() -> None:
