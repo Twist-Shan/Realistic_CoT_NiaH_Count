@@ -201,7 +201,35 @@ tested layer, exact target/path hit rates are 8.75% versus 1.25% for Qwen and
 7.5% versus 1.67% for Gemma. The centroid direction is therefore used by the
 readout, but α=1 does not reliably land on the target integer.
 
-## 5. Geometry explains why decoding and steering can diverge
+## 5. Discovery-locked single- and multi-layer steering
+
+The initial screen above localized useful layers on its confirmation set. A
+separate v2 experiment removed that selection reuse. Four discovery seeds
+(1234--1237) screened 15 plans per model: three singleton layers, two
+multi-layer sets, and alpha in {0.25, 0.5, 1}. Each protocol locked exactly one
+plan by the worst-panel strict aligned effect minus twice the invalid rate.
+The lock was then evaluated on ten disjoint seeds (1254--1263), all four V4
+panels, six directed count pairs, both protocols, and a norm-matched
+orthogonal random arm. This yields 2,880 screen and 960 confirmation rows per
+model.
+
+| Model | Protocol | Locked plan | Held-out geometric-random aligned effect [95% seed CI] | Moved effect [95% CI] | Target-hit effect | Holm p |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| Qwen3-8B | single | L26, alpha=1 | +1.000 [+0.867, +1.133] | +36.7 pp [+33.3, +40.0] | +7.5 pp | 0.0039 |
+| Qwen3-8B | multi | L9+18+26, alpha=1 | +0.992 [+0.838, +1.142] | +37.1 pp [+33.3, +40.8] | +7.5 pp | 0.0039 |
+| Gemma4-E4B | single | L31, alpha=1 | +1.371 [+1.275, +1.463] | +48.8 pp [+44.2, +53.3] | +5.8 pp | 0.0039 |
+| Gemma4-E4B | multi | L10+20+31, alpha=1 | +1.387 [+1.300, +1.467] | +50.0 pp [+47.1, +53.3] | +5.4 pp | 0.0039 |
+
+All four locked plans reproduce, and all sixteen model × protocol × panel
+intervals remain above zero. Multi is not detectably better: its descriptive
+advantage over single is -0.008 count unit for Qwen and +0.017 for Gemma, with
+no randomized protocol-difference test. Exact target-hit gains also remain
+only 5.4--7.5 percentage points. The rigorous conclusion is therefore stable
+late directional manipulability across held-out seeds and panels, not precise
+target setting and not a multi-layer advantage. No v2 row is strict-invalid;
+the conservative invalid-as-zero rule was nevertheless applied by design.
+
+## 6. Geometry explains why decoding and steering can diverge
 
 All 24 model × variant × layer discovery paths are monotone along their 1→10
 endpoint chord, but the paths are not straight or equally spaced.

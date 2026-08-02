@@ -305,6 +305,20 @@ silently dropped. See
 [`docs/realistic_niah_v4_causal_screen_20260801.md`](docs/realistic_niah_v4_causal_screen_20260801.md)
 for the complete estimands, results, audit, and limitations.
 
+The completed `steering_v2` follow-up separates plan discovery from inference.
+For each model, 15 single/multi-layer and alpha plans were screened on four
+discovery seeds, one plan per protocol was locked by a worst-panel robust
+score, and only then evaluated on ten disjoint confirmation seeds. Qwen locked
+L26 and L9+18+26; Gemma locked L31 and L10+20+31, all at alpha 1. All four
+plans reproduced on every V4 panel: overall geometric-minus-random aligned
+effects were +1.000/+0.992 for Qwen single/multi and +1.371/+1.387 for Gemma,
+with all overall 95% CIs above zero and Holm p=0.0039. Multi-layer steering did
+not materially exceed single-layer steering, and exact target-hit gains were
+only 5.4--7.5 percentage points. The result therefore supports stable
+directional control, not precise count setting or a multi-layer advantage.
+Machine-readable selection, confirmation, and panel tables are written beside
+the HTML as `realistic_niah_v4_steering_v2_{selection,confirmation,panels}.csv`.
+
 All numeric tables in the HTML are collapsed by default. Each disclosure
 summary reports the number of data rows and the leading field names; figures,
 methods, and section conclusions remain visible without expanding tables.

@@ -279,6 +279,37 @@ consistent with the query patch transferring the first digit `1` while the
 next, unpatched autoregressive step generates `1` rather than `0`; it is not
 truncation or a failed hook.
 
+## Discovery-locked steering v2
+
+The first steering screen located late readout-sensitive layers but used its
+confirmation set for that localization. The v2 follow-up therefore made plan
+selection and final inference disjoint. For each model, 15 plans crossed three
+single layers, two multi-layer sets, and alpha in {0.25, 0.5, 1}. Four
+discovery seeds (1234--1237) selected one single and one multi plan using the
+minimum effect across the four V4 panels minus twice the invalid rate. The
+locked plans were then evaluated without modification on ten held-out seeds
+(1254--1263), six directed count pairs, both protocols, both intervention
+arms, and all panels: 960 strict-greedy rows per model.
+
+| Model | Protocol | Locked plan | Held-out aligned effect [95% seed CI] | Moved-toward-target effect [95% CI] | Exact target-hit effect | Holm p |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| Qwen3-8B | single | L26, alpha=1 | +1.000 [+0.867, +1.133] | +36.7 pp [+33.3, +40.0] | +7.5 pp | 0.0039 |
+| Qwen3-8B | multi | L9+18+26, alpha=1 | +0.992 [+0.838, +1.142] | +37.1 pp [+33.3, +40.8] | +7.5 pp | 0.0039 |
+| Gemma4-E4B | single | L31, alpha=1 | +1.371 [+1.275, +1.463] | +48.8 pp [+44.2, +53.3] | +5.8 pp | 0.0039 |
+| Gemma4-E4B | multi | L10+20+31, alpha=1 | +1.387 [+1.300, +1.467] | +50.0 pp [+47.1, +53.3] | +5.4 pp | 0.0039 |
+
+Every model/protocol/panel estimate is positive and every panel-level 95% CI
+also remains above zero. Single and multi are nearly identical, however:
+multi minus single is -0.008 count unit for Qwen and +0.017 for Gemma, and the
+design did not randomize a direct protocol contrast. Thus v2 establishes
+held-out directional manipulability across panels, but does not establish a
+multi-layer advantage or exact target setting. All 7,680 screen plus
+confirmation rows are strict-format-valid; no output was dropped. The three
+machine-readable summaries are
+`reports/realistic_niah_v4_steering_v2_selection.csv`,
+`reports/realistic_niah_v4_steering_v2_confirmation.csv`, and
+`reports/realistic_niah_v4_steering_v2_panels.csv`.
+
 ## Reproducibility and remaining causal scope
 
 The run root is `run_20260731_v4_numeric_presentation_v3`. Each model directory

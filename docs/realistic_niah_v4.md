@@ -258,6 +258,18 @@ Centroid step norms, successive-step cosine, path tortuosity, monotonicity,
 greedy count-transport slope, target/path hit rate, and paired geometric-minus-
 random effects are saved.
 
+The completed `steering_v2` follow-up uses a narrower but inferentially clean
+two-stage design. Four discovery seeds screen 15 single/multi-layer and alpha
+plans per model; a worst-panel robust score locks one plan for each protocol.
+Ten disjoint confirmation seeds then evaluate only those locks over all four
+panels and six directed pairs. Qwen locks L26 and L9+18+26; Gemma locks L31
+and L10+20+31, all at alpha 1. The held-out geometric-minus-random aligned
+effects are +1.000/+0.992 for Qwen and +1.371/+1.387 for Gemma
+(single/multi; all Holm p=0.0039), with every panel CI above zero. Single and
+multi are nearly identical and exact target-hit gains remain 5.4--7.5
+percentage points, so the result supports stable directional manipulability,
+not precise target setting or a multi-layer advantage.
+
 ## Workflow
 
 Create a dedicated environment. V4 uses Transformers directly, not vLLM,
@@ -457,6 +469,9 @@ tree, `detail.csv.gz`, and `summary.csv`:
 - `geometric_steering_v1/` contains discovery query-state shards,
   `centroids.npz`, centroid-geometry tables, confirmation generations, and the
   paired geometric-vs-random table.
+- `geometric_steering_v2/` contains separate discovery-screen and held-out
+  confirmation designs, `selection.json`, `plan_scores.csv`, locked-plan
+  detail/summary tables, and strict row-level generations for both protocols.
 
 Every causal detail row includes the strict greedy completion, generated token
 IDs, baseline label, intervention label, and

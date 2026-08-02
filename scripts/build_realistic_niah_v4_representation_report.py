@@ -4429,6 +4429,10 @@ def _steering_v2_conclusion_html(
                 f"Δ={_number(row['aligned_effect'], signed=True)} "
                 f"[{_number(row['aligned_effect_low'], signed=True)}, "
                 f"{_number(row['aligned_effect_high'], signed=True)}]，"
+                f"向 target 移动率差={100*float(row['moved_effect']):+.1f} pp "
+                f"[{100*float(row['moved_effect_low']):+.1f}, "
+                f"{100*float(row['moved_effect_high']):+.1f}]，"
+                f"exact target-hit 差={100*float(row['target_hit_effect']):+.1f} pp，"
                 f"Holm p={_p_value(row['p_holm'])}；"
                 f"panel 点估计为正 {positive}/4，CI 下界>0 {positive_ci}/4"
             )
@@ -5237,7 +5241,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <details><summary>四个 V4 panels 的 held-out heterogeneity</summary><div class="table-wrap"><table><thead><tr><th>model</th><th>protocol</th><th>panel</th><th>paired rows / seeds</th><th>paired Δ [95% CI]</th><th>panel-family Holm p</th></tr></thead><tbody>@@STEERING_V2_PANEL_ROWS@@</tbody></table></div></details>
   <p class="artifact-link">机器可读表：<a href="realistic_niah_v4_steering_v2_selection.csv">discovery plan selection</a>；<a href="realistic_niah_v4_steering_v2_confirmation.csv">held-out confirmation summary</a>；<a href="realistic_niah_v4_steering_v2_panels.csv">panel heterogeneity</a>。</p>
   <div class="notes">@@STEERING_V2_CONCLUSION@@</div>
-  <div class="section-conclusion"><span>5.2 解释规则</span><p>只有 discovery-locked plan 在独立 confirmation seeds 上保持正 effect，才能称为稳定 directional steering。即便 single/multi 都成立，结论仍是“均值差方向可操纵”，不是“target count 被精确设置”；exact donor-state sufficiency 继续由 2.5 的 sample-wise replacement 提供。</p></div>
+  <div class="section-conclusion"><span>5.2 结论 · Single 与 multi 都跨 held-out seeds 复现，但没有 multi 优势证据</span><p>四个 discovery-locked plans 在独立 confirmation seeds 上都保持正 effect：Qwen single L26 为 +1.000、multi L9+18+26 为 +0.992；Gemma single L31 为 +1.371、multi L10+20+31 为 +1.387；四个 overall CI 与各自四个 panel CI 的下界都高于 0，overall Holm p 均为 0.0039。Multi 相对 single 的描述性差只有 Qwen −0.008、Gemma +0.017 count unit，而且本设计没有对 protocol 差做直接随机化检验，因此不能声称 multi-layer 优于 single-layer。Exact target-hit 的净增益仍只有 +5.4 至 +7.5 pp；结论是 late count-centroid 方向可稳定操纵，而不是 target count 被精确设置。完整 donor-state sufficiency 继续由 2.5 的 sample-wise replacement 提供。</p></div>
 
   <h3>5.3 为什么 early decoding 很强，steering 却可能无效？</h3>
   <p>下表诊断 steering 使用的 10 个 discovery centroids。Endpoint correlation 是 count 与 centroid 在 1→10 chord 上投影的相关；monotonicity 检查该投影是否随 count 单调。Step CV 高表示相邻 count 步长不等；path/chord 高表示曲线弯折。一个方向可以高度可解码，却不一定是后续 readout 使用的 causal coordinate。</p>
@@ -5252,7 +5256,7 @@ footer { padding:25px; color:var(--muted); text-align:center; border-top:1px sol
   <div class="table-wrap"><table><thead><tr><th>model</th><th>family shards / rows</th><th>successful / skipped</th><th>valid / invalid</th><th>eligible donor-prediction rows</th><th>greedy-label alignment</th></tr></thead><tbody>@@ANSWER_QUERY_AUDIT_ROWS@@</tbody></table></div>
   <h4>Steering v2 design and row audit</h4>
   <div class="table-wrap"><table><thead><tr><th>model</th><th>screen shards / rows</th><th>confirmation shards / rows</th><th>screen design</th><th>confirmation design</th></tr></thead><tbody>@@STEERING_V2_AUDIT_ROWS@@</tbody></table></div>
-  <div class="section-conclusion"><span>Block 5 结论 · Directional manipulability 与 state sufficiency 分开</span><p>Initial screen 定位 late readout-sensitive layers；v2 再以 discovery-only robust rule 锁定 single/multi plans，并在独立 confirmation seeds 上决定其可复现性。无论结果强弱，centroid delta 都只检验方向操纵；完整 donor state 的 sufficiency 来自 Block 2 的 sample-wise answer-query replacement，centroid transplant 仍是缺失的第三臂。</p></div>
+  <div class="section-conclusion"><span>Block 5 结论 · 稳定 directional manipulability 与 state sufficiency 已被分开</span><p>Initial screen 定位 late readout-sensitive layers；v2 再以 discovery-only robust rule 锁定 single/multi plans，并证实四个方案都在独立 confirmation seeds 与全部 V4 panels 上复现。Single 与 multi 几乎同效，当前没有多层干预更优的证据；低 exact-hit 又排除了“均值差方向可精确设定 target”这一强解释。完整 donor state 的 sufficiency 来自 Block 2 的 sample-wise answer-query replacement，centroid transplant 仍是缺失的第三臂。</p></div>
 </section>
 
 <div class="report-appendix" id="appendix">
