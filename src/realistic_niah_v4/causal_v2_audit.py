@@ -672,6 +672,124 @@ def _audit_patching(
     if not path.is_file():
         return
     frame = pd.read_csv(path, compression="gzip")
+    reuse_columns = {"generation_executed", "generation_reuse_mode"}
+    audit.require(
+        f"{label}.compute_reuse_schema",
+        reuse_columns.issubset(frame.columns),
+        str(sorted(frame.columns)),
+    )
+    reuse_summary_path = root / "compute_reuse_summary.csv"
+    audit.require(
+        f"{label}.compute_reuse_summary_exists",
+        reuse_summary_path.is_file(),
+        str(reuse_summary_path),
+    )
+    if reuse_summary_path.is_file():
+        reuse_summary = pd.read_csv(reuse_summary_path)
+        audit.require(
+            f"{label}.compute_reuse_summary_rows",
+            "logical_rows" in reuse_summary
+            and int(pd.to_numeric(reuse_summary["logical_rows"]).sum()) == len(frame),
+            f"summary_rows={reuse_summary.get('logical_rows', pd.Series(dtype=int)).sum()}, "
+            f"detail_rows={len(frame)}",
+        )
+    if reuse_columns.issubset(frame.columns):
+        executed = (
+            frame["generation_executed"]
+            .astype(str)
+            .str.lower()
+            .map({"true": True, "false": False})
+        )
+        audit.require(
+            f"{label}.compute_reuse_boolean",
+            bool(executed.notna().all()),
+            str(frame["generation_executed"].value_counts(dropna=False).to_dict()),
+        )
+        donor_rows = frame["condition"].astype(str).eq("donor_transport")
+        audit.require(
+            f"{label}.all_donor_transports_executed",
+            bool(
+                donor_rows.any()
+                and executed.loc[donor_rows].all()
+                and frame.loc[donor_rows, "generation_reuse_mode"]
+                .astype(str)
+                .eq("fresh_intervention")
+                .all()
+            ),
+            "donor rows may never be synthesized from a control cache",
+        )
+        self_rows = frame[frame["condition"].astype(str).eq("self_patch")].copy()
+        self_modes = set(self_rows["generation_reuse_mode"].astype(str))
+        expected_self_modes = (
+            {"baseline_identity_reuse", "executed_identity_preflight"}
+            if phase == "screen"
+            else {"baseline_identity_reuse", "executed_identity_preflight"}
+        )
+        audit.require(
+            f"{label}.self_patch_reuse_modes",
+            (
+                self_modes == expected_self_modes
+                if phase == "screen"
+                else bool(self_modes) and self_modes.issubset(expected_self_modes)
+            ),
+            str(sorted(self_modes)),
+        )
+        self_executed = self_rows[
+            self_rows["generation_reuse_mode"]
+            .astype(str)
+            .eq("executed_identity_preflight")
+        ]
+        audit.require(
+            f"{label}.self_patch_identity_preflight",
+            phase != "screen"
+            or (
+                not self_executed.empty
+                and self_executed["seed"].nunique() == 1
+                and self_executed[["receiver_count", "donor_count"]]
+                .drop_duplicates()
+                .shape[0]
+                == 1
+                and set(self_executed["site"].astype(str))
+                == (
+                    {"toggled_needle_end", "toggled_needle_span"}
+                    if family == "prompt_patching"
+                    else {"answer_query"}
+                )
+                and set(self_executed["patch_protocol"].astype(str))
+                == set(design.patch_protocols)
+                and self_executed["start_layer"].nunique() == 3
+            ),
+            f"rows={len(self_executed)}",
+        )
+        audit.require(
+            f"{label}.self_patch_outputs_are_identity",
+            bool(
+                self_rows["patched_completion_text"]
+                .astype(str)
+                .eq(self_rows["baseline_completion_text"].astype(str))
+                .all()
+                and pd.to_numeric(
+                    self_rows["strict_normalized_transport"], errors="coerce"
+                )
+                .fillna(0.0)
+                .eq(0.0)
+                .all()
+            ),
+            "self-patch must reproduce the registered greedy baseline",
+        )
+        if family == "answer_patching" and phase == "screen":
+            same_count_modes = set(
+                frame.loc[
+                    frame["condition"].astype(str).eq("same_count_seed"),
+                    "generation_reuse_mode",
+                ].astype(str)
+            )
+            audit.require(
+                f"{label}.same_count_equivalent_cache_used",
+                same_count_modes
+                == {"fresh_intervention", "equivalent_intervention_cache"},
+                str(sorted(same_count_modes)),
+            )
     audit.require(
         f"{label}.no_skipped_rows",
         set(frame["status"].astype(str)) == {"ok"},

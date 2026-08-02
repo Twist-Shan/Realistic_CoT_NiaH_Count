@@ -8,8 +8,11 @@ import torch
 
 from realistic_niah_v4.attention import matched_random_heads
 from realistic_niah_v4.causal_generation import (
+    _causal_v2_completion_cache_key,
     _causal_v2_patch_payload,
+    _completion_from_generation_label,
     causal_v2_prompt_span_alignment_table,
+    run_generation_residual_patching_v2,
 )
 from realistic_niah_v4.causal_v2 import (
     CausalV2Design,
@@ -32,6 +35,7 @@ def _encoding(
     stimulus_id: str,
     count: int,
     spans: tuple[tuple[int, int], ...] = ((1, 3), (4, 6)),
+    seed: int = 1254,
 ) -> PromptEncoding:
     slot_spans = tuple(
         TokenSpan(
@@ -48,7 +52,7 @@ def _encoding(
     return PromptEncoding(
         stimulus_id=stimulus_id,
         design_variant="v4.4",
-        seed=1254,
+        seed=seed,
         split="confirmation",
         count=count,
         model_label="toy",
@@ -284,6 +288,119 @@ def test_prompt_full_span_alignment_preflight_reports_each_changed_slot() -> Non
         evaluation_seeds=(1254,),
     )
     assert mismatched["exact_model_token_alignment"].tolist() == [False, True]
+
+
+def test_baseline_completion_payload_is_recoverable_for_identity_reuse() -> None:
+    recovered = _completion_from_generation_label(
+        {
+            "completion_text": "10",
+            "completion_text_raw": "10<eos>",
+            "generated_token_ids": "[123, 456]",
+        }
+    )
+    assert recovered == {
+        "completion_text": "10",
+        "completion_text_raw": "10<eos>",
+        "generated_token_ids": [123, 456],
+        "generation_truncated": False,
+    }
+
+
+def test_answer_same_count_cache_ignores_nominal_k_but_donor_transport_does_not() -> (
+    None
+):
+    receiver = _encoding(stimulus_id="receiver", count=5)
+    same_count_source = _encoding(stimulus_id="other-seed-N5", count=5)
+    shared = {
+        "condition": "same_count_seed",
+        "receiver": receiver,
+        "state_source": same_count_source,
+        "site": "answer_query",
+        "protocol": "single_layer",
+        "start_layer": 7,
+    }
+    assert _causal_v2_completion_cache_key(
+        **shared, slot_indices=(6,)
+    ) == _causal_v2_completion_cache_key(**shared, slot_indices=(6, 7, 8, 9, 10))
+    donor_shared = {**shared, "condition": "donor_transport"}
+    assert _causal_v2_completion_cache_key(
+        **donor_shared, slot_indices=(6,)
+    ) != _causal_v2_completion_cache_key(**donor_shared, slot_indices=(6, 7, 8, 9, 10))
+
+
+def test_answer_patching_reuses_identity_and_equivalent_same_count_generations(
+    monkeypatch,
+) -> None:
+    import realistic_niah_v4.causal_generation as causal_generation
+
+    encodings = tuple(
+        _encoding(stimulus_id=f"seed{seed}-N{count}", count=count, seed=seed)
+        for seed in (1254, 1255)
+        for count in (0, 1, 2)
+    )
+
+    def label(encoding: PromptEncoding) -> dict[str, object]:
+        return {
+            "stimulus_id": encoding.stimulus_id,
+            "model_label": "toy",
+            "design_variant": "v4.4",
+            "seed": encoding.seed,
+            "gold_count": encoding.count,
+            "outcome_group": "correct",
+            "is_correct": True,
+            "format_valid": True,
+            "parsed_count": encoding.count,
+            "count_error": 0,
+            "completion_text": str(encoding.count),
+            "completion_text_raw": str(encoding.count),
+            "generated_token_ids": json.dumps([encoding.count]),
+            "generation_truncated": False,
+        }
+
+    labels = {encoding.stimulus_id: label(encoding) for encoding in encodings}
+    calls: list[tuple[str, tuple[int, ...]]] = []
+
+    def fake_capture(_model, _adapter, encoding, positions, *, layers=None):
+        selected = tuple(range(2)) if layers is None else tuple(layers)
+        return torch.zeros(1), {
+            layer: torch.zeros((len(tuple(positions)), 3), dtype=torch.float32)
+            for layer in selected
+        }
+
+    def fake_generate(_model, _tokenizer, _adapter, encoding, interventions, **_kwargs):
+        calls.append((encoding.stimulus_id, tuple(sorted(interventions))))
+        return _completion_from_generation_label(labels[encoding.stimulus_id])
+
+    monkeypatch.setattr(causal_generation, "capture_post_block_states", fake_capture)
+    monkeypatch.setattr(
+        causal_generation, "generate_with_residual_interventions", fake_generate
+    )
+
+    class Adapter:
+        num_layers = 2
+
+    detail = run_generation_residual_patching_v2(
+        None,
+        None,
+        Adapter(),
+        encodings,
+        baseline_labels=labels,
+        count_pairs=((0, 1), (0, 2)),
+        start_layers=(0, 1),
+        sites=("answer_query",),
+        protocols=("single_layer",),
+        control_conditions=("donor_transport", "self_patch", "same_count_seed"),
+        evaluation_seeds=(1254,),
+        shared_completion_cache={},
+    )
+    assert len(detail) == 12
+    # Four donor transports plus two unique same-count interventions. The two
+    # self rows per pair reuse their registered receiver baseline.
+    assert len(calls) == 6
+    modes = detail.groupby("condition")["generation_reuse_mode"].value_counts()
+    assert modes.loc[("self_patch", "baseline_identity_reuse")] == 4
+    assert modes.loc[("same_count_seed", "fresh_intervention")] == 2
+    assert modes.loc[("same_count_seed", "equivalent_intervention_cache")] == 2
 
 
 def _screen_rows() -> pd.DataFrame:

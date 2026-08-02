@@ -257,6 +257,11 @@ centroid steering for ±k with `k=1,...,5`. Selection uses five screen seeds;
 every stable exact layer/k condition receives five additional held-out seeds.
 The implementation and request accounting are documented in
 [`docs/realistic_niah_v4_causal_v2.md`](docs/realistic_niah_v4_causal_v2.md).
+The formal tables retain every registered control row, while exact self-patch
+identity controls and duplicate answer-query same-count interventions reuse a
+verified completion; all donor transports remain independently generated. This
+reduces the one-A100 pre-confirmation budget from roughly 80 to 48--55 hours
+without thinning seeds, anchors, k values, layers, sites, or protocols.
 This paragraph records protocol availability only—causal-v2 has no reported
 effect estimates until its formal run and audit complete.
 

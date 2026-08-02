@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, MutableMapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +55,68 @@ def load_generation_labels(path: str | Path) -> dict[str, dict[str, Any]]:
     if frame["stimulus_id"].duplicated().any():
         raise ValueError("Generation labels contain duplicate stimulus IDs")
     return {str(row["stimulus_id"]): row.to_dict() for _, row in frame.iterrows()}
+
+
+def _completion_from_generation_label(label: Mapping[str, Any]) -> dict[str, Any]:
+    """Recover the greedy completion payload already stored for a baseline.
+
+    A self-patch writes the receiver's own post-block residual back to the
+    same semantic position.  Once a small set of real hook executions has
+    verified that identity invariant, the remaining dense self controls can
+    reuse this payload instead of repeating an identical 10k-token prefill.
+    """
+
+    completion_text = str(label.get("completion_text", ""))
+    raw_text = label.get("completion_text_raw", completion_text)
+    if raw_text is None or (isinstance(raw_text, float) and math.isnan(raw_text)):
+        raw_text = completion_text
+    token_ids = label.get("generated_token_ids")
+    if isinstance(token_ids, str):
+        token_ids = json.loads(token_ids)
+    if token_ids is None or (isinstance(token_ids, float) and math.isnan(token_ids)):
+        raise ValueError("Generation label lacks baseline generated_token_ids")
+    if not isinstance(token_ids, Sequence) or isinstance(
+        token_ids, (str, bytes, bytearray)
+    ):
+        raise TypeError("Baseline generated_token_ids must be a sequence")
+    return {
+        "completion_text": completion_text,
+        "completion_text_raw": str(raw_text),
+        "generated_token_ids": [int(value) for value in token_ids],
+        "generation_truncated": _as_bool(label.get("generation_truncated", False)),
+    }
+
+
+def _causal_v2_completion_cache_key(
+    *,
+    condition: str,
+    receiver: PromptEncoding,
+    state_source: PromptEncoding,
+    site: str,
+    protocol: str,
+    start_layer: int,
+    slot_indices: Sequence[int],
+) -> tuple[Any, ...]:
+    """Identify interventions that are computationally exactly equivalent.
+
+    In particular, an answer-query same-count control does not depend on the
+    nominal donor or k: it patches the same receiver query with the same
+    other-seed, same-count state at the same layer(s).  Treating every donor
+    label as a new generation is pseudoreplication and wastes a full prefill.
+    Pair-specific normalized metrics are still computed after cache reuse.
+    """
+
+    base = (
+        str(condition),
+        str(receiver.stimulus_id),
+        str(state_source.stimulus_id),
+        str(site),
+        str(protocol),
+        int(start_layer),
+    )
+    if str(condition) == "same_count_seed" and str(site) == "answer_query":
+        return ("answer_same_count_equivalent", *base)
+    return ("exact_intervention", *base, tuple(int(value) for value in slot_indices))
 
 
 def load_broad_rankings(
@@ -1233,6 +1295,16 @@ def run_generation_residual_patching_v2(
     control_conditions: Sequence[str] = ("donor_transport",),
     condition_filter: set[tuple[str, str, int, int]] | None = None,
     evaluation_seeds: Sequence[int] | None = None,
+    shared_state_cache: (
+        MutableMapping[
+            tuple[str, tuple[int, ...]], tuple[tuple[int, ...], dict[int, Any]]
+        ]
+        | None
+    ) = None,
+    shared_completion_cache: (
+        MutableMapping[tuple[Any, ...], dict[str, Any]] | None
+    ) = None,
+    identity_execution_filter: set[tuple[int, int, int, str, str, int]] | None = None,
     valid_counts: Sequence[int] = tuple(range(0, 11)),
     max_new_tokens: int = 16,
 ) -> pd.DataFrame:
@@ -1291,9 +1363,15 @@ def run_generation_residual_patching_v2(
     )
     if not seeds or not set(seeds).issubset(set(available_seeds)):
         raise ValueError("Causal-v2 evaluation seeds are missing from encodings")
-    state_cache: dict[
-        tuple[str, tuple[int, ...]], tuple[tuple[int, ...], dict[int, Any]]
-    ] = {}
+    state_cache = shared_state_cache if shared_state_cache is not None else {}
+    completion_cache = (
+        shared_completion_cache if shared_completion_cache is not None else {}
+    )
+    identity_filter = (
+        set(identity_execution_filter)
+        if identity_execution_filter is not None
+        else set()
+    )
 
     def states_for(
         source: PromptEncoding,
@@ -1354,9 +1432,9 @@ def run_generation_residual_patching_v2(
                 for condition, state_source in source_conditions:
                     source_label = baseline_labels[state_source.stimulus_id]
                     _validate_baseline_label(state_source, source_label)
-                    source_states, source_slices = states_for(
-                        state_source, slot_indices
-                    )
+                    source_payload: (
+                        tuple[dict[int, Any], dict[int, tuple[int, int]]] | None
+                    ) = None
                     for site in requested_sites:
                         for start_layer in starts:
                             for protocol in requested_protocols:
@@ -1373,29 +1451,76 @@ def run_generation_residual_patching_v2(
                                         range(int(start_layer), adapter.num_layers)
                                     )
                                 )
+                                identity_key = (
+                                    int(seed),
+                                    int(receiver_count),
+                                    int(donor_count),
+                                    str(site),
+                                    str(protocol),
+                                    int(start_layer),
+                                )
+                                reuse_identity = bool(
+                                    condition == "self_patch"
+                                    and identity_key not in identity_filter
+                                )
+                                cache_key = _causal_v2_completion_cache_key(
+                                    condition=condition,
+                                    receiver=receiver,
+                                    state_source=state_source,
+                                    site=site,
+                                    protocol=protocol,
+                                    start_layer=start_layer,
+                                    slot_indices=slot_indices,
+                                )
                                 interventions: dict[int, tuple[Sequence[int], Any]] = {}
                                 executable = True
                                 skip_reason = ""
-                                for layer in intervention_layers:
-                                    if layer not in source_states:
-                                        raise RuntimeError(
-                                            f"Causal-v2 source state cache lacks layer {layer}"
+                                cache_hit = bool(
+                                    not reuse_identity and cache_key in completion_cache
+                                )
+                                if not reuse_identity and not cache_hit:
+                                    if source_payload is None:
+                                        source_payload = states_for(
+                                            state_source, slot_indices
                                         )
-                                    positions, states, ok, reason = (
-                                        _causal_v2_patch_payload(
-                                            site=site,
-                                            layer_states=source_states[layer],
-                                            state_slices=source_slices,
-                                            receiver=receiver,
-                                            source=state_source,
-                                            slot_indices=slot_indices,
+                                    source_states, source_slices = source_payload
+                                    for layer in intervention_layers:
+                                        if layer not in source_states:
+                                            raise RuntimeError(
+                                                "Causal-v2 source state cache lacks "
+                                                f"layer {layer}"
+                                            )
+                                        positions, states, ok, reason = (
+                                            _causal_v2_patch_payload(
+                                                site=site,
+                                                layer_states=source_states[layer],
+                                                state_slices=source_slices,
+                                                receiver=receiver,
+                                                source=state_source,
+                                                slot_indices=slot_indices,
+                                            )
                                         )
+                                        if not ok:
+                                            executable = False
+                                            skip_reason = reason
+                                            break
+                                        interventions[int(layer)] = (positions, states)
+                                if reuse_identity:
+                                    generation_executed = False
+                                    generation_reuse_mode = "baseline_identity_reuse"
+                                elif cache_hit:
+                                    generation_executed = False
+                                    generation_reuse_mode = (
+                                        "equivalent_intervention_cache"
                                     )
-                                    if not ok:
-                                        executable = False
-                                        skip_reason = reason
-                                        break
-                                    interventions[int(layer)] = (positions, states)
+                                elif condition == "self_patch":
+                                    generation_executed = True
+                                    generation_reuse_mode = (
+                                        "executed_identity_preflight"
+                                    )
+                                else:
+                                    generation_executed = True
+                                    generation_reuse_mode = "fresh_intervention"
                                 metadata = {
                                     **_base_metadata(receiver),
                                     **_baseline_metadata(receiver_label),
@@ -1434,20 +1559,51 @@ def run_generation_residual_patching_v2(
                                         list(slot_indices)
                                     ),
                                     "changed_slot_count": len(slot_indices),
+                                    "generation_executed": generation_executed,
+                                    "generation_reuse_mode": generation_reuse_mode,
                                     "status": "ok" if executable else "skipped",
                                     "skip_reason": skip_reason,
                                 }
                                 if not executable:
                                     rows.append(metadata)
                                     continue
-                                completion = generate_with_residual_interventions(
-                                    model,
-                                    tokenizer,
-                                    adapter,
-                                    receiver,
-                                    interventions,
-                                    max_new_tokens=max_new_tokens,
-                                )
+                                if reuse_identity:
+                                    completion = _completion_from_generation_label(
+                                        receiver_label
+                                    )
+                                elif cache_hit:
+                                    completion = completion_cache[cache_key]
+                                else:
+                                    completion = generate_with_residual_interventions(
+                                        model,
+                                        tokenizer,
+                                        adapter,
+                                        receiver,
+                                        interventions,
+                                        max_new_tokens=max_new_tokens,
+                                    )
+                                    completion_cache[cache_key] = dict(completion)
+                                    if condition == "self_patch":
+                                        expected = _completion_from_generation_label(
+                                            receiver_label
+                                        )
+                                        observed_ids = [
+                                            int(value)
+                                            for value in completion[
+                                                "generated_token_ids"
+                                            ]
+                                        ]
+                                        if (
+                                            str(completion["completion_text"])
+                                            != expected["completion_text"]
+                                            or observed_ids
+                                            != expected["generated_token_ids"]
+                                        ):
+                                            raise RuntimeError(
+                                                "Self-patch identity preflight changed "
+                                                "the greedy completion: "
+                                                f"key={identity_key}"
+                                            )
                                 outcome = intervention_outcome(
                                     completion,
                                     receiver,

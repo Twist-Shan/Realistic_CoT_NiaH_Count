@@ -1143,6 +1143,11 @@ def _patching_stage(
         "layers": "all_decoder_layers",
         "prompt_full_span_alignment": design.prompt_full_span_alignment,
         "answer_multi_layer_protocol": design.answer_multi_layer_protocol,
+        "control_compute_reuse": {
+            "self_patch": "reuse_baseline_after_executed_identity_preflight",
+            "answer_same_count_seed": ("cache_by_receiver_source_site_protocol_layer"),
+            "logical_rows_preserved": True,
+        },
         "transport_metric_version": design.transport_metric_version,
         "invalid_policy": design.invalid_policy,
         "selection_json_sha256": selection_sha,
@@ -1160,6 +1165,34 @@ def _patching_stage(
     layers = (
         (0, adapter.num_layers - 1) if args.smoke else tuple(range(adapter.num_layers))
     )
+    identity_layers = tuple(
+        sorted({0, adapter.num_layers // 2, adapter.num_layers - 1})
+    )
+    identity_pair = max(
+        pairs,
+        key=lambda pair: (
+            abs(int(pair[1]) - int(pair[0])),
+            -int(pair[0]),
+            int(pair[1]),
+        ),
+    )
+    ordered_pairs = (identity_pair,) + tuple(
+        pair for pair in pairs if pair != identity_pair
+    )
+    identity_execution_filter = {
+        (
+            int(evaluation_seeds[0]),
+            int(identity_pair[0]),
+            int(identity_pair[1]),
+            str(site),
+            str(protocol),
+            int(layer),
+        )
+        for site in sites
+        for protocol in design.patch_protocols
+        for layer in identity_layers
+    }
+    shared_completion_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
     selected_counts = tuple(sorted({value for pair in pairs for value in pair}))
     rows = _select_rows(
         context["stimuli_path"], seeds=source_seeds, counts=selected_counts
@@ -1185,7 +1218,7 @@ def _patching_stage(
     capture_root = stage_root / "capture"
     index_rows: list[dict[str, Any]] = []
     for seed in evaluation_seeds:
-        for receiver_count, donor_count in pairs:
+        for receiver_count, donor_count in ordered_pairs:
             relative = (
                 Path("shards")
                 / f"seed{seed}"
@@ -1208,6 +1241,8 @@ def _patching_stage(
                     control_conditions=controls,
                     condition_filter=condition_filter,
                     evaluation_seeds=(seed,),
+                    shared_completion_cache=shared_completion_cache,
+                    identity_execution_filter=identity_execution_filter,
                     valid_counts=design.valid_counts,
                     max_new_tokens=int(args.generation_max_new_tokens),
                 )
@@ -1240,12 +1275,28 @@ def _patching_stage(
     _write_csv_gzip_atomic(detail, detail_path)
     summary_path = stage_root / "summary.csv"
     _write_csv_atomic(summarize_generation_residual_patching_v2(detail), summary_path)
+    compute_reuse_path = stage_root / "compute_reuse_summary.csv"
+    compute_reuse = (
+        detail.groupby(
+            ["condition", "generation_executed", "generation_reuse_mode"],
+            as_index=False,
+            dropna=False,
+        )
+        .agg(logical_rows=("stimulus_id", "size"))
+        .sort_values(["condition", "generation_executed", "generation_reuse_mode"])
+    )
+    _write_csv_atomic(compute_reuse, compute_reuse_path)
+    generation_executed = (
+        detail["generation_executed"].astype(str).str.lower().eq("true")
+    )
     _write_json_atomic(
         stage_root / "complete.json",
         {
             "status": "complete",
             "design_hash": design_hash,
             "rows": len(detail),
+            "executed_generation_rows": int(generation_executed.sum()),
+            "reused_logical_rows": int((~generation_executed).sum()),
             "successful_rows": int(detail["status"].astype(str).eq("ok").sum()),
             "skipped_rows": int(detail["status"].astype(str).ne("ok").sum()),
         },
@@ -1254,7 +1305,9 @@ def _patching_stage(
         "stage_root": str(stage_root),
         "detail": str(detail_path),
         "summary": str(summary_path),
+        "compute_reuse_summary": str(compute_reuse_path),
         "rows": len(detail),
+        "executed_generation_rows": int(generation_executed.sum()),
     }
 
 

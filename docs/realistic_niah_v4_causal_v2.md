@@ -250,6 +250,37 @@ conditions pass the frozen screen. This is substantially larger than the old
 8-hour causal screen; the launcher is restartable at one seed/pair or
 seed/count shard and never overwrites completed hash-matched shards.
 
+### Logical rows versus executed 10k-token generations
+
+The table above is the inferential table size, not the number of distinct GPU
+prefills. Causal-v2 preserves every logical control row but does not recompute
+mathematically identical controls:
+
+- `self_patch` replaces a receiver state with the same receiver state. The
+  runner executes this hook at early, middle, and final sentinel layers for
+  every site/protocol on one maximum-k pair. It aborts if any greedy token
+  differs from the registered baseline. After that identity preflight, the
+  remaining dense self rows reuse the exact registered baseline completion.
+- At `answer_query`, a `same_count_seed` intervention is determined by
+  receiver prompt, same-count source prompt, protocol, and layer. It does not
+  depend on the nominal donor or k. The runner executes each such intervention
+  once, caches the completion, and recomputes the pair-specific normalized
+  transport after reuse. Counting repeated donor labels as new GPU trials
+  would be pseudoreplication.
+- Donor-transport rows are never synthesized or dropped: every registered
+  seed, direction, anchor, k, layer, site, and protocol still receives its own
+  real intervention generation.
+
+Consequently, prompt patching executes `600D` donor generations per model
+rather than `1,200D` GPU generations. Answer patching executes `300D` donor
+generations plus at most `110D` unique same-count controls, rather than `900D`.
+The logical detail tables retain their original `1,200D` and `900D` sizes and
+record `generation_executed` plus `generation_reuse_mode` for every row. On the
+same A100-SXM4-80GB used by the earlier V4 runs, the measured-throughput
+estimate falls from about 79 raw GPU-hours to about 44 raw GPU-hours before
+confirmation; model loading, captures, I/O, and auditing give a practical
+budget of approximately 48--55 hours on one GPU.
+
 ## Run, analyze, and audit
 
 The one-command formal launcher takes an existing V4 run root, the GPU Python,
