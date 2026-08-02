@@ -1,5 +1,11 @@
 # Realistic NIAH V4 causal screen
 
+For the panel-restricted synthesis requested after establishing cross-panel
+needle-end robustness, use the standalone
+[V4.4 mechanism report](../reports/realistic_niah_v4_4_mechanism_report.html)
+and its [comparison audit](realistic_niah_v4_4_mechanism_report.md). The note
+below remains the full four-panel campaign record and primary pooled audit.
+
 This note records the completed `screen_8h_v1` causal campaign and the
 `answer_query_dense_v1` follow-up for
 `run_20260731_v4_numeric_presentation_v3`. Both retained both models, all four

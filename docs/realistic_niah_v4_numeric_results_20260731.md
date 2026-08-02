@@ -9,6 +9,12 @@ intervention estimands, seed-cluster intervals, matched controls, and audit
 results are in
 [`realistic_niah_v4_causal_screen_20260801.md`](realistic_niah_v4_causal_screen_20260801.md).
 
+After the cross-panel needle-end robustness check, the focused synthesis fixes
+the panel to V4.4. Its standalone interactive report is
+[`realistic_niah_v4_4_mechanism_report.html`](../reports/realistic_niah_v4_4_mechanism_report.html),
+with an explicit treatment/control inventory and V4.4-only estimates in
+[`realistic_niah_v4_4_mechanism_report.md`](realistic_niah_v4_4_mechanism_report.md).
+
 ## Registered design
 
 - Models: `Qwen3-8B` and `Gemma4-E4B`.

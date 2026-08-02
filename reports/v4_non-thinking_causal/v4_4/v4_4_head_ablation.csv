@@ -1,0 +1,5 @@
+model,top_n,prompts,baseline_correct,ranked_changed,random_changed,changed_difference,changed_difference_low,changed_difference_high,ranked_count_shift,random_count_shift,count_shift_difference,count_shift_difference_low,count_shift_difference_high,count_shift_p_raw,error_difference,error_difference_low,error_difference_high,count_shift_p_holm
+Qwen3-8B,4,40,1,0.075,0.175,-0.1,-0.25,0.05,-0.15,0.275,-0.425,-0.575,-0.275,0.0078125,0.375,0.2,0.55,0.015625
+Qwen3-8B,8,40,1,0.125,0.125,0.0,-0.075,0.075,-0.2,-0.225,0.025,-0.075,0.15,1.0,-0.025,-0.15,0.075,1.0
+Gemma4-E4B,4,40,0,0.925,0.75,0.175,0.025,0.3,-1.275,0.75,-2.025,-2.275,-1.775,0.001953125,2.025,1.775,2.275,0.0078125
+Gemma4-E4B,8,40,0,1.0,0.65,0.35,0.2,0.5,-1.975,0.65,-2.625,-2.925,-2.3,0.001953125,2.625,2.3,2.925,0.0078125

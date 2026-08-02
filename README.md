@@ -20,12 +20,14 @@ attention, and causal interventions. V3 remains behavior-only.
 
 The completed V4 result separates where count information is visible from
 what generation actually uses. A discovery-ranked mixed span-end head bank
-has a necessary contribution to preserving count magnitude; one needle-end
-state is not sufficient for count
-transport; late answer-query geometry is steerable; and exact answer-query
-residual patching transfers the donor model prediction on 100% of eligible
-Qwen final-layer rows and 99.58% of Gemma rows when strict-invalid outputs are
-conservatively counted as failures.
+can causally change count magnitude relative to a layer-matched random bank;
+this is a bank-level result and, on the V4.4 Gemma high-count slice, is not a
+necessity-for-correctness result because the clean baseline is already wrong.
+One needle-end state is not sufficient for count transport; late answer-query
+geometry is steerable; and exact answer-query residual patching transfers the
+donor model prediction at the final layer. The V4.4-only estimates, exact
+treatment/control definitions, and inference limits are collected in the
+standalone [V4.4 mechanism report](reports/realistic_niah_v4_4_mechanism_report.html).
 The new all-layer audit locates the answer-query display manifolds at Qwen L29
 and Gemma L37 and shows that their count-centroid geometry is stable under a
 correct-only PCA sensitivity fit. Prompt and answer states have similar global
@@ -52,6 +54,7 @@ Remote: <https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git>
 | Run the Realistic NIAH V4 mechanism study | `scripts/freeze_realistic_niah_v4.py`, `scripts/run_realistic_niah_v4.py` | [`docs/realistic_niah_v4.md`](docs/realistic_niah_v4.md) |
 | Inspect the completed V4 numeric non-thinking run | `run_20260731_v4_numeric_presentation_v3` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md) |
 | Open or rebuild the V4 representation + causal report | [`reports/realistic_niah_v4_representation_report.html`](reports/realistic_niah_v4_representation_report.html), `scripts/build_realistic_niah_v4_representation_report.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md`](docs/realistic_niah_v4_causal_screen_20260801.md) |
+| Read or rebuild the V4.4-only mechanism report | [`reports/realistic_niah_v4_4_mechanism_report.html`](reports/realistic_niah_v4_4_mechanism_report.html), `scripts/build_realistic_niah_v4_4_report.py` | [`docs/realistic_niah_v4_4_mechanism_report.md`](docs/realistic_niah_v4_4_mechanism_report.md) |
 | Audit the completed V4 causal screen | `scripts/audit_realistic_niah_v4_causal.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md#screen-design-and-completion-audit`](docs/realistic_niah_v4_causal_screen_20260801.md#screen-design-and-completion-audit) |
 | Audit and analyze exact answer-query transport | `scripts/analyze_realistic_niah_v4_answer_query_patching.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md#3-late-answer-query-state-transports-the-computed-prediction`](docs/realistic_niah_v4_causal_screen_20260801.md#3-late-answer-query-state-transports-the-computed-prediction) |
 | Analyze all Qwen span-end candidates and multi-head coverage | `scripts/analyze_realistic_niah_v4_partitioning.py` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md#qwen-span-end-full-candidate-bank-and-positional-partitioning) |
@@ -274,6 +277,22 @@ PYTHONPATH=src python scripts/build_realistic_niah_v4_representation_report.py \
   --output reports/realistic_niah_v4_representation_report.html \
   --repo-root .
 ```
+
+After the cross-panel needle-end robustness check, build the focused V4.4
+report and its five machine-readable causal tables with:
+
+```bash
+PYTHONPATH=scripts:src python scripts/build_realistic_niah_v4_4_report.py \
+  --run-root /path/to/run_20260731_v4_numeric_presentation_v3 \
+  --output reports/realistic_niah_v4_4_mechanism_report.html \
+  --repo-root .
+```
+
+This report keeps the V4.1-discovery PCA coordinates frozen but filters every
+displayed state and every re-aggregated causal estimate to V4.4. The exact
+ranked-vs-random ablation, donor-vs-clean residual patch, and
+centroid-direction-vs-norm-matched-random comparisons are documented in
+[`docs/realistic_niah_v4_4_mechanism_report.md`](docs/realistic_niah_v4_4_mechanism_report.md).
 
 For a completed run whose original analysis predates literal full-span mass,
 derive `span_sum` from the saved raw answer-query rows without rerunning either
