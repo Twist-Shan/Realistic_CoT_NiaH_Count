@@ -12,7 +12,10 @@ import pandas as pd
 
 from .attention import Head, matched_random_heads
 from .behavior import label_generated_completion
-from .causal_v2 import normalized_transport_metrics
+from .causal_v2 import (
+    CAUSAL_V2_FULL_SPAN_ALIGNMENT_POLICY,
+    normalized_transport_metrics,
+)
 from .modeling import (
     DecoderAdapter,
     capture_post_block_states,
@@ -1168,6 +1171,67 @@ def _causal_v2_semantic_positions(
     return tuple(positions), slices
 
 
+def causal_v2_monotonic_span_source_indices(
+    receiver_length: int,
+    source_length: int,
+) -> tuple[int, ...]:
+    """Map every receiver span token to one complete source-token state.
+
+    For non-degenerate spans, receiver index ``j`` maps to the nearest source
+    index at the same normalized position.  Integer arithmetic implements
+    deterministic round-half-up behavior, preserves both endpoints, and
+    reduces exactly to the identity map when the two lengths agree.  No
+    hidden-state interpolation or averaging is performed.
+    """
+
+    receiver_length = int(receiver_length)
+    source_length = int(source_length)
+    if receiver_length <= 0 or source_length <= 0:
+        raise ValueError("Causal-v2 span lengths must both be positive")
+    if receiver_length == 1:
+        return ((source_length - 1) // 2,)
+    if source_length == 1:
+        return (0,) * receiver_length
+    denominator = 2 * (receiver_length - 1)
+    return tuple(
+        (2 * receiver_index * (source_length - 1) + (receiver_length - 1))
+        // denominator
+        for receiver_index in range(receiver_length)
+    )
+
+
+def _causal_v2_span_mapping_diagnostics(
+    receiver_length: int,
+    source_length: int,
+) -> dict[str, Any]:
+    receiver_length = int(receiver_length)
+    source_length = int(source_length)
+    source_indices = causal_v2_monotonic_span_source_indices(
+        receiver_length,
+        source_length,
+    )
+    distinct_source_tokens = len(set(source_indices))
+    if receiver_length == 1 or source_length == 1:
+        max_normalized_position_error = 0.0
+    else:
+        max_normalized_position_error = max(
+            abs(
+                source_index / (source_length - 1)
+                - receiver_index / (receiver_length - 1)
+            )
+            for receiver_index, source_index in enumerate(source_indices)
+        )
+    return {
+        "mapping_supported": True,
+        "source_index_map": json.dumps(list(source_indices)),
+        "mapped_receiver_token_count": receiver_length,
+        "distinct_source_token_count": distinct_source_tokens,
+        "source_tokens_dropped": source_length - distinct_source_tokens,
+        "source_tokens_reused": receiver_length - distinct_source_tokens,
+        "max_normalized_position_error": float(max_normalized_position_error),
+    }
+
+
 def _causal_v2_patch_payload(
     *,
     site: str,
@@ -1176,7 +1240,12 @@ def _causal_v2_patch_payload(
     receiver: PromptEncoding,
     source: PromptEncoding,
     slot_indices: Sequence[int],
+    alignment_policy: str = CAUSAL_V2_FULL_SPAN_ALIGNMENT_POLICY,
 ) -> tuple[tuple[int, ...], Any, bool, str]:
+    if alignment_policy != CAUSAL_V2_FULL_SPAN_ALIGNMENT_POLICY:
+        raise ValueError(
+            f"Unknown causal-v2 full-span alignment policy: {alignment_policy}"
+        )
     if site == "answer_query":
         return (int(receiver.query_position),), layer_states[0:1], True, ""
     receiver_spans = {int(span.slot_index): span for span in receiver.slot_spans}
@@ -1197,12 +1266,14 @@ def _causal_v2_patch_payload(
             continue
         if site != "toggled_needle_span":
             raise ValueError(f"Unknown causal-v2 patch site: {site}")
-        if int(receiver_span.model_token_length) != int(source_span.model_token_length):
-            return (), source_state, False, f"slot_{slot}_model_token_length_mismatch"
+        source_indices = causal_v2_monotonic_span_source_indices(
+            int(receiver_span.model_token_length),
+            int(source_span.model_token_length),
+        )
         receiver_positions.extend(
             range(int(receiver_span.start), int(receiver_span.end))
         )
-        source_rows.append(source_state)
+        source_rows.append(source_state[list(source_indices)])
     if not source_rows:
         raise RuntimeError("Causal-v2 prompt patch selected no slot states")
     import torch
@@ -1238,8 +1309,14 @@ def causal_v2_prompt_span_alignment_table(
     *,
     count_pairs: Sequence[tuple[int, int]],
     evaluation_seeds: Sequence[int],
+    alignment_policy: str = CAUSAL_V2_FULL_SPAN_ALIGNMENT_POLICY,
 ) -> pd.DataFrame:
-    """Preflight exact donor/receiver model-token alignment for full-span patches."""
+    """Preflight and record the registered donor-to-receiver span mapping."""
+
+    if alignment_policy != CAUSAL_V2_FULL_SPAN_ALIGNMENT_POLICY:
+        raise ValueError(
+            f"Unknown causal-v2 full-span alignment policy: {alignment_policy}"
+        )
 
     by_key = _encoding_map(encodings)
     rows: list[dict[str, Any]] = []
@@ -1261,6 +1338,10 @@ def causal_v2_prompt_span_alignment_table(
             for slot in range(lower + 1, upper + 1):
                 receiver_length = int(receiver_spans[slot].model_token_length)
                 donor_length = int(donor_spans[slot].model_token_length)
+                diagnostics = _causal_v2_span_mapping_diagnostics(
+                    receiver_length,
+                    donor_length,
+                )
                 rows.append(
                     {
                         "model_label": receiver.model_label,
@@ -1271,9 +1352,14 @@ def causal_v2_prompt_span_alignment_table(
                         "slot_index": int(slot),
                         "receiver_model_token_length": receiver_length,
                         "donor_model_token_length": donor_length,
+                        "absolute_model_token_length_delta": abs(
+                            receiver_length - donor_length
+                        ),
                         "exact_model_token_alignment": bool(
                             receiver_length == donor_length
                         ),
+                        "alignment_policy": alignment_policy,
+                        **diagnostics,
                     }
                 )
     if not rows:
@@ -1307,16 +1393,24 @@ def run_generation_residual_patching_v2(
     identity_execution_filter: set[tuple[int, int, int, str, str, int]] | None = None,
     valid_counts: Sequence[int] = tuple(range(0, 11)),
     max_new_tokens: int = 16,
+    full_span_alignment_policy: str = CAUSAL_V2_FULL_SPAN_ALIGNMENT_POLICY,
 ) -> pd.DataFrame:
     """Run V4.4 multi-slot +/-k prompt or answer-query residual transport.
 
     A pair that differs by ``k`` patches all ``k`` nested slots that change
-    activation status.  Full-span interventions replace every aligned token;
-    endpoint interventions replace one final token per changed slot.  Both
-    sites support a one-layer replacement and the registered L-to-final
-    cumulative clamp.  The answer-query site patches only the final ``Total:``
-    prompt position.
+    activation status.  Full-span interventions replace every receiver token
+    with one complete donor-token vector under the registered monotonic
+    endpoint-preserving map; endpoint interventions replace one final token
+    per changed slot.  Both sites support a one-layer replacement and the
+    registered L-to-final cumulative clamp.  The answer-query site patches
+    only the final ``Total:`` prompt position.
     """
+
+    if full_span_alignment_policy != CAUSAL_V2_FULL_SPAN_ALIGNMENT_POLICY:
+        raise ValueError(
+            "Unknown causal-v2 full-span alignment policy: "
+            f"{full_span_alignment_policy}"
+        )
 
     requested_sites = tuple(str(site) for site in sites)
     if not requested_sites or any(
@@ -1498,6 +1592,9 @@ def run_generation_residual_patching_v2(
                                                 receiver=receiver,
                                                 source=state_source,
                                                 slot_indices=slot_indices,
+                                                alignment_policy=(
+                                                    full_span_alignment_policy
+                                                ),
                                             )
                                         )
                                         if not ok:
@@ -1559,6 +1656,9 @@ def run_generation_residual_patching_v2(
                                         list(slot_indices)
                                     ),
                                     "changed_slot_count": len(slot_indices),
+                                    "full_span_alignment_policy": (
+                                        full_span_alignment_policy
+                                    ),
                                     "generation_executed": generation_executed,
                                     "generation_reuse_mode": generation_reuse_mode,
                                     "status": "ok" if executable else "skipped",

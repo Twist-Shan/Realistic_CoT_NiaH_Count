@@ -10,6 +10,7 @@ from typing import Any, Mapping, Sequence
 
 import pandas as pd
 
+from .causal_generation import causal_v2_monotonic_span_source_indices
 from .causal_v2 import CausalV2Design, normalized_transport_metrics
 
 
@@ -244,6 +245,122 @@ def _audit_baseline(root: Path, design: CausalV2Design, audit: AuditCollector) -
     )
 
 
+def _audit_full_span_mapping_table(
+    frame: pd.DataFrame,
+    design: CausalV2Design,
+    audit: AuditCollector,
+    label: str,
+) -> None:
+    required_columns = {
+        "seed",
+        "receiver_count",
+        "donor_count",
+        "k",
+        "slot_index",
+        "receiver_model_token_length",
+        "donor_model_token_length",
+        "absolute_model_token_length_delta",
+        "exact_model_token_alignment",
+        "alignment_policy",
+        "mapping_supported",
+        "source_index_map",
+        "mapped_receiver_token_count",
+        "distinct_source_token_count",
+        "source_tokens_dropped",
+        "source_tokens_reused",
+        "max_normalized_position_error",
+    }
+    missing = sorted(required_columns - set(frame.columns))
+    audit.require(
+        f"{label}.schema",
+        not missing,
+        f"missing={missing}",
+    )
+    if missing:
+        return
+    policies = set(frame["alignment_policy"].astype(str))
+    audit.require(
+        f"{label}.registered_policy",
+        policies == {design.prompt_full_span_alignment},
+        str(sorted(policies)),
+    )
+    try:
+        supported = _as_bool(frame["mapping_supported"])
+    except ValueError as error:
+        audit.require(f"{label}.all_changed_slots_supported", False, str(error))
+        supported = pd.Series(False, index=frame.index)
+    else:
+        audit.require(
+            f"{label}.all_changed_slots_supported",
+            bool(supported.all()),
+            f"unsupported={int((~supported).sum())}",
+        )
+    try:
+        exact = _as_bool(frame["exact_model_token_alignment"])
+    except ValueError as error:
+        exact_parse_error = str(error)
+        exact = pd.Series(False, index=frame.index)
+    else:
+        exact_parse_error = ""
+    diagnostic_mismatches: list[int] = []
+    exact_mismatches: list[int] = []
+    for index, row in frame.iterrows():
+        try:
+            receiver_length = int(row["receiver_model_token_length"])
+            source_length = int(row["donor_model_token_length"])
+            source_indices = causal_v2_monotonic_span_source_indices(
+                receiver_length,
+                source_length,
+            )
+            distinct = len(set(source_indices))
+            if receiver_length == 1 or source_length == 1:
+                expected_error = 0.0
+            else:
+                expected_error = max(
+                    abs(
+                        source_index / (source_length - 1)
+                        - receiver_index / (receiver_length - 1)
+                    )
+                    for receiver_index, source_index in enumerate(source_indices)
+                )
+            observed_map = tuple(
+                int(value) for value in json.loads(str(row["source_index_map"]))
+            )
+            diagnostics_match = (
+                observed_map == source_indices
+                and int(row["absolute_model_token_length_delta"])
+                == abs(receiver_length - source_length)
+                and int(row["mapped_receiver_token_count"]) == receiver_length
+                and int(row["distinct_source_token_count"]) == distinct
+                and int(row["source_tokens_dropped"]) == source_length - distinct
+                and int(row["source_tokens_reused"]) == receiver_length - distinct
+                and math.isclose(
+                    float(row["max_normalized_position_error"]),
+                    float(expected_error),
+                    rel_tol=1e-12,
+                    abs_tol=1e-12,
+                )
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            diagnostics_match = False
+            receiver_length = -1
+            source_length = -2
+        if not diagnostics_match:
+            diagnostic_mismatches.append(int(index))
+        if bool(exact.loc[index]) != bool(receiver_length == source_length):
+            exact_mismatches.append(int(index))
+    audit.require(
+        f"{label}.mapping_diagnostics_recomputed",
+        not diagnostic_mismatches,
+        f"mismatch_rows={diagnostic_mismatches[:10]}",
+    )
+    audit.require(
+        f"{label}.exact_flag_recomputed",
+        not exact_parse_error and not exact_mismatches,
+        exact_parse_error or f"mismatch_rows={exact_mismatches[:10]}",
+    )
+
+
 def _audit_prompt_alignment(
     root: Path, design: CausalV2Design, audit: AuditCollector
 ) -> None:
@@ -252,6 +369,10 @@ def _audit_prompt_alignment(
     if not path.is_file():
         return
     frame = pd.read_csv(path)
+    _audit_full_span_mapping_table(frame, design, audit, "prompt_alignment")
+    grid_columns = {"seed", "receiver_count", "donor_count"}
+    if not grid_columns.issubset(frame.columns):
+        return
     expected_rows = (len(design.screen_seeds) + len(design.confirmation_seeds)) * sum(
         2 * 3 * int(k) for k in design.k_values
     )
@@ -276,12 +397,6 @@ def _audit_prompt_alignment(
         "prompt_alignment.all_directed_pairs",
         observed_pairs == set(design.directed_pairs),
         f"pairs={sorted(observed_pairs)}",
-    )
-    exact = _as_bool(frame["exact_model_token_alignment"])
-    audit.require(
-        "prompt_alignment.all_changed_slots_exact",
-        bool(exact.all()),
-        f"mismatches={int((~exact).sum())}",
     )
 
 
@@ -636,48 +751,39 @@ def _audit_patching(
         )
         if alignment_path.is_file():
             alignment = pd.read_csv(alignment_path)
-            required_columns = {
-                "seed",
-                "receiver_count",
-                "donor_count",
-                "k",
-                "slot_index",
-                "receiver_model_token_length",
-                "donor_model_token_length",
-                "exact_model_token_alignment",
-            }
-            audit.require(
-                f"{label}.full_span_alignment_schema",
-                required_columns.issubset(alignment.columns),
-                str(sorted(alignment.columns)),
-            )
             audit.require(
                 f"{label}.full_span_alignment_nonempty",
                 not alignment.empty,
                 f"rows={len(alignment)}",
             )
-            aligned = (
-                alignment["exact_model_token_alignment"]
-                .astype(str)
-                .str.lower()
-                .map({"true": True, "false": False})
-            )
-            audit.require(
-                f"{label}.full_span_alignment_exact",
-                bool(aligned.notna().all() and aligned.all()),
-                f"mismatches={int((aligned != True).sum())}",  # noqa: E712
+            _audit_full_span_mapping_table(
+                alignment,
+                design,
+                audit,
+                f"{label}.full_span_alignment",
             )
     path = root / "detail.csv.gz"
     audit.require(f"{label}.detail_exists", path.is_file(), str(path))
     if not path.is_file():
         return
     frame = pd.read_csv(path, compression="gzip")
-    reuse_columns = {"generation_executed", "generation_reuse_mode"}
+    reuse_columns = {
+        "generation_executed",
+        "generation_reuse_mode",
+        "full_span_alignment_policy",
+    }
     audit.require(
         f"{label}.compute_reuse_schema",
         reuse_columns.issubset(frame.columns),
         str(sorted(frame.columns)),
     )
+    if "full_span_alignment_policy" in frame.columns:
+        observed_policies = set(frame["full_span_alignment_policy"].astype(str))
+        audit.require(
+            f"{label}.registered_full_span_alignment_policy",
+            observed_policies == {design.prompt_full_span_alignment},
+            str(sorted(observed_policies)),
+        )
     reuse_summary_path = root / "compute_reuse_summary.csv"
     audit.require(
         f"{label}.compute_reuse_summary_exists",

@@ -157,17 +157,31 @@ For an `r→t` nested pair, the changed slots are exactly
 - `toggled_needle_end`: copy the last model-token residual of each changed
   slot to the corresponding receiver endpoint.
 - `toggled_needle_span`: copy every token-state vector in every changed slot
-  to the corresponding receiver token, mapping the j-th donor model token in
-  a slot to the j-th receiver model token in that slot. This is a coordinated
-  multi-token patch, not `mean(span)`.
+  to the corresponding receiver span under the frozen mapping below. This is
+  a coordinated multi-token patch, not `mean(span)`.
 
-The full-span definition requires exact source/receiver length equality under
-the evaluated model tokenizer. A mismatch is recorded with its slot and the
-formal stage fails rather than dropping that condition or inventing an
-unregistered interpolation. This preflight matters because V4 length matching
-was frozen under the canonical tokenizer. The launcher performs this
-tokenizer-only check for all ten screen/confirmation seeds and all 18 directed
-pairs for each model before baseline extension or intervention generation.
+Let a receiver span contain R model tokens and its donor span contain S model
+tokens. For R,S>1, receiver position j receives the complete donor vector at
+
+```text
+a(j) = floor((2 j (S - 1) + (R - 1)) / (2 (R - 1))),  j=0,...,R-1.
+```
+
+This is nearest-neighbor matching in normalized within-span position with
+deterministic round-half-up ties. It is monotone, preserves the first and last
+token, and is exactly the identity map when R=S. If R=1, the sole receiver
+token takes the donor midpoint; if S=1, that sole donor vector is reused at
+all receiver positions. No vectors are averaged, interpolated, or mixed. When
+S>R, some interior donor vectors can be dropped; when R>S, some donor vectors
+can be reused. These counts, the explicit source-index map, the absolute
+length difference, and maximum normalized-position error are stored per slot.
+
+The tokenizer-only preflight covers all ten screen/confirmation seeds and all
+18 directed pairs for each model before baseline extension or intervention
+generation. It separately reports exact rows and remapped rows and fails only
+if a registered mapping is unsupported. Thus Qwen's equal-length spans reduce
+to the original positionwise copy, while Gemma's small tokenizer-dependent
+length differences remain visible rather than being silently dropped.
 
 Both sites have:
 
@@ -329,6 +343,6 @@ PYTHONPATH=src python scripts/audit_realistic_niah_v4_causal_v2.py \
 It checks unique formal design roots, design and implementation hashes, shard
 checksums, exact count/pair/seed grids, answer-query-only ablation, top-1…32
 coverage, random layer matching, all decoder layers, k changed slots,
-single/cumulative semantics, exact model-token full-span alignment, strict
+single/cumulative semantics, registered full-span mapping diagnostics, strict
 numeric metrics, selection hashes, and the five held-out seeds for every
 selected condition.

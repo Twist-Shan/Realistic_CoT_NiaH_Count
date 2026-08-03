@@ -11,10 +11,12 @@ from realistic_niah_v4.causal_generation import (
     _causal_v2_completion_cache_key,
     _causal_v2_patch_payload,
     _completion_from_generation_label,
+    causal_v2_monotonic_span_source_indices,
     causal_v2_prompt_span_alignment_table,
     run_generation_residual_patching_v2,
 )
 from realistic_niah_v4.causal_v2 import (
+    CAUSAL_V2_FULL_SPAN_ALIGNMENT_POLICY,
     CausalV2Design,
     _exact_sign_flip_p,
     confirmation_statistics,
@@ -93,7 +95,7 @@ def test_causal_v2_json_registry_matches_typed_defaults() -> None:
     assert configured == CausalV2Design()
     assert configured.ablation_scope == "answer_query"
     assert configured.ablation_top_ns == tuple(range(1, 33))
-    assert configured.prompt_full_span_alignment == "exact_model_token_length_required"
+    assert configured.prompt_full_span_alignment == CAUSAL_V2_FULL_SPAN_ALIGNMENT_POLICY
     assert configured.answer_multi_layer_protocol == "cumulative_clamp_L_to_final"
 
 
@@ -279,6 +281,39 @@ def test_multi_slot_patch_payload_uses_every_endpoint_or_full_span_token() -> No
     assert torch.equal(span_states, states[1:])
 
 
+def test_monotonic_full_span_map_is_endpoint_preserving_and_identity_when_equal() -> (
+    None
+):
+    assert causal_v2_monotonic_span_source_indices(4, 4) == (0, 1, 2, 3)
+    assert causal_v2_monotonic_span_source_indices(3, 4) == (0, 2, 3)
+    assert causal_v2_monotonic_span_source_indices(4, 3) == (0, 1, 1, 2)
+    with pytest.raises(ValueError, match="must both be positive"):
+        causal_v2_monotonic_span_source_indices(0, 3)
+
+
+def test_full_span_patch_maps_unequal_token_lengths_without_state_averaging() -> None:
+    receiver = _encoding(stimulus_id="receiver", count=0)
+    source = _encoding(
+        stimulus_id="source",
+        count=1,
+        spans=((1, 4), (4, 6)),
+    )
+    # Captured rows are query followed by the three complete slot-1 vectors.
+    states = torch.arange(12, dtype=torch.float32).reshape(4, 3)
+    positions, patched_states, ok, reason = _causal_v2_patch_payload(
+        site="toggled_needle_span",
+        layer_states=states,
+        state_slices={1: (1, 4)},
+        receiver=receiver,
+        source=source,
+        slot_indices=(1,),
+    )
+    assert ok and not reason
+    assert positions == (1, 2)
+    # Receiver endpoints take donor endpoints; no vector is interpolated.
+    assert torch.equal(patched_states, states[[1, 3]])
+
+
 def test_prompt_full_span_alignment_preflight_reports_each_changed_slot() -> None:
     receiver = _encoding(stimulus_id="receiver", count=0)
     donor = _encoding(stimulus_id="donor", count=2)
@@ -289,6 +324,8 @@ def test_prompt_full_span_alignment_preflight_reports_each_changed_slot() -> Non
     )
     assert aligned["slot_index"].tolist() == [1, 2]
     assert aligned["exact_model_token_alignment"].all()
+    assert aligned["mapping_supported"].all()
+    assert set(aligned["alignment_policy"]) == {CAUSAL_V2_FULL_SPAN_ALIGNMENT_POLICY}
 
     mismatched_donor = _encoding(
         stimulus_id="mismatched-donor",
@@ -301,6 +338,9 @@ def test_prompt_full_span_alignment_preflight_reports_each_changed_slot() -> Non
         evaluation_seeds=(1254,),
     )
     assert mismatched["exact_model_token_alignment"].tolist() == [False, True]
+    assert mismatched["mapping_supported"].tolist() == [True, True]
+    assert json.loads(mismatched.loc[0, "source_index_map"]) == [0, 2]
+    assert mismatched.loc[0, "source_tokens_dropped"] == 1
 
 
 def test_baseline_completion_payload_is_recoverable_for_identity_reuse() -> None:

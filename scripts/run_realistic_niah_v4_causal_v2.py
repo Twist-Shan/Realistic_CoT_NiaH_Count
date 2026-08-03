@@ -900,32 +900,41 @@ def _prompt_alignment_stage(
         encodings,
         count_pairs=pairs,
         evaluation_seeds=evaluation_seeds,
+        alignment_policy=design.prompt_full_span_alignment,
     )
     alignment_path = stage_root / "prompt_full_span_alignment.csv"
     _write_csv_atomic(alignment, alignment_path)
-    mismatched = alignment[~alignment["exact_model_token_alignment"].astype(bool)]
-    if mismatched.empty:
+    unsupported = alignment[~alignment["mapping_supported"].astype(bool)]
+    exact = alignment["exact_model_token_alignment"].astype(bool)
+    if unsupported.empty:
         _write_json_atomic(
             stage_root / "complete.json",
             {
                 "status": "complete",
                 "design_hash": design_hash,
                 "rows": int(len(alignment)),
-                "mismatched_rows": 0,
+                "exact_rows": int(exact.sum()),
+                "remapped_rows": int((~exact).sum()),
+                "unsupported_rows": 0,
+                "max_absolute_model_token_length_delta": int(
+                    alignment["absolute_model_token_length_delta"].max()
+                ),
+                "alignment_policy": design.prompt_full_span_alignment,
             },
         )
     else:
-        examples = mismatched.head(20).to_dict(orient="records")
+        examples = unsupported.head(20).to_dict(orient="records")
         raise RuntimeError(
-            f"{args.model} cannot execute the registered positionwise full-span "
-            f"patch: {len(mismatched)} changed slots have unequal tokenizer "
-            f"lengths; examples={examples}"
+            f"{args.model} cannot execute the registered full-span mapping: "
+            f"{len(unsupported)} changed slots are unsupported; examples={examples}"
         )
     return {
         "stage_root": str(stage_root),
         "alignment": str(alignment_path),
         "rows": int(len(alignment)),
-        "mismatched_rows": 0,
+        "exact_rows": int(exact.sum()),
+        "remapped_rows": int((~exact).sum()),
+        "unsupported_rows": 0,
     }
 
 
@@ -1234,15 +1243,16 @@ def _patching_stage(
             encodings,
             count_pairs=pairs,
             evaluation_seeds=evaluation_seeds,
+            alignment_policy=design.prompt_full_span_alignment,
         )
         alignment_path = stage_root / "prompt_full_span_alignment.csv"
         _write_csv_atomic(alignment, alignment_path)
-        mismatched = alignment[~alignment["exact_model_token_alignment"].astype(bool)]
-        if not args.smoke and not mismatched.empty:
-            examples = mismatched.head(20).to_dict(orient="records")
+        unsupported = alignment[~alignment["mapping_supported"].astype(bool)]
+        if not args.smoke and not unsupported.empty:
+            examples = unsupported.head(20).to_dict(orient="records")
             raise RuntimeError(
-                "Formal full-span prompt patching requires exact model-token "
-                f"alignment; mismatches={len(mismatched)}, examples={examples}"
+                "Formal full-span prompt patching found unsupported token-span "
+                f"mappings; unsupported={len(unsupported)}, examples={examples}"
             )
     capture_root = stage_root / "capture"
     index_rows: list[dict[str, Any]] = []
@@ -1274,6 +1284,7 @@ def _patching_stage(
                     identity_execution_filter=identity_execution_filter,
                     valid_counts=design.valid_counts,
                     max_new_tokens=int(args.generation_max_new_tokens),
+                    full_span_alignment_policy=(design.prompt_full_span_alignment),
                 )
                 frame["phase"] = phase
                 frame["behavior_metric"] = stage_design["behavior_metric"]

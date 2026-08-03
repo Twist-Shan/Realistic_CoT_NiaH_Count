@@ -13,8 +13,11 @@ import pandas as pd
 from .attention import Head
 
 
-CAUSAL_V2_SCHEMA_VERSION = "realistic_niah_v4_causal_v2_design_v1"
+CAUSAL_V2_SCHEMA_VERSION = "realistic_niah_v4_causal_v2_design_v2"
 CAUSAL_V2_VARIANT = "v4.4"
+CAUSAL_V2_FULL_SPAN_ALIGNMENT_POLICY = (
+    "monotonic_endpoint_preserving_nearest_neighbor_v1"
+)
 CAUSAL_V2_VALID_COUNTS = tuple(range(0, 11))
 CAUSAL_V2_K_VALUES = (1, 3, 5)
 CAUSAL_V2_CANONICAL_PAIRS = (
@@ -81,7 +84,7 @@ class CausalV2Design:
     )
     patch_sites: tuple[str, ...] = CAUSAL_V2_PATCH_SITES
     patch_protocols: tuple[str, ...] = CAUSAL_V2_PATCH_PROTOCOLS
-    prompt_full_span_alignment: str = "exact_model_token_length_required"
+    prompt_full_span_alignment: str = CAUSAL_V2_FULL_SPAN_ALIGNMENT_POLICY
     answer_multi_layer_protocol: str = "cumulative_clamp_L_to_final"
     transport_metric_version: str = (
         "signed_baseline_output_shift_over_semantic_target_shift_v1"
@@ -163,7 +166,7 @@ class CausalV2Design:
             raise ValueError("Causal-v2 patch sites are not the frozen registry")
         if self.patch_protocols != CAUSAL_V2_PATCH_PROTOCOLS:
             raise ValueError("Causal-v2 patch protocols are not the frozen registry")
-        if self.prompt_full_span_alignment != "exact_model_token_length_required":
+        if self.prompt_full_span_alignment != CAUSAL_V2_FULL_SPAN_ALIGNMENT_POLICY:
             raise ValueError("Unexpected prompt full-span alignment policy")
         if self.answer_multi_layer_protocol != "cumulative_clamp_L_to_final":
             raise ValueError("Unexpected answer multi-layer patch definition")

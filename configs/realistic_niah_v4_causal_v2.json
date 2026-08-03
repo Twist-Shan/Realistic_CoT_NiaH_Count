@@ -1,5 +1,5 @@
 {
-  "schema_version": "realistic_niah_v4_causal_v2_design_v1",
+  "schema_version": "realistic_niah_v4_causal_v2_design_v2",
   "variant": "v4.4",
   "valid_counts": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
   "k_values": [1, 3, 5],
@@ -28,7 +28,7 @@
     "toggled_needle_span"
   ],
   "patch_protocols": ["single_layer", "cumulative_from_layer"],
-  "prompt_full_span_alignment": "exact_model_token_length_required",
+  "prompt_full_span_alignment": "monotonic_endpoint_preserving_nearest_neighbor_v1",
   "answer_multi_layer_protocol": "cumulative_clamp_L_to_final",
   "transport_metric_version": "signed_baseline_output_shift_over_semantic_target_shift_v1",
   "invalid_policy": "strict_zero_effect_plus_separate_invalid_rate",

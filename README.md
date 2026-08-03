@@ -117,7 +117,7 @@ orchestration layers, and notebooks should call tested functions rather than
 become the only implementation of an analysis.
 
 `src/realistic_niah_v4/` is the registered V4 package. It keeps controlled
-stimulus freezing, exact prompt-span mapping, selective hooks, representation
+stimulus freezing, registered prompt-span mapping, selective hooks, representation
 statistics, attention scoring, and causal interventions separate. V4 outputs
 belong under an external `runs/realistic_niah_v4/` root.
 
@@ -251,10 +251,10 @@ screen, not a replacement for a fully powered all-condition sweep.
 The expanded **V4.4 causal-v2** protocol is now implemented separately from
 that completed screen. It adds an audited N=0 member to the nested V4.4
 families and registers: answer-query-only broad/first-locator top-1 through
-top-32 ablation; prompt endpoint and exact full-span residual patching; all-layer
+top-32 ablation; prompt endpoint and monotonic full-span residual patching; all-layer
 single and cumulative answer-query patching; and all-layer full-dimensional
 centroid steering for ±k with `k∈{1,3,5}`. Selection uses five screen seeds;
-every stable exact layer/k condition receives five additional held-out seeds.
+every stable registered layer/k condition receives five additional held-out seeds.
 The implementation and request accounting are documented in
 [`docs/realistic_niah_v4_causal_v2.md`](docs/realistic_niah_v4_causal_v2.md).
 The formal tables retain every registered control row, while exact self-patch
