@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+import numpy as np
 import pandas as pd
 import torch
 
@@ -72,6 +73,16 @@ ATTENTION_PHENOTYPE_COLUMNS = (
 )
 
 
+def _json_default(value: Any) -> Any:
+    """Convert NumPy scalar metadata without weakening JSON type checks."""
+
+    if isinstance(value, np.generic):
+        return value.item()
+    raise TypeError(
+        f"Object of type {value.__class__.__name__} is not JSON serializable"
+    )
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -82,7 +93,11 @@ def _sha256_file(path: Path) -> str:
 
 def _json_hash(payload: dict[str, Any]) -> str:
     encoded = json.dumps(
-        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=_json_default,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:12]
 
@@ -91,7 +106,14 @@ def _write_json_atomic(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+            default=_json_default,
+        )
+        + "\n",
         encoding="utf-8",
     )
     temporary.replace(path)
@@ -102,7 +124,14 @@ def _write_jsonl_atomic(path: Path, rows: Iterable[dict[str, Any]]) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(
         "".join(
-            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows
+            json.dumps(
+                row,
+                ensure_ascii=False,
+                sort_keys=True,
+                default=_json_default,
+            )
+            + "\n"
+            for row in rows
         ),
         encoding="utf-8",
     )

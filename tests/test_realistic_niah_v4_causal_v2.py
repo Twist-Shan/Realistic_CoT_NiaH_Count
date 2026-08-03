@@ -27,6 +27,7 @@ from realistic_niah_v4.prompts import PromptEncoding, TokenSpan
 from scripts.run_realistic_niah_v4_causal_v2 import (
     _load_attention_phenotype_source,
     _selected_confirmation_detail,
+    _write_json_atomic,
 )
 
 
@@ -94,6 +95,15 @@ def test_causal_v2_json_registry_matches_typed_defaults() -> None:
     assert configured.ablation_top_ns == tuple(range(1, 33))
     assert configured.prompt_full_span_alignment == "exact_model_token_length_required"
     assert configured.answer_multi_layer_protocol == "cumulative_clamp_L_to_final"
+
+
+def test_causal_v2_json_writer_normalizes_numpy_integer_metadata(tmp_path) -> None:
+    output = tmp_path / "complete.json"
+    numpy_integer = pd.Series([0], dtype="int64").unique()[0]
+
+    _write_json_atomic(output, {"counts": [numpy_integer]})
+
+    assert json.loads(output.read_text(encoding="utf-8")) == {"counts": [0]}
 
 
 def test_normalized_transport_keeps_reversal_overshoot_and_invalid_visible() -> None:
