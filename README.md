@@ -28,6 +28,13 @@ geometry is steerable; and exact answer-query residual patching transfers the
 donor model prediction at the final layer. The V4.4-only estimates, exact
 treatment/control definitions, and inference limits are collected in the
 standalone [V4.4 mechanism report](reports/realistic_niah_v4_4_mechanism_report.html).
+The completed formal `k={1,3,5}` causal-v2 follow-up is reported separately in
+the standalone
+[V4.4 causal-v2 dual-model report](reports/realistic_niah_v4_4_causal_v2_report.html).
+That report integrates the audited Qwen3-8B and Gemma4-E4B runs, defines every
+transport/control statistic, preserves the exact-test and negative-result
+boundaries, and writes all displayed values to traceable machine-readable
+tables.
 The new all-layer audit locates the answer-query display manifolds at Qwen L29
 and Gemma L37 and shows that their count-centroid geometry is stable under a
 correct-only PCA sensitivity fit. Prompt and answer states have similar global
@@ -55,7 +62,8 @@ Remote: <https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git>
 | Inspect the completed V4 numeric non-thinking run | `run_20260731_v4_numeric_presentation_v3` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md) |
 | Open or rebuild the V4 representation + causal report | [`reports/realistic_niah_v4_representation_report.html`](reports/realistic_niah_v4_representation_report.html), `scripts/build_realistic_niah_v4_representation_report.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md`](docs/realistic_niah_v4_causal_screen_20260801.md) |
 | Read or rebuild the V4.4-only mechanism report | [`reports/realistic_niah_v4_4_mechanism_report.html`](reports/realistic_niah_v4_4_mechanism_report.html), `scripts/build_realistic_niah_v4_4_report.py` | [`docs/realistic_niah_v4_4_mechanism_report.md`](docs/realistic_niah_v4_4_mechanism_report.md) |
-| Run the expanded V4.4 ±k causal-v2 study | `scripts/launch_realistic_niah_v4_causal_v2.sh`, `scripts/audit_realistic_niah_v4_causal_v2.py` | [`docs/realistic_niah_v4_causal_v2.md`](docs/realistic_niah_v4_causal_v2.md) |
+| Read or rebuild the completed V4.4 causal-v2 report | [`reports/realistic_niah_v4_4_causal_v2_report.html`](reports/realistic_niah_v4_4_causal_v2_report.html), `scripts/build_realistic_niah_v4_4_causal_v2_report.py` | [`docs/realistic_niah_v4_4_causal_v2_report.md`](docs/realistic_niah_v4_4_causal_v2_report.md) |
+| Run or audit the V4.4 ±k causal-v2 study | `scripts/launch_realistic_niah_v4_causal_v2.sh`, `scripts/audit_realistic_niah_v4_causal_v2.py` | [`docs/realistic_niah_v4_causal_v2.md`](docs/realistic_niah_v4_causal_v2.md) |
 | Audit the completed V4 causal screen | `scripts/audit_realistic_niah_v4_causal.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md#screen-design-and-completion-audit`](docs/realistic_niah_v4_causal_screen_20260801.md#screen-design-and-completion-audit) |
 | Audit and analyze exact answer-query transport | `scripts/analyze_realistic_niah_v4_answer_query_patching.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md#3-late-answer-query-state-transports-the-computed-prediction`](docs/realistic_niah_v4_causal_screen_20260801.md#3-late-answer-query-state-transports-the-computed-prediction) |
 | Analyze all Qwen span-end candidates and multi-head coverage | `scripts/analyze_realistic_niah_v4_partitioning.py` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md#qwen-span-end-full-candidate-bank-and-positional-partitioning) |
@@ -313,6 +321,23 @@ displayed state and every re-aggregated causal estimate to V4.4. The exact
 ranked-vs-random ablation, donor-vs-clean residual patch, and
 centroid-direction-vs-norm-matched-random comparisons are documented in
 [`docs/realistic_niah_v4_4_mechanism_report.md`](docs/realistic_niah_v4_4_mechanism_report.md).
+
+Build the completed, audited causal-v2 dual-model report from the two small
+FileStream exports (the pre-existing 32 GB corpus is not required):
+
+```bash
+python scripts/build_realistic_niah_v4_4_causal_v2_report.py \
+  --qwen-run-root /path/to/qwen/run/Qwen3-8B/numeric/causal_v2 \
+  --gemma-run-root /path/to/gemma/run/Gemma4-E4B/numeric/causal_v2 \
+  --qwen-export /path/to/Realistic_CoT_NiaH_Count_20260803_v4_4_causal_v2_qwen \
+  --gemma-export /path/to/Realistic_CoT_NiaH_Count_20260803_v4_4_causal_v2_gemma \
+  --output reports/realistic_niah_v4_4_causal_v2_report.html \
+  --data-dir reports/v4_non-thinking_causal/v4_4_causal_v2
+```
+
+The report's exact estimands, inference limits, result interpretation, and
+machine-readable table inventory are documented in
+[`docs/realistic_niah_v4_4_causal_v2_report.md`](docs/realistic_niah_v4_4_causal_v2_report.md).
 
 For a completed run whose original analysis predates literal full-span mass,
 derive `span_sum` from the saved raw answer-query rows without rerunning either

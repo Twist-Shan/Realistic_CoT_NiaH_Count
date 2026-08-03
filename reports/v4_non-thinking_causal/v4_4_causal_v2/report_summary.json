@@ -1,0 +1,285 @@
+{
+  "alignment": {
+    "Gemma4-E4B": {
+      "exact": 178,
+      "max_normalized_position_error": 0.017241379310344862,
+      "model_label": "Gemma4-E4B",
+      "policy": "monotonic_endpoint_preserving_nearest_neighbor_v1",
+      "remapped": 362,
+      "rows": 540,
+      "unsupported": 0
+    },
+    "Qwen3-8B": {
+      "exact": 540,
+      "max_normalized_position_error": 0.0,
+      "model_label": "Qwen3-8B",
+      "policy": "monotonic_endpoint_preserving_nearest_neighbor_v1",
+      "remapped": 0,
+      "rows": 540,
+      "unsupported": 0
+    }
+  },
+  "alignment_policy": "monotonic_endpoint_preserving_nearest_neighbor_v1",
+  "audits": {
+    "Gemma4-E4B": {
+      "audit_sha256": "19bb485ad4c053cd00af6d8b9df2f29b7f0fbb7884253c929434f29eeef59a28",
+      "checks": 302,
+      "errors": 0,
+      "model_label": "Gemma4-E4B",
+      "resolved_stage_roots": 11,
+      "status": "PASS"
+    },
+    "Qwen3-8B": {
+      "audit_sha256": "2d0c272498e1f015a43bbe2f05f4af5a37be1ffa637d84e2415ab42f93e4b07e",
+      "checks": 302,
+      "errors": 0,
+      "model_label": "Qwen3-8B",
+      "resolved_stage_roots": 11,
+      "status": "PASS"
+    }
+  },
+  "baseline": {
+    "Gemma4-E4B": {
+      "confirmation": {
+        "accuracy": 0.42727272727272725,
+        "correct": 47,
+        "examples": 110,
+        "format_valid": 110,
+        "format_valid_rate": 1.0,
+        "mean_absolute_error": 1.0636363636363637,
+        "mean_signed_error": -1.0636363636363637,
+        "model_label": "Gemma4-E4B",
+        "split": "confirmation"
+      },
+      "discovery": {
+        "accuracy": 0.42272727272727273,
+        "correct": 93,
+        "examples": 220,
+        "format_valid": 220,
+        "format_valid_rate": 1.0,
+        "mean_absolute_error": 1.2181818181818183,
+        "mean_signed_error": -1.2,
+        "model_label": "Gemma4-E4B",
+        "split": "discovery"
+      }
+    },
+    "Qwen3-8B": {
+      "confirmation": {
+        "accuracy": 0.4909090909090909,
+        "correct": 54,
+        "examples": 110,
+        "format_valid": 110,
+        "format_valid_rate": 1.0,
+        "mean_absolute_error": 0.9818181818181818,
+        "mean_signed_error": -0.9454545454545454,
+        "model_label": "Qwen3-8B",
+        "split": "confirmation"
+      },
+      "discovery": {
+        "accuracy": 0.5454545454545454,
+        "correct": 120,
+        "examples": 220,
+        "format_valid": 220,
+        "format_valid_rate": 1.0,
+        "mean_absolute_error": 0.8409090909090909,
+        "mean_signed_error": -0.740909090909091,
+        "model_label": "Qwen3-8B",
+        "split": "discovery"
+      }
+    }
+  },
+  "causal_config_sha256": "ef2a69740d836c1cdcfa9fa56f1d60212265d15cd2fb70988b2eb5b755583573",
+  "exports": {
+    "Gemma4-E4B": {
+      "archive_name": "Realistic_CoT_NiaH_Count_20260803_v4_4_causal_v2_gemma.tar.zst",
+      "archive_sha256": "1b6ba0f9b84dcdebb244af6cca93bcb4261696e24f0c5510181769a4225570e0",
+      "archive_sha256_expected": "1b6ba0f9b84dcdebb244af6cca93bcb4261696e24f0c5510181769a4225570e0",
+      "archive_sha256_verified": true,
+      "archive_size_bytes": 44894566,
+      "available": true,
+      "export_name": "Realistic_CoT_NiaH_Count_20260803_v4_4_causal_v2_gemma",
+      "manifest_nonempty_lines": 937,
+      "model_label": "Gemma4-E4B",
+      "source_copy_manifests_identical": true
+    },
+    "Qwen3-8B": {
+      "archive_name": "Realistic_CoT_NiaH_Count_20260803_v4_4_causal_v2_qwen.tar.zst",
+      "archive_sha256": "73018c7e9539932edae1d65c45628a262d94cd1e7d3e78ad4b587535678bdbb3",
+      "archive_sha256_expected": "73018c7e9539932edae1d65c45628a262d94cd1e7d3e78ad4b587535678bdbb3",
+      "archive_sha256_verified": true,
+      "archive_size_bytes": 59279972,
+      "available": true,
+      "export_name": "Realistic_CoT_NiaH_Count_20260803_v4_4_causal_v2_qwen",
+      "manifest_nonempty_lines": 938,
+      "model_label": "Qwen3-8B",
+      "source_copy_manifests_identical": true
+    }
+  },
+  "implementation_commit": "dd409f2dff82ccd6400dfc3d7704025cb6939940",
+  "implementation_sha256": "adfaa35fe4855fb58b7b3236b660da35d441a9b6b3654b8d95ce938a444feb0d",
+  "model_completion_utc": {
+    "Gemma4-E4B": "2026-08-03T21:08:21Z",
+    "Qwen3-8B": "2026-08-03T14:39:04Z"
+  },
+  "primary_confirmation_family_summary": {
+    "Gemma4-E4B::answer_patching": {
+      "all_held_out_seeds_positive": 177,
+      "ci95_excludes_zero": 177,
+      "conditions": 177,
+      "family": "answer_patching",
+      "holm_p_le_0_05": 0,
+      "max_effect": 0.7999999999999999,
+      "mean_effect": 0.7010295040803516,
+      "median_effect": 0.7333333333333334,
+      "min_effect": 0.19,
+      "model_label": "Gemma4-E4B"
+    },
+    "Gemma4-E4B::prompt_patching": {
+      "all_held_out_seeds_positive": 102,
+      "ci95_excludes_zero": 102,
+      "conditions": 102,
+      "family": "prompt_patching",
+      "holm_p_le_0_05": 0,
+      "max_effect": 0.7999999999999999,
+      "mean_effect": 0.6962091503267974,
+      "median_effect": 0.7,
+      "min_effect": 0.5666666666666667,
+      "model_label": "Gemma4-E4B"
+    },
+    "Gemma4-E4B::steering": {
+      "all_held_out_seeds_positive": 53,
+      "ci95_excludes_zero": 54,
+      "conditions": 54,
+      "family": "steering",
+      "holm_p_le_0_05": 0,
+      "max_effect": 0.7222222222222221,
+      "mean_effect": 0.5861728395061728,
+      "median_effect": 0.6666666666666666,
+      "min_effect": 0.1777777777777777,
+      "model_label": "Gemma4-E4B"
+    },
+    "Qwen3-8B::answer_patching": {
+      "all_held_out_seeds_positive": 149,
+      "ci95_excludes_zero": 149,
+      "conditions": 149,
+      "family": "answer_patching",
+      "holm_p_le_0_05": 0,
+      "max_effect": 0.8666666666666666,
+      "mean_effect": 0.7580462341536167,
+      "median_effect": 0.7777777777777777,
+      "min_effect": 0.2166666666666666,
+      "model_label": "Qwen3-8B"
+    },
+    "Qwen3-8B::prompt_patching": {
+      "all_held_out_seeds_positive": 126,
+      "ci95_excludes_zero": 126,
+      "conditions": 126,
+      "family": "prompt_patching",
+      "holm_p_le_0_05": 0,
+      "max_effect": 0.9333333333333332,
+      "mean_effect": 0.7060670194003527,
+      "median_effect": 0.7444444444444444,
+      "min_effect": 0.2133333333333333,
+      "model_label": "Qwen3-8B"
+    },
+    "Qwen3-8B::steering": {
+      "all_held_out_seeds_positive": 45,
+      "ci95_excludes_zero": 45,
+      "conditions": 45,
+      "family": "steering",
+      "holm_p_le_0_05": 0,
+      "max_effect": 0.8333333333333334,
+      "mean_effect": 0.6791604938271605,
+      "median_effect": 0.7,
+      "min_effect": 0.2733333333333333,
+      "model_label": "Qwen3-8B"
+    }
+  },
+  "schema_version": "realistic_niah_v4_4_causal_v2_report_v1",
+  "selection": {
+    "Gemma4-E4B": {
+      "answer_patching": {
+        "family": "answer_patching",
+        "held_out_confirmation_seeds": 5,
+        "model_label": "Gemma4-E4B",
+        "screen_detail_sha256": "f5cf61184dc5a8c833e01d032bacdfe1322fb36abf639a0e7fcfd7bb7ef614c3",
+        "screen_seeds": 5,
+        "selected_conditions": 177,
+        "threshold_both_directions_must_be_positive": true,
+        "threshold_minimum_control_adjusted_transport": 0.15,
+        "threshold_minimum_positive_anchor_pairs": 2,
+        "threshold_minimum_positive_seeds": 4,
+        "threshold_minimum_valid_rate": 0.95
+      },
+      "prompt_patching": {
+        "family": "prompt_patching",
+        "held_out_confirmation_seeds": 5,
+        "model_label": "Gemma4-E4B",
+        "screen_detail_sha256": "43d820364b89367c8f5244bc3b09c5986252c6a1e876e306e07e8d5351c99af5",
+        "screen_seeds": 5,
+        "selected_conditions": 102,
+        "threshold_both_directions_must_be_positive": true,
+        "threshold_minimum_control_adjusted_transport": 0.15,
+        "threshold_minimum_positive_anchor_pairs": 2,
+        "threshold_minimum_positive_seeds": 4,
+        "threshold_minimum_valid_rate": 0.95
+      },
+      "steering": {
+        "family": "steering",
+        "held_out_confirmation_seeds": 5,
+        "model_label": "Gemma4-E4B",
+        "screen_detail_sha256": "1ebf6011d468f44cb5afd2300150bbec5db5db9d47613d4cb36c36134ca57bff",
+        "screen_seeds": 5,
+        "selected_conditions": 51,
+        "threshold_both_directions_must_be_positive": true,
+        "threshold_minimum_control_adjusted_transport": 0.15,
+        "threshold_minimum_positive_anchor_pairs": 2,
+        "threshold_minimum_positive_seeds": 4,
+        "threshold_minimum_valid_rate": 0.95
+      }
+    },
+    "Qwen3-8B": {
+      "answer_patching": {
+        "family": "answer_patching",
+        "held_out_confirmation_seeds": 5,
+        "model_label": "Qwen3-8B",
+        "screen_detail_sha256": "8e141e66029158337f4ac377770c78920d9cbf95c9f4271902baf3e6dc160f83",
+        "screen_seeds": 5,
+        "selected_conditions": 149,
+        "threshold_both_directions_must_be_positive": true,
+        "threshold_minimum_control_adjusted_transport": 0.15,
+        "threshold_minimum_positive_anchor_pairs": 2,
+        "threshold_minimum_positive_seeds": 4,
+        "threshold_minimum_valid_rate": 0.95
+      },
+      "prompt_patching": {
+        "family": "prompt_patching",
+        "held_out_confirmation_seeds": 5,
+        "model_label": "Qwen3-8B",
+        "screen_detail_sha256": "3847ad790c3a1eba8532439707d739c9eb16abc1e596f7b944a726f371850443",
+        "screen_seeds": 5,
+        "selected_conditions": 126,
+        "threshold_both_directions_must_be_positive": true,
+        "threshold_minimum_control_adjusted_transport": 0.15,
+        "threshold_minimum_positive_anchor_pairs": 2,
+        "threshold_minimum_positive_seeds": 4,
+        "threshold_minimum_valid_rate": 0.95
+      },
+      "steering": {
+        "family": "steering",
+        "held_out_confirmation_seeds": 5,
+        "model_label": "Qwen3-8B",
+        "screen_detail_sha256": "6340419ca419f92c01dd43666b129cd7ec11a1c4129d1b6171c7b24ee945d5cc",
+        "screen_seeds": 5,
+        "selected_conditions": 42,
+        "threshold_both_directions_must_be_positive": true,
+        "threshold_minimum_control_adjusted_transport": 0.15,
+        "threshold_minimum_positive_anchor_pairs": 2,
+        "threshold_minimum_positive_seeds": 4,
+        "threshold_minimum_valid_rate": 0.95
+      }
+    }
+  },
+  "source_file_count": 70,
+  "stimuli_sha256": "88a9750114dde63f0873e35d3846e70ff438119c8b3561a45948bcd6057013c8"
+}

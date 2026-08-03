@@ -1,9 +1,21 @@
 # Realistic NIAH V4.4 causal-v2 protocol
 
 This document specifies the expanded V4.4-only causal study requested after
-the cross-panel representation analysis. It is an executable protocol, not a
-result report: no causal-v2 effect should be quoted until the formal GPU run,
-strict audit, and held-out confirmation are complete.
+the cross-panel representation analysis. It remains the executable protocol;
+completed estimates and interpretation are now maintained in the standalone
+[V4.4 causal-v2 dual-model report](../reports/realistic_niah_v4_4_causal_v2_report.html)
+and its
+[audit companion](realistic_niah_v4_4_causal_v2_report.md).
+
+## Completion status
+
+The formal Qwen3-8B and Gemma4-E4B `k={1,3,5}` campaigns completed on
+2026-08-03 at implementation commit
+`dd409f2dff82ccd6400dfc3d7704025cb6939940`. Each passed the strict audit with
+302/302 checks and zero errors. Their separate FileStream exports and local
+archives have matching SHA-256 checksums and byte-identical source/copy
+manifests. Do not infer effect sizes from this protocol; use the generated
+machine-readable tables and report above.
 
 ## Scope and causal questions
 

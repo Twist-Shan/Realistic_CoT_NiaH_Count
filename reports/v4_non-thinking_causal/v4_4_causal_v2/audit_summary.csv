@@ -1,0 +1,3 @@
+model_label,status,checks,errors,audit_sha256,resolved_stage_roots
+Qwen3-8B,PASS,302,0,2d0c272498e1f015a43bbe2f05f4af5a37be1ffa637d84e2415ab42f93e4b07e,11
+Gemma4-E4B,PASS,302,0,19bb485ad4c053cd00af6d8b9df2f29b7f0fbb7884253c929434f29eeef59a28,11

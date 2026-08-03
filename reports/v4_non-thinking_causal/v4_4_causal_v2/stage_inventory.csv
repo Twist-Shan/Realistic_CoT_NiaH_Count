@@ -1,0 +1,13 @@
+model_label,family,phase,design_hash,status,logical_rows,successful_rows,executed_generation_rows,reused_logical_rows,skipped_rows,capture_index_rows,evaluation_seeds
+Qwen3-8B,prompt_patching,screen,5640aa64b785,complete,25920,25920,12972,12948,0,90,1254+1255+1256+1257+1258
+Qwen3-8B,prompt_patching,confirmation,a36c8318c869,complete,7560,7560,3784,3776,0,90,1259+1260+1261+1262+1263
+Qwen3-8B,answer_patching,screen,907f740cbd78,complete,19440,19440,10086,9354,0,90,1254+1255+1256+1257+1258
+Qwen3-8B,answer_patching,confirmation,f0ad5e3224c9,complete,13410,13410,6964,6446,0,90,1259+1260+1261+1262+1263
+Qwen3-8B,steering,screen,5d2eb5ec4dfa,complete,6480,6480,6480,0,0,90,1254+1255+1256+1257+1258
+Qwen3-8B,steering,confirmation,c4f9e98304b5,complete,2700,2700,2700,0,0,90,1259+1260+1261+1262+1263
+Gemma4-E4B,prompt_patching,screen,c447017622a2,complete,30240,30240,15132,15108,0,90,1254+1255+1256+1257+1258
+Gemma4-E4B,prompt_patching,confirmation,1817ab65dcbf,complete,6120,6120,3062,3058,0,90,1259+1260+1261+1262+1263
+Gemma4-E4B,answer_patching,screen,b8f1a9fc31a3,complete,22680,22680,11766,10914,0,90,1254+1255+1256+1257+1258
+Gemma4-E4B,answer_patching,confirmation,d61da53095d8,complete,15930,15930,8269,7661,0,90,1259+1260+1261+1262+1263
+Gemma4-E4B,steering,screen,271fadafd2eb,complete,7560,7560,7560,0,0,90,1254+1255+1256+1257+1258
+Gemma4-E4B,steering,confirmation,993c59eed510,complete,3240,3240,3240,0,0,90,1259+1260+1261+1262+1263
