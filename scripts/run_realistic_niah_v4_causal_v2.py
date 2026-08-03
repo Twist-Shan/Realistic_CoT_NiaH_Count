@@ -850,12 +850,13 @@ def _baseline_stage(
 def _prompt_alignment_stage(
     args: argparse.Namespace, context: dict[str, Any]
 ) -> dict[str, Any]:
-    """Verify every formal full-span donor/receiver token correspondence.
+    """Verify and record every formal donor-to-receiver full-span mapping.
 
     V4 was length-matched with the canonical Qwen tokenizer. This tokenizer-
     only preflight therefore runs for each evaluated model before any expensive
-    causal generation, and refuses to license a positionwise full-span patch
-    when even one changed slot has unequal model-token lengths.
+    causal generation. Equal-length spans retain positionwise identity; unequal
+    spans use the registered monotonic endpoint-preserving nearest-neighbor map.
+    The stage fails if any changed slot cannot support that frozen policy.
     """
 
     design: CausalV2Design = context["design"]
