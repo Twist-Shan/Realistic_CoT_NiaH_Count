@@ -25,6 +25,8 @@ from .spec import (
 
 SLOT_PREFIX = "\u2029Excerpt:\n"
 SLOT_SUFFIX = "\nEnd excerpt.\u2029"
+INSERTION_BOUNDARY_POLICY = "canonical_roundtrip_nearest_filler_boundary_v1"
+INSERTION_BOUNDARY_MAX_DISTANCE = 64
 
 
 @dataclass(frozen=True)
@@ -431,6 +433,157 @@ def _filler_positions(
     return filler_tokens, tuple(positions)
 
 
+def _roundtrips_exactly(
+    tokenizer: TokenizerAdapter,
+    token_ids: Sequence[Any],
+) -> bool:
+    """Return whether canonical decode/re-encode preserves every token ID."""
+
+    expected = list(token_ids)
+    return list(tokenizer.encode(tokenizer.decode(expected))) == expected
+
+
+def _nearest_boundary_candidates(
+    nominal: int,
+    *,
+    lower: int,
+    upper: int,
+    maximum_distance: int,
+) -> Iterable[int]:
+    """Yield candidate boundaries by distance, preferring the lower tie."""
+
+    nominal = int(nominal)
+    for distance in range(int(maximum_distance) + 1):
+        candidates = (
+            (nominal,)
+            if distance == 0
+            else (nominal - distance, nominal + distance)
+        )
+        for candidate in candidates:
+            if int(lower) <= candidate <= int(upper):
+                yield candidate
+
+
+def _remap_filler_positions_for_exact_roundtrip(
+    *,
+    tokenizer: TokenizerAdapter,
+    base_tokens: Sequence[Any],
+    ordered_needles: Sequence[dict[str, Any]],
+    nominal_filler_positions: Sequence[int],
+    nominal_final_starts: Sequence[int],
+    widths: Sequence[int],
+    minimum_separation: int,
+    maximum_distance: int = INSERTION_BOUNDARY_MAX_DISTANCE,
+) -> tuple[tuple[int, ...], tuple[int, ...], list[dict[str, int]]]:
+    """Map insertions away from tokenizer boundaries inside Unicode scalars.
+
+    Byte-level tokenizers can expose a token boundary between the bytes of one
+    Unicode scalar.  Inserting a slot at such a boundary makes the decoded text
+    contain replacement characters and destroys exact token/span alignment.
+    For each slot, this routine deterministically selects the nearest filler
+    boundary for which *both* the active needle and its length-matched control
+    preserve the complete canonical token sequence under decode/re-encode.
+
+    The nominal random schedule remains recorded.  Ties are resolved toward
+    the lower filler boundary, and the registered minimum separation is still
+    enforced on realized final starts.
+    """
+
+    base = list(base_tokens)
+    if not _roundtrips_exactly(tokenizer, base):
+        raise RuntimeError(
+            "The V4 base haystack window itself is not canonical under "
+            "decode/re-encode; refusing insertion-boundary remapping"
+        )
+    slot_count = len(ordered_needles)
+    if not (
+        len(nominal_filler_positions)
+        == len(nominal_final_starts)
+        == len(widths)
+        == slot_count
+    ):
+        raise ValueError("V4 insertion-boundary inputs have different lengths")
+
+    cumulative_widths: list[int] = []
+    cumulative = 0
+    for width in widths:
+        cumulative_widths.append(cumulative)
+        cumulative += int(width)
+    target_tokens = len(base) + cumulative
+    exact_cache: dict[tuple[int, int], bool] = {}
+
+    def boundary_is_exact(slot_index: int, position: int) -> bool:
+        key = (int(slot_index), int(position))
+        cached = exact_cache.get(key)
+        if cached is not None:
+            return cached
+        item = ordered_needles[slot_index]
+        exact = True
+        for field in ("tokens", "inserted_tokens"):
+            inserted = list(item[field])
+            candidate = base[:position] + inserted + base[position:]
+            if not _roundtrips_exactly(tokenizer, candidate):
+                exact = False
+                break
+        exact_cache[key] = exact
+        return exact
+
+    selected: list[int] = []
+
+    def select(slot_index: int) -> bool:
+        if slot_index == slot_count:
+            return True
+        nominal = int(nominal_filler_positions[slot_index])
+        for candidate in _nearest_boundary_candidates(
+            nominal,
+            lower=0,
+            upper=len(base),
+            maximum_distance=maximum_distance,
+        ):
+            final_start = candidate + cumulative_widths[slot_index]
+            width = int(widths[slot_index])
+            if final_start < 0 or final_start + width > target_tokens:
+                continue
+            if selected:
+                prior_index = slot_index - 1
+                prior_start = selected[-1] + cumulative_widths[prior_index]
+                if final_start - prior_start < int(minimum_separation):
+                    continue
+            if not boundary_is_exact(slot_index, candidate):
+                continue
+            selected.append(candidate)
+            if select(slot_index + 1):
+                return True
+            selected.pop()
+        return False
+
+    if not select(0):
+        raise RuntimeError(
+            "Unable to map every V4 slot to an exact canonical insertion "
+            f"boundary within +/-{int(maximum_distance)} filler tokens"
+        )
+
+    realized_positions = tuple(selected)
+    realized_starts = tuple(
+        position + cumulative_widths[index]
+        for index, position in enumerate(realized_positions)
+    )
+    remaps = [
+        {
+            "slot_index": index + 1,
+            "nominal_filler_position": int(nominal_filler_positions[index]),
+            "realized_filler_position": int(realized_positions[index]),
+            "nominal_final_start": int(nominal_final_starts[index]),
+            "realized_final_start": int(realized_starts[index]),
+            "delta_tokens": (
+                int(realized_starts[index]) - int(nominal_final_starts[index])
+            ),
+        }
+        for index in range(slot_count)
+    ]
+    return realized_positions, realized_starts, remaps
+
+
 def _assemble_tokens(
     *,
     base_tokens: Sequence[Any],
@@ -545,6 +698,8 @@ def _compact_stimulus(
     base_tokens: Sequence[Any],
     haystack_metadata: dict[str, Any],
     final_starts: Sequence[int],
+    nominal_final_starts: Sequence[int],
+    insertion_boundary_remaps: Sequence[dict[str, int]],
     filler_positions: Sequence[int],
     permutation: Sequence[int],
     content_seed: int,
@@ -685,6 +840,17 @@ def _compact_stimulus(
             "family_key": (f"{variant}_T{config.target_passage_tokens}_seed{seed}"),
             "nested_active_slots": list(range(1, int(active_count) + 1)),
             "slot_final_starts": [int(value) for value in final_starts],
+            "slot_nominal_final_starts": [
+                int(value) for value in nominal_final_starts
+            ],
+            "insertion_boundary_policy": INSERTION_BOUNDARY_POLICY,
+            "insertion_boundary_remaps": [
+                dict(item) for item in insertion_boundary_remaps
+            ],
+            "insertion_boundary_remapped_slots": sum(
+                int(item["delta_tokens"]) != 0
+                for item in insertion_boundary_remaps
+            ),
             "content_permutation_zero_based": [int(value) for value in permutation],
             "content_seed": int(content_seed),
             "inactive_replacement": ("canonical-token-length-matched_haystack"),
@@ -762,7 +928,7 @@ def build_controlled_family(
         raise ValueError(f"Unknown registered V4 design variant: {variant}")
     if int(seed) not in set(config.seeds):
         raise ValueError(f"Seed {seed} is not registered in this V4 config")
-    content_seed, final_starts, permutation = _design_for_family(
+    content_seed, nominal_final_starts, permutation = _design_for_family(
         variant=variant,
         seed=seed,
         config=config,
@@ -783,7 +949,7 @@ def build_controlled_family(
     widths_unordered = [int(item["token_length"]) for item in pilot]
     ordered_widths = [widths_unordered[index] for index in permutation]
     filler_tokens, filler_positions = _filler_positions(
-        final_starts=final_starts,
+        final_starts=nominal_final_starts,
         widths=ordered_widths,
         target_tokens=config.target_passage_tokens,
         minimum_separation=config.randomized_position_min_separation_tokens,
@@ -805,6 +971,17 @@ def build_controlled_family(
     if _catalog_fingerprint(raw_needles) != pilot_fingerprint:
         raise RuntimeError("V4 catalog changed between pilot and exact scaffold")
     ordered_needles = [raw_needles[index] for index in permutation]
+    filler_positions, final_starts, insertion_boundary_remaps = (
+        _remap_filler_positions_for_exact_roundtrip(
+            tokenizer=tokenizer,
+            base_tokens=raw["haystack"]["base_tokens"],
+            ordered_needles=ordered_needles,
+            nominal_filler_positions=filler_positions,
+            nominal_final_starts=nominal_final_starts,
+            widths=ordered_widths,
+            minimum_separation=config.randomized_position_min_separation_tokens,
+        )
+    )
     catalog = _catalog_metadata(
         ordered_needles,
         permutation=permutation,
@@ -821,6 +998,8 @@ def build_controlled_family(
             base_tokens=raw["haystack"]["base_tokens"],
             haystack_metadata=raw["haystack"],
             final_starts=final_starts,
+            nominal_final_starts=nominal_final_starts,
+            insertion_boundary_remaps=insertion_boundary_remaps,
             filler_positions=filler_positions,
             permutation=permutation,
             content_seed=content_seed,
@@ -834,6 +1013,13 @@ def build_controlled_family(
         "content_seed": int(content_seed),
         "content_permutation_zero_based": list(permutation),
         "slot_final_starts": list(final_starts),
+        "slot_nominal_final_starts": list(nominal_final_starts),
+        "insertion_boundary_policy": INSERTION_BOUNDARY_POLICY,
+        "insertion_boundary_remaps": insertion_boundary_remaps,
+        "insertion_boundary_remapped_slots": sum(
+            int(item["delta_tokens"]) != 0
+            for item in insertion_boundary_remaps
+        ),
         "canonical_slot_widths": ordered_widths,
         "catalog": catalog,
         "catalog_set_fingerprint": sorted(item["text_sha256"] for item in catalog),

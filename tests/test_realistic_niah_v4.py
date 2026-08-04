@@ -87,10 +87,81 @@ from realistic_niah_v4.spec import (
 )
 from realistic_niah_v4.stimuli import (
     ControlledFreezeSpec,
+    _assemble_tokens,
+    _remap_filler_positions_for_exact_roundtrip,
     audit_v4_grid,
     freeze_v4_grid,
     load_stimuli,
 )
+
+
+class _ByteFragmentTokenizer:
+    """Tiny byte tokenizer with one Unicode scalar split across two tokens."""
+
+    _bytes = {
+        0: b"A",
+        1: b"\xc2",
+        2: b"\x97",
+        3: b"B",
+        9: b"\xef\xbf\xbd",
+        100: b"X",
+        101: b"Y",
+    }
+
+    def decode(self, tokens: list[int]) -> str:
+        return b"".join(self._bytes[token] for token in tokens).decode(
+            "utf-8", errors="replace"
+        )
+
+    def encode(self, text: str) -> list[int]:
+        encoded: list[int] = []
+        for character in text:
+            encoded.extend(
+                {
+                    "A": [0],
+                    "\x97": [1, 2],
+                    "B": [3],
+                    "\ufffd": [9],
+                    "X": [100],
+                    "Y": [101],
+                }[character]
+            )
+        return encoded
+
+
+def test_insertion_boundary_remaps_split_unicode_scalar_deterministically() -> None:
+    tokenizer = _ByteFragmentTokenizer()
+    base = [0, 1, 2, 3]
+    needles = [{"tokens": [100], "inserted_tokens": [101], "token_length": 1}]
+    positions, starts, remaps = _remap_filler_positions_for_exact_roundtrip(
+        tokenizer=tokenizer,  # type: ignore[arg-type]
+        base_tokens=base,
+        ordered_needles=needles,
+        nominal_filler_positions=(2,),
+        nominal_final_starts=(2,),
+        widths=(1,),
+        minimum_separation=1,
+    )
+    assert positions == (1,)
+    assert starts == (1,)
+    assert remaps == [
+        {
+            "slot_index": 1,
+            "nominal_filler_position": 2,
+            "realized_filler_position": 1,
+            "nominal_final_start": 2,
+            "realized_final_start": 1,
+            "delta_tokens": -1,
+        }
+    ]
+    for active_count in (0, 1):
+        assembled, _ = _assemble_tokens(
+            base_tokens=base,
+            ordered_needles=needles,
+            active_count=active_count,
+            filler_positions=positions,
+        )
+        assert tokenizer.encode(tokenizer.decode(assembled)) == assembled
 
 
 def _small_config() -> V4Config:
