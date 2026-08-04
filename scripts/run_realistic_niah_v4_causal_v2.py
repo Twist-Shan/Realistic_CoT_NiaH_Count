@@ -93,6 +93,11 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _sha256_normalized_text(path: Path) -> str:
+    normalized = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 def _json_hash(payload: dict[str, Any]) -> str:
     encoded = json.dumps(
         payload,
@@ -1045,7 +1050,7 @@ def _ablation_confirmation_plan(
     if not source_table.is_file():
         raise FileNotFoundError(source_table)
     expected_sha = str(source.get("table_sha256", "")).lower()
-    if _sha256_file(source_table).lower() != expected_sha:
+    if _sha256_normalized_text(source_table).lower() != expected_sha:
         raise ValueError("Discovery ablation table hash no longer matches selection")
     confirmation = payload.get("confirmation_design")
     if not isinstance(confirmation, dict):

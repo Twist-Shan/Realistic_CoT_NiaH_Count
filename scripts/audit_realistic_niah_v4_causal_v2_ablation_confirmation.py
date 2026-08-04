@@ -21,6 +21,11 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _sha256_normalized_text(path: Path) -> str:
+    normalized = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 def _json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -96,9 +101,9 @@ def audit(
         "selection",
         "discovery_table_hash",
         source_table.is_file()
-        and _sha256(source_table)
+        and _sha256_normalized_text(source_table)
         == selection["discovery_source"]["table_sha256"],
-        _sha256(source_table) if source_table.is_file() else "missing",
+        _sha256_normalized_text(source_table) if source_table.is_file() else "missing",
         selection["discovery_source"]["table_sha256"],
     )
     stimulus_rows = _jsonl(stimuli)

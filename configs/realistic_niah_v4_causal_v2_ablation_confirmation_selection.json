@@ -12,7 +12,7 @@
   "discovery_source": {
     "implementation_commit": "dd409f2dff82ccd6400dfc3d7704025cb6939940",
     "table": "reports/v4_non-thinking_causal/v4_4_causal_v2/ablation_top_k_sweep.csv",
-    "table_sha256": "65d81bbbb5693cc3bf932af51a3a0de03f130554010d7873bc0febc0f9f15c78",
+    "table_sha256": "9cabbd04d760cd9d5776dc27e9f87aa2137d0e15b0c3ab9acfa995368ad1be1f",
     "screen_seeds": [1254, 1255, 1256, 1257, 1258]
   },
   "confirmation_design": {
