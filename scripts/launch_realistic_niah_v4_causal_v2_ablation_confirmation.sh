@@ -36,6 +36,10 @@ SUPERVISOR_LOG="$LOG_ROOT/causal_v2_supervisor.log"
 STATUS="$RUN_ROOT/causal_v2.status"
 COMPLETE="$RUN_ROOT/causal_v2.complete"
 
+# The frozen generator intentionally resolves the registered haystack corpus
+# relative to the repository, matching every other formal V4 launcher.
+cd "$REPO_ROOT"
+
 for path in "$VENV_PYTHON" "$BASE_CONFIG" "$CAUSAL_CONFIG" "$SELECTION" \
   "$QWEN_RANKINGS" "$GEMMA_RANKINGS"; do
   if [[ ! -e "$path" ]]; then
