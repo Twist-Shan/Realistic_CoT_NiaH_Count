@@ -554,6 +554,7 @@ def run_generation_head_ablation_v2(
     top_ns: Sequence[int] = tuple(range(1, 33)),
     random_replicates: int = 3,
     require_full_sweep: bool = True,
+    require_correct_baseline: bool = False,
     valid_counts: Sequence[int] = tuple(range(0, 11)),
     max_new_tokens: int = 16,
 ) -> pd.DataFrame:
@@ -598,6 +599,16 @@ def run_generation_head_ablation_v2(
         if label is None:
             raise KeyError(f"Missing baseline generation label: {encoding.stimulus_id}")
         _validate_baseline_label(encoding, label)
+        if require_correct_baseline and (
+            str(label.get("outcome_group")) != "correct"
+            or not _as_bool(label.get("format_valid"))
+        ):
+            raise ValueError(
+                "Correct-only head ablation received an ineligible clean "
+                f"baseline: stimulus_id={encoding.stimulus_id}, "
+                f"outcome={label.get('outcome_group')!r}, "
+                f"format_valid={label.get('format_valid')!r}"
+            )
         cache: dict[tuple[Head, ...], dict[str, Any]] = {}
         for bank, ranking in sorted(rankings.items()):
             normalized_ranking = tuple(
@@ -649,6 +660,11 @@ def run_generation_head_ablation_v2(
                                 "all_heads_in_matched_layers_without_replacement"
                                 if condition == "layer_matched_random"
                                 else "discovery_ranked_prefix"
+                            ),
+                            "analysis_population": (
+                                "clean_correct_only"
+                                if require_correct_baseline
+                                else "all_examples"
                             ),
                             **intervention_outcome(
                                 cache[heads],
@@ -1400,6 +1416,7 @@ def run_generation_residual_patching_v2(
         MutableMapping[tuple[Any, ...], dict[str, Any]] | None
     ) = None,
     identity_execution_filter: set[tuple[int, int, int, str, str, int]] | None = None,
+    require_clean_correct_pair: bool = False,
     valid_counts: Sequence[int] = tuple(range(0, 11)),
     max_new_tokens: int = 16,
     full_span_alignment_policy: str = CAUSAL_V2_FULL_SPAN_ALIGNMENT_POLICY,
@@ -1513,6 +1530,27 @@ def run_generation_residual_patching_v2(
                 donor_label = baseline_labels[donor.stimulus_id]
                 _validate_baseline_label(receiver, receiver_label)
                 _validate_baseline_label(donor, donor_label)
+                if require_clean_correct_pair:
+                    ineligible = [
+                        ("receiver", receiver.stimulus_id, receiver_label),
+                        ("donor", donor.stimulus_id, donor_label),
+                    ]
+                    failures = [
+                        (
+                            role,
+                            stimulus_id,
+                            label.get("outcome_group"),
+                            label.get("format_valid"),
+                        )
+                        for role, stimulus_id, label in ineligible
+                        if str(label.get("outcome_group")) != "correct"
+                        or not _as_bool(label.get("format_valid"))
+                    ]
+                    if failures:
+                        raise ValueError(
+                            "Correct-only residual patching received an ineligible "
+                            f"receiver/donor pair: {failures}"
+                        )
                 lower = min(receiver_count, donor_count)
                 upper = max(receiver_count, donor_count)
                 slot_indices = tuple(range(lower + 1, upper + 1))
@@ -1670,6 +1708,11 @@ def run_generation_residual_patching_v2(
                                     ),
                                     "generation_executed": generation_executed,
                                     "generation_reuse_mode": generation_reuse_mode,
+                                    "analysis_population": (
+                                        "clean_correct_pair_only"
+                                        if require_clean_correct_pair
+                                        else "all_examples"
+                                    ),
                                     "status": "ok" if executable else "skipped",
                                     "skip_reason": skip_reason,
                                 }
@@ -1769,6 +1812,8 @@ def summarize_generation_residual_patching_v2(detail: pd.DataFrame) -> pd.DataFr
             mean_target_conformity=("target_conformity", "mean"),
             mean_strict_target_conformity=("strict_target_conformity", "mean"),
             target_hit_rate=("strict_target_hit", "mean"),
+            average_patch_target_accuracy=("strict_target_hit", "mean"),
+            average_post_patch_receiver_accuracy=("patched_is_correct", "mean"),
         )
         .sort_values(groups)
         .reset_index(drop=True)

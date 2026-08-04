@@ -1,0 +1,39 @@
+{
+  "schema_version": "realistic_niah_v4_4_correct_interventions_v1",
+  "source_experiment": "V4.4 causal-v2",
+  "reserve_seed_start": 1274,
+  "reserve_seed_end_inclusive": 1473,
+  "seed_order": "ascending",
+  "seed_stopping_information": "clean greedy baseline correctness only",
+  "patching": {
+    "population": "clean-correct receiver and clean-correct donor within the same seed",
+    "frozen_condition_source": "original V4.4 causal-v2 overall stability selection",
+    "minimum_seed_clusters_per_model_k_direction": 5,
+    "k_values": [1, 3, 5],
+    "primary_accuracy": "mean(strict_target_hit), where strict_target_hit is patched_count == donor_gold_count and invalid generations score zero",
+    "secondary_accuracy": "mean(patched_is_correct), where correctness is relative to the receiver gold count"
+  },
+  "ablation": {
+    "all_examples_population": "reuse original frozen model-specific confirmation without correctness filtering",
+    "correct_only_population": "clean baseline is exact and format-valid before ablation",
+    "counts": [7, 8, 9, 10],
+    "minimum_correct_seed_clusters_per_model": 10,
+    "scope": "answer_query",
+    "random_replicates": 3,
+    "frozen_models": {
+      "Qwen3-8B": {
+        "head_bank": "broad_aggregation",
+        "top_n": 8
+      },
+      "Gemma4-E4B": {
+        "head_bank": "broad_aggregation",
+        "top_n": 6
+      }
+    }
+  },
+  "missing_numeric_policy": {
+    "strict_accuracy": "invalid patched generations score zero",
+    "signed_count_shift": "undefined for invalid patched generations; report valid denominator and valid rate",
+    "absolute_error_delta": "use the registered V4.4 intervention outcome definition"
+  }
+}
