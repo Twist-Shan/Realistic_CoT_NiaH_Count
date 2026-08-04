@@ -371,6 +371,7 @@ def _run_patching_family(
     output_root: Path,
     max_new_tokens: int,
     overwrite: bool,
+    finalize: bool = True,
 ) -> dict[str, Any]:
     condition_filter = _selection_filter(
         selection_path, family=family, model_label=model_label
@@ -464,6 +465,14 @@ def _run_patching_family(
         family_root / "summary.supplement.csv",
     )
 
+    if not finalize:
+        return {
+            "new_detail": str(family_root / "detail.supplement.csv.gz"),
+            "new_rows": int(len(new_detail)),
+            "alignment": str(alignment_path) if alignment_path else None,
+            "finalization_status": "deferred_to_strict_parallel_merge",
+        }
+
     existing = pd.read_csv(existing_detail_path, compression="infer")
     existing_correct = clean_correct_patching_rows(existing)
     existing_correct["family"] = family
@@ -532,6 +541,7 @@ def _run_correct_ablation(
     output_root: Path,
     max_new_tokens: int,
     overwrite: bool,
+    finalize: bool = True,
 ) -> dict[str, Any]:
     rankings = load_head_phenotype_registry(rankings_path)
     if head_bank not in rankings:
@@ -615,6 +625,19 @@ def _run_correct_ablation(
         summarize_generation_head_ablation_v2(correct_detail),
         ablation_root / "summary.clean_correct.discovery.csv",
     )
+
+    if not finalize:
+        return {
+            "top_n_selection_status": "unfrozen_discovery_only",
+            "new_all_examples_discovery_detail": str(all_path),
+            "new_clean_correct_discovery_detail": str(correct_path),
+            "new_all_example_rows": int(len(all_examples)),
+            "new_all_example_stimuli": int(len(identities)),
+            "new_correct_rows": int(len(correct_detail)),
+            "new_correct_stimuli": int(len(selected_correct_ids)),
+            "candidate_top_ns": [int(value) for value in top_ns],
+            "finalization_status": "deferred_to_strict_parallel_merge",
+        }
 
     legacy_discovery = pd.read_csv(
         legacy_discovery_detail_path, compression="infer"

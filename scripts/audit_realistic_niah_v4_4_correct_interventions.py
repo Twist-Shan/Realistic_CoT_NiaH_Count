@@ -10,8 +10,14 @@ import numpy as np
 import pandas as pd
 
 from realistic_niah_v4.correct_interventions import (
+    ABLATION_STIMULUS_KEY_COLUMNS,
     ABLATION_TOP_NS,
+    PARALLEL_ASSIGNMENT_METHOD,
+    PARALLEL_WORKER_COUNT,
+    PATCH_PAIR_KEY_COLUMNS,
+    clean_correct_baselines,
     eligible_directed_pairs,
+    parallel_plan_records,
     summarize_ablation_n_diagnostics,
     summarize_ablation_population,
     summarize_average_patching_accuracy,
@@ -161,6 +167,45 @@ def _same_numeric_table(
     )
 
 
+def _row_keys(frame: pd.DataFrame, columns: list[str]) -> set[tuple[str, ...]]:
+    selected = frame[columns].copy()
+    return {
+        tuple("<NA>" if pd.isna(value) else str(value) for value in row)
+        for row in selected.itertuples(index=False, name=None)
+    }
+
+
+def _same_detail_table(
+    observed: pd.DataFrame,
+    expected: pd.DataFrame,
+    *,
+    keys: list[str],
+) -> bool:
+    """Compare a canonical merge with its worker union, ignoring row order."""
+
+    if set(observed.columns) != set(expected.columns) or len(observed) != len(expected):
+        return False
+    columns = sorted(observed.columns)
+    left = observed[columns].sort_values(keys, kind="stable").reset_index(drop=True)
+    right = expected[columns].sort_values(keys, kind="stable").reset_index(drop=True)
+    for column in columns:
+        if pd.api.types.is_numeric_dtype(left[column]) and pd.api.types.is_numeric_dtype(
+            right[column]
+        ):
+            if not np.allclose(
+                pd.to_numeric(left[column], errors="coerce").to_numpy(dtype=float),
+                pd.to_numeric(right[column], errors="coerce").to_numpy(dtype=float),
+                equal_nan=True,
+            ):
+                return False
+        else:
+            left_values = left[column].fillna("<NA>").astype(str).tolist()
+            right_values = right[column].fillna("<NA>").astype(str).tolist()
+            if left_values != right_values:
+                return False
+    return True
+
+
 def _audit_model(
     audit: Audit,
     *,
@@ -184,6 +229,151 @@ def _audit_model(
     ablation_counts = tuple(int(value) for value in ablation_definition["counts"])
     head_bank = str(ablation_definition["head_bank"])
     top_ns = tuple(int(value) for value in ablation_definition["top_n_candidates"])
+    parallel_design = design.get("parallel_execution")
+    parallel_plan: dict[str, Any] | None = None
+    parallel_worker_details: dict[str, list[pd.DataFrame]] = {
+        "prompt_patching": [],
+        "answer_patching": [],
+        "ablation": [],
+    }
+    if parallel_design is not None:
+        plan_path = stage / "parallel_work_plan.json"
+        prepare_path = stage / "prepare.complete.json"
+        parallel_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        prepare = json.loads(prepare_path.read_text(encoding="utf-8"))
+        plan_hash = _sha256(plan_path)
+        prepare_hash = _sha256(prepare_path)
+        worker_roots = sorted((stage / "workers").glob("worker_*_of_*"))
+        audit.check(
+            model=model,
+            category="parallel",
+            name="formal execution uses four isolated workers per model",
+            condition=int(parallel_design.get("worker_count_per_model", 0))
+            == PARALLEL_WORKER_COUNT
+            and int(parallel_plan.get("worker_count", 0)) == PARALLEL_WORKER_COUNT
+            and parallel_plan.get("assignment_method")
+            == PARALLEL_ASSIGNMENT_METHOD
+            and len(worker_roots) == PARALLEL_WORKER_COUNT,
+            detail="parallel design, plan, or worker directory count differs from 4",
+        )
+        audit.check(
+            model=model,
+            category="parallel",
+            name="prepare gate and merge completion share design and plan hashes",
+            condition=prepare.get("status") == "complete"
+            and prepare.get("design_hash") == stage.name.removeprefix("confirmation_")
+            and parallel_plan.get("design_hash")
+            == stage.name.removeprefix("confirmation_")
+            and completion.get("parallel_execution", {}).get(
+                "parallel_work_plan_sha256"
+            )
+            == plan_hash,
+            detail="prepare, work plan, and merged completion provenance differ",
+        )
+        worker_markers_valid = True
+        worker_designs_valid = True
+        worker_runtimes_valid = True
+        worker_outputs_valid = True
+        for index in range(PARALLEL_WORKER_COUNT):
+            root = stage / "workers" / f"worker_{index:03d}_of_004"
+            marker_path = root / "complete.json"
+            worker_design_path = root / "design.json"
+            runtime_path = root / "runtime.json"
+            if not (
+                marker_path.is_file()
+                and worker_design_path.is_file()
+                and runtime_path.is_file()
+            ):
+                worker_markers_valid = False
+                worker_designs_valid = False
+                worker_runtimes_valid = False
+                worker_outputs_valid = False
+                continue
+            marker = json.loads(marker_path.read_text(encoding="utf-8"))
+            worker_design = json.loads(
+                worker_design_path.read_text(encoding="utf-8")
+            )
+            runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+            expected_pairs = parallel_plan_records(
+                parallel_plan, work_kind="patch_pairs", worker_index=index
+            )
+            expected_ablation = parallel_plan_records(
+                parallel_plan, work_kind="ablation_stimuli", worker_index=index
+            )
+            worker_markers_valid = worker_markers_valid and (
+                marker.get("status") == "complete"
+                and marker.get("design_hash")
+                == stage.name.removeprefix("confirmation_")
+                and marker.get("parallel_work_plan_sha256") == plan_hash
+                and marker.get("prepare_sha256") == prepare_hash
+                and int(marker.get("worker_index", -1)) == index
+                and int(marker.get("worker_count", 0)) == PARALLEL_WORKER_COUNT
+            )
+            worker_designs_valid = worker_designs_valid and (
+                worker_design.get("parallel_work_plan_sha256") == plan_hash
+                and worker_design.get("prepare_sha256") == prepare_hash
+                and int(worker_design.get("worker_index", -1)) == index
+                and worker_design.get("assigned_patch_pairs") == expected_pairs
+                and worker_design.get("assigned_ablation_stimuli")
+                == expected_ablation
+            )
+            worker_runtimes_valid = worker_runtimes_valid and (
+                bool(runtime.get("cuda_available"))
+                and len(runtime.get("cuda_devices", [])) == 1
+            )
+            paths = {
+                "prompt_patching": root
+                / "patching"
+                / "prompt_patching"
+                / "detail.supplement.csv.gz",
+                "answer_patching": root
+                / "patching"
+                / "answer_patching"
+                / "detail.supplement.csv.gz",
+                "ablation": root
+                / "ablation"
+                / "detail.all_examples.discovery.csv.gz",
+            }
+            marker_keys = {
+                "prompt_patching": "prompt_detail",
+                "answer_patching": "answer_detail",
+                "ablation": "ablation_detail",
+            }
+            for family, path in paths.items():
+                expected_hash = marker.get("output_sha256", {}).get(
+                    marker_keys[family]
+                )
+                valid = path.is_file() and _sha256(path) == expected_hash
+                worker_outputs_valid = worker_outputs_valid and valid
+                if valid:
+                    frame = pd.read_csv(path, compression="infer")
+                    frame["parallel_worker_index"] = index
+                    parallel_worker_details[family].append(frame)
+        audit.check(
+            model=model,
+            category="parallel",
+            name="all worker completion markers and assignments match the plan",
+            condition=worker_markers_valid and worker_designs_valid,
+            detail="a worker marker or assigned identity list differs from the plan",
+        )
+        audit.check(
+            model=model,
+            category="parallel",
+            name="each GPU worker saw exactly one CUDA device",
+            condition=worker_runtimes_valid,
+            detail="at least one worker did not record exactly one visible GPU",
+        )
+        audit.check(
+            model=model,
+            category="parallel",
+            name="all worker detail hashes are intact",
+            condition=worker_outputs_valid
+            and all(
+                len(parallel_worker_details[family]) == PARALLEL_WORKER_COUNT
+                for family in parallel_worker_details
+            ),
+            detail="a worker detail file is missing, modified, or unreadable",
+        )
     audit.check(
         model=model,
         category="completion",
@@ -305,6 +495,22 @@ def _audit_model(
         condition=len(checked_pairs) == len(added_pairs),
         detail="an added pair lacks a correct receiver or donor baseline",
     )
+    if parallel_plan is not None:
+        planned_pair_keys = {
+            tuple(str(record[column]) for column in PATCH_PAIR_KEY_COLUMNS)
+            for record in parallel_plan_records(
+                parallel_plan, work_kind="patch_pairs"
+            )
+        }
+        selected_pair_keys = _row_keys(added_pairs, list(PATCH_PAIR_KEY_COLUMNS))
+        audit.check(
+            model=model,
+            category="parallel",
+            name="parallel patch plan is exhaustive and has no extra pairs",
+            condition=planned_pair_keys == selected_pair_keys
+            and len(planned_pair_keys) == len(added_pairs),
+            detail="parallel patch assignments differ from baseline-gated pairs",
+        )
     added_ablation = pd.read_csv(
         stage / "eligible_added_correct_ablation_baselines.csv"
     )
@@ -328,6 +534,38 @@ def _audit_model(
         aggregate = pd.read_csv(root / "average_patching_acc.aggregate_groups.csv")
         supplement_clean = clean_correct_patching_rows(supplement)
         combined_clean = clean_correct_patching_rows(combined)
+        if parallel_plan is not None:
+            worker_union = pd.concat(
+                parallel_worker_details[family], ignore_index=True, sort=False
+            )
+            parallel_patch_row_keys = [
+                *PATCH_PAIR_KEY_COLUMNS,
+                "site",
+                "patch_protocol",
+                "start_layer",
+                "condition",
+            ]
+            ownership = worker_union.groupby(list(PATCH_PAIR_KEY_COLUMNS))[
+                "parallel_worker_index"
+            ].nunique()
+            audit.check(
+                model=model,
+                category="parallel",
+                name=f"{family} worker rows are disjoint and equal the canonical merge",
+                condition=ownership.eq(1).all()
+                and len(worker_union) == len(supplement)
+                and _row_keys(worker_union, parallel_patch_row_keys)
+                == _row_keys(supplement, parallel_patch_row_keys)
+                and _same_detail_table(
+                    worker_union,
+                    supplement,
+                    keys=parallel_patch_row_keys,
+                ),
+                detail=(
+                    f"{family} canonical detail omits, duplicates, or changes a "
+                    "worker intervention row"
+                ),
+            )
         audit.check(
             model=model,
             category=family,
@@ -398,9 +636,55 @@ def _audit_model(
     dual = pd.read_csv(ablation_root / "dual_population_ablation_summary.csv")
     diagnostics = pd.read_csv(ablation_root / "top_n_diagnostics.unfrozen.csv")
     all_stimuli = all_detail[
-        ["stimulus_id", "seed", "gold_count"]
+        ["model_label", "stimulus_id", "seed", "gold_count"]
     ].drop_duplicates()
     expected_all_stimuli = len(shared_discovery_seeds) * len(ablation_counts)
+    if parallel_plan is not None:
+        planned_ablation_keys = {
+            tuple(str(record[column]) for column in ABLATION_STIMULUS_KEY_COLUMNS)
+            for record in parallel_plan_records(
+                parallel_plan, work_kind="ablation_stimuli"
+            )
+        }
+        observed_ablation_keys = _row_keys(
+            all_stimuli, list(ABLATION_STIMULUS_KEY_COLUMNS)
+        )
+        worker_union = pd.concat(
+            parallel_worker_details["ablation"], ignore_index=True, sort=False
+        )
+        parallel_ablation_row_keys = [
+            "stimulus_id",
+            "head_bank",
+            "top_n",
+            "condition",
+            "random_replicate",
+        ]
+        ownership = worker_union.groupby(list(ABLATION_STIMULUS_KEY_COLUMNS))[
+            "parallel_worker_index"
+        ].nunique()
+        audit.check(
+            model=model,
+            category="parallel",
+            name="parallel ablation plan exactly covers the shared stimulus grid",
+            condition=planned_ablation_keys == observed_ablation_keys
+            and len(planned_ablation_keys) == expected_all_stimuli,
+            detail="parallel ablation assignments differ from the canonical grid",
+        )
+        audit.check(
+            model=model,
+            category="parallel",
+            name="ablation worker rows are disjoint and equal the canonical merge",
+            condition=ownership.eq(1).all()
+            and len(worker_union) == len(all_detail)
+            and _row_keys(worker_union, parallel_ablation_row_keys)
+            == _row_keys(all_detail, parallel_ablation_row_keys)
+            and _same_detail_table(
+                worker_union,
+                all_detail,
+                keys=parallel_ablation_row_keys,
+            ),
+            detail="canonical ablation omits, duplicates, or changes a worker row",
+        )
     audit.check(
         model=model,
         category="ablation",

@@ -16,6 +16,22 @@ PATCH_CLUSTER_TARGET = 5
 CORRECT_ABLATION_CLUSTER_TARGET = 10
 CORRECT_ABLATION_COUNTS = (1, 2, 3, 4, 5)
 ABLATION_TOP_NS = tuple(range(1, 33))
+PARALLEL_WORKER_COUNT = 4
+PARALLEL_ASSIGNMENT_METHOD = "sorted_round_robin_v1"
+PATCH_PAIR_KEY_COLUMNS = (
+    "model_label",
+    "seed",
+    "receiver_count",
+    "donor_count",
+    "k",
+    "target_direction",
+)
+ABLATION_STIMULUS_KEY_COLUMNS = (
+    "model_label",
+    "stimulus_id",
+    "seed",
+    "gold_count",
+)
 
 
 def _as_bool(series: pd.Series) -> pd.Series:
@@ -27,6 +43,184 @@ def _as_bool(series: pd.Series) -> pd.Series:
 def _stable_seed(label: str) -> int:
     digest = hashlib.sha256(str(label).encode("utf-8")).digest()
     return int.from_bytes(digest[:8], "big") % 2_147_483_647
+
+
+def _normalized_key_records(
+    frame: pd.DataFrame,
+    *,
+    key_columns: Sequence[str],
+    integer_columns: Sequence[str],
+) -> list[dict[str, Any]]:
+    """Return unique, deterministically sorted JSON-safe work identities."""
+
+    missing = sorted(set(key_columns) - set(frame.columns))
+    if missing:
+        raise ValueError(f"Parallel work identities are missing columns: {missing}")
+    keys = frame[list(key_columns)].drop_duplicates().copy()
+    if len(keys) != len(frame):
+        raise ValueError("Parallel work identities contain duplicate key rows")
+    integer_set = {str(value) for value in integer_columns}
+    for column in key_columns:
+        if column in integer_set:
+            keys[column] = pd.to_numeric(keys[column], errors="raise").astype(int)
+        else:
+            keys[column] = keys[column].astype(str)
+    keys = keys.sort_values(list(key_columns), kind="stable").reset_index(drop=True)
+    return [
+        {
+            column: (
+                int(value) if column in integer_set else str(value)
+            )
+            for column, value in zip(key_columns, row)
+        }
+        for row in keys.itertuples(index=False, name=None)
+    ]
+
+
+def build_parallel_work_plan(
+    *,
+    model_label: str,
+    added_pairs: pd.DataFrame,
+    ablation_stimuli: pd.DataFrame,
+    worker_count: int = PARALLEL_WORKER_COUNT,
+) -> dict[str, Any]:
+    """Freeze a disjoint, exhaustive round-robin partition for GPU workers.
+
+    Assignment depends only on sorted registered work identities.  It therefore
+    cannot inspect an intervention outcome and is invariant to process timing.
+    """
+
+    if int(worker_count) < 1:
+        raise ValueError("Parallel worker_count must be positive")
+    model = str(model_label)
+    for name, frame in (("patch", added_pairs), ("ablation", ablation_stimuli)):
+        observed_models = set(frame["model_label"].astype(str))
+        if observed_models and observed_models != {model}:
+            raise ValueError(
+                f"{name} work contains models {sorted(observed_models)}; expected {model}"
+            )
+    patch_records = _normalized_key_records(
+        added_pairs,
+        key_columns=PATCH_PAIR_KEY_COLUMNS,
+        integer_columns=("seed", "receiver_count", "donor_count", "k"),
+    )
+    ablation_records = _normalized_key_records(
+        ablation_stimuli,
+        key_columns=ABLATION_STIMULUS_KEY_COLUMNS,
+        integer_columns=("seed", "gold_count"),
+    )
+    for index, record in enumerate(patch_records):
+        record["worker_index"] = int(index % int(worker_count))
+    for index, record in enumerate(ablation_records):
+        record["worker_index"] = int(index % int(worker_count))
+    return {
+        "schema_version": "realistic_niah_v4_4_parallel_work_plan_v1",
+        "model_label": model,
+        "worker_count": int(worker_count),
+        "assignment_method": PARALLEL_ASSIGNMENT_METHOD,
+        "patch_pair_key_columns": list(PATCH_PAIR_KEY_COLUMNS),
+        "ablation_stimulus_key_columns": list(ABLATION_STIMULUS_KEY_COLUMNS),
+        "patch_pairs": patch_records,
+        "ablation_stimuli": ablation_records,
+        "patch_pair_count": int(len(patch_records)),
+        "ablation_stimulus_count": int(len(ablation_records)),
+        "worker_loads": [
+            {
+                "worker_index": int(worker_index),
+                "patch_pairs": int(
+                    sum(
+                        int(row["worker_index"]) == worker_index
+                        for row in patch_records
+                    )
+                ),
+                "ablation_stimuli": int(
+                    sum(
+                        int(row["worker_index"]) == worker_index
+                        for row in ablation_records
+                    )
+                ),
+            }
+            for worker_index in range(int(worker_count))
+        ],
+    }
+
+
+def parallel_plan_records(
+    plan: dict[str, Any],
+    *,
+    work_kind: str,
+    worker_index: int | None = None,
+) -> list[dict[str, Any]]:
+    """Read and validate one work-kind slice from a frozen parallel plan."""
+
+    if plan.get("schema_version") != (
+        "realistic_niah_v4_4_parallel_work_plan_v1"
+    ):
+        raise ValueError("Unexpected parallel work-plan schema")
+    if plan.get("assignment_method") != PARALLEL_ASSIGNMENT_METHOD:
+        raise ValueError("Unexpected parallel assignment method")
+    worker_count = int(plan.get("worker_count", 0))
+    if worker_count < 1:
+        raise ValueError("Parallel work plan has invalid worker_count")
+    if work_kind not in {"patch_pairs", "ablation_stimuli"}:
+        raise ValueError(f"Unknown parallel work kind: {work_kind}")
+    records = list(plan.get(work_kind, []))
+    expected = int(
+        plan[
+            "patch_pair_count"
+            if work_kind == "patch_pairs"
+            else "ablation_stimulus_count"
+        ]
+    )
+    if len(records) != expected:
+        raise ValueError(f"Parallel plan {work_kind} count does not match manifest")
+    assignments = [int(row["worker_index"]) for row in records]
+    if any(value < 0 or value >= worker_count for value in assignments):
+        raise ValueError(f"Parallel plan {work_kind} has out-of-range worker index")
+    if worker_index is None:
+        return records
+    index = int(worker_index)
+    if index < 0 or index >= worker_count:
+        raise ValueError(f"worker_index={index} is outside [0, {worker_count})")
+    return [row for row in records if int(row["worker_index"]) == index]
+
+
+def select_parallel_work_frame(
+    frame: pd.DataFrame,
+    *,
+    plan: dict[str, Any],
+    work_kind: str,
+    worker_index: int,
+) -> pd.DataFrame:
+    """Select exactly the rows assigned to one worker, preserving full columns."""
+
+    key_columns = (
+        PATCH_PAIR_KEY_COLUMNS
+        if work_kind == "patch_pairs"
+        else ABLATION_STIMULUS_KEY_COLUMNS
+    )
+    records = parallel_plan_records(
+        plan, work_kind=work_kind, worker_index=worker_index
+    )
+    keys = {
+        tuple(str(record[column]) for column in key_columns)
+        for record in records
+    }
+    selected = frame[
+        frame[list(key_columns)]
+        .astype(str)
+        .apply(tuple, axis=1)
+        .isin(keys)
+    ].copy()
+    observed = {
+        tuple(str(value) for value in row)
+        for row in selected[list(key_columns)].itertuples(index=False, name=None)
+    }
+    if observed != keys or len(selected) != len(keys):
+        raise RuntimeError(
+            f"Worker {worker_index} {work_kind} selection is incomplete or duplicated"
+        )
+    return selected.reset_index(drop=True)
 
 
 def clean_correct_baselines(

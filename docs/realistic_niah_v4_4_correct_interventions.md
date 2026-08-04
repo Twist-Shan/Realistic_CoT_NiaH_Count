@@ -248,3 +248,45 @@ of both patching and ablation summaries from raw detail.
 
 Until `correct_interventions.complete` exists and the audit reports `PASS`, the
 extension is an implemented design rather than a completed empirical result.
+
+### Formal 4+4 A100-80GB execution
+
+For an eight-GPU node, the formal entry point is
+`scripts/launch_realistic_niah_v4_4_correct_interventions_4x4.sh`. The numerical
+experiment is unchanged; only scheduling differs. The launcher requires eight
+visible GPUs with at least 75 GiB each and assigns physical GPUs 0--3 to four
+Qwen workers and GPUs 4--7 to four Gemma workers.
+
+Execution has three barriers:
+
+1. **Prepare.** One single-GPU process per model runs the registered clean
+   baseline scan. It freezes `supplement_selection.json` and a
+   `parallel_work_plan.json`. The plan is a deterministic round-robin
+   partition of identities sorted by registered keys. It cannot inspect an
+   ablation or patching outcome.
+2. **Workers.** Four independent single-GPU replicas per model read the frozen
+   plan. Patching pair identities and ablation stimulus identities are
+   exhaustive and mutually exclusive. Each worker writes only beneath
+   `workers/worker_NNN_of_004/`; workers never share capture paths.
+3. **Merge and audit.** CPU-only merge code verifies all four completion and
+   content hashes, exact plan coverage, single-worker ownership, and absence of
+   duplicate intervention keys before writing canonical combined detail and
+   summaries. The ordinary strict audit then recomputes scientific summaries
+   from canonical detail and independently verifies the worker union.
+
+The launcher refuses a dirty repository, fewer than eight visible devices, or
+an undersized GPU. A restart preserves and reuses completed baseline and worker
+shards only when the design, source hashes, implementation hash, worker plan,
+and per-file SHA-256 values agree. It never deletes partial data after failure.
+
+Example:
+
+```bash
+bash scripts/launch_realistic_niah_v4_4_correct_interventions_4x4.sh \
+  /lambda/nfs/CoT-Non-thinking-v4/runs/RUN_NAME \
+  /home/ubuntu/CoT-Non-thinking-v4/venv/bin/python \
+  /lambda/nfs/CoT-Non-thinking-v4/hf-cache \
+  /lambda/nfs/CoT-Non-thinking-v4/runs/QWEN_SOURCE \
+  /lambda/nfs/CoT-Non-thinking-v4/runs/GEMMA_SOURCE \
+  /lambda/nfs/CoT-Non-thinking-v4/runs/ABLATION_CONFIRMATION_SOURCE
+```

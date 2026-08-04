@@ -1,16 +1,31 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from realistic_niah_v4.correct_interventions import (
+    ABLATION_STIMULUS_KEY_COLUMNS,
+    PARALLEL_ASSIGNMENT_METHOD,
+    PATCH_PAIR_KEY_COLUMNS,
+    build_parallel_work_plan,
     eligible_directed_pairs,
+    parallel_plan_records,
+    select_parallel_work_frame,
     select_sequential_supplement,
     summarize_ablation_n_diagnostics,
     summarize_ablation_population,
     summarize_average_patching_accuracy,
 )
+from scripts.run_realistic_niah_v4_4_correct_interventions_parallel import (
+    _validate_ablation_partition,
+    _validate_pair_partition,
+)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _label(
@@ -373,3 +388,203 @@ def test_ablation_n_diagnostics_use_population_specific_primary_endpoint() -> No
         correct.loc[correct["top_n"].eq(2), "primary_rank_within_model_bank"].iloc[0]
         == 1
     )
+
+
+def test_parallel_plan_is_deterministic_disjoint_and_exhaustive() -> None:
+    model = "Qwen3-8B"
+    pairs = pd.DataFrame(
+        [
+            {
+                "model_label": model,
+                "seed": 100 + index,
+                "receiver_count": 0,
+                "donor_count": k,
+                "k": k,
+                "target_direction": "increase",
+            }
+            for index, k in enumerate((1, 3, 5, 1, 3, 5, 1, 3))
+        ]
+    )
+    stimuli = pd.DataFrame(
+        [
+            {
+                "model_label": model,
+                "stimulus_id": f"seed{seed}-N{count}",
+                "seed": seed,
+                "gold_count": count,
+            }
+            for seed in range(200, 210)
+            for count in range(1, 6)
+        ]
+    )
+    plan = build_parallel_work_plan(
+        model_label=model,
+        added_pairs=pairs.sample(frac=1, random_state=7),
+        ablation_stimuli=stimuli.sample(frac=1, random_state=11),
+        worker_count=4,
+    )
+    repeated = build_parallel_work_plan(
+        model_label=model,
+        added_pairs=pairs.sample(frac=1, random_state=17),
+        ablation_stimuli=stimuli.sample(frac=1, random_state=19),
+        worker_count=4,
+    )
+    assert plan == repeated
+    assert plan["assignment_method"] == PARALLEL_ASSIGNMENT_METHOD
+    assert plan["patch_pair_count"] == len(pairs)
+    assert plan["ablation_stimulus_count"] == len(stimuli)
+    assert {row["ablation_stimuli"] for row in plan["worker_loads"]} == {12, 13}
+
+    pair_unions: set[tuple[str, ...]] = set()
+    stimulus_unions: set[tuple[str, ...]] = set()
+    for worker_index in range(4):
+        selected_pairs = select_parallel_work_frame(
+            pairs,
+            plan=plan,
+            work_kind="patch_pairs",
+            worker_index=worker_index,
+        )
+        selected_stimuli = select_parallel_work_frame(
+            stimuli,
+            plan=plan,
+            work_kind="ablation_stimuli",
+            worker_index=worker_index,
+        )
+        pair_keys = {
+            tuple(str(value) for value in row)
+            for row in selected_pairs[list(PATCH_PAIR_KEY_COLUMNS)].itertuples(
+                index=False, name=None
+            )
+        }
+        stimulus_keys = {
+            tuple(str(value) for value in row)
+            for row in selected_stimuli[
+                list(ABLATION_STIMULUS_KEY_COLUMNS)
+            ].itertuples(index=False, name=None)
+        }
+        assert pair_unions.isdisjoint(pair_keys)
+        assert stimulus_unions.isdisjoint(stimulus_keys)
+        pair_unions.update(pair_keys)
+        stimulus_unions.update(stimulus_keys)
+    assert len(pair_unions) == len(pairs)
+    assert len(stimulus_unions) == len(stimuli)
+
+
+def test_parallel_plan_rejects_duplicate_work_identities() -> None:
+    pairs = pd.DataFrame(
+        [
+            {
+                "model_label": "Gemma4-E4B",
+                "seed": 1,
+                "receiver_count": 0,
+                "donor_count": 5,
+                "k": 5,
+                "target_direction": "increase",
+            }
+        ]
+        * 2
+    )
+    stimuli = pd.DataFrame(
+        [
+            {
+                "model_label": "Gemma4-E4B",
+                "stimulus_id": "s1-n1",
+                "seed": 1,
+                "gold_count": 1,
+            }
+        ]
+    )
+    with pytest.raises(ValueError, match="duplicate key rows"):
+        build_parallel_work_plan(
+            model_label="Gemma4-E4B",
+            added_pairs=pairs,
+            ablation_stimuli=stimuli,
+            worker_count=4,
+        )
+
+
+def test_parallel_launcher_declares_4_plus_4_isolated_layout() -> None:
+    source = (
+        REPO_ROOT
+        / "scripts"
+        / "launch_realistic_niah_v4_4_correct_interventions_4x4.sh"
+    ).read_text(encoding="utf-8")
+    assert "Qwen GPUs0-3; Gemma GPUs4-7" in source
+    assert "--worker-count 4" in source
+    assert "CUDA_VISIBLE_DEVICES" in source
+    assert "at least 8 visible GPUs" in source
+    assert "parallel_work_plan" in (
+        REPO_ROOT
+        / "scripts"
+        / "run_realistic_niah_v4_4_correct_interventions_parallel.py"
+    ).read_text(encoding="utf-8")
+
+
+def test_parallel_merge_validation_rejects_cross_worker_ownership() -> None:
+    model = "Qwen3-8B"
+    pairs = pd.DataFrame(
+        [
+            {
+                "model_label": model,
+                "seed": seed,
+                "receiver_count": 0,
+                "donor_count": 1,
+                "k": 1,
+                "target_direction": "increase",
+            }
+            for seed in range(4)
+        ]
+    )
+    stimuli = pd.DataFrame(
+        [
+            {
+                "model_label": model,
+                "stimulus_id": f"s{seed}",
+                "seed": seed,
+                "gold_count": 1,
+            }
+            for seed in range(4)
+        ]
+    )
+    plan = build_parallel_work_plan(
+        model_label=model,
+        added_pairs=pairs,
+        ablation_stimuli=stimuli,
+        worker_count=4,
+    )
+    pair_detail = pairs.copy()
+    pair_detail["site"] = "answer_query"
+    pair_detail["patch_protocol"] = "single_layer"
+    pair_detail["start_layer"] = 3
+    pair_detail["condition"] = "donor_transport"
+    pair_detail["parallel_worker_index"] = [
+        row["worker_index"]
+        for row in parallel_plan_records(plan, work_kind="patch_pairs")
+    ]
+    _validate_pair_partition(plan, pair_detail, family="prompt_patching")
+    duplicate_pair = pair_detail.iloc[[0]].copy()
+    duplicate_pair["parallel_worker_index"] = 3
+    with pytest.raises(RuntimeError, match="multiple workers"):
+        _validate_pair_partition(
+            plan,
+            pd.concat([pair_detail, duplicate_pair], ignore_index=True),
+            family="prompt_patching",
+        )
+
+    ablation_detail = stimuli.copy()
+    ablation_detail["parallel_worker_index"] = [
+        row["worker_index"]
+        for row in parallel_plan_records(plan, work_kind="ablation_stimuli")
+    ]
+    ablation_detail["head_bank"] = "broad_aggregation"
+    ablation_detail["top_n"] = 1
+    ablation_detail["condition"] = "ranked"
+    ablation_detail["random_replicate"] = -1
+    _validate_ablation_partition(plan, ablation_detail)
+    duplicate_ablation = ablation_detail.iloc[[0]].copy()
+    duplicate_ablation["parallel_worker_index"] = 2
+    with pytest.raises(RuntimeError, match="multiple workers"):
+        _validate_ablation_partition(
+            plan,
+            pd.concat([ablation_detail, duplicate_ablation], ignore_index=True),
+        )
