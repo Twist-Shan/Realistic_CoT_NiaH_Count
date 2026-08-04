@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 
-REPORT_SCHEMA = "realistic_niah_v4_4_causal_v2_report_v1"
+REPORT_SCHEMA = "realistic_niah_v4_4_causal_v2_report_v2"
 MODEL_ORDER = ("Qwen3-8B", "Gemma4-E4B")
 FAMILY_ORDER = ("prompt_patching", "answer_patching", "steering")
 FAMILY_LABELS = {
@@ -270,6 +270,89 @@ def _load_ablation(model: str, root: Path, sources: Sources) -> list[dict[str, A
     ]
 
 
+def _summarize_ablation_support(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Summarize pointwise functional-contribution signals without implying monotonicity."""
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped[(row["model_label"], row["head_bank"])].append(row)
+
+    both_by_bank: dict[str, dict[str, set[int]]] = defaultdict(dict)
+    for (model, bank), selected in grouped.items():
+        both_by_bank[bank][model] = {
+            row["top_n"]
+            for row in selected
+            if row["accuracy_effect"] < 0 and row["absolute_error_effect"] > 0
+        }
+
+    result: list[dict[str, Any]] = []
+    for model in MODEL_ORDER:
+        for bank in ("broad_aggregation", "first_locator"):
+            selected = sorted(grouped[(model, bank)], key=lambda row: row["top_n"])
+            either = [
+                row
+                for row in selected
+                if row["accuracy_effect"] < 0 or row["absolute_error_effect"] > 0
+            ]
+            both = [
+                row
+                for row in selected
+                if row["accuracy_effect"] < 0 and row["absolute_error_effect"] > 0
+            ]
+            shared = set.intersection(
+                *(both_by_bank[bank].get(name, set()) for name in MODEL_ORDER)
+            )
+            result.append(
+                {
+                    "model_label": model,
+                    "head_bank": bank,
+                    "top_n_tested": len(selected),
+                    "either_metric_harmful_count": len(either),
+                    "both_metrics_harmful_count": len(both),
+                    "both_metrics_top_n": ";".join(str(row["top_n"]) for row in both),
+                    "cross_model_shared_both_metrics_top_n": ";".join(str(value) for value in sorted(shared)),
+                    "held_out_confirmation": False,
+                    "supports_monotone_dose_response": False,
+                }
+            )
+    return result
+
+
+def _claim_sufficiency(family_summary: Sequence[dict[str, Any]]) -> list[dict[str, str]]:
+    answer = {
+        row["model_label"]: row
+        for row in family_summary
+        if row["family"] == "answer_patching"
+    }
+    return [
+        {
+            "claim_id": "answer_query_hidden_state_usable_information",
+            "intended_claim": "答案查询 hidden state 含有下游可用的 donor-associated 计数/预测信息",
+            "verdict": "对受限主张充分；正式显著性受 seed 数限制",
+            "direct_evidence": (
+                f"独立 screen/confirmation、配对 self-copy 与 same-count controls；"
+                f"Qwen {answer['Qwen3-8B']['conditions']}、Gemma {answer['Gemma4-E4B']['conditions']} "
+                "个确认条件均为 5/5 seed 正且 bootstrap CI 下界大于 0"
+            ),
+            "not_claimed": "不等同于记住 gold count，不证明唯一回路或逐层路径",
+            "minimal_supplement": (
+                "该受限功能主张无需补跑；若必须获得双侧 exact p<.05，"
+                "冻结每模型一个 family-level primary endpoint，并新增至少 7、建议 10–20 个独立 seeds"
+            ),
+        },
+        {
+            "claim_id": "ranked_head_bank_functional_contribution",
+            "intended_claim": "排序得到的 attention head bank 对计数行为有可重复的功能贡献",
+            "verdict": "现有结果为支持性 discovery evidence，尚非确认性充分证据",
+            "direct_evidence": "targeted-minus-layer-matched-random ablation 在若干 top-n 上同时降低 accuracy 并增加 absolute error",
+            "not_claimed": "非单调不否定点效应，但当前不能排除 top-n 扫描后的选择偏差",
+            "minimal_supplement": (
+                "冻结每模型 broad-aggregation top-5；使用不与 ranked bank 重叠的 layer-matched random controls，"
+                "在至少 10 个新 seeds 上以 seed-level ΔMAE 为单一 primary endpoint 做确认"
+            ),
+        },
+    ]
+
+
 def _load_audit(model: str, root: Path, sources: Sources) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     path = root / "audit" / "audit.json"
     audit = sources.json(f"{model}.audit", path)
@@ -512,7 +595,7 @@ def _ablation_svg(rows: Sequence[dict[str, Any]], metric: str, figure_id: str, t
     span = max(y_max - y_min, 0.1)
     y_min -= 0.08 * span
     y_max += 0.08 * span
-    parts = [f'<svg class="chart" viewBox="0 0 {width} {height}" role="img" aria-labelledby="{figure_id}-title {figure_id}-desc">', f'<title id="{figure_id}-title">{html.escape(title)}</title>', '<desc id="{figure_id}-desc">Discovery-screen ranked-minus-random head-ablation effect across top-n heads for two ranked banks and two models.</desc>']
+    parts = [f'<svg class="chart" viewBox="0 0 {width} {height}" role="img" aria-labelledby="{figure_id}-title {figure_id}-desc">', f'<title id="{figure_id}-title">{html.escape(title)}</title>', f'<desc id="{figure_id}-desc">Discovery-screen ranked-minus-random head-ablation effect across top-n heads for two ranked banks and two models.</desc>']
     for model_index, model in enumerate(MODEL_ORDER):
         left = first_left + model_index * (panel_w + gap)
         selected = [row for row in rows if row["model_label"] == model]
@@ -580,6 +663,8 @@ def _render_report(payload: dict[str, Any]) -> str:
     stages = [row for model in models for row in model["stages"]]
     exports = [model["export"] for model in models]
     ablation = [row for model in models for row in model["ablation"]]
+    ablation_support = payload["ablation_support"]
+    claim_sufficiency = payload["claim_sufficiency"]
     preflight = models[0]["preflight_design"]
 
     family_table_rows: list[list[str]] = []
@@ -717,6 +802,43 @@ def _render_report(payload: dict[str, Any]) -> str:
                 ]
             )
 
+    sufficiency_rows = [
+        [
+            html.escape(row["intended_claim"]),
+            html.escape(row["verdict"]),
+            html.escape(row["direct_evidence"]),
+            html.escape(row["not_claimed"]),
+            html.escape(row["minimal_supplement"]),
+        ]
+        for row in claim_sufficiency
+    ]
+    ablation_support_rows = [
+        [
+            html.escape(row["model_label"]),
+            html.escape(row["head_bank"].replace("_", " ")),
+            str(row["top_n_tested"]),
+            str(row["either_metric_harmful_count"]),
+            str(row["both_metrics_harmful_count"]),
+            html.escape(row["both_metrics_top_n"] or "none"),
+            html.escape(row["cross_model_shared_both_metrics_top_n"] or "none"),
+        ]
+        for row in ablation_support
+    ]
+    q_broad_top5 = next(
+        row
+        for row in ablation
+        if row["model_label"] == "Qwen3-8B"
+        and row["head_bank"] == "broad_aggregation"
+        and row["top_n"] == 5
+    )
+    g_broad_top5 = next(
+        row
+        for row in ablation
+        if row["model_label"] == "Gemma4-E4B"
+        and row["head_bank"] == "broad_aggregation"
+        and row["top_n"] == 5
+    )
+
     audit_category_counts = Counter()
     for model in models:
         for row in model["audit_categories"]:
@@ -727,28 +849,31 @@ def _render_report(payload: dict[str, Any]) -> str:
     ]
 
     css = """
-:root{--ink:#1f2a2d;--muted:#607076;--paper:#fbfaf7;--surface:#fff;--line:#d8d6cf;--teal:#0b7772;--rust:#b35c22;--blue:#2f5aa6;--soft:#eef3f1;--warn:#fff4e2;--max:1120px}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font-family:Inter,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;line-height:1.66}header{padding:64px 24px 42px;background:linear-gradient(135deg,#123c3a 0%,#17333a 56%,#3f3127 100%);color:#fff}.hero{max-width:var(--max);margin:auto}.eyebrow{text-transform:uppercase;letter-spacing:.14em;font-size:.78rem;font-weight:750;color:#b9ded9}.hero h1{font-size:clamp(2.1rem,5vw,4.7rem);line-height:1.04;margin:.35rem 0 1.15rem;max-width:970px;letter-spacing:-.035em}.hero .lede{font-size:1.12rem;max-width:880px;color:#e3eeec}.badges{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}.badge{border:1px solid #ffffff55;border-radius:999px;padding:6px 11px;font-size:.82rem;background:#ffffff12}main{max-width:var(--max);margin:0 auto;padding:30px 24px 80px}.layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:42px}.toc{position:sticky;top:18px;align-self:start;border-left:3px solid var(--teal);padding:6px 0 6px 18px}.toc strong{display:block;margin-bottom:8px}.toc a{display:block;color:#486066;text-decoration:none;padding:4px 0;font-size:.91rem}.toc a:hover{color:var(--teal)}article{min-width:0}section{scroll-margin-top:18px;margin:0 0 56px}h2{font-size:2rem;line-height:1.15;margin:0 0 18px;letter-spacing:-.025em}h3{font-size:1.3rem;margin:34px 0 12px;color:#173f42}p{margin:10px 0}a{color:#0b6664}code{font-family:"Cascadia Mono",Consolas,monospace;font-size:.9em;word-break:break-all}.callout{border-left:4px solid var(--rust);background:var(--warn);padding:15px 18px;margin:20px 0}.formula{font-family:"Cambria Math","Times New Roman",serif;background:#f1f4f2;border:1px solid #d9e1de;border-radius:5px;padding:13px 16px;margin:14px 0;overflow:auto}.conclusion{border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:24px 0 0;padding:14px 0}.conclusion span{font-size:.78rem;text-transform:uppercase;letter-spacing:.1em;color:var(--teal);font-weight:800}.conclusion p{font-weight:620;margin:5px 0}.table-wrap{overflow:auto;margin:16px 0 24px;border:1px solid var(--line);background:var(--surface)}table{border-collapse:collapse;width:100%;font-size:.87rem}th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #e8e5de;vertical-align:top}th{background:#edf2f0;color:#294245;position:sticky;top:0;z-index:1}tr:last-child td{border-bottom:0}table.compact td,table.compact th{padding:7px 9px}figure{margin:26px 0 34px;border:1px solid var(--line);background:#fff;padding:15px}.chart{display:block;width:100%;height:auto}.grid{stroke:#dfe3e1;stroke-width:1}.axis{stroke:#455a64;stroke-width:1.3}figcaption{font-size:.88rem;color:#4e5c60;border-top:1px solid #e7e5df;padding-top:12px;margin-top:8px}.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:18px 0}.card{border-top:4px solid var(--teal);background:#fff;padding:15px;border-left:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line)}.card:nth-child(2){border-top-color:var(--rust)}.card:nth-child(3){border-top-color:var(--blue)}.card strong{font-size:1.45rem;display:block}.small{font-size:.88rem;color:var(--muted)}.status-pass{color:#0a6d4f;font-weight:750}.warning{color:#935113;font-weight:700}.footnotes{font-size:.88rem;color:#56666a}.provenance{font-family:"Cascadia Mono",Consolas,monospace;font-size:.78rem;word-break:break-all}.skip-link{position:absolute;left:-9999px}.skip-link:focus{left:12px;top:12px;background:white;padding:8px;z-index:20}@media(max-width:860px){.layout{grid-template-columns:1fr}.toc{position:relative;top:0}.cards{grid-template-columns:1fr}.hero h1{font-size:2.4rem}header{padding-top:48px}}@media print{body{background:#fff;font-size:10pt}header{background:#fff!important;color:#000;padding:24px 0;border-bottom:2px solid #000}.eyebrow,.badge{color:#000}.badge{border-color:#777}.layout{display:block}.toc{display:none}main{max-width:none;padding:18px 0}section{break-inside:auto;margin-bottom:28px}figure,.table-wrap,.conclusion{break-inside:avoid}a{color:#000;text-decoration:none}.chart{max-height:230mm}}
+:root{--ink:#1f2a2d;--muted:#607076;--paper:#fbfaf7;--surface:#fff;--line:#d8d6cf;--teal:#0b7772;--rust:#b35c22;--blue:#2f5aa6;--soft:#eef3f1;--warn:#fff4e2;--max:1120px}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font-family:system-ui,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;line-height:1.66}header{padding:64px 24px 42px;background:linear-gradient(135deg,#123c3a 0%,#17333a 56%,#3f3127 100%);color:#fff}.hero{max-width:var(--max);margin:auto}.eyebrow{text-transform:uppercase;letter-spacing:.14em;font-size:.78rem;font-weight:750;color:#b9ded9}.hero h1{font-size:clamp(2rem,4vw,3.7rem);line-height:1.07;margin:.35rem 0 1.15rem;max-width:970px;letter-spacing:-.035em}.hero .lede{font-size:1.12rem;max-width:880px;color:#e3eeec}.badges{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}.badge{border:1px solid #ffffff55;border-radius:999px;padding:6px 11px;font-size:.82rem;background:#ffffff12}main{max-width:var(--max);margin:0 auto;padding:30px 24px 80px}.layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:42px}.toc{position:sticky;top:18px;align-self:start;border-left:3px solid var(--teal);padding:6px 0 6px 18px}.toc strong{display:block;margin-bottom:8px}.toc a{display:block;color:#486066;text-decoration:none;padding:4px 0;font-size:.91rem}.toc a:hover{color:var(--teal)}article{min-width:0}section{scroll-margin-top:18px;margin:0 0 56px}h2{font-size:2rem;line-height:1.15;margin:0 0 18px;letter-spacing:-.025em}h3{font-size:1.3rem;margin:34px 0 12px;color:#173f42}p{margin:10px 0}a{color:#0b6664}code{font-family:"Cascadia Mono",Consolas,monospace;font-size:.9em;word-break:break-all}.callout{border-left:4px solid var(--rust);background:var(--warn);padding:15px 18px;margin:20px 0}.formula{font-family:"Cambria Math","Times New Roman",serif;background:#f1f4f2;border:1px solid #d9e1de;border-radius:5px;padding:13px 16px;margin:14px 0;overflow:auto}.conclusion{border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:24px 0 0;padding:14px 0}.conclusion span{font-size:.78rem;text-transform:uppercase;letter-spacing:.1em;color:var(--teal);font-weight:800}.conclusion p{font-weight:620;margin:5px 0}.table-wrap{overflow:auto;margin:16px 0 24px;border:1px solid var(--line);background:var(--surface)}table{border-collapse:collapse;width:100%;font-size:.87rem}th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #e8e5de;vertical-align:top}th{background:#edf2f0;color:#294245;position:sticky;top:0;z-index:1}tr:last-child td{border-bottom:0}table.compact td,table.compact th{padding:7px 9px}figure{margin:26px 0 34px;border:1px solid var(--line);background:#fff;padding:15px}.chart{display:block;width:100%;height:auto}.grid{stroke:#dfe3e1;stroke-width:1}.axis{stroke:#455a64;stroke-width:1.3}figcaption{font-size:.88rem;color:#4e5c60;border-top:1px solid #e7e5df;padding-top:12px;margin-top:8px}.verdict-grid{display:grid;grid-template-columns:1.18fr .82fr;gap:16px;margin:20px 0}.verdict{background:#fff;border:1px solid var(--line);border-top:5px solid var(--teal);padding:18px}.verdict.pending{border-top-color:var(--rust)}.verdict h3{margin:0 0 8px}.verdict strong{display:block;font-size:1.08rem;margin-bottom:6px}.metric-strip{display:flex;flex-wrap:wrap;gap:8px 22px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:11px 0;margin:18px 0;color:var(--muted);font-size:.9rem}.metric-strip b{color:var(--ink)}.small{font-size:.88rem;color:var(--muted)}.status-pass{color:#0a6d4f;font-weight:750}.warning{color:#935113;font-weight:700}.footnotes{font-size:.88rem;color:#56666a}.provenance{font-family:"Cascadia Mono",Consolas,monospace;font-size:.78rem;word-break:break-all}.skip-link{position:absolute;left:-9999px}.skip-link:focus{left:12px;top:12px;background:white;padding:8px;z-index:20}@media(max-width:860px){.layout,.verdict-grid{grid-template-columns:1fr}.toc{position:relative;top:0}.hero h1{font-size:2.35rem}header{padding-top:48px}}@media print{body{background:#fff;font-size:10pt}header{background:#fff!important;color:#000;padding:24px 0;border-bottom:2px solid #000}.eyebrow,.badge{color:#000}.badge{border-color:#777}.layout{display:block}.toc{display:none}main{max-width:none;padding:18px 0}section{break-inside:auto;margin-bottom:28px}figure,.table-wrap,.conclusion,.verdict{break-inside:avoid}a{color:#000;text-decoration:none}.chart{max-height:230mm}}
 """
 
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Realistic NIAH V4.4 causal-v2：双模型正式实验报告</title><style>{css}</style></head>
 <body><a class="skip-link" href="#content">跳到正文</a>
-<header><div class="hero"><div class="eyebrow">Realistic NIAH · V4.4 · causal-v2 · formal</div><h1>完整 prompt span 可以运输计数状态；答案查询位也可被运输与定向操控</h1><p class="lede">Qwen3-8B 与 Gemma4-E4B 的正式、分离发现/确认实验。报告只把预注册干预直接支持的内容写成结论，并把基线错误、筛选、低检验力、负结果与可复现证据放在同一页面。</p><div class="badges"><span class="badge">Qwen audit 302/302</span><span class="badge">Gemma audit 302/302</span><span class="badge">k ∈ {{1,3,5}}</span><span class="badge">5 screen + 5 held-out seeds</span><span class="badge">implementation dd409f2</span></div></div></header>
-<main id="content"><div class="layout"><nav class="toc" aria-label="目录"><strong>目录</strong><a href="#executive">1. 结论摘要</a><a href="#design">2. 实验设定</a><a href="#metrics">3. 指标与统计</a><a href="#integrity">4. 完整性与审计</a><a href="#baseline">5. 基线行为</a><a href="#prompt">6. Prompt patching</a><a href="#answer">7. Answer patching</a><a href="#steering">8. Steering</a><a href="#ablation">9. Head ablation</a><a href="#cross">10. 跨模型整合</a><a href="#limits">11. 限制与复现</a></nav><article>
+<header><div class="hero"><div class="eyebrow">Realistic NIAH · V4.4 · causal-v2 · claim-focused</div><h1>Patching 已提供充分的功能干预证据；head usefulness 尚差一次冻结确认</h1><p class="lede">本报告只评估两条预定主张：特定 attention heads 是否对计数行为有功能贡献，以及 hidden state 是否保存了下游可用的计数/预测信息。我们不要求唯一计数回路，也不把 head 数量增加时的单调恶化作为成立条件。</p><div class="badges"><span class="badge">Qwen audit 302/302</span><span class="badge">Gemma audit 302/302</span><span class="badge">k ∈ {{1,3,5}}</span><span class="badge">5 screen + 5 held-out seeds</span><span class="badge">implementation dd409f2</span></div></div></header>
+<main id="content"><div class="layout"><nav class="toc" aria-label="目录"><strong>目录</strong><a href="#executive">1. 主张与充分性</a><a href="#design">2. 实验设定</a><a href="#metrics">3. 指标与统计</a><a href="#integrity">4. 完整性与审计</a><a href="#baseline">5. 基线行为</a><a href="#prompt">6. Prompt patching</a><a href="#answer">7. Answer patching</a><a href="#steering">8. Steering</a><a href="#ablation">9. Head contribution</a><a href="#cross">10. 跨模型整合</a><a href="#limits">11. 补实验与复现</a></nav><article>
 
-<section id="executive"><h2>1. 结论摘要</h2><div class="cards"><div class="card"><span>Prompt span</span><strong>{q_prompt['conditions']} / {g_prompt['conditions']}</strong><span class="small">Qwen / Gemma held-out conditions；全部 bootstrap CI 下界 &gt; 0</span></div><div class="card"><span>Answer query</span><strong>{q_answer['median_effect']:.3f} / {g_answer['median_effect']:.3f}</strong><span class="small">两模型 primary median transport</span></div><div class="card"><span>Formal randomization</span><strong>0 significant</strong><span class="small">所有 family、所有模型 Holm p &gt; .05；5 seeds 的最小双侧 p=.0625</span></div></div>
-<p>最稳健的共同结果有三条。第一，完整的 toggled-needle span residual 在所有进入 held-out 确认的 Qwen 条件（{q_prompt['conditions']} 个）和 Gemma 条件（{g_prompt['conditions']} 个）上都产生正的 matched-control-adjusted transport；单 token 的 span endpoint 没有任何条件通过发现阶段筛选。第二，答案查询位的 donor state 在 single-layer 与 cumulative-from-layer 协议中都能运输计数方向。第三，基于 count centroid 的几何 steering 在多数确认条件上也能推动输出，但不是精确 set-to-count 操作。</p>
-<div class="callout"><strong>统计限制。</strong>每个 primary 条件只有 5 个 held-out seed cluster，双侧 exact sign-flip test 的最小可能 p 值是 2/2⁵ = 0.0625。因此，虽然 bootstrap 95% CI 在所有 prompt/answer 条件和全部 steering 条件上都高于 0，预注册随机化检验没有任何未校正或 Holm 校正后的 p&lt;.05 结果。本文把前者写为稳定的描述性/重抽样证据，不把它替代成正式显著性。</div>
+<section id="executive"><h2>1. 面向主张的充分性判定</h2><p>这里的“充分”不是指排除全部替代机制，而是指干预设计足以回答对应的受限功能问题。唯一回路、完整逐层路径和精确 set-to-count 都不属于本报告必须证明的目标。</p>
+<div class="verdict-grid"><div class="verdict"><h3>Hidden state：对受限主张充分</h3><strong>结论：答案查询 hidden state 含有下游可用的 donor-associated 计数/预测信息。</strong><p>answer-query patching 使用独立 screen/held-out confirmation、self-copy 与 same-count matched controls；Qwen {q_answer['conditions']}、Gemma {g_answer['conditions']} 个确认条件全部为 5/5 held-out seeds 正，且 bootstrap CI 下界均大于 0。它证明的是可被下游使用的信息，而不是只做线性解码得到的相关性。</p></div><div class="verdict pending"><h3>Head bank：候选证据充分，确认尚缺</h3><strong>结论：当前可以说 ranked heads 在 discovery 数据上具有功能敏感性；还不能写成可重复的确认性贡献。</strong><p>非单调性本身不是否定 head usefulness 的理由。真正的缺口是 top-1…32 扫描后的选择、没有独立 held-out ablation confirmation，以及随机控制与 ranked bank 有重叠。</p></div></div>
+<div class="metric-strip"><span><b>Answer median transport</b> {_fmt(q_answer['median_effect'])} / {_fmt(g_answer['median_effect'])}</span><span><b>共享 ablation 候选</b> broad-aggregation top-5</span><span><b>Exact-test 分辨率</b> min p=0.0625</span></div>
+{_table(['目标主张','当前判定','直接证据','不主张什么','最小补充'], sufficiency_rows, compact=True)}
+<div class="callout"><strong>判定标准。</strong>对 hidden-state 主张，关键是反事实替换是否在独立确认集上、相对于同例 matched controls 稳定改变输出；现有实验满足。对 head-usefulness 主张，关键是预先冻结的 targeted ablation 是否在新数据上比不重叠、层匹配的随机 head ablation 稳定增加误差；现有 discovery sweep 还没有完成这一步。</div>
 {_figure(1, _overview_svg(family_summary), '横轴为三类干预 family，每类并列 Qwen 与 Gemma；每个点是该模型 × family 的 primary held-out 条件中位数。竖线是这些“条件均值”的观测最小—最大范围，不是置信区间。纵轴为 matched-control-adjusted strict normalized transport，0 表示相对配对控制无运输，1 表示平均完成一个 receiver→target 的归一化距离。图下 n 是经 screen 冻结后进入确认的条件数（steering 还包含每个 k 的 frozen multi-layer plan）。')}
-{_conclusion('直接数据支持：完整 span、答案查询 patch 与答案查询 steering 在两个模型的已筛选 held-out 条件中均表现出方向一致的正运输。尚不能下结论：这些结果不证明唯一机制、精确计数设置，也不达到预注册 exact test 的 0.05 显著性门槛。')}
+{_conclusion('针对本文真正需要的两条主张：patching 已足以支持“hidden state 含有下游可用信息”；ablation 已定位到有干预效应的候选 head bank，但若要把“head 有用”写成确认性结论，仍需一次冻结 top-n 的小型 held-out 复验。非单调性只限制累积剂量和排序解释，不推翻点效应。','充分性判定')}
 </section>
 
-<section id="design"><h2>2. 实验问题与冻结设定</h2><h3>2.1 问题与模型</h3><p>实验固定 Realistic NIAH V4.4、10,000-token、numeric non-thinking 生成，研究三个互补问题：prompt 中一个完整被切换 needle span 的 residual state 是否足以运输计数信息；最终 <code>Total:</code> 查询位的 residual 是否足以运输 donor prediction；population-level count centroid direction 是否能定向改变输出。模型为 <code>Qwen/Qwen3-8B</code> 与 <code>google/gemma-4-E4B-it</code>，分别固定 tokenizer revision <code>{models[0]['preflight_design']['tokenizer_revision']}</code> 与 <code>{models[1]['preflight_design']['tokenizer_revision']}</code>。</p>{_conclusion('三类干预回答的是不同问题：prompt/answer donor patch 测试样本特异状态的充分性，centroid steering 测试群体方向的可操控性；它们不能互相替代。')}
-<h3>2.2 k、配对、种子与阶段</h3><p>计数取 0…10。九个 canonical 无向 pair 为 k=1 的 (0,1)/(4,5)/(9,10)，k=3 的 (0,3)/(3,6)/(7,10)，k=5 的 (0,5)/(2,7)/(5,10)；两方向均执行，共 18 个 directed pairs。centroid 用 seeds 1234–1253（20）；screen 用 1254–1258（5）；held-out confirmation 用 1259–1263（5）。ablation screen 使用 counts 7–10、top-n=1…32、每个 ranked bank 配三套 layer-matched random control。</p>
+<section id="design"><h2>2. 实验问题与冻结设定</h2><h3>2.1 两条目标主张</h3><p>实验固定 Realistic NIAH V4.4、10,000-token、numeric non-thinking 生成。目标主张 A：最终 <code>Total:</code> 查询位的 hidden state 是否保存下游可用的 donor-associated 计数/预测信息；操作判据是 donor patch 相对 self-copy 与 same-count controls 在 held-out 数据上产生方向一致的输出运输。目标主张 B：排序得到的 attention head bank 是否对计数行为有功能贡献；操作判据是冻结后的 targeted ablation 相对不重叠、层匹配随机 ablation 在 held-out 数据上增加误差。模型为 <code>Qwen/Qwen3-8B</code> 与 <code>google/gemma-4-E4B-it</code>。</p>{_conclusion('本文不要求证明唯一计数回路。Patching 回答 hidden state 的功能充分性；ablation 回答 head bank 的功能贡献。单调 top-n 剂量反应是可能的附加现象，不是“head 有用”的必要定义。')}
+<h3>2.2 辅助三角验证</h3><p>Prompt full-span patching 检验上游 span state 能否运输计数方向；count-centroid steering 检验 answer-query state 是否可沿群体计数方向操控。它们强化 hidden-state 解释，但不能替代 head ablation 的独立确认，也不直接建立 span→head→query 的逐层中介链。</p>{_conclusion('三类 patching/steering 与 head ablation 提供互补证据；报告分别判定，不把其中任何一项包装成完整回路。')}
+<h3>2.3 k、配对、种子与阶段</h3><p>计数取 0…10。九个 canonical 无向 pair 为 k=1 的 (0,1)/(4,5)/(9,10)，k=3 的 (0,3)/(3,6)/(7,10)，k=5 的 (0,5)/(2,7)/(5,10)；两方向均执行，共 18 个 directed pairs。centroid 用 seeds 1234–1253（20）；screen 用 1254–1258（5）；held-out confirmation 用 1259–1263（5）。ablation screen 使用 counts 7–10、top-n=1…32、每个 ranked bank 配三套 layer-matched random control。</p>
 {_table(['模型','family','screen 选中','screen seeds','held-out seeds','screen detail SHA-256'], selection_rows)}
 <p>筛选规则在确认前冻结：5 个 screen seeds 全部有效；至少 4/5 seed 的 matched-control effect 为正；increase/decrease 两方向都为正；三组 anchor pair 至少 2/3 为正；平均 control-adjusted transport ≥0.15；valid rate ≥0.95。selection JSON 同时冻结 screen detail SHA 与 held-out seed 列表。</p>{_conclusion('发现与确认 seed 完全分离，确认条件由不可变 selection JSON 冻结；因此 held-out 结果不是在确认数据上重新挑层。')}
-<h3>2.3 干预与控制</h3><p><strong>Prompt patching：</strong>站点为 <code>toggled_needle_end</code>（单 endpoint token）或 <code>toggled_needle_span</code>（完整 token span）；协议为 single-layer 或 cumulative-from-layer。treatment 复制 donor residual；控制为同 receiver 自身复制与同 count donor 的 matched control。<strong>Answer patching：</strong>站点固定 final answer query，协议同上。<strong>Steering：</strong>α=1 的 count-centroid delta；控制是在同一层、同 prompt 上与 delta 正交且范数相同的确定性随机方向；另有 screen 冻结的 multi-layer plan。</p>{_conclusion('每个 primary estimand 都是 treatment 减去同例 matched control，而不是只与 clean generation 比较；结论只适用于这些站点、强度与协议。')}
-<h3>2.4 Prompt full-span 映射</h3><p>映射策略固定为 <code>{preflight['alignment_policy']}</code>。当 receiver 长 R、donor 长 S 且 R,S&gt;1 时，第 j 个 receiver token 取 donor 索引：</p><div class="formula">a(j) = floor((2j(S−1)+(R−1)) / (2(R−1))).</div><p>它使用确定性 round-half-up，单调、保持两端点，R=S 时为恒等映射；R=1 取 donor 中点，S=1 重用唯一 donor vector。Qwen 的 540 个 pair×seed 映射全部 exact；Gemma 有 178 exact、362 deterministic remap；二者 unsupported 都为 0。</p>
+<h3>2.4 干预与控制</h3><p><strong>Prompt patching：</strong>站点为 <code>toggled_needle_end</code>（单 endpoint token）或 <code>toggled_needle_span</code>（完整 token span）；协议为 single-layer 或 cumulative-from-layer。treatment 复制 donor residual；控制为同 receiver 自身复制与同 count donor 的 matched control。<strong>Answer patching：</strong>站点固定 final answer query，协议同上。<strong>Steering：</strong>α=1 的 count-centroid delta；控制是在同一层、同 prompt 上与 delta 正交且范数相同的确定性随机方向；另有 screen 冻结的 multi-layer plan。</p>{_conclusion('每个 primary estimand 都是 treatment 减去同例 matched control，而不是只与 clean generation 比较；结论只适用于这些站点、强度与协议。')}
+<h3>2.5 Prompt full-span 映射</h3><p>映射策略固定为 <code>{preflight['alignment_policy']}</code>。当 receiver 长 R、donor 长 S 且 R,S&gt;1 时，第 j 个 receiver token 取 donor 索引：</p><div class="formula">a(j) = floor((2j(S−1)+(R−1)) / (2(R−1))).</div><p>它使用确定性 round-half-up，单调、保持两端点，R=S 时为恒等映射；R=1 取 donor 中点，S=1 重用唯一 donor vector。Qwen 的 540 个 pair×seed 映射全部 exact；Gemma 有 178 exact、362 deterministic remap；二者 unsupported 都为 0。</p>
 {_figure(2, _alignment_svg(alignment), 'Prompt full-span 预检。横轴为模型；纵轴为 540 个 directed-pair × evaluation-seed 映射。绿色 exact 表示 token 数和逐位映射完全一致；橙色 remapped 表示按冻结的 monotone endpoint-preserving nearest-neighbor rule 确定性重采样；红色 unsupported 表示无法构造映射。Gemma 最大归一化位置误差为 '+_fmt(models[1]['alignment']['max_normalized_position_error'],4)+'，Qwen 为 0。')}
 {_table(['模型','总映射','exact','remapped','unsupported','max normalized error','policy'], alignment_rows)}
 {_conclusion('预检满足注册标准：Qwen 540/0/0，Gemma 178/362/0；Gemma 结果包含定义内的确定性重映射，因此跨模型比较还受 tokenizer/span-length 差异影响。')}
@@ -756,7 +881,7 @@ def _render_report(payload: dict[str, Any]) -> str:
 
 <section id="metrics"><h2>3. 概念、指标与统计量</h2><h3>3.1 Strict normalized transport</h3><p>对 receiver gold count r、target/donor gold count t、clean receiver prediction y₀ 和 treatment prediction y₁，未裁剪运输量定义为：</p><div class="formula">T = (y₁ − y₀) / (t − r).</div><p>T&gt;0 表示沿目标方向移动，T=1 表示恰好移动完整 gold-count 距离，T&gt;1 表示越过目标，T&lt;0 表示反向。target conformity 为 <span class="formula">C = 1 − |y₁−t| / |t−r|</span>。生成不符合严格 numeric 格式时，不丢弃样本，而把 strict effect 记 0，同时单独报告 valid rate。</p>{_conclusion('方向约定、分母和 invalid handling 在两个模型及三类干预中完全一致；图中的 0.7 表示平均完成 70% 的 receiver→target 距离，不等同于 70% accuracy。')}
 <h3>3.2 Matched-control adjustment</h3><p>每条 treatment 的 strict transport 减去同一 example 内 controls 的均值：patching controls 是 self-copy 与 same-count donor；steering control 是一个 norm-matched orthogonal random direction。先在 seed 内对 directed pairs/controls 求配对均值，再以 seed cluster 为独立聚合单位。</p><div class="formula">Δ<sub>s,c</sub> = mean<sub>examples in seed s</sub>(T<sub>treat</sub> − mean(T<sub>matched controls</sub>)); &nbsp; estimate<sub>c</sub> = mean<sub>s</sub> Δ<sub>s,c</sub>.</div>{_conclusion('primary effect 隔离的是相对于配对控制的方向运输，不是 treatment 输出的原始正确率，也不是跨模型参数量差异。')}
-<h3>3.3 不确定性与多重比较</h3><p>每个 held-out 条件有 5 个 seed cluster。95% CI 来自 10,000 次 seed-cluster bootstrap；双侧 exact sign-flip p 在 seed means 上计算；同一 evidence scope 内使用 Holm correction。缺失值不做插补；invalid generation 按 strict zero-effect 进入分母，stage audit 要求成功行数等于逻辑行数且 skipped=0。</p>{_conclusion('bootstrap CI 和 exact randomization p 回答不同问题。由于 n=5 的离散性，本报告不把 CI&gt;0 写成“通过 0.05 正式检验”。')}
+<h3>3.3 不确定性、多重比较与“证据充分”</h3><p>每个 held-out 条件有 5 个 seed cluster。95% CI 来自 10,000 次 seed-cluster bootstrap；双侧 exact sign-flip p 在 seed means 上计算；同一 evidence scope 内使用 Holm correction。缺失值不做插补；invalid generation 按 strict zero-effect 进入分母，stage audit 要求成功行数等于逻辑行数且 skipped=0。这里把“受限功能主张的证据充分”与“达到预注册 p&lt;.05”分开：前者要求独立确认、合适控制、跨 seeds 和模型的一致干预方向；后者还受离散检验分辨率约束。</p>{_conclusion('Patching 满足受限功能主张的操作判据，但 n=5 使双侧 exact test 最小 p=0.0625，因此不能写成“正式显著”。如果论文必须以 p&lt;.05 为验收标准，需要补独立 seeds；这不改变当前干预方向和效应大小。')}
 </section>
 
 <section id="integrity"><h2>4. 数据完整性、运行与审计</h2><p>两次 campaign 均为 COMPLETE，正式实现 Git commit 为 <code>dd409f2dff82ccd6400dfc3d7704025cb6939940</code>；preflight 记录的 implementation SHA 为 <code>{preflight['implementation_sha256']}</code>、causal config SHA 为 <code>{preflight['causal_config_sha256']}</code>、stimuli SHA 为 <code>{preflight['stimuli_sha256']}</code>。Qwen 完成于 {models[0]['completion']['updated_utc']}，Gemma 完成于 {models[1]['completion']['updated_utc']}。</p>
@@ -782,7 +907,7 @@ def _render_report(payload: dict[str, Any]) -> str:
 
 <section id="answer"><h2>7. Answer-query patching</h2><p>primary held-out 条件为 Qwen {q_answer['conditions']}、Gemma {g_answer['conditions']}；全部条件 bootstrap CI 下界 &gt;0 且 5/5 seeds 为正。中位 effect 分别 {_fmt(q_answer['median_effect'])}/{_fmt(g_answer['median_effect'])}。Qwen 最佳/最弱为 {_condition_label(q_answer_best)} {_fmt(q_answer_best['mean_control_adjusted_transport'])} 与 {_condition_label(q_answer_worst)} {_fmt(q_answer_worst['mean_control_adjusted_transport'])}；Gemma 为 {_condition_label(g_answer_best)} {_fmt(g_answer_best['mean_control_adjusted_transport'])} 与 {_condition_label(g_answer_worst)} {_fmt(g_answer_worst['mean_control_adjusted_transport'])}。</p>
 {_figure(4, _layer_svg(conditions,'answer_patching','fig4','Answer-query single-layer confirmation'), 'Final Total: query residual 的 single-layer held-out 确认。横轴 decoder layer；纵轴 matched-control-adjusted strict normalized transport；颜色为 k。每点由 5 个 held-out seeds 聚合。为避免数百条重叠，图中不画误差条；逐条件 bootstrap CI 与 exact/Holm p 在机器表中。未确认层留空。cumulative-from-layer 条件不画在本图，因为持续 clamp 从 L 到末层测试“从 L 起的充分性”，不能当作局部层定位。')}
-<p>cumulative 结果总体大且近似层不变，这是协议本身持续覆盖后续层的预期特征；single-layer 结果更适合观察层依赖，但仍是“在该层替换 query state 后的下游可读性”，不是对一个唯一计算瞬间的证明。</p>{_conclusion('答案查询 residual 是两个模型中可运输计数方向的强充分载体。不能下结论：cumulative 曲线的平坦不等于所有层同等重要；patch donor state 运输的也可能是 donor 的错误预测，而非 gold count。')}
+<p>cumulative 结果总体大且近似层不变，这是协议本身持续覆盖后续层的预期特征；single-layer 结果更适合观察层依赖，但仍是“在该层替换 query state 后的下游可读性”，不是对一个唯一计算瞬间的证明。因为 donor state 的反事实替换相对 self-copy 与 same-count controls 稳定改变 receiver 输出，这比“某个 probe 能解码 count”更强：它直接说明该 state 中的信息能够被下游计算使用。</p>{_conclusion('对本文所需的受限主张，答案查询 residual 已有充分的功能干预证据：hidden state 保存了下游可用的 donor-associated 计数/预测信息。边界：它可能运输 donor 的错误预测而非 gold count，也不证明唯一回路、显式整数编码或所有层同等重要。','目标主张充分')}
 </section>
 
 <section id="steering"><h2>8. Count-centroid steering</h2><p>Qwen 45 个 primary 条件中 45 个为 5/5 seeds 正且 CI 下界&gt;0；Gemma 54 个条件中 53 个为 5/5 seeds 正，54 个 CI 下界&gt;0。Qwen/Gemma 中位 effect 为 {_fmt(q_steer['median_effect'])}/{_fmt(g_steer['median_effect'])}。Gemma 的唯一 4/5-positive 条件是其最弱条件 {_condition_label(g_steer_worst)}，effect {_fmt(g_steer_worst['mean_control_adjusted_transport'])} [{_fmt(g_steer_worst['ci95_low'])}, {_fmt(g_steer_worst['ci95_high'])}]。</p>
@@ -790,22 +915,26 @@ def _render_report(payload: dict[str, Any]) -> str:
 <p>Qwen 最佳/最弱为 {_condition_label(q_steer_best)} {_fmt(q_steer_best['mean_control_adjusted_transport'])} 与 {_condition_label(q_steer_worst)} {_fmt(q_steer_worst['mean_control_adjusted_transport'])}；Gemma 最佳为 {_condition_label(g_steer_best)} {_fmt(g_steer_best['mean_control_adjusted_transport'])}。正运输表明 downstream readout 响应 population-level count direction；它不保证生成精确 target，也不建立 multi-layer 优于 single-layer。</p>{_conclusion('两个模型都存在可沿 count centroid direction 操控的 answer-query state；这是受配对随机方向控制的干预证据。边界：效果是方向运输而非精确 set-to-count，且 5-seed exact test 仍未过 0.05。')}
 </section>
 
-<section id="ablation"><h2>9. Head-bank ablation：必要性信号不稳定</h2><p>这是 discovery screen（每个 top-n/bank 20 examples=5 seeds×4 high counts），没有 held-out confirmation CI。effect 定义为 ranked ablation 减去三套 layer-matched random controls 的均值；accuracy effect &lt;0 或 absolute-error effect &gt;0 才是 ranked bank 相对随机更伤性能。</p>
+<section id="ablation"><h2>9. Head-bank ablation：点效应存在，确认尚缺</h2><p>本文要检验的是“某个冻结 head bank 是否有功能贡献”，而不是“top-n 越大是否必然越坏”。这是 discovery screen（每个 top-n/bank 20 examples=5 seeds×4 high counts），effect 定义为 ranked ablation 减去三套 layer-matched random controls 的均值；accuracy effect &lt;0 或 absolute-error effect &gt;0 表示 ranked bank 相对随机更伤性能。</p>
 {_figure(6, _ablation_svg(ablation,'accuracy_effect','fig6','Ranked-minus-random accuracy effect','ranked − random accuracy change'), 'Head-bank top-n discovery sweep 的 accuracy effect。横轴 top-n=1…32；纵轴 ranked ablation accuracy change 减去 layer-matched random ablation accuracy change。0 虚线表示与随机控制相同；负值表示 ranked bank 更损害 accuracy。每点 20 examples、5 seeds；线不带确认 CI。')}
 {_figure(7, _ablation_svg(ablation,'absolute_error_effect','fig7','Ranked-minus-random absolute-error effect','ranked − random absolute-error change'), '同一 discovery sweep 的 absolute-error effect。横轴为 top-n=1…32，左右 panel 分别为 Qwen/Gemma，青色/棕色为 broad-aggregation/first-locator bank；纵轴为 ranked 减 random 的 |prediction−gold| 变化，正值表示 ranked bank 相对随机增加更多误差，负值相反。每点 20 examples、5 seeds；该 discovery-only 曲线没有 confirmation CI，因此不画误差条。')}
 {_table(['模型','head bank','accuracy min','accuracy max','|error| min','|error| max'], ablation_extrema_rows)}
-<p>Qwen broad bank 的 accuracy effect 从 −0.050 到 +0.233，Gemma 从 −0.100 到 0；first-locator bank 在 Gemma 上甚至出现方向反转。曲线不呈共同的单调 dose-response，且 random heads 与 ranked heads可有重叠。</p>{_conclusion('目前不能把 ranked head banks 写成跨模型、单调的必要组件。该 screen 提供的是探索性干预现象与候选定位，不是确认性必要性证据；方向反转和控制重叠必须保留。','探索性/负结果')}
+<h3>9.1 当前数据确实显示 head-sensitive 点效应</h3>{_table(['模型','head bank','测试 top-n','至少一项指标更差','两项指标同向更差','两项同向 top-n','跨模型共享 top-n'], ablation_support_rows, compact=True)}
+<p>Qwen broad bank 有 5/32 个 top-n 同时表现为 accuracy 降低且 absolute error 增加；Gemma broad bank 为 13/32。两个模型唯一共享的“两项指标同向更差”剂量是 <strong>broad-aggregation top-5</strong>：Qwen 的 accuracy/error effects 为 {_fmt(q_broad_top5['accuracy_effect'], signed=True)}/{_fmt(q_broad_top5['absolute_error_effect'], signed=True)}，Gemma 为 {_fmt(g_broad_top5['accuracy_effect'], signed=True)}/{_fmt(g_broad_top5['absolute_error_effect'], signed=True)}。这说明 targeted head ablation 不是处处等同于随机消融，并给出一个清楚的跨模型确认候选。</p>
+<h3>9.2 非单调性影响什么</h3><p>曲线随 top-n 上下波动和变号，因此不能声称 head 排名精确、贡献可加，或“删得越多损害越大”。但非单调性本身不是否定 head usefulness 的理由：冗余、补偿、head 交互和随机对照重叠都可产生非单调曲线；存在一个可重复的预先指定点效应，就足以支持较弱的功能贡献主张。</p>
+<h3>9.3 真正缺口：独立确认</h3><p>现有 top-1…32 曲线来自同一个 discovery sweep，top-5 是看完曲线后确定的候选；当前没有在新 seeds 上冻结该剂量复验，也没有强制 random controls 与 ranked bank 完全不重叠。因此当前数据足以写“ranked head bank 是功能候选并在 discovery 数据上影响行为”，尚不足以写“这些 heads 的贡献已获得确认”。</p>{_conclusion('非单调性只削弱剂量排序与累积必要性，不推翻特定 top-n 的功能点效应。若论文需要明确写“这些 heads 有可重复的功能贡献”，最小缺口是一次 broad-aggregation top-5 的 held-out confirmation，而不是重跑完整 top-1…32 sweep。','支持性证据，待确认')}
 </section>
 
 <section id="cross"><h2>10. 跨模型整合</h2>{_table(['family','Qwen median','Gemma median','Qwen−Gemma','Qwen CI>0','Gemma CI>0'], cross_rows)}
 <p>定性一致性高于数值一致性：两个模型都只把完整 prompt span（非 endpoint）送入确认；answer patch 与 steering 也都产生正运输。数值上 Qwen 的 family median 略高，但 condition 数、层数、tokenizer 映射、基线错误分布和被 screen 选中的层集合都不同，因此这些 median 差不能解释为模型能力排名。</p>
 {_table(['family','模型','conditions','median','range','bootstrap CI>0','all 5 seeds positive','Holm p≤.05'], family_table_rows)}
-<p>最小机制叙述是：计数相关状态在 prompt 中跨完整 needle span 分布；到 final answer query，它成为可被 donor residual 运输、也可被 count-centroid direction 操控的下游载体。head-bank ablation 尚未给出稳定必要性。这个叙述连接了三组干预，但不主张 span→query 的逐层因果路径已经被直接追踪。</p>{_conclusion('跨模型共同支持“分布式 prompt span → 可执行 answer-query state”的工作模型。它是与全部结果相容的最小解释，不是已排除替代机制的完备因果图。')}
+<p>与两条目标主张直接对应的最小叙述是：完整 prompt span 能运输计数方向；到 final answer query，hidden state 中已有下游可使用的 donor-associated 计数/预测信息；排名 head bank 的 targeted ablation 在若干剂量上比随机对照更伤性能，但其可重复性尚待冻结确认。这个叙述不需要唯一回路，也不声称已经直接追踪 span→head→query 的逐层路径。</p>{_conclusion('跨模型证据已经充分支持“可执行 answer-query hidden state”这一受限主张；head contribution 是合理且有点效应支持的候选结论，但确认状态应与 patching 分开标注。','证据分层')}
 </section>
 
-<section id="limits"><h2>11. 限制、复现与后续验证</h2><h3>11.1 结论强度与限制</h3><ul><li>每条件 5 个 held-out seeds，exact test 分辨率不足以达到双侧 p&lt;.05；需要更多独立 seed clusters。</li><li>screen 后确认估计适用于通过冻结阈值的条件，不能外推到所有层；空白层不是零效应。</li><li>Gemma 的 362/540 span pairs 使用定义内 deterministic remap；tokenizer 差异可能影响跨模型绝对 effect。</li><li>基线在高计数上系统低估；transport 可改善方向但未必达到 gold。</li><li>head ablation 是 discovery-only，缺 held-out confirmation，且 ranked/random overlap 使简单必要性解释更弱。</li><li>本实验没有直接测试从各 prompt token 到 answer query 的逐层中介链，也没有证明 count representation 唯一或线性。</li></ul>{_conclusion('现有证据足以支持受限的干预充分性与可操控性陈述；更强的必要性、层级定位、精确设置与完整路径结论都需要新实验。','尚不能下结论')}
-<h3>11.2 优先后续实验</h3><ol><li>把 held-out seeds 增至至少 6（更合理为 20+），解除双侧 sign-flip p 的离散下限，并预先规定 family-level multiplicity。</li><li>对 full span 做 coordinated leave-one-token-out、span-width dose-response 与 matched random-span patch，区分广泛状态复制与语义位置特异性。</li><li>用 mediation-style sequential patching 追踪 span→query 的层间路径，并把 donor baseline correct/wrong 分层为预注册 estimand。</li><li>重新设计 non-overlapping head controls，冻结 top-n banks 后做独立 confirmation necessity sweep。</li></ol>{_conclusion('下一步首先应增加独立 seeds，其次用局部删除/随机 span 控制解释 full-span effect，再以中介式干预验证 prompt→query 路径。','建议')}
-<h3>11.3 可复现路径</h3><p>正式设计文档：<code>docs/realistic_niah_v4_causal_v2.md</code>；配置：<code>configs/realistic_niah_v4_causal_v2.json</code>；分析实现：<code>src/realistic_niah_v4/causal_v2_analysis.py</code>；本报告生成器：<code>scripts/build_realistic_niah_v4_4_causal_v2_report.py</code>。机器可读输出在 <code>reports/v4_non-thinking_causal/v4_4_causal_v2/</code>，包括逐条件 primary 表、聚合表、基线、alignment、ablation、stage inventory、source SHA ledger 与 <code>report_summary.json</code>。</p>
+<section id="limits"><h2>11. 最小补实验、限制与复现</h2><h3>11.1 当前实验是否足够</h3><ul><li><strong>Hidden-state 功能主张：足够。</strong>已有独立确认、配对控制、两个模型和一致方向；可以写“answer-query hidden state 含有下游可用的 donor-associated 计数/预测信息”。</li><li><strong>Head-usefulness 确认主张：还差一步。</strong>已有 targeted-minus-random 点效应与跨模型 top-5 候选，但它来自 discovery sweep，不能把事后选点当作 held-out confirmation。</li><li><strong>正式 p&lt;.05：当前 patching 不满足。</strong>每条件 5 个 held-out seeds，双侧 exact test 的最小可能 p=0.0625；这与功能干预证据的方向一致性是不同判据。</li><li>Gemma 的 362/540 span pairs 使用定义内 deterministic remap；高计数基线系统低估，transport 也可能运输 donor 的错误预测。</li></ul>{_conclusion('如果文章只要求 hidden state 含有可用信息，现有 patching/steering 已足够；如果文章还要把“ranked heads 有可重复功能贡献”写成确认性结论，应补一个小型 ablation confirmation。无需证明唯一回路，也无需重新扫描全部 top-n。','最终判定')}
+<h3>11.2 必需的最小 head-ablation confirmation</h3><ol><li>在提交运行前分别冻结 Qwen 与 Gemma 的 <strong>broad-aggregation top-5</strong> head IDs；不再查看或选择其他 top-n。</li><li>使用 counts 7–10 与至少 10 个全新 seed clusters；每个 seed 同时运行 clean、targeted top-5 ablation 和至少三套 layer-distribution-matched random controls。</li><li>随机 controls 必须与完整 ranked bank 不重叠；primary endpoint 预先定义为 seed-level <span class="formula">ΔMAE = MAE<sub>targeted</sub> − mean(MAE<sub>random controls</sub>)</span>，正值表示 ranked heads 更重要。accuracy difference 仅作 secondary。</li><li>每模型做一个双侧 exact sign-flip test，并只对两个模型做 Holm correction。10 seeds 时最小双侧 p=2/2¹⁰≈0.00195，足以解析 0.05 门槛；同时报告 seed-level effect、bootstrap CI 和 valid rate。</li><li>可选增强：在 targeted ablation 后恢复这五个 heads 的原始输出；若性能回升，可进一步排除一般数值扰动解释，但不是“head 有用”主张的最低要求。</li></ol>{_conclusion('最小补实验只需固定 top-5、两个模型、10 个新 seeds 和不重叠随机控制。它直接回答 head contribution；完整 top-1…32 dose sweep、唯一回路搜索和 mediation tracing 都不是当前主张的必需项。','最小补充方案')}
+<h3>11.3 可选的 patching 统计增强</h3><p>现有 patching 对受限功能主张已经充分。只有在投稿标准明确要求 formal p&lt;.05 时，才需要冻结每模型一个 family-level primary endpoint，并新增至少 7 个、建议 10–20 个独立 seeds；对两个模型做 Holm correction。不要继续对数百个 layer 条件逐点追求显著性，这会把科学问题变成不必要的多重比较问题。</p>{_conclusion('Patching 的补跑是统计门槛增强而非机制结论修复；优先级低于 head-ablation confirmation。','可选增强')}
+<h3>11.4 可复现路径</h3><p>正式设计文档：<code>docs/realistic_niah_v4_causal_v2.md</code>；配置：<code>configs/realistic_niah_v4_causal_v2.json</code>；分析实现：<code>src/realistic_niah_v4/causal_v2_analysis.py</code>；本报告生成器：<code>scripts/build_realistic_niah_v4_4_causal_v2_report.py</code>。机器可读输出在 <code>reports/v4_non-thinking_causal/v4_4_causal_v2/</code>，包括逐条件 primary 表、聚合表、基线、alignment、ablation、<code>ablation_support_summary.csv</code>、<code>evidence_sufficiency.csv</code>、stage inventory、source SHA ledger 与 <code>report_summary.json</code>。</p>
 <div class="provenance">report schema: {REPORT_SCHEMA}<br>generated from audited run roots; displayed numeric values are generated from checked machine-readable tables, not hand-entered.</div>{_conclusion('报告中的统计数字由同一生成脚本从审计 run 导出；source_ledger.csv 固定每个输入文件的 SHA-256，report_summary.json 与 CSV 提供可重算路径。')}
 </section>
 
@@ -828,12 +957,17 @@ def build_report(
     ]
     conditions = [row for model in models for row in model["confirmations"]]
     family_summary, group_summary = _group_confirmation(conditions)
+    ablation_rows = [row for model in models for row in model["ablation"]]
+    ablation_support = _summarize_ablation_support(ablation_rows)
+    claim_sufficiency = _claim_sufficiency(family_summary)
     payload = {
         "schema_version": REPORT_SCHEMA,
         "models": models,
         "primary_confirmation_conditions": conditions,
         "family_summary": family_summary,
         "group_summary": group_summary,
+        "ablation_support": ablation_support,
+        "claim_sufficiency": claim_sufficiency,
     }
     data_dir.mkdir(parents=True, exist_ok=True)
     _write_csv(data_dir / "primary_confirmation_conditions.csv", conditions)
@@ -844,7 +978,9 @@ def build_report(
     _write_csv(data_dir / "prompt_alignment_summary.csv", [model["alignment"] for model in models])
     _write_csv(data_dir / "selection_summary.csv", [row for model in models for row in model["selections"]])
     _write_csv(data_dir / "stage_inventory.csv", [row for model in models for row in model["stages"]])
-    _write_csv(data_dir / "ablation_top_k_sweep.csv", [row for model in models for row in model["ablation"]])
+    _write_csv(data_dir / "ablation_top_k_sweep.csv", ablation_rows)
+    _write_csv(data_dir / "ablation_support_summary.csv", ablation_support)
+    _write_csv(data_dir / "evidence_sufficiency.csv", claim_sufficiency)
     _write_csv(data_dir / "audit_summary.csv", [model["audit"] for model in models])
     _write_csv(data_dir / "audit_category_summary.csv", [row for model in models for row in model["audit_categories"]])
     _write_csv(data_dir / "export_verification.csv", [model["export"] for model in models])
@@ -864,6 +1000,11 @@ def build_report(
         "baseline": {model["model"]: {row["split"]: row for row in model["baseline_split"]} for model in models},
         "selection": {model["model"]: {row["family"]: row for row in model["selections"]} for model in models},
         "primary_confirmation_family_summary": {f"{row['model_label']}::{row['family']}": row for row in family_summary},
+        "ablation_support_summary": {
+            f"{row['model_label']}::{row['head_bank']}": row
+            for row in ablation_support
+        },
+        "claim_sufficiency": {row["claim_id"]: row for row in claim_sufficiency},
         "exports": {model["model"]: model["export"] for model in models},
         "source_file_count": len(source_ledger),
     }

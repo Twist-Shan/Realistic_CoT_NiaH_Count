@@ -1,4 +1,50 @@
 {
+  "ablation_support_summary": {
+    "Gemma4-E4B::broad_aggregation": {
+      "both_metrics_harmful_count": 13,
+      "both_metrics_top_n": "2;4;5;6;19;21;23;25;27;28;30;31;32",
+      "cross_model_shared_both_metrics_top_n": "5",
+      "either_metric_harmful_count": 31,
+      "head_bank": "broad_aggregation",
+      "held_out_confirmation": false,
+      "model_label": "Gemma4-E4B",
+      "supports_monotone_dose_response": false,
+      "top_n_tested": 32
+    },
+    "Gemma4-E4B::first_locator": {
+      "both_metrics_harmful_count": 8,
+      "both_metrics_top_n": "6;9;11;12;13;15;17;20",
+      "cross_model_shared_both_metrics_top_n": "",
+      "either_metric_harmful_count": 20,
+      "head_bank": "first_locator",
+      "held_out_confirmation": false,
+      "model_label": "Gemma4-E4B",
+      "supports_monotone_dose_response": false,
+      "top_n_tested": 32
+    },
+    "Qwen3-8B::broad_aggregation": {
+      "both_metrics_harmful_count": 5,
+      "both_metrics_top_n": "3;5;7;8;9",
+      "cross_model_shared_both_metrics_top_n": "5",
+      "either_metric_harmful_count": 8,
+      "head_bank": "broad_aggregation",
+      "held_out_confirmation": false,
+      "model_label": "Qwen3-8B",
+      "supports_monotone_dose_response": false,
+      "top_n_tested": 32
+    },
+    "Qwen3-8B::first_locator": {
+      "both_metrics_harmful_count": 2,
+      "both_metrics_top_n": "27;28",
+      "cross_model_shared_both_metrics_top_n": "",
+      "either_metric_harmful_count": 13,
+      "head_bank": "first_locator",
+      "held_out_confirmation": false,
+      "model_label": "Qwen3-8B",
+      "supports_monotone_dose_response": false,
+      "top_n_tested": 32
+    }
+  },
   "alignment": {
     "Gemma4-E4B": {
       "exact": 178,
@@ -89,6 +135,24 @@
     }
   },
   "causal_config_sha256": "ef2a69740d836c1cdcfa9fa56f1d60212265d15cd2fb70988b2eb5b755583573",
+  "claim_sufficiency": {
+    "answer_query_hidden_state_usable_information": {
+      "claim_id": "answer_query_hidden_state_usable_information",
+      "direct_evidence": "独立 screen/confirmation、配对 self-copy 与 same-count controls；Qwen 149、Gemma 177 个确认条件均为 5/5 seed 正且 bootstrap CI 下界大于 0",
+      "intended_claim": "答案查询 hidden state 含有下游可用的 donor-associated 计数/预测信息",
+      "minimal_supplement": "该受限功能主张无需补跑；若必须获得双侧 exact p<.05，冻结每模型一个 family-level primary endpoint，并新增至少 7、建议 10–20 个独立 seeds",
+      "not_claimed": "不等同于记住 gold count，不证明唯一回路或逐层路径",
+      "verdict": "对受限主张充分；正式显著性受 seed 数限制"
+    },
+    "ranked_head_bank_functional_contribution": {
+      "claim_id": "ranked_head_bank_functional_contribution",
+      "direct_evidence": "targeted-minus-layer-matched-random ablation 在若干 top-n 上同时降低 accuracy 并增加 absolute error",
+      "intended_claim": "排序得到的 attention head bank 对计数行为有可重复的功能贡献",
+      "minimal_supplement": "冻结每模型 broad-aggregation top-5；使用不与 ranked bank 重叠的 layer-matched random controls，在至少 10 个新 seeds 上以 seed-level ΔMAE 为单一 primary endpoint 做确认",
+      "not_claimed": "非单调不否定点效应，但当前不能排除 top-n 扫描后的选择偏差",
+      "verdict": "现有结果为支持性 discovery evidence，尚非确认性充分证据"
+    }
+  },
   "exports": {
     "Gemma4-E4B": {
       "archive_name": "Realistic_CoT_NiaH_Count_20260803_v4_4_causal_v2_gemma.tar.zst",
@@ -195,7 +259,7 @@
       "model_label": "Qwen3-8B"
     }
   },
-  "schema_version": "realistic_niah_v4_4_causal_v2_report_v1",
+  "schema_version": "realistic_niah_v4_4_causal_v2_report_v2",
   "selection": {
     "Gemma4-E4B": {
       "answer_patching": {

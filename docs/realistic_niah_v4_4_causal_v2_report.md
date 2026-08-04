@@ -16,6 +16,30 @@ implementation commit is `dd409f2dff82ccd6400dfc3d7704025cb6939940`.
 in the older mechanism-report companion that causal-v2 had not yet run; it
 does not supersede that report's separate representation analyses.
 
+## Intended claims and sufficiency verdict
+
+The report is deliberately scoped to two claims; it does not require a unique
+counting circuit.
+
+1. **Hidden-state claim:** the final answer-query hidden state contains
+   donor-associated count/prediction information that downstream computation
+   can use. The current answer-query patching evidence is sufficient for this
+   bounded functional claim: it uses matched controls, disjoint screening and
+   confirmation seeds, two models, and uniformly positive held-out effects.
+   It is not a claim that the state stores the gold count as an explicit
+   integer or that a unique circuit has been identified.
+2. **Head-contribution claim:** a frozen ranked attention-head bank makes a
+   reproducible functional contribution to counting behavior. The current
+   ablation sweep supplies pointwise discovery evidence and a cross-model
+   candidate, but is not yet confirmatory because top-n was scanned, no
+   held-out ablation confirmation was run, and random controls can overlap the
+   ranked bank.
+
+**本节结论：** Non-monotonic ablation does not invalidate pointwise head
+effects; it only blocks additive ranking and dose-response claims. Patching is
+already sufficient for the bounded hidden-state claim. A small frozen
+ablation confirmation is required before writing the head claim as confirmed.
+
 ## Frozen design
 
 - Counts are 0 through 10.
@@ -76,9 +100,10 @@ With only five held-out clusters, the smallest possible two-sided exact p is
 `2/2^5 = 0.0625`. No primary condition can therefore attain p < .05 even when
 all five seed effects are positive.
 
-**本节结论：** The positive bootstrap intervals are stable descriptive and
-resampling evidence, but they do not replace the preregistered exact test. The
-HTML report explicitly reports zero Holm-significant primary conditions.
+**本节结论：** The positive bootstrap intervals, independent confirmation, and
+matched controls are sufficient for the bounded functional-intervention
+claim, but they do not replace the preregistered exact test. The HTML report
+explicitly reports zero Holm-significant primary conditions.
 
 ## Results
 
@@ -98,9 +123,11 @@ There are 149 Qwen and 177 Gemma primary conditions. All have positive
 bootstrap lower bounds and 5/5 positive held-out seeds. Cumulative clamping is
 not used for layer localization because it overwrites all downstream layers.
 
-**本节结论：** The final answer-query residual is a strong sufficient carrier
-of the donor count direction. It can transport an incorrect donor prediction,
-so this is not identical to transporting the donor gold count.
+**本节结论：** The final answer-query residual contains donor-associated
+count/prediction information in a downstream-usable form. This is stronger
+than probe decodability because replacing the state changes the receiver's
+output relative to matched controls. It can transport an incorrect donor
+prediction, so this is not identical to storing the donor gold count.
 
 ### Steering
 
@@ -115,11 +142,41 @@ registered alpha and layer plans.
 
 ### Head-bank ablation
 
-The top-1--32 sweep is discovery-only. Ranked-minus-random accuracy and error
-effects are non-monotone and can reverse sign across models and banks.
+The top-1--32 sweep is discovery-only. It nevertheless contains pointwise
+functional signals. Qwen and Gemma broad-aggregation top-5 both reduce
+accuracy and increase absolute error relative to layer-matched random
+ablation. Across all doses, Qwen broad aggregation has 5/32 points and Gemma
+13/32 points where both metrics move in the harmful direction.
 
-**本节结论：** The sweep does not support a stable cross-model necessity claim
-for either ranked bank. It is exploratory candidate-localization evidence.
+**本节结论：** Non-monotonicity means the ranking is not additive and larger
+top-n is not guaranteed to be more damaging. It does not erase the top-5
+point effect. Because top-5 was selected after a discovery sweep and lacks a
+new held-out confirmation, the current result supports a functional candidate
+but not yet a confirmed reusable head contribution.
+
+### Minimal head-ablation confirmation
+
+The required supplement is intentionally small:
+
+- freeze the Qwen and Gemma broad-aggregation top-5 head identities before
+  running;
+- use counts 7--10 and at least 10 entirely new seed clusters;
+- compare clean, targeted top-5 ablation, and at least three
+  layer-distribution-matched random controls that do not overlap the full
+  ranked bank;
+- preregister seed-level
+  `delta_MAE = MAE_targeted - mean(MAE_random_controls)` as the single primary
+  endpoint, with accuracy difference secondary;
+- run one two-sided exact sign-flip test per model and Holm-correct the two
+  model-level tests. With 10 seeds, the minimum two-sided p is
+  `2/2^10 = 0.001953125`.
+
+Restoring the five original head outputs after ablation is a useful optional
+rescue control, but it is not required for the minimal "heads contribute"
+claim.
+
+**本节结论：** The minimum supplement is one frozen top-5 confirmation, not a
+repeat of the full top-1--32 sweep and not a search for a unique circuit.
 
 ## Baseline boundary
 
@@ -138,6 +195,8 @@ The directory `reports/v4_non-thinking_causal/v4_4_causal_v2/` contains:
 - primary condition, family, and protocol-by-k confirmation tables;
 - baseline-by-split and baseline-by-count tables;
 - prompt-alignment, selection, stage, ablation, and audit summaries;
+- `ablation_support_summary.csv` and `evidence_sufficiency.csv`, which record
+  the pointwise head evidence and claim-level verdicts;
 - local/FileStream archive verification;
 - `source_ledger.csv`, with size and SHA-256 for every report input;
 - `report_summary.json`, used by tests for headline-value traceability.
