@@ -136,21 +136,253 @@
   },
   "causal_config_sha256": "ef2a69740d836c1cdcfa9fa56f1d60212265d15cd2fb70988b2eb5b755583573",
   "claim_sufficiency": {
-    "answer_query_hidden_state_usable_information": {
-      "claim_id": "answer_query_hidden_state_usable_information",
-      "direct_evidence": "独立 screen/confirmation、配对 self-copy 与 same-count controls；Qwen 149、Gemma 177 个确认条件均为 5/5 seed 正且 bootstrap CI 下界大于 0",
-      "intended_claim": "答案查询 hidden state 含有下游可用的 donor-associated 计数/预测信息",
-      "minimal_supplement": "该受限功能主张无需补跑；若必须获得双侧 exact p<.05，冻结每模型一个 family-level primary endpoint，并新增至少 7、建议 10–20 个独立 seeds",
-      "not_claimed": "不等同于记住 gold count，不证明唯一回路或逐层路径",
-      "verdict": "对受限主张充分；正式显著性受 seed 数限制"
+    "answer_query_hidden_state_usable_correct_count_information": {
+      "claim_id": "answer_query_hidden_state_usable_correct_count_information",
+      "direct_evidence": "clean-correct donor/receiver；Qwen 与 Gemma pooled donor-target accuracy 均约 96%",
+      "intended_claim": "答案查询 hidden state 含有下游可用的 donor-associated 正确计数信息",
+      "minimal_supplement": "该受限主张无需补跑；只在额外投稿统计门槛要求下增加冻结 family-level seeds",
+      "not_claimed": "不证明显式整数编码、必要性、唯一回路或逐层唯一通路",
+      "verdict": "对受限功能主张充分"
     },
     "ranked_head_bank_functional_contribution": {
       "claim_id": "ranked_head_bank_functional_contribution",
-      "direct_evidence": "targeted-minus-layer-matched-random ablation 在若干 top-n 上同时降低 accuracy 并增加 absolute error",
+      "direct_evidence": "全样本 D_abs 与 correct-only D_cw 在模型/总体特异 n 上为正，部分 CI 严格大于零",
       "intended_claim": "排序得到的 attention head bank 对计数行为有可重复的功能贡献",
-      "minimal_supplement": "冻结每模型 broad-aggregation top-5；使用不与 ranked bank 重叠的 layer-matched random controls，在至少 10 个新 seeds 上以 seed-level ΔMAE 为单一 primary endpoint 做确认",
-      "not_claimed": "非单调不否定点效应，但当前不能排除 top-n 扫描后的选择偏差",
-      "verdict": "现有结果为支持性 discovery evidence，尚非确认性充分证据"
+      "minimal_supplement": "冻结 Qwen 2/4、Gemma 1/1；新 seed suffix；零重叠 layer-matched random controls；不再选 n",
+      "not_claimed": "n=1–5 在同一 seeds 上扫描，不能把后验最佳 n 当作独立确认",
+      "verdict": "fresh-seed discovery 支持功能信号；特定 bank 尚未冻结确认"
+    }
+  },
+  "correct_interventions": {
+    "ablation_candidates": {
+      "Gemma4-E4B::all_examples_signed": {
+        "analysis_population": "all_examples_signed",
+        "candidate_top_n": 1,
+        "ci95_excludes_zero_positive": true,
+        "ci95_high": 0.2333333333333333,
+        "ci95_low": 0.06000000000000002,
+        "examples": 50,
+        "model_label": "Gemma4-E4B",
+        "primary_effect": 0.1466666666666667,
+        "primary_metric": "ranked_minus_random_absolute_count_shift",
+        "random_overlap_mean": 0.0,
+        "random_replicates_min": 3,
+        "seed_clusters": 10,
+        "selection_status": "candidate_from_unfrozen_n_1_to_5_discovery"
+      },
+      "Gemma4-E4B::clean_correct_only": {
+        "analysis_population": "clean_correct_only",
+        "candidate_top_n": 1,
+        "ci95_excludes_zero_positive": false,
+        "ci95_high": 0.20512820512820512,
+        "ci95_low": 0.0,
+        "examples": 36,
+        "model_label": "Gemma4-E4B",
+        "primary_effect": 0.10185185185185186,
+        "primary_metric": "ranked_minus_random_correct_to_wrong",
+        "random_overlap_mean": 0.0,
+        "random_replicates_min": 3,
+        "seed_clusters": 10,
+        "selection_status": "candidate_from_unfrozen_n_1_to_5_discovery"
+      },
+      "Qwen3-8B::all_examples_signed": {
+        "analysis_population": "all_examples_signed",
+        "candidate_top_n": 2,
+        "ci95_excludes_zero_positive": true,
+        "ci95_high": 0.3,
+        "ci95_low": 0.013333333333333334,
+        "examples": 50,
+        "model_label": "Qwen3-8B",
+        "primary_effect": 0.13333333333333333,
+        "primary_metric": "ranked_minus_random_absolute_count_shift",
+        "random_overlap_mean": 0.0,
+        "random_replicates_min": 3,
+        "seed_clusters": 10,
+        "selection_status": "candidate_from_unfrozen_n_1_to_5_discovery"
+      },
+      "Qwen3-8B::clean_correct_only": {
+        "analysis_population": "clean_correct_only",
+        "candidate_top_n": 4,
+        "ci95_excludes_zero_positive": true,
+        "ci95_high": 0.15789473684210525,
+        "ci95_low": 0.023255813953488372,
+        "examples": 40,
+        "model_label": "Qwen3-8B",
+        "primary_effect": 0.08333333333333334,
+        "primary_metric": "ranked_minus_random_correct_to_wrong",
+        "random_overlap_mean": 1.0,
+        "random_replicates_min": 3,
+        "seed_clusters": 10,
+        "selection_status": "candidate_from_unfrozen_n_1_to_5_discovery"
+      }
+    },
+    "alignment": {
+      "Gemma4-E4B": {
+        "exact": 14,
+        "max_normalized_position_error": 0.0166666666666667,
+        "model_label": "Gemma4-E4B",
+        "policy": "monotonic_endpoint_preserving_nearest_neighbor_v1",
+        "remapped": 46,
+        "rows": 60,
+        "unsupported": 0
+      },
+      "Qwen3-8B": {
+        "exact": 52,
+        "max_normalized_position_error": 0.0,
+        "model_label": "Qwen3-8B",
+        "policy": "monotonic_endpoint_preserving_nearest_neighbor_v1",
+        "remapped": 0,
+        "rows": 52,
+        "unsupported": 0
+      }
+    },
+    "audit": {
+      "audit_sha256": "bf57c3149c7072981d5f24354ede20e7c9c38e23166a4bea912e9cf9dddf2b8c",
+      "checks": 98,
+      "completed_utc": "2026-08-04T21:45:13Z",
+      "definition_sha256": "6f7f7760f53a2bab08e5b840aa765dbf70d853a75952eabb5282d108b4315f5e",
+      "errors": 0,
+      "layout": "4+4",
+      "passed": 98,
+      "status": "PASS"
+    },
+    "export": {
+      "available": true,
+      "export_name": "Realistic_CoT_NiaH_Count_20260804_v4_4_correct_interventions",
+      "manifest_sha256": "99eb31e8696b6560f99fe184418ece2547a3d38c76264905bd8cf52f2f7dd864",
+      "verification_status": "PASS"
+    },
+    "models": {
+      "Gemma4-E4B": {
+        "ablation_all_rows": 6400,
+        "ablation_all_stimuli": 50,
+        "ablation_correct_rows": 4608,
+        "ablation_correct_stimuli": 36,
+        "answer_combined_rows": 5055,
+        "definition_sha256": "6f7f7760f53a2bab08e5b840aa765dbf70d853a75952eabb5282d108b4315f5e",
+        "design_hash": "d419daff86de",
+        "implementation_commit": "cda0d092db424d4bcb712a1402b899df1bee793b",
+        "implementation_dirty_paths": 0,
+        "implementation_sha256": "8a271975968382b68d8d3c0621824818015060a580841d66bbd9b3690647bb1c",
+        "model_label": "Gemma4-E4B",
+        "prompt_combined_rows": 2176,
+        "stage_root": "/lambda/nfs/CoT-Non-thinking-v4/runs/run_20260804_v4_4_correct_interventions_4x4_a10080_utf8safe_cda0d09/Gemma4-E4B/numeric/correct_interventions/confirmation_d419daff86de",
+        "status": "complete",
+        "top_n_selection_status": "unfrozen_discovery_only",
+        "worker_count": 4,
+        "workers_complete": 4
+      },
+      "Qwen3-8B": {
+        "ablation_all_rows": 6400,
+        "ablation_all_stimuli": 50,
+        "ablation_correct_rows": 5120,
+        "ablation_correct_stimuli": 40,
+        "answer_combined_rows": 4305,
+        "definition_sha256": "6f7f7760f53a2bab08e5b840aa765dbf70d853a75952eabb5282d108b4315f5e",
+        "design_hash": "4c3cdeb48cbf",
+        "implementation_commit": "cda0d092db424d4bcb712a1402b899df1bee793b",
+        "implementation_dirty_paths": 0,
+        "implementation_sha256": "8a271975968382b68d8d3c0621824818015060a580841d66bbd9b3690647bb1c",
+        "model_label": "Qwen3-8B",
+        "prompt_combined_rows": 2848,
+        "stage_root": "/lambda/nfs/CoT-Non-thinking-v4/runs/run_20260804_v4_4_correct_interventions_4x4_a10080_utf8safe_cda0d09/Qwen3-8B/numeric/correct_interventions/confirmation_4c3cdeb48cbf",
+        "status": "complete",
+        "top_n_selection_status": "unfrozen_discovery_only",
+        "worker_count": 4,
+        "workers_complete": 4
+      }
+    },
+    "patch_pooled": {
+      "Gemma4-E4B::answer_patching": {
+        "family": "answer_patching",
+        "group_max_average_patching_acc": 0.9941520467836257,
+        "group_min_average_patching_acc": 0.8933333333333333,
+        "groups": 6,
+        "model_label": "Gemma4-E4B",
+        "pair_instances": 1884,
+        "patching_acc_denominator": 1884,
+        "patching_acc_successes": 1809,
+        "pooled_average_patching_acc": 0.9601910828025477,
+        "pooled_post_patch_receiver_acc": 0.01167728237791932,
+        "pooled_valid_rate": 1.0,
+        "seed_clusters_per_group_max": 5,
+        "seed_clusters_per_group_min": 5
+      },
+      "Gemma4-E4B::prompt_patching": {
+        "family": "prompt_patching",
+        "group_max_average_patching_acc": 0.9901960784313726,
+        "group_min_average_patching_acc": 0.6529411764705882,
+        "groups": 6,
+        "model_label": "Gemma4-E4B",
+        "pair_instances": 1088,
+        "patching_acc_denominator": 1088,
+        "patching_acc_successes": 1000,
+        "pooled_average_patching_acc": 0.9191176470588235,
+        "pooled_post_patch_receiver_acc": 0.017463235294117647,
+        "pooled_valid_rate": 1.0,
+        "seed_clusters_per_group_max": 5,
+        "seed_clusters_per_group_min": 5
+      },
+      "Qwen3-8B::answer_patching": {
+        "family": "answer_patching",
+        "group_max_average_patching_acc": 1.0,
+        "group_min_average_patching_acc": 0.9411764705882353,
+        "groups": 6,
+        "model_label": "Qwen3-8B",
+        "pair_instances": 1686,
+        "patching_acc_denominator": 1686,
+        "patching_acc_successes": 1628,
+        "pooled_average_patching_acc": 0.9655990510083037,
+        "pooled_post_patch_receiver_acc": 0.0166073546856465,
+        "pooled_valid_rate": 0.9988137603795967,
+        "seed_clusters_per_group_max": 5,
+        "seed_clusters_per_group_min": 5
+      },
+      "Qwen3-8B::prompt_patching": {
+        "family": "prompt_patching",
+        "group_max_average_patching_acc": 0.9907407407407407,
+        "group_min_average_patching_acc": 0.6521739130434783,
+        "groups": 6,
+        "model_label": "Qwen3-8B",
+        "pair_instances": 1424,
+        "patching_acc_denominator": 1424,
+        "patching_acc_successes": 1161,
+        "pooled_average_patching_acc": 0.8153089887640449,
+        "pooled_post_patch_receiver_acc": 0.0976123595505618,
+        "pooled_valid_rate": 1.0,
+        "seed_clusters_per_group_max": 5,
+        "seed_clusters_per_group_min": 5
+      }
+    },
+    "supplement": {
+      "Gemma4-E4B": {
+        "correct_added_eligible_seeds": "1274;1275;1276;1277;1278;1279;1280;1281;1282;1283",
+        "correct_final_seed_clusters": 10,
+        "correct_initial_missing_seed_clusters": 10,
+        "correct_initial_seed_clusters": 0,
+        "correct_target_seed_clusters": 10,
+        "model_label": "Gemma4-E4B",
+        "patch_added_eligible_pair_seeds": "1275;1277;1281;1295",
+        "patch_added_pair_instances": 8,
+        "patch_final_missing_groups": 0,
+        "patch_initial_missing": "k=5 increase: 4; k=5 decrease: 4",
+        "scanned_supplement_seed_count": 22,
+        "scanned_supplement_seeds": "1274;1275;1276;1277;1278;1279;1280;1281;1282;1283;1284;1285;1286;1287;1288;1289;1290;1291;1292;1293;1294;1295"
+      },
+      "Qwen3-8B": {
+        "correct_added_eligible_seeds": "1274;1275;1276;1277;1278;1279;1280;1281;1282;1283",
+        "correct_final_seed_clusters": 10,
+        "correct_initial_missing_seed_clusters": 10,
+        "correct_initial_seed_clusters": 0,
+        "correct_target_seed_clusters": 10,
+        "model_label": "Qwen3-8B",
+        "patch_added_eligible_pair_seeds": "1274;1275;1276;1278",
+        "patch_added_pair_instances": 8,
+        "patch_final_missing_groups": 0,
+        "patch_initial_missing": "k=3 increase: 1; k=3 decrease: 1; k=5 increase: 3; k=5 decrease: 3",
+        "scanned_supplement_seed_count": 10,
+        "scanned_supplement_seeds": "1274;1275;1276;1277;1278;1279;1280;1281;1282;1283"
+      }
     }
   },
   "exports": {
@@ -259,7 +491,7 @@
       "model_label": "Qwen3-8B"
     }
   },
-  "schema_version": "realistic_niah_v4_4_causal_v2_report_v2",
+  "schema_version": "realistic_niah_v4_4_causal_v2_integrated_report_v3",
   "selection": {
     "Gemma4-E4B": {
       "answer_patching": {
@@ -344,6 +576,6 @@
       }
     }
   },
-  "source_file_count": 70,
+  "source_file_count": 91,
   "stimuli_sha256": "88a9750114dde63f0873e35d3846e70ff438119c8b3561a45948bcd6057013c8"
 }

@@ -1,223 +1,206 @@
-# Realistic NIAH V4.4 causal-v2 formal report
+# Realistic NIAH V4.4 causal-v2 integrated report
 
 The primary artifact is the standalone Chinese HTML report:
 [`reports/realistic_niah_v4_4_causal_v2_report.html`](../reports/realistic_niah_v4_4_causal_v2_report.html).
-It integrates the two completed formal runs, rather than mixing them into the
-earlier V4.4 representation report.
+It integrates the original audited Qwen/Gemma causal-v2 campaigns with the
+2026-08-04 clean-correct patching and dual-population ablation extension.
 
-## Scope and status
+## Scope and claim status
 
-The report covers the formal Qwen3-8B and Gemma4-E4B V4.4 numeric
-non-thinking causal-v2 campaigns for `k={1,3,5}`. Both campaigns are complete
-and each passed the strict audit with 302/302 checks and zero errors. The
-implementation commit is `dd409f2dff82ccd6400dfc3d7704025cb6939940`.
+The report is intentionally limited to two mechanistic claims:
 
-**本节结论：** This is completed, audited evidence. It supersedes statements
-in the older mechanism-report companion that causal-v2 had not yet run; it
-does not supersede that report's separate representation analyses.
+1. The final answer-query hidden state contains donor-associated correct-count
+   information that downstream computation can use.
+2. Ranked attention-head banks have measurable functional effects on counting
+   behavior relative to layer-matched random-head controls.
 
-## Intended claims and sufficiency verdict
+It does not claim a unique counting circuit, an explicit integer register, an
+exact number of causal heads, an additive head ranking, or a monotone
+ablation dose response.
 
-The report is deliberately scoped to two claims; it does not require a unique
-counting circuit.
+**本节结论：** Clean-correct answer patching is sufficient for the bounded
+hidden-state claim. Ablation supplies fresh-seed discovery evidence for head
+function, but a particular reusable bank is not yet independently confirmed
+because `n` was inspected on the same seeds used to select the candidate.
 
-1. **Hidden-state claim:** the final answer-query hidden state contains
-   donor-associated count/prediction information that downstream computation
-   can use. The current answer-query patching evidence is sufficient for this
-   bounded functional claim: it uses matched controls, disjoint screening and
-   confirmation seeds, two models, and uniformly positive held-out effects.
-   It is not a claim that the state stores the gold count as an explicit
-   integer or that a unique circuit has been identified.
-2. **Head-contribution claim:** a frozen ranked attention-head bank makes a
-   reproducible functional contribution to counting behavior. The current
-   ablation sweep supplies pointwise discovery evidence and a cross-model
-   candidate, but is not yet confirmatory because top-n was scanned, no
-   held-out ablation confirmation was run, and random controls can overlap the
-   ranked bank.
+## Audited inputs
 
-**本节结论：** Non-monotonic ablation does not invalidate pointwise head
-effects; it only blocks additive ranking and dose-response claims. Patching is
-already sufficient for the bounded hidden-state claim. A small frozen
-ablation confirmation is required before writing the head claim as confirmed.
+- Original Qwen causal-v2: 302/302 checks, zero errors.
+- Original Gemma causal-v2: 302/302 checks, zero errors.
+- Correct-interventions extension: 98/98 checks, zero errors.
+- Original causal implementation: `dd409f2dff82ccd6400dfc3d7704025cb6939940`.
+- Correct-interventions execution commit:
+  `cda0d092db424d4bcb712a1402b899df1bee793b`.
+- Correct-interventions definition SHA-256:
+  `6f7f7760f53a2bab08e5b840aa765dbf70d853a75952eabb5282d108b4315f5e`.
+- Qwen/Gemma extension stage design hashes: `4c3cdeb48cbf` and
+  `d419daff86de`.
+- The extension inventory independently verified 798/798 file size+SHA
+  entries and 180/180 gzip files.
 
-## Frozen design
+**本节结论：** Every displayed result is read from an audited CSV/JSON source;
+the report generator writes a source path/size/SHA ledger.
 
-- Counts are 0 through 10.
-- The nine unordered count pairs are `(0,1)/(4,5)/(9,10)` for `k=1`,
-  `(0,3)/(3,6)/(7,10)` for `k=3`, and `(0,5)/(2,7)/(5,10)` for `k=5`.
-  Both directions are run, for 18 directed pairs.
-- Centroids use seeds 1234--1253; screening uses 1254--1258; confirmation
-  uses the disjoint held-out seeds 1259--1263.
-- Prompt and answer patching use `single_layer` and
-  `cumulative_from_layer`. Prompt sites are `toggled_needle_end` and
-  `toggled_needle_span`; answer patching uses the final `Total:` query.
-- Steering uses alpha 1 count-centroid deltas and a norm-matched orthogonal
-  random direction. Its confirmation also includes a screen-frozen
-  multi-layer plan for each k.
-- Selection requires at least 4/5 positive screen seeds, positive effects in
-  both directions, at least 2/3 positive anchor pairs, mean adjusted
-  transport at least 0.15, and valid rate at least 0.95.
+## Clean-correct patching design
 
-**本节结论：** Confirmation estimates are held out from layer/condition
-selection. Empty layers in a confirmation plot mean "not selected and not
-confirmed," not zero effect.
+An eligible pair requires both the clean receiver and clean donor generation
+to equal their own gold count. The original screen-selected patch conditions
+are retained, and patching is then evaluated only on eligible pairs. Each
+model × `k={1,3,5}` × direction group targets five seed clusters.
 
-## Prompt full-span alignment
+Initial shortages and deterministic supplements were:
 
-The frozen policy is
-`monotonic_endpoint_preserving_nearest_neighbor_v1`. For receiver length R
-and donor length S, with R,S > 1, receiver index j uses
+- Qwen: `k=3` lacked one seed cluster per direction and `k=5` lacked three
+  per direction. Added pair seeds were 1274, 1275, 1276, and 1278.
+- Gemma: `k=5` lacked four seed clusters per direction. Added pair seeds were
+  1275, 1277, 1281, and 1295.
+- All twelve model × k × direction groups reached 5/5 clusters; no shortage
+  remained.
 
-```text
-a(j) = floor((2*j*(S-1) + (R-1)) / (2*(R-1))).
-```
+The stopping rule scans the ordered reserve-seed prefix and stops when all
+predeclared quotas are met. It does not inspect intervention outcomes.
 
-This is deterministic round-half-up, monotone, endpoint preserving, and the
-identity when R=S. Qwen preflight is 540 exact / 0 remapped / 0 unsupported;
-Gemma is 178 exact / 362 remapped / 0 unsupported.
+**本节结论：** Supplementation repaired coverage, not effect size. The exact
+missing support and added seeds are machine-readable in
+`supplement_seed_summary.csv`.
 
-**本节结论：** Both models satisfy the registered support requirement. The
-Gemma estimates legitimately include deterministic remapping, so tokenizer
-alignment remains a boundary in absolute cross-model comparisons.
+## Patching estimand
 
-## Estimand and inference
-
-With receiver gold count `r`, target count `t`, clean receiver prediction
-`y0`, and treatment prediction `y1`, strict normalized transport is
+For patch pair-condition instance `i`, with donor gold `d_i` and patched
+numeric output `y_i`, strict donor-target accuracy is
 
 ```text
-T = (y1 - y0) / (t - r).
+PatchAcc = (1/N) * sum_i 1[patched output is valid and y_i = d_i].
 ```
 
-Target conformity is `1 - |y1-t|/|t-r|`. Invalid numeric generations remain
-in the denominator as strict zero effect. Patching subtracts the within-example
-mean of self-copy and same-count controls; steering subtracts the norm-matched
-orthogonal random control. Paired effects are averaged within seed, then over
-seed clusters. Confidence intervals use 10,000 seed-cluster bootstraps; exact
-two-sided sign-flip p-values are Holm-corrected within evidence scope.
+Invalid generations remain in the denominator and contribute zero. Each
+`k × direction` estimate is pair-condition-instance weighted. Confidence
+intervals use 10,000 seed-cluster bootstrap repetitions. The report's pooled
+average is the descriptive ratio of total successes to total denominator
+across the six groups; it is not assigned a synthetic pooled confidence
+interval.
 
-With only five held-out clusters, the smallest possible two-sided exact p is
-`2/2^5 = 0.0625`. No primary condition can therefore attain p < .05 even when
-all five seed effects are positive.
+Headline pooled values:
 
-**本节结论：** The positive bootstrap intervals, independent confirmation, and
-matched controls are sufficient for the bounded functional-intervention
-claim, but they do not replace the preregistered exact test. The HTML report
-explicitly reports zero Holm-significant primary conditions.
+- Qwen prompt: 1161/1424 = 81.53%.
+- Gemma prompt: 1000/1088 = 91.91%.
+- Qwen answer query: 1628/1686 = 96.56%.
+- Gemma answer query: 1809/1884 = 96.02%.
 
-## Results
+**本节结论：** Answer-query replacement very reliably sets a clean-correct
+receiver to the clean-correct donor's gold count. This supports downstream-
+usable correct-count information, not an explicit scalar code or unique
+circuit.
 
-### Prompt patching
+## Dual-population ablation
 
-Only full-span conditions pass screening: 126 Qwen and 102 Gemma conditions.
-All have positive held-out bootstrap lower bounds and all five held-out seed
-effects are positive. No endpoint condition passes screening.
+Both populations use counts 1–5, seed clusters 1274–1283, the same ranked
+broad-aggregation banks, and at least three layer-matched random controls.
+The clean-correct population is an exact subset of the all-example output.
 
-**本节结论：** A coordinated full-needle-span state is sufficient for count
-transport under the tested interventions; one endpoint token is not shown to
-be sufficient. This is not a necessity result.
+For all examples, with clean prediction `y0`, ranked-ablation prediction
+`yR(n)`, and random-control predictions `yj(n)`, the primary magnitude effect
+is
 
-### Answer-query patching
+```text
+D_abs(n) = E|yR(n)-y0| - mean_j E|yj(n)-y0|.
+```
 
-There are 149 Qwen and 177 Gemma primary conditions. All have positive
-bootstrap lower bounds and 5/5 positive held-out seeds. Cumulative clamping is
-not used for layer localization because it overwrites all downstream layers.
+The signed counterpart is also reported to show whether the count shifts up
+or down. For clean-correct examples (`y0 = gold`), the primary endpoint is
 
-**本节结论：** The final answer-query residual contains donor-associated
-count/prediction information in a downstream-usable form. This is stronger
-than probe decodability because replacing the state changes the receiver's
-output relative to matched controls. It can transport an incorrect donor
-prediction, so this is not identical to storing the donor gold count.
+```text
+D_cw(n) = P(yR(n) != gold | y0 = gold)
+          - mean_j P(yj(n) != gold | y0 = gold).
+```
 
-### Steering
+Positive values mean ranked-head ablation is more disruptive than random
+ablation. Effects are clustered by seed and use 10,000 bootstrap repetitions.
+The main comparison is `n=1..5`; `n=6..32` remains an explicitly exploratory
+diagnostic and is not used for candidate selection in the report.
 
-All 45 Qwen conditions and 53/54 Gemma conditions have 5/5 positive held-out
-seeds; every bootstrap lower bound is positive. The outcome is directional
-transport, not exact set-to-count control, and multi-layer plans do not
-establish an advantage over single layers.
+The largest main-range effects are:
 
-**本节结论：** A population-level count direction causally controls the tested
-answer-query states relative to an orthogonal norm-matched control, within the
-registered alpha and layer plans.
+- Qwen all examples: `n=2`, `D_abs=0.133`, CI `[0.013, 0.300]`, overlap 0.
+- Qwen clean-correct: `n=4`, `D_cw=0.083`, CI `[0.023, 0.158]`, mean overlap 1.
+- Gemma all examples: `n=1`, `D_abs=0.147`, CI `[0.060, 0.233]`, overlap 0.
+- Gemma clean-correct: `n=1`, `D_cw=0.102`, CI `[0.000, 0.205]`, overlap 0.
 
-### Head-bank ablation
+The Gemma clean-correct lower bound equals zero, so it does not strictly
+exclude zero.
 
-The top-1--32 sweep is discovery-only. It nevertheless contains pointwise
-functional signals. Qwen and Gemma broad-aggregation top-5 both reduce
-accuracy and increase absolute error relative to layer-matched random
-ablation. Across all doses, Qwen broad aggregation has 5/32 points and Gemma
-13/32 points where both metrics move in the harmful direction.
+**本节结论：** Model/population-specific candidates are Qwen 2/4 and Gemma
+1/1. Qwen has no single `n` that maximizes both estimands. These are
+discovery candidates, not frozen confirmation results.
 
-**本节结论：** Non-monotonicity means the ranking is not additive and larger
-top-n is not guaranteed to be more damaging. It does not erase the top-5
-point effect. Because top-5 was selected after a discovery sweep and lacks a
-new held-out confirmation, the current result supports a functional candidate
-but not yet a confirmed reusable head contribution.
+## Non-monotonicity and random overlap
 
-### Minimal head-ablation confirmation
+Non-monotonic effects prevent additive ranking and dose-response claims. They
+do not invalidate a predeclared point effect. Random overlap may attenuate a
+contrast in an ideal shared-removal setting, but it is not guaranteed to be
+conservative because it also changes the control intervention and variance.
 
-The required supplement is intentionally small:
+**本节结论：** The Qwen clean-correct `n=4` effect remains observed evidence,
+but a clean confirmation should use random controls with zero overlap.
 
-- freeze the Qwen and Gemma broad-aggregation top-5 head identities before
-  running;
-- use counts 7--10 and at least 10 entirely new seed clusters;
-- compare clean, targeted top-5 ablation, and at least three
-  layer-distribution-matched random controls that do not overlap the full
-  ranked bank;
-- preregister seed-level
-  `delta_MAE = MAE_targeted - mean(MAE_random_controls)` as the single primary
-  endpoint, with accuracy difference secondary;
-- run one two-sided exact sign-flip test per model and Holm-correct the two
-  model-level tests. With 10 seeds, the minimum two-sided p is
-  `2/2^10 = 0.001953125`.
+## Minimal confirmation if a reusable bank claim is needed
 
-Restoring the five original head outputs after ablation is a useful optional
-rescue control, but it is not required for the minimal "heads contribute"
-claim.
+Before observing new outcomes, freeze:
 
-**本节结论：** The minimum supplement is one frozen top-5 confirmation, not a
-repeat of the full top-1--32 sweep and not a search for a unique circuit.
+- Qwen all-example `n=2`;
+- Qwen clean-correct `n=4`;
+- Gemma all-example `n=1`;
+- Gemma clean-correct `n=1`.
 
-## Baseline boundary
+Use a completely untouched seed suffix, retain counts 1–5, use at least 10
+(preferably 20) seed clusters per model, and enforce at least three
+layer-matched random banks with zero overlap. Keep `D_abs` and `D_cw` as the
+population-specific primary endpoints and Holm-correct the four frozen tests.
+Do not rescan `n`.
 
-Both models produce valid numeric completions on all 330 baselines. Held-out
-confirmation accuracy is 49.1% for Qwen and 42.7% for Gemma, with systematic
-under-counting at high gold counts.
+If the manuscript only needs the clean-correct head-usefulness claim, confirm
+only Qwen `n=4` and Gemma `n=1`; treat the all-example analysis as descriptive
+support.
 
-**本节结论：** Intervention transport must not be paraphrased as universally
-correct counting. The report keeps validity, accuracy, signed error, and
-transport as separate quantities.
+**本节结论：** No further patching is needed for the bounded hidden-state
+claim. Only a small frozen-n/new-seed/zero-overlap ablation confirmation is
+needed to call a particular head bank reproducible and confirmed.
 
 ## Machine-readable outputs
 
-The directory `reports/v4_non-thinking_causal/v4_4_causal_v2/` contains:
+The directory `reports/v4_non-thinking_causal/v4_4_causal_v2/` includes the
+original causal-v2 machine tables plus:
 
-- primary condition, family, and protocol-by-k confirmation tables;
-- baseline-by-split and baseline-by-count tables;
-- prompt-alignment, selection, stage, ablation, and audit summaries;
-- `ablation_support_summary.csv` and `evidence_sufficiency.csv`, which record
-  the pointwise head evidence and claim-level verdicts;
-- local/FileStream archive verification;
-- `source_ledger.csv`, with size and SHA-256 for every report input;
-- `report_summary.json`, used by tests for headline-value traceability.
+- `correct_patching_aggregate.csv`;
+- `correct_patching_pooled.csv`;
+- `dual_population_ablation_top_n_1_5.csv`;
+- `dual_population_ablation_diagnostics.csv`;
+- `ablation_candidate_summary.csv`;
+- `supplement_seed_summary.csv`;
+- `correct_prompt_alignment_summary.csv`;
+- `correct_interventions_audit.csv`;
+- `correct_interventions_stage_summary.csv`;
+- `source_ledger.csv` and `report_summary.json`.
 
-**本节结论：** Displayed numbers are generated from the exported machine
-tables. The checked report is not maintained by manually editing its values.
+**本节结论：** Headline values can be independently recomputed from the
+checked CSV files without parsing the HTML.
 
 ## Rebuild
 
 ```bash
 python scripts/build_realistic_niah_v4_4_causal_v2_report.py \
-  --qwen-run-root /path/to/qwen/run/Qwen3-8B/numeric/causal_v2 \
-  --gemma-run-root /path/to/gemma/run/Gemma4-E4B/numeric/causal_v2 \
-  --qwen-export /path/to/Realistic_CoT_NiaH_Count_20260803_v4_4_causal_v2_qwen \
-  --gemma-export /path/to/Realistic_CoT_NiaH_Count_20260803_v4_4_causal_v2_gemma \
+  --qwen-run-root /path/to/qwen/numeric/causal_v2 \
+  --gemma-run-root /path/to/gemma/numeric/causal_v2 \
+  --correct-run-root /path/to/run_20260804_v4_4_correct_interventions \
+  --qwen-export /path/to/qwen_export \
+  --gemma-export /path/to/gemma_export \
+  --correct-export /path/to/correct_interventions_export \
   --output reports/realistic_niah_v4_4_causal_v2_report.html \
   --data-dir reports/v4_non-thinking_causal/v4_4_causal_v2
 ```
 
-Run the causal-v2 audit on each source run before rebuilding. Then run the
-report test and open the HTML in a browser at desktop and mobile widths.
+Run all source audits before rebuilding, then run the report tests and inspect
+the HTML at desktop/mobile widths and in print mode.
 
-**本节结论：** Reproduction requires the two small causal-v2 exports, not a
-new download of the pre-existing 32 GB corpus.
+**本节结论：** Reproduction needs only the small causal/intervention exports;
+it does not require re-downloading the pre-existing 32 GB corpus.

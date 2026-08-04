@@ -20,47 +20,37 @@ def _read_csv(name: str) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
-def test_report_is_standalone_structured_and_explicit_about_limits() -> None:
+def test_report_is_standalone_structured_and_scientifically_bounded() -> None:
     text = REPORT.read_text(encoding="utf-8")
 
     assert SCRIPT.is_file()
     assert "<!doctype html>" in text.lower()
     assert 'lang="zh-CN"' in text
-    assert text.count("<figure") == 7
-    assert text.count("<figcaption") == 7
+    assert text.count("<figure") == 5
+    assert text.count("<figcaption") == 5
     assert text.count("本节结论") >= 18
-    assert "matched-control-adjusted strict normalized transport" in text
-    assert "min p=0.0625" in text
-    assert "Holm-significant 仍是 0" in text
-    assert "空白 layer 表示未通过 screen" in text
-    assert "不要求唯一计数回路" in text
-    assert "非单调性本身不是否定 head usefulness 的理由" in text
-    assert "broad-aggregation top-5" in text
-    assert "至少 10 个全新 seed clusters" in text
-    assert "Patching 已提供充分的功能干预证据" in text
+    assert "Clean-correct patching 强化 hidden-state 结论" in text
+    assert "Qwen 全样本 n=2、correct-only n=4" in text
+    assert "Gemma 两类均 n=1" in text
+    assert "不尝试证明唯一计数回路" in text
+    assert "fresh-seed discovery" in text
+    assert "不能说 CI 严格排除零" in text
+    assert "n=6–32 已保存为额外诊断" in text
+    assert "random controls 平均与 ranked bank 重叠 1 个 head" in text
     assert "@media(max-width:860px)" in text
     assert "@media print" in text
-    assert "@@" not in text
+    assert "linear-gradient" not in text
     assert "TODO" not in text
+    assert "@@" not in text
     element_ids = re.findall(r'\bid="([^"]+)"', text)
     assert len(element_ids) == len(set(element_ids))
-    assert "{figure_id}" not in text
 
 
-def test_headline_counts_and_audits_match_frozen_results() -> None:
+def test_headline_values_audits_commits_and_hashes_match_sources() -> None:
     summary = json.loads((DATA / "report_summary.json").read_text(encoding="utf-8"))
 
-    assert summary["schema_version"] == "realistic_niah_v4_4_causal_v2_report_v2"
+    assert summary["schema_version"] == "realistic_niah_v4_4_causal_v2_integrated_report_v3"
     assert summary["implementation_commit"] == "dd409f2dff82ccd6400dfc3d7704025cb6939940"
-    assert summary["alignment_policy"] == "monotonic_endpoint_preserving_nearest_neighbor_v1"
-    assert {
-        key: summary["alignment"]["Qwen3-8B"][key]
-        for key in ("exact", "remapped", "unsupported")
-    } == {"exact": 540, "remapped": 0, "unsupported": 0}
-    assert {
-        key: summary["alignment"]["Gemma4-E4B"][key]
-        for key in ("exact", "remapped", "unsupported")
-    } == {"exact": 178, "remapped": 362, "unsupported": 0}
     for model in ("Qwen3-8B", "Gemma4-E4B"):
         assert summary["audits"][model]["status"] == "PASS"
         assert summary["audits"][model]["checks"] == 302
@@ -68,116 +58,145 @@ def test_headline_counts_and_audits_match_frozen_results() -> None:
         assert summary["exports"][model]["archive_sha256_verified"] is True
         assert summary["exports"][model]["source_copy_manifests_identical"] is True
 
+    correct = summary["correct_interventions"]
+    assert correct["audit"]["status"] == "PASS"
+    assert correct["audit"]["checks"] == 98
+    assert correct["audit"]["passed"] == 98
+    assert correct["audit"]["errors"] == 0
+    assert correct["audit"]["definition_sha256"] == "6f7f7760f53a2bab08e5b840aa765dbf70d853a75952eabb5282d108b4315f5e"
+    assert correct["models"]["Qwen3-8B"]["design_hash"] == "4c3cdeb48cbf"
+    assert correct["models"]["Gemma4-E4B"]["design_hash"] == "d419daff86de"
+    assert {row["implementation_commit"] for row in correct["models"].values()} == {
+        "cda0d092db424d4bcb712a1402b899df1bee793b"
+    }
+
+    pooled = correct["patch_pooled"]
     expected = {
-        "Qwen3-8B::prompt_patching": 126,
-        "Gemma4-E4B::prompt_patching": 102,
-        "Qwen3-8B::answer_patching": 149,
-        "Gemma4-E4B::answer_patching": 177,
-        "Qwen3-8B::steering": 45,
-        "Gemma4-E4B::steering": 54,
+        "Qwen3-8B::prompt_patching": (1161, 1424),
+        "Gemma4-E4B::prompt_patching": (1000, 1088),
+        "Qwen3-8B::answer_patching": (1628, 1686),
+        "Gemma4-E4B::answer_patching": (1809, 1884),
     }
-    for key, conditions in expected.items():
-        row = summary["primary_confirmation_family_summary"][key]
-        assert row["conditions"] == conditions
-        assert row["ci95_excludes_zero"] == conditions
-        assert row["holm_p_le_0_05"] == 0
-
-    assert summary["claim_sufficiency"]["answer_query_hidden_state_usable_information"]["verdict"].startswith(
-        "对受限主张充分"
-    )
-    assert summary["claim_sufficiency"]["ranked_head_bank_functional_contribution"]["verdict"].startswith(
-        "现有结果为支持性"
-    )
+    for key, (successes, denominator) in expected.items():
+        row = pooled[key]
+        assert row["patching_acc_successes"] == successes
+        assert row["patching_acc_denominator"] == denominator
+        assert math.isclose(row["pooled_average_patching_acc"], successes / denominator)
 
 
-def test_family_summary_is_recomputed_from_checked_condition_table() -> None:
-    rows = _read_csv("primary_confirmation_conditions.csv")
-    summaries = {
+def test_pooled_patching_is_recomputed_from_group_successes_and_denominators() -> None:
+    aggregate = _read_csv("correct_patching_aggregate.csv")
+    pooled = {
         (row["model_label"], row["family"]): row
-        for row in _read_csv("primary_confirmation_family_summary.csv")
+        for row in _read_csv("correct_patching_pooled.csv")
     }
-    groups: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
-    for row in rows:
-        groups[(row["model_label"], row["family"])].append(row)
+    grouped: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
+    for row in aggregate:
+        grouped[(row["model_label"], row["family"])].append(row)
 
-    for key, selected in groups.items():
-        output = summaries[key]
-        effects = [float(row["mean_control_adjusted_transport"]) for row in selected]
-        assert int(output["conditions"]) == len(selected)
-        assert math.isclose(float(output["mean_effect"]), statistics.fmean(effects))
-        assert math.isclose(float(output["median_effect"]), statistics.median(effects))
-        assert math.isclose(float(output["min_effect"]), min(effects))
-        assert math.isclose(float(output["max_effect"]), max(effects))
-        assert int(output["ci95_excludes_zero"]) == sum(float(row["ci95_low"]) > 0 for row in selected)
-        assert int(output["holm_p_le_0_05"]) == sum(float(row["holm_p"]) <= 0.05 for row in selected)
+    assert len(aggregate) == 24
+    for key, rows in grouped.items():
+        assert len(rows) == 6
+        assert {int(row["seed_clusters"]) for row in rows} == {5}
+        successes = sum(int(row["patching_acc_successes"]) for row in rows)
+        denominator = sum(int(row["patching_acc_denominator"]) for row in rows)
+        output = pooled[key]
+        assert int(output["patching_acc_successes"]) == successes
+        assert int(output["patching_acc_denominator"]) == denominator
+        assert math.isclose(float(output["pooled_average_patching_acc"]), successes / denominator)
+        assert math.isclose(
+            float(output["group_min_average_patching_acc"]),
+            min(float(row["average_patching_acc"]) for row in rows),
+        )
 
 
-def test_source_ledger_and_machine_tables_are_complete() -> None:
+def test_ablation_candidates_are_maxima_only_within_main_n_one_to_five() -> None:
+    main = _read_csv("dual_population_ablation_top_n_1_5.csv")
+    candidates = {
+        (row["model_label"], row["analysis_population"]): row
+        for row in _read_csv("ablation_candidate_summary.csv")
+    }
+    grouped: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
+    for row in main:
+        assert 1 <= int(row["top_n"]) <= 5
+        grouped[(row["model_label"], row["analysis_population"])].append(row)
+
+    assert len(main) == 20
+    for key, rows in grouped.items():
+        expected = max(rows, key=lambda row: (float(row["primary_effect"]), -int(row["top_n"])))
+        output = candidates[key]
+        assert int(output["candidate_top_n"]) == int(expected["top_n"])
+        assert math.isclose(float(output["primary_effect"]), float(expected["primary_effect"]))
+        assert output["selection_status"] == "candidate_from_unfrozen_n_1_to_5_discovery"
+
+    assert int(candidates[("Qwen3-8B", "all_examples_signed")]["candidate_top_n"]) == 2
+    assert int(candidates[("Qwen3-8B", "clean_correct_only")]["candidate_top_n"]) == 4
+    assert int(candidates[("Gemma4-E4B", "all_examples_signed")]["candidate_top_n"]) == 1
+    gemma_correct = candidates[("Gemma4-E4B", "clean_correct_only")]
+    assert int(gemma_correct["candidate_top_n"]) == 1
+    assert float(gemma_correct["ci95_low"]) == 0.0
+    assert gemma_correct["ci95_excludes_zero_positive"] == "False"
+
+
+def test_supplement_shortages_and_final_coverage_are_explicit() -> None:
+    rows = {row["model_label"]: row for row in _read_csv("supplement_seed_summary.csv")}
+    assert rows["Qwen3-8B"]["patch_initial_missing"] == "k=3 increase: 1; k=3 decrease: 1; k=5 increase: 3; k=5 decrease: 3"
+    assert rows["Gemma4-E4B"]["patch_initial_missing"] == "k=5 increase: 4; k=5 decrease: 4"
+    assert rows["Qwen3-8B"]["patch_added_eligible_pair_seeds"] == "1274;1275;1276;1278"
+    assert rows["Gemma4-E4B"]["patch_added_eligible_pair_seeds"] == "1275;1277;1281;1295"
+    for row in rows.values():
+        assert int(row["patch_final_missing_groups"]) == 0
+        assert int(row["correct_initial_missing_seed_clusters"]) == 10
+        assert int(row["correct_final_seed_clusters"]) == 10
+        assert int(row["correct_target_seed_clusters"]) == 10
+
+
+def test_machine_tables_and_source_ledger_are_complete() -> None:
     expected_files = {
-        "ablation_top_k_sweep.csv",
-        "ablation_support_summary.csv",
-        "audit_category_summary.csv",
-        "audit_summary.csv",
-        "baseline_by_count.csv",
-        "baseline_by_split.csv",
-        "export_verification.csv",
-        "evidence_sufficiency.csv",
+        "ablation_candidate_summary.csv",
+        "correct_interventions_audit.csv",
+        "correct_interventions_stage_summary.csv",
+        "correct_patching_aggregate.csv",
+        "correct_patching_pooled.csv",
+        "correct_prompt_alignment_summary.csv",
+        "dual_population_ablation_diagnostics.csv",
+        "dual_population_ablation_top_n_1_5.csv",
         "primary_confirmation_conditions.csv",
         "primary_confirmation_family_summary.csv",
-        "primary_confirmation_group_summary.csv",
-        "prompt_alignment_summary.csv",
         "report_summary.json",
-        "selection_summary.csv",
         "source_ledger.csv",
-        "stage_inventory.csv",
+        "supplement_seed_summary.csv",
     }
     assert expected_files <= {path.name for path in DATA.iterdir()}
 
     ledger = _read_csv("source_ledger.csv")
-    assert len(ledger) >= 40
+    assert len(ledger) >= 55
     assert len({row["source_label"] for row in ledger}) == len(ledger)
     for row in ledger:
+        assert row["source_path"]
         assert int(row["size_bytes"]) > 0
         assert len(row["sha256"]) == 64
         int(row["sha256"], 16)
 
 
-def test_ablation_support_summary_is_recomputed_and_identifies_frozen_candidate() -> None:
-    sweep = _read_csv("ablation_top_k_sweep.csv")
-    output = {
-        (row["model_label"], row["head_bank"]): row
-        for row in _read_csv("ablation_support_summary.csv")
+def test_original_family_summary_and_stage_inventory_remain_recomputable() -> None:
+    rows = _read_csv("primary_confirmation_conditions.csv")
+    summaries = {
+        (row["model_label"], row["family"]): row
+        for row in _read_csv("primary_confirmation_family_summary.csv")
     }
-    groups: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
-    for row in sweep:
-        groups[(row["model_label"], row["head_bank"])].append(row)
-
-    for key, selected in groups.items():
-        either = sum(
-            float(row["accuracy_effect"]) < 0 or float(row["absolute_error_effect"]) > 0
-            for row in selected
-        )
-        both = sum(
-            float(row["accuracy_effect"]) < 0 and float(row["absolute_error_effect"]) > 0
-            for row in selected
-        )
-        assert int(output[key]["top_n_tested"]) == len(selected) == 32
-        assert int(output[key]["either_metric_harmful_count"]) == either
-        assert int(output[key]["both_metrics_harmful_count"]) == both
-        assert output[key]["held_out_confirmation"] == "False"
-        assert output[key]["supports_monotone_dose_response"] == "False"
-
-    assert output[("Qwen3-8B", "broad_aggregation")]["both_metrics_harmful_count"] == "5"
-    assert output[("Gemma4-E4B", "broad_aggregation")]["both_metrics_harmful_count"] == "13"
-    assert output[("Qwen3-8B", "broad_aggregation")]["cross_model_shared_both_metrics_top_n"] == "5"
-    assert output[("Gemma4-E4B", "broad_aggregation")]["cross_model_shared_both_metrics_top_n"] == "5"
-
-
-def test_stage_inventory_has_no_missing_or_skipped_rows() -> None:
-    rows = _read_csv("stage_inventory.csv")
-    assert len(rows) == 12
+    grouped: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
     for row in rows:
+        grouped[(row["model_label"], row["family"])].append(row)
+    for key, selected in grouped.items():
+        effects = [float(row["mean_control_adjusted_transport"]) for row in selected]
+        assert int(summaries[key]["conditions"]) == len(selected)
+        assert math.isclose(float(summaries[key]["mean_effect"]), statistics.fmean(effects))
+        assert math.isclose(float(summaries[key]["median_effect"]), statistics.median(effects))
+
+    stages = _read_csv("stage_inventory.csv")
+    assert len(stages) == 12
+    for row in stages:
         assert row["status"] == "complete"
         assert int(row["successful_rows"]) == int(row["logical_rows"])
         assert int(row["skipped_rows"]) == 0
-        assert int(row["capture_index_rows"]) == 90
