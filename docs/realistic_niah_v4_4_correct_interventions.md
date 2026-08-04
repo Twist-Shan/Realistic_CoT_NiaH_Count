@@ -5,15 +5,18 @@
 This is an additive confirmation extension. It does not overwrite, relabel, or
 reselect any result in the audited V4.4 causal-v2 runs. Prompt/answer patching
 keeps the condition set selected by the original five-seed overall screen.
-Head ablation keeps the independently frozen model-specific intervention sizes:
-Qwen3-8B broad-aggregation top-8 and Gemma4-E4B broad-aggregation top-6.
+Head ablation does **not** freeze an intervention size in this extension.
+Instead, broad-aggregation top-(n), (n=1,\ldots,32), is compared separately
+for the all-example and clean-correct populations. The resulting tables are
+discovery diagnostics for human review, not confirmed choices.
 
 The extension answers two narrower questions:
 
 1. When both clean examples are answered correctly, does residual patching move
    the receiver to the donor's gold count?
-2. What is the effect of the frozen head bank (a) over all registered examples
-   and (b) conditional on a clean-correct baseline?
+2. How do broad-aggregation head-ablation effects vary with top-(n), separately
+   (a) over all registered examples and (b) conditional on a clean-correct
+   baseline?
 
 No result from this extension is evidence that the selected heads constitute a
 unique counting circuit.
@@ -110,15 +113,16 @@ Every reported number is recomputed by the audit from the combined raw detail.
 
 ## Two ablation populations
 
-Both analyses use answer-query-only ablation and the same frozen bank/top-(n)
-per model. The three layer-matched random controls are retained. Ranked/random
-head overlap remains allowed under the original registered control definition
-and is not changed by this extension.
+Both analyses use answer-query-only ablation and the broad-aggregation bank.
+Every top-(n) from 1 through 32 is retained. The three layer-matched random
+controls are retained. Ranked/random head overlap remains allowed under the
+original registered control definition and is not changed by this extension.
+No model- or population-specific (n) is frozen at this stage.
 
 ### Population A: all examples, signed effect
 
-This population reuses the original independent confirmation without filtering
-on baseline correctness. For example (i), the signed shift is
+This population reuses the original 1--32 discovery sweep without filtering on
+baseline correctness. For example (i), the signed shift is
 
 \[
 \Delta_i^{\mathrm{signed}}
@@ -153,17 +157,57 @@ descriptive endpoint is failure induction:
              \hat y_i^{\mathrm{ablate}}\ne y_i\}.
 \]
 
-The existing independent confirmation contains 3 eligible Qwen seed clusters
-and 0 eligible Gemma seed clusters. The target is 10 independent eligible seed
-clusters per model, so the initial shortages are 7 and 10 respectively. The
-same ascending reserve scan supplements only these shortages. All correct
-count-7--10 examples in the selected baseline prefix are retained; heads and
-top-(n) are never reselected.
+The previous fixed-(n) confirmation contains 3 eligible Qwen seed clusters and
+0 eligible Gemma seed clusters, but these rows cannot support an unbiased
+1--32 comparison because they were not evaluated at every (n). They are kept
+only as a legacy reference and do not count toward the new discovery quota.
+The target is therefore 10 **fresh** independent eligible seed clusters per
+model. The ascending reserve scan starts with a shortage of 10 for each model.
+All clean-correct count-7--10 examples from the earliest 10 eligible seeds are
+evaluated at every (n=1,\ldots,32). If patching support requires scanning
+farther into the reserve, later correct seeds are recorded but excluded from
+top-(n) discovery, preventing the dose sweep from expanding post hoc.
 
 The signed shift, absolute shift, error change, prediction-change rate, strict
 accuracy, and ranked-minus-random comparisons are also reported for this
 population. The all-example and clean-correct populations are stored as
 separate rows; their denominators must never be pooled.
+
+## Top-n discovery diagnostics and deferred selection
+
+The two populations use different primary discovery endpoints.
+
+For the all-example population, direction alone is not a criterion for a
+"better" ablation dose. Its primary diagnostic is the extra magnitude of
+change produced by ranked heads relative to layer-matched random heads:
+
+\[
+D_n^{\mathrm{all}}
+=\mathbb E\lvert\Delta_{i,n}^{\mathrm{ranked}}\rvert
+-\mathbb E\lvert\Delta_{i,n}^{\mathrm{random}}\rvert.
+\]
+
+Larger positive values mean that ranked-head ablation changes generated counts
+more than the random control. The corresponding signed ranked-minus-random
+shift is reported separately to show whether the movement is predominantly up
+or down.
+
+For the clean-correct population, the primary diagnostic is the extra failure
+induction relative to random:
+
+\[
+D_n^{\mathrm{correct}}
+=\Pr(\mathrm{correct}\rightarrow\mathrm{wrong}\mid\mathrm{ranked},n)
+-\Pr(\mathrm{correct}\rightarrow\mathrm{wrong}\mid\mathrm{random},n).
+\]
+
+Both diagnostics use a seed-cluster bootstrap. The output gives all 32 doses,
+95% intervals, examples, seed clusters, valid rates, random overlap, secondary
+endpoints, and a descriptive within-model rank. That rank is not an automatic
+selection. After reviewing effect size, uncertainty, stability, and dose
+parsimony, a model- and population-specific (n) may be frozen. Confirmation
+must then use an untouched suffix of fresh seeds; discovery seeds may not be
+reused as confirmatory evidence.
 
 ## Reproducible execution
 
@@ -177,9 +221,9 @@ implementation fingerprint.
 The strict audit is
 `scripts/audit_realistic_niah_v4_4_correct_interventions.py`. It verifies the
 ordered seed prefix, initial/final quotas, clean-correct eligibility, unchanged
-model-specific top-(n), complete ranked/random controls, explicit patching
-accuracy denominators, and numerical reproduction of both patching and
-ablation summaries from raw detail.
+1--32 candidate set, explicitly unfrozen selection status, complete
+ranked/random controls, explicit patching accuracy denominators, and numerical
+reproduction of both patching and ablation summaries from raw detail.
 
 Until `correct_interventions.complete` exists and the audit reports `PASS`, the
 extension is an implemented design rather than a completed empirical result.

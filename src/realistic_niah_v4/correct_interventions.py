@@ -15,6 +15,7 @@ PATCH_TARGET_ACCURACY_DEFINITION = "patched_count_equals_donor_gold_count"
 PATCH_CLUSTER_TARGET = 5
 CORRECT_ABLATION_CLUSTER_TARGET = 10
 CORRECT_ABLATION_COUNTS = (7, 8, 9, 10)
+ABLATION_TOP_NS = tuple(range(1, 33))
 
 
 def _as_bool(series: pd.Series) -> pd.Series:
@@ -319,12 +320,36 @@ def select_sequential_supplement(
         .unique()
         .tolist()
     )
-    added_ablation_seeds = sorted(
+    observed_fresh_ablation_seeds = sorted(
         pd.to_numeric(fresh_ablation["seed"], errors="coerce")
         .dropna()
         .astype(int)
         .unique()
         .tolist()
+    )
+    initial_ablation_seeds = set(
+        pd.to_numeric(initial_ablation["seed"], errors="coerce")
+        .dropna()
+        .astype(int)
+        .tolist()
+    )
+    added_ablation_seeds = [
+        seed
+        for seed in observed_fresh_ablation_seeds
+        if seed not in initial_ablation_seeds
+    ][:initial_ablation_shortage]
+    selected_fresh_ablation = fresh_ablation[
+        pd.to_numeric(fresh_ablation["seed"], errors="raise")
+        .astype(int)
+        .isin(added_ablation_seeds)
+    ].copy()
+    selected_final_ablation = pd.concat(
+        [initial_ablation, selected_fresh_ablation],
+        ignore_index=True,
+        sort=False,
+    ).drop_duplicates(["model_label", "seed", "gold_count"])
+    quota_met = quota_met and int(selected_final_ablation["seed"].nunique()) >= int(
+        ablation_cluster_target
     )
     per_seed: list[dict[str, Any]] = []
     for seed in scanned:
@@ -377,8 +402,16 @@ def select_sequential_supplement(
             "target_seed_clusters": int(ablation_cluster_target),
             "initial_seed_clusters": initial_ablation_clusters,
             "initial_missing_seed_clusters": initial_ablation_shortage,
-            "final_seed_clusters": int(final_ablation["seed"].nunique()),
+            "observed_fresh_eligible_seed_clusters": int(
+                len(observed_fresh_ablation_seeds)
+            ),
+            "final_seed_clusters": int(selected_final_ablation["seed"].nunique()),
             "added_eligible_seeds": added_ablation_seeds,
+            "unselected_fresh_eligible_seeds": [
+                seed
+                for seed in observed_fresh_ablation_seeds
+                if seed not in set(added_ablation_seeds)
+            ],
         },
         "reserve_seeds": ordered,
         "scanned_supplement_seeds": scanned,
@@ -388,7 +421,7 @@ def select_sequential_supplement(
     return (
         manifest,
         selected_fresh_pairs.reset_index(drop=True),
-        fresh_ablation.reset_index(drop=True),
+        selected_fresh_ablation.reset_index(drop=True),
     )
 
 
@@ -651,3 +684,211 @@ def summarize_ablation_population(
             }
         )
     return pd.DataFrame(rows).sort_values(groups).reset_index(drop=True)
+
+
+def summarize_ablation_n_diagnostics(
+    detail: pd.DataFrame,
+    *,
+    population: str,
+    head_bank: str = "broad_aggregation",
+    bootstrap_repetitions: int = 10_000,
+) -> pd.DataFrame:
+    """Compare every ablation dose without automatically selecting top-n.
+
+    For all examples, the discovery endpoint is the ranked-minus-random
+    increase in absolute count shift.  For clean-correct examples, it is the
+    ranked-minus-random increase in correct-to-wrong failures.  Signed shifts
+    remain separate direction-bearing endpoints.
+    """
+
+    if population not in {"all_examples_signed", "clean_correct_only"}:
+        raise ValueError(f"Unknown ablation population: {population}")
+    required = {
+        "model_label",
+        "stimulus_id",
+        "seed",
+        "gold_count",
+        "head_bank",
+        "top_n",
+        "condition",
+        "baseline_is_correct",
+        "baseline_format_valid",
+        "patched_is_correct",
+        "patched_format_valid",
+        "accuracy_delta",
+        "absolute_error_delta",
+        "generated_count_shift",
+        "prediction_changed",
+        "ranked_random_head_overlap",
+    }
+    missing = sorted(required - set(detail.columns))
+    if missing:
+        raise ValueError(f"Ablation detail is missing diagnostic columns: {missing}")
+    work = detail[detail["head_bank"].astype(str).eq(str(head_bank))].copy()
+    if population == "clean_correct_only":
+        work = work[
+            _as_bool(work["baseline_is_correct"])
+            & _as_bool(work["baseline_format_valid"])
+        ].copy()
+    if work.empty:
+        raise ValueError(
+            f"No {head_bank} rows remain for ablation population {population}"
+        )
+    for column in (
+        "baseline_is_correct",
+        "patched_is_correct",
+        "patched_format_valid",
+        "prediction_changed",
+    ):
+        work[column] = _as_bool(work[column]).astype(float)
+    work["signed_shift"] = pd.to_numeric(work["generated_count_shift"], errors="coerce")
+    work["absolute_shift"] = work["signed_shift"].abs()
+    work["correct_to_wrong"] = 1.0 - work["patched_is_correct"]
+
+    identifiers = [
+        "model_label",
+        "stimulus_id",
+        "seed",
+        "gold_count",
+        "head_bank",
+        "top_n",
+    ]
+    metrics = (
+        "signed_shift",
+        "absolute_shift",
+        "correct_to_wrong",
+        "accuracy_delta",
+        "absolute_error_delta",
+        "prediction_changed",
+        "patched_format_valid",
+    )
+    ranked = work[work["condition"].astype(str).eq("ranked")].copy()
+    random = work[work["condition"].astype(str).eq("layer_matched_random")].copy()
+    random_mean = random.groupby(identifiers, as_index=False, dropna=False).agg(
+        **{f"{metric}_random": (metric, "mean") for metric in metrics},
+        random_replicates_observed=("condition", "size"),
+        random_overlap_mean=("ranked_random_head_overlap", "mean"),
+    )
+    paired = ranked.merge(
+        random_mean, on=identifiers, how="inner", validate="one_to_one"
+    )
+    if len(paired) != len(ranked):
+        raise ValueError("Ablation n diagnostics have incomplete random controls")
+    for metric in metrics:
+        paired[f"{metric}_effect"] = pd.to_numeric(
+            paired[metric], errors="coerce"
+        ) - pd.to_numeric(paired[f"{metric}_random"], errors="coerce")
+
+    groups = ["model_label", "head_bank", "top_n"]
+    rows: list[dict[str, Any]] = []
+    for keys, frame in paired.groupby(groups, sort=True, dropna=False):
+        metadata = dict(zip(groups, keys))
+        signed_effect, signed_low, signed_high, clusters = _cluster_bootstrap(
+            frame,
+            "signed_shift_effect",
+            label=f"ablation-n:{population}:signed:" + ":".join(map(str, keys)),
+            repetitions=bootstrap_repetitions,
+        )
+        absolute_effect, absolute_low, absolute_high, _ = _cluster_bootstrap(
+            frame,
+            "absolute_shift_effect",
+            label=f"ablation-n:{population}:absolute:" + ":".join(map(str, keys)),
+            repetitions=bootstrap_repetitions,
+        )
+        failure_effect, failure_low, failure_high, _ = _cluster_bootstrap(
+            frame,
+            "correct_to_wrong_effect",
+            label=f"ablation-n:{population}:failure:" + ":".join(map(str, keys)),
+            repetitions=bootstrap_repetitions,
+        )
+        if population == "all_examples_signed":
+            primary_metric = "ranked_minus_random_absolute_count_shift"
+            primary_effect = absolute_effect
+            primary_low = absolute_low
+            primary_high = absolute_high
+        else:
+            primary_metric = "ranked_minus_random_correct_to_wrong"
+            primary_effect = failure_effect
+            primary_low = failure_low
+            primary_high = failure_high
+        rows.append(
+            {
+                **metadata,
+                "analysis_population": population,
+                "selection_status": "discovery_only_unfrozen",
+                "examples": int(len(frame)),
+                "seed_clusters": int(frame["seed"].nunique()),
+                "random_replicates_min": int(frame["random_replicates_observed"].min()),
+                "ranked_mean_signed_count_shift": float(
+                    pd.to_numeric(frame["signed_shift"], errors="coerce").mean()
+                ),
+                "random_mean_signed_count_shift": float(
+                    pd.to_numeric(frame["signed_shift_random"], errors="coerce").mean()
+                ),
+                "ranked_minus_random_signed_count_shift": signed_effect,
+                "ranked_minus_random_signed_count_shift_ci95_low": signed_low,
+                "ranked_minus_random_signed_count_shift_ci95_high": signed_high,
+                "ranked_mean_absolute_count_shift": float(
+                    pd.to_numeric(frame["absolute_shift"], errors="coerce").mean()
+                ),
+                "random_mean_absolute_count_shift": float(
+                    pd.to_numeric(
+                        frame["absolute_shift_random"], errors="coerce"
+                    ).mean()
+                ),
+                "ranked_minus_random_absolute_count_shift": absolute_effect,
+                "ranked_minus_random_absolute_count_shift_ci95_low": absolute_low,
+                "ranked_minus_random_absolute_count_shift_ci95_high": absolute_high,
+                "ranked_correct_to_wrong_rate": (
+                    float(frame["correct_to_wrong"].mean())
+                    if population == "clean_correct_only"
+                    else math.nan
+                ),
+                "random_correct_to_wrong_rate": (
+                    float(frame["correct_to_wrong_random"].mean())
+                    if population == "clean_correct_only"
+                    else math.nan
+                ),
+                "ranked_minus_random_correct_to_wrong": (
+                    failure_effect if population == "clean_correct_only" else math.nan
+                ),
+                "ranked_minus_random_correct_to_wrong_ci95_low": (
+                    failure_low if population == "clean_correct_only" else math.nan
+                ),
+                "ranked_minus_random_correct_to_wrong_ci95_high": (
+                    failure_high if population == "clean_correct_only" else math.nan
+                ),
+                "ranked_minus_random_accuracy_delta": float(
+                    pd.to_numeric(
+                        frame["accuracy_delta_effect"], errors="coerce"
+                    ).mean()
+                ),
+                "ranked_minus_random_absolute_error_delta": float(
+                    pd.to_numeric(
+                        frame["absolute_error_delta_effect"], errors="coerce"
+                    ).mean()
+                ),
+                "ranked_minus_random_prediction_changed": float(
+                    pd.to_numeric(
+                        frame["prediction_changed_effect"], errors="coerce"
+                    ).mean()
+                ),
+                "ranked_valid_rate": float(frame["patched_format_valid"].mean()),
+                "random_valid_rate": float(frame["patched_format_valid_random"].mean()),
+                "random_overlap_mean": float(frame["random_overlap_mean"].mean()),
+                "primary_metric": primary_metric,
+                "primary_effect": primary_effect,
+                "primary_effect_ci95_low": primary_low,
+                "primary_effect_ci95_high": primary_high,
+                "primary_ci95_excludes_zero_positive": bool(primary_low > 0),
+                "effect_seed_clusters": clusters,
+                "bootstrap_repetitions": int(bootstrap_repetitions),
+            }
+        )
+    result = pd.DataFrame(rows).sort_values(groups).reset_index(drop=True)
+    result["primary_rank_within_model_bank"] = (
+        result.groupby(["model_label", "head_bank"])["primary_effect"]
+        .rank(method="min", ascending=False)
+        .astype(int)
+    )
+    return result

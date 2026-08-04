@@ -7,6 +7,7 @@ import pandas as pd
 from realistic_niah_v4.correct_interventions import (
     eligible_directed_pairs,
     select_sequential_supplement,
+    summarize_ablation_n_diagnostics,
     summarize_ablation_population,
     summarize_average_patching_accuracy,
 )
@@ -64,7 +65,7 @@ def test_sequential_supplement_records_shortage_and_added_seeds() -> None:
     correctness = {
         20: {0, 3, 5, 7},
         21: {0, 5, 8},
-        22: {0, 5},
+        22: {0, 5, 10},
         23: {0, 5, 9},
     }
     candidate = pd.DataFrame(
@@ -97,6 +98,7 @@ def test_sequential_supplement_records_shortage_and_added_seeds() -> None:
     assert manifest["correct_only_ablation"]["initial_missing_seed_clusters"] == 2
     assert set(fresh_pairs["seed"]) == {20, 21, 22}
     assert set(fresh_ablation["seed"]) == {20, 21}
+    assert manifest["correct_only_ablation"]["unselected_fresh_eligible_seeds"] == [22]
 
 
 def test_eligible_pairs_require_both_clean_answers() -> None:
@@ -250,3 +252,77 @@ def test_ablation_populations_separate_signed_shift_and_failure_rate() -> None:
     assert correct["examples"] == 1
     assert correct["mean_signed_count_shift_valid"] == -2
     assert correct["correct_to_wrong_rate"] == 1
+
+
+def test_ablation_n_diagnostics_use_population_specific_primary_endpoint() -> None:
+    rows: list[dict[str, object]] = []
+    for seed in (1, 2):
+        for top_n, ranked_shift, ranked_correct in (
+            (1, -1, True),
+            (2, -3, False),
+        ):
+            base = {
+                "model_label": "Qwen3-8B",
+                "stimulus_id": f"s{seed}",
+                "seed": seed,
+                "gold_count": 8,
+                "head_bank": "broad_aggregation",
+                "top_n": top_n,
+                "baseline_is_correct": True,
+                "baseline_format_valid": True,
+            }
+            rows.append(
+                {
+                    **base,
+                    "condition": "ranked",
+                    "patched_is_correct": ranked_correct,
+                    "patched_format_valid": True,
+                    "accuracy_delta": int(ranked_correct) - 1,
+                    "absolute_error_delta": abs(ranked_shift),
+                    "generated_count_shift": ranked_shift,
+                    "prediction_changed": ranked_shift != 0,
+                    "ranked_random_head_overlap": top_n,
+                }
+            )
+            for replicate in range(3):
+                rows.append(
+                    {
+                        **base,
+                        "condition": "layer_matched_random",
+                        "random_replicate": replicate,
+                        "patched_is_correct": True,
+                        "patched_format_valid": True,
+                        "accuracy_delta": 0,
+                        "absolute_error_delta": 0,
+                        "generated_count_shift": 0,
+                        "prediction_changed": False,
+                        "ranked_random_head_overlap": 0,
+                    }
+                )
+    detail = pd.DataFrame(rows)
+    overall = summarize_ablation_n_diagnostics(
+        detail,
+        population="all_examples_signed",
+        bootstrap_repetitions=200,
+    )
+    correct = summarize_ablation_n_diagnostics(
+        detail,
+        population="clean_correct_only",
+        bootstrap_repetitions=200,
+    )
+    assert set(overall["top_n"]) == {1, 2}
+    assert set(overall["selection_status"]) == {"discovery_only_unfrozen"}
+    assert overall.loc[overall["top_n"].eq(2), "primary_effect"].iloc[0] == 3
+    assert (
+        overall.loc[overall["top_n"].eq(2), "primary_metric"].iloc[0]
+        == "ranked_minus_random_absolute_count_shift"
+    )
+    assert correct.loc[correct["top_n"].eq(2), "primary_effect"].iloc[0] == 1
+    assert (
+        correct.loc[correct["top_n"].eq(2), "primary_metric"].iloc[0]
+        == "ranked_minus_random_correct_to_wrong"
+    )
+    assert (
+        correct.loc[correct["top_n"].eq(2), "primary_rank_within_model_bank"].iloc[0]
+        == 1
+    )

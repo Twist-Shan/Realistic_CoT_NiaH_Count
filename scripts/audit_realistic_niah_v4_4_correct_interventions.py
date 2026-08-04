@@ -10,7 +10,9 @@ import numpy as np
 import pandas as pd
 
 from realistic_niah_v4.correct_interventions import (
+    ABLATION_TOP_NS,
     eligible_directed_pairs,
+    summarize_ablation_n_diagnostics,
     summarize_ablation_population,
     summarize_average_patching_accuracy,
 )
@@ -135,6 +137,30 @@ def _same_summary(
     )
 
 
+def _same_numeric_table(
+    observed: pd.DataFrame,
+    expected: pd.DataFrame,
+    *,
+    groups: tuple[str, ...],
+    numeric: tuple[str, ...],
+) -> bool:
+    columns = [*groups, *numeric]
+    left = observed[columns].sort_values(list(groups)).reset_index(drop=True)
+    right = expected[columns].sort_values(list(groups)).reset_index(drop=True)
+    if len(left) != len(right):
+        return False
+    for column in groups:
+        if left[column].astype(str).tolist() != right[column].astype(str).tolist():
+            return False
+    return bool(
+        np.allclose(
+            left[list(numeric)].to_numpy(dtype=float),
+            right[list(numeric)].to_numpy(dtype=float),
+            equal_nan=True,
+        )
+    )
+
+
 def _audit_model(
     audit: Audit,
     *,
@@ -152,9 +178,11 @@ def _audit_model(
         definition["patching"]["minimum_seed_clusters_per_model_k_direction"]
     )
     ablation_target = int(
-        definition["ablation"]["minimum_correct_seed_clusters_per_model"]
+        definition["ablation"]["minimum_fresh_correct_seed_clusters_per_model"]
     )
-    model_plan = definition["ablation"]["frozen_models"][model]
+    ablation_definition = definition["ablation"]
+    head_bank = str(ablation_definition["head_bank"])
+    top_ns = tuple(int(value) for value in ablation_definition["top_n_candidates"])
     audit.check(
         model=model,
         category="completion",
@@ -339,12 +367,10 @@ def _audit_model(
         )
 
     ablation_root = stage / "ablation"
-    all_detail = pd.read_csv(ablation_root / "detail.all_examples.original.csv.gz")
-    new_correct = pd.read_csv(ablation_root / "detail.correct_only.supplement.csv.gz")
-    combined_correct = pd.read_csv(
-        ablation_root / "detail.clean_correct.combined.csv.gz"
-    )
+    all_detail = pd.read_csv(ablation_root / "detail.all_examples.discovery.csv.gz")
+    new_correct = pd.read_csv(ablation_root / "detail.clean_correct.discovery.csv.gz")
     dual = pd.read_csv(ablation_root / "dual_population_ablation_summary.csv")
+    diagnostics = pd.read_csv(ablation_root / "top_n_diagnostics.unfrozen.csv")
     audit.check(
         model=model,
         category="ablation",
@@ -355,34 +381,71 @@ def _audit_model(
     audit.check(
         model=model,
         category="ablation",
-        name="combined correct-only ablation reaches independent seed quota",
-        condition=int(combined_correct["seed"].nunique()) >= ablation_target,
-        detail="combined correct-only ablation has too few seed clusters",
+        name="fresh correct-only discovery reaches seed quota",
+        condition=int(new_correct["seed"].nunique()) >= ablation_target,
+        detail="fresh correct-only discovery has too few seed clusters",
+    )
+    selected_ablation_seeds = {
+        int(value)
+        for value in selection["correct_only_ablation"]["added_eligible_seeds"]
+    }
+    audit.check(
+        model=model,
+        category="ablation",
+        name="clean-correct discovery uses only the registered earliest seeds",
+        condition=set(pd.to_numeric(new_correct["seed"]).astype(int))
+        == selected_ablation_seeds
+        and len(selected_ablation_seeds) == ablation_target,
+        detail="clean-correct discovery includes an unselected or excess seed",
     )
     audit.check(
         model=model,
         category="ablation",
-        name="frozen model-specific head bank and top-n retained",
-        condition=set(new_correct["head_bank"].astype(str))
-        == {str(model_plan["head_bank"])}
-        and set(pd.to_numeric(new_correct["top_n"]).astype(int))
-        == {int(model_plan["top_n"])},
-        detail="correct-only ablation changed the frozen bank or top-n",
+        name="top-n remains explicitly unfrozen",
+        condition=ablation_definition.get("selection_status")
+        == "unfrozen_discovery_only"
+        and design.get("top_n_selection_status") == "unfrozen_discovery_only"
+        and tuple(int(value) for value in design.get("ablation_top_n_candidates", []))
+        == top_ns
+        and diagnostics["selection_status"]
+        .astype(str)
+        .eq("discovery_only_unfrozen")
+        .all(),
+        detail="a top-n was frozen or the discovery status is ambiguous",
     )
-    per_stimulus = new_correct.groupby("stimulus_id").size()
-    expected_rows = 1 + int(definition["ablation"]["random_replicates"])
     audit.check(
         model=model,
         category="ablation",
-        name="ranked and random controls are complete",
-        condition=per_stimulus.eq(expected_rows).all(),
-        detail="at least one correct stimulus lacks ranked/random rows",
+        name="clean-correct discovery sweeps every candidate top-n",
+        condition=top_ns == ABLATION_TOP_NS
+        and set(new_correct["head_bank"].astype(str)) == {head_bank}
+        and set(pd.to_numeric(new_correct["top_n"]).astype(int)) == set(top_ns),
+        detail="clean-correct discovery changed the head bank or omitted a top-n",
+    )
+    per_stimulus_n = new_correct.groupby(["stimulus_id", "top_n"]).size()
+    expected_rows = 1 + int(ablation_definition["random_replicates"])
+    audit.check(
+        model=model,
+        category="ablation",
+        name="ranked and random controls are complete for every stimulus/top-n",
+        condition=per_stimulus_n.eq(expected_rows).all(),
+        detail="at least one correct stimulus/top-n lacks ranked/random rows",
+    )
+    all_per_stimulus_n = all_detail.groupby(["stimulus_id", "top_n"]).size()
+    audit.check(
+        model=model,
+        category="ablation",
+        name="all-example discovery has the same complete 1--32 dose grid",
+        condition=set(all_detail["head_bank"].astype(str)) == {head_bank}
+        and set(pd.to_numeric(all_detail["top_n"]).astype(int)) == set(top_ns)
+        and all_per_stimulus_n.eq(expected_rows).all(),
+        detail="all-example discovery omits a dose or ranked/random control",
     )
     expected_all = summarize_ablation_population(
         all_detail, population="all_examples_signed", bootstrap_repetitions=200
     )
     expected_correct = summarize_ablation_population(
-        combined_correct,
+        new_correct,
         population="clean_correct_only",
         bootstrap_repetitions=200,
     )
@@ -447,6 +510,61 @@ def _audit_model(
         condition=lambda: same_ablation(observed_correct, expected_correct),
         detail="correct-only summary differs from raw detail",
     )
+    expected_all_diagnostics = summarize_ablation_n_diagnostics(
+        all_detail,
+        population="all_examples_signed",
+        head_bank=head_bank,
+        bootstrap_repetitions=200,
+    )
+    expected_correct_diagnostics = summarize_ablation_n_diagnostics(
+        new_correct,
+        population="clean_correct_only",
+        head_bank=head_bank,
+        bootstrap_repetitions=200,
+    )
+    expected_diagnostics = pd.concat(
+        [expected_all_diagnostics, expected_correct_diagnostics],
+        ignore_index=True,
+        sort=False,
+    )
+    diagnostic_groups = [
+        "model_label",
+        "head_bank",
+        "top_n",
+        "analysis_population",
+    ]
+    diagnostic_numeric = [
+        "examples",
+        "seed_clusters",
+        "ranked_mean_signed_count_shift",
+        "random_mean_signed_count_shift",
+        "ranked_minus_random_signed_count_shift",
+        "ranked_mean_absolute_count_shift",
+        "random_mean_absolute_count_shift",
+        "ranked_minus_random_absolute_count_shift",
+        "ranked_correct_to_wrong_rate",
+        "random_correct_to_wrong_rate",
+        "ranked_minus_random_correct_to_wrong",
+        "ranked_minus_random_accuracy_delta",
+        "ranked_minus_random_absolute_error_delta",
+        "ranked_minus_random_prediction_changed",
+        "ranked_valid_rate",
+        "random_valid_rate",
+        "primary_effect",
+        "primary_rank_within_model_bank",
+    ]
+    audit.check(
+        model=model,
+        category="ablation",
+        name="population-specific top-n diagnostics reproduce",
+        condition=lambda: _same_numeric_table(
+            diagnostics,
+            expected_diagnostics,
+            groups=tuple(diagnostic_groups),
+            numeric=tuple(diagnostic_numeric),
+        ),
+        detail="top-n diagnostic endpoints differ from raw detail",
+    )
     audit.check(
         model=model,
         category="ablation",
@@ -471,7 +589,7 @@ def _audit_model(
         category="provenance",
         name="input source hashes are frozen in design",
         condition=isinstance(design.get("input_sha256"), dict)
-        and len(design["input_sha256"]) == 10
+        and len(design["input_sha256"]) == 11
         and all(len(str(value)) == 64 for value in design["input_sha256"].values()),
         detail="design lacks complete SHA-256 input provenance",
     )

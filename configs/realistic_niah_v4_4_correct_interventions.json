@@ -14,22 +14,19 @@
     "secondary_accuracy": "mean(patched_is_correct), where correctness is relative to the receiver gold count"
   },
   "ablation": {
-    "all_examples_population": "reuse original frozen model-specific confirmation without correctness filtering",
+    "selection_status": "unfrozen_discovery_only",
+    "all_examples_population": "reuse the original n=1..32 discovery sweep without correctness filtering",
     "correct_only_population": "clean baseline is exact and format-valid before ablation",
     "counts": [7, 8, 9, 10],
-    "minimum_correct_seed_clusters_per_model": 10,
+    "minimum_fresh_correct_seed_clusters_per_model": 10,
     "scope": "answer_query",
     "random_replicates": 3,
-    "frozen_models": {
-      "Qwen3-8B": {
-        "head_bank": "broad_aggregation",
-        "top_n": 8
-      },
-      "Gemma4-E4B": {
-        "head_bank": "broad_aggregation",
-        "top_n": 6
-      }
-    }
+    "head_bank": "broad_aggregation",
+    "top_n_candidates": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32],
+    "all_examples_primary_endpoint": "ranked-minus-layer-matched-random absolute generated-count shift",
+    "correct_only_primary_endpoint": "ranked-minus-layer-matched-random correct-to-wrong rate",
+    "selection_rule": "report all candidate doses and cluster-bootstrap intervals; do not automatically freeze top_n",
+    "confirmation_rule": "after human review freezes model- and population-specific top_n, use a disjoint unused fresh-seed suffix for confirmation"
   },
   "missing_numeric_policy": {
     "strict_accuracy": "invalid patched generations score zero",

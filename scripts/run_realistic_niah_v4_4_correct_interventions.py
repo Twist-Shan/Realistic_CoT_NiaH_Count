@@ -28,14 +28,14 @@ from realistic_niah_v4.causal_v2 import (
     load_head_phenotype_registry,
 )
 from realistic_niah_v4.correct_interventions import (
-    clean_correct_baselines,
+    ABLATION_TOP_NS,
     existing_clean_pair_instances,
     select_sequential_supplement,
+    summarize_ablation_n_diagnostics,
     summarize_ablation_population,
     summarize_average_patching_accuracy,
 )
 from realistic_niah_v4.correct_only_slices import (
-    clean_correct_ablation_rows,
     clean_correct_patching_rows,
 )
 from realistic_niah_v4.modeling import load_registered_model
@@ -522,9 +522,10 @@ def _run_correct_ablation(
     baseline_labels: dict[str, dict[str, Any]],
     added_ablation: pd.DataFrame,
     rankings_path: Path,
-    existing_detail_path: Path,
+    all_examples_discovery_detail_path: Path,
+    legacy_confirmation_detail_path: Path,
     head_bank: str,
-    top_n: int,
+    top_ns: Sequence[int],
     random_replicates: int,
     output_root: Path,
     max_new_tokens: int,
@@ -560,7 +561,7 @@ def _run_correct_ablation(
                 [encoding],
                 baseline_labels=baseline_labels,
                 rankings=selected_rankings,
-                top_ns=(int(top_n),),
+                top_ns=tuple(int(value) for value in top_ns),
                 random_replicates=int(random_replicates),
                 require_full_sweep=False,
                 require_correct_baseline=True,
@@ -582,55 +583,62 @@ def _run_correct_ablation(
         )
     new_detail = pd.concat(frames, ignore_index=True, sort=False)
     _write_json(capture_root / "capture_index.json", index_rows)
-    new_path = ablation_root / "detail.correct_only.supplement.csv.gz"
+    new_path = ablation_root / "detail.clean_correct.discovery.csv.gz"
     _write_csv(new_detail, new_path, gzip=True)
     _write_csv(
         summarize_generation_head_ablation_v2(new_detail),
-        ablation_root / "summary.correct_only.supplement.csv",
+        ablation_root / "summary.clean_correct.discovery.csv",
     )
 
-    existing = pd.read_csv(existing_detail_path, compression="infer")
-    existing_all_path = ablation_root / "detail.all_examples.original.csv.gz"
-    _write_csv(existing, existing_all_path, gzip=True)
-    existing_correct = clean_correct_ablation_rows(existing)
-    if "evidence_split" not in existing_correct.columns:
-        existing_correct["evidence_split"] = "original_independent_confirmation"
-    combined_correct = pd.concat(
-        [existing_correct, new_detail], ignore_index=True, sort=False
-    ).drop_duplicates(
-        [
-            "model_label",
-            "stimulus_id",
-            "head_bank",
-            "top_n",
-            "condition",
-            "random_replicate",
-        ],
-        keep="first",
-    )
-    combined_path = ablation_root / "detail.clean_correct.combined.csv.gz"
-    _write_csv(combined_correct, combined_path, gzip=True)
+    all_examples = pd.read_csv(all_examples_discovery_detail_path, compression="infer")
+    all_examples = all_examples[
+        all_examples["head_bank"].astype(str).eq(str(head_bank))
+    ].copy()
+    existing_all_path = ablation_root / "detail.all_examples.discovery.csv.gz"
+    _write_csv(all_examples, existing_all_path, gzip=True)
+    legacy = pd.read_csv(legacy_confirmation_detail_path, compression="infer")
+    legacy_path = ablation_root / "detail.legacy_fixed_n_confirmation.csv.gz"
+    _write_csv(legacy, legacy_path, gzip=True)
     all_summary = summarize_ablation_population(
-        existing,
+        all_examples,
         population="all_examples_signed",
         bootstrap_repetitions=design.bootstrap_repetitions,
     )
     correct_summary = summarize_ablation_population(
-        combined_correct,
+        new_detail,
         population="clean_correct_only",
         bootstrap_repetitions=design.bootstrap_repetitions,
     )
     dual = pd.concat([all_summary, correct_summary], ignore_index=True, sort=False)
     dual_path = ablation_root / "dual_population_ablation_summary.csv"
     _write_csv(dual, dual_path)
+    all_diagnostics = summarize_ablation_n_diagnostics(
+        all_examples,
+        population="all_examples_signed",
+        head_bank=head_bank,
+        bootstrap_repetitions=design.bootstrap_repetitions,
+    )
+    correct_diagnostics = summarize_ablation_n_diagnostics(
+        new_detail,
+        population="clean_correct_only",
+        head_bank=head_bank,
+        bootstrap_repetitions=design.bootstrap_repetitions,
+    )
+    diagnostics = pd.concat(
+        [all_diagnostics, correct_diagnostics], ignore_index=True, sort=False
+    )
+    diagnostics_path = ablation_root / "top_n_diagnostics.unfrozen.csv"
+    _write_csv(diagnostics, diagnostics_path)
     return {
-        "new_correct_only_detail": str(new_path),
-        "original_all_examples_detail": str(existing_all_path),
-        "combined_correct_only_detail": str(combined_path),
+        "top_n_selection_status": "unfrozen_discovery_only",
+        "new_clean_correct_discovery_detail": str(new_path),
+        "original_all_examples_discovery_detail": str(existing_all_path),
+        "legacy_fixed_n_confirmation_detail": str(legacy_path),
         "dual_population_summary": str(dual_path),
+        "top_n_diagnostics": str(diagnostics_path),
         "new_rows": int(len(new_detail)),
-        "combined_correct_rows": int(len(combined_correct)),
         "new_correct_stimuli": int(len(identities)),
+        "candidate_top_ns": [int(value) for value in top_ns],
     }
 
 
@@ -655,6 +663,7 @@ def main() -> None:
     parser.add_argument("--answer-selection", required=True)
     parser.add_argument("--prompt-confirmation-detail", required=True)
     parser.add_argument("--answer-confirmation-detail", required=True)
+    parser.add_argument("--ablation-discovery-detail", required=True)
     parser.add_argument("--ablation-confirmation-detail", required=True)
     parser.add_argument("--head-rankings", required=True)
     parser.add_argument("--cache-dir")
@@ -675,6 +684,7 @@ def main() -> None:
     answer_selection = Path(args.answer_selection).resolve()
     prompt_detail = Path(args.prompt_confirmation_detail).resolve()
     answer_detail = Path(args.answer_confirmation_detail).resolve()
+    ablation_discovery_detail = Path(args.ablation_discovery_detail).resolve()
     ablation_detail = Path(args.ablation_confirmation_detail).resolve()
     rankings_path = Path(args.head_rankings).resolve()
     required_paths = (
@@ -686,6 +696,7 @@ def main() -> None:
         answer_selection,
         prompt_detail,
         answer_detail,
+        ablation_discovery_detail,
         ablation_detail,
         rankings_path,
     )
@@ -696,9 +707,13 @@ def main() -> None:
     config = V4Config.from_json(base_config_path)
     design = CausalV2Design.from_json(causal_config_path)
     definition = _read_definition(definition_path)
-    model_plan = definition["ablation"]["frozen_models"].get(args.model)
-    if not isinstance(model_plan, dict):
-        raise KeyError(f"Definition has no frozen plan for {args.model}")
+    ablation_definition = definition["ablation"]
+    if ablation_definition.get("selection_status") != "unfrozen_discovery_only":
+        raise ValueError("Ablation top-n must remain unfrozen in this discovery run")
+    top_ns = tuple(int(value) for value in ablation_definition["top_n_candidates"])
+    if top_ns != ABLATION_TOP_NS:
+        raise ValueError("Ablation discovery must compare every top-n from 1 to 32")
+    head_bank = str(ablation_definition["head_bank"])
     reserve_seeds = tuple(
         range(
             int(definition["reserve_seed_start"]),
@@ -715,13 +730,15 @@ def main() -> None:
             definition["patching"]["minimum_seed_clusters_per_model_k_direction"]
         ),
         "correct_ablation_cluster_target": int(
-            definition["ablation"]["minimum_correct_seed_clusters_per_model"]
+            ablation_definition["minimum_fresh_correct_seed_clusters_per_model"]
         ),
         "correct_ablation_counts": [
             int(value) for value in definition["ablation"]["counts"]
         ],
-        "frozen_ablation_plan": model_plan,
-        "random_replicates": int(definition["ablation"]["random_replicates"]),
+        "ablation_head_bank": head_bank,
+        "ablation_top_n_candidates": list(top_ns),
+        "top_n_selection_status": "unfrozen_discovery_only",
+        "random_replicates": int(ablation_definition["random_replicates"]),
         "prompt_full_span_alignment": design.prompt_full_span_alignment,
         "input_sha256": input_hashes,
         "implementation_sha256": _implementation_hash(repo_root),
@@ -763,7 +780,8 @@ def main() -> None:
     existing_answer = pd.read_csv(answer_detail, compression="infer")
     existing_pairs = existing_clean_pair_instances(existing_answer)
     existing_ablation = pd.read_csv(ablation_detail, compression="infer")
-    existing_ablation_baselines = _standard_ablation_baselines(existing_ablation)
+    legacy_ablation_baselines = _standard_ablation_baselines(existing_ablation)
+    fresh_ablation_baseline_target = legacy_ablation_baselines.iloc[0:0].copy()
     stimuli = load_stimuli(stimuli_path)
     model, tokenizer, adapter = _load_model(
         model_label=args.model,
@@ -780,7 +798,7 @@ def main() -> None:
         reserve_seeds=reserve_seeds,
         stage_root=stage_root,
         existing_pairs=existing_pairs,
-        existing_ablation_baselines=existing_ablation_baselines,
+        existing_ablation_baselines=fresh_ablation_baseline_target,
         patch_target=int(stage_design["patch_cluster_target"]),
         ablation_target=int(stage_design["correct_ablation_cluster_target"]),
         ablation_counts=tuple(stage_design["correct_ablation_counts"]),
@@ -843,9 +861,10 @@ def main() -> None:
         baseline_labels=baseline_labels,
         added_ablation=added_ablation,
         rankings_path=rankings_path,
-        existing_detail_path=ablation_detail,
-        head_bank=str(model_plan["head_bank"]),
-        top_n=int(model_plan["top_n"]),
+        all_examples_discovery_detail_path=ablation_discovery_detail,
+        legacy_confirmation_detail_path=ablation_detail,
+        head_bank=head_bank,
+        top_ns=top_ns,
         random_replicates=int(stage_design["random_replicates"]),
         output_root=stage_root,
         max_new_tokens=int(args.generation_max_new_tokens),
