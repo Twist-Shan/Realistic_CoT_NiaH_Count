@@ -14,7 +14,7 @@ from .causal_v2 import CAUSAL_V2_CANONICAL_PAIRS
 PATCH_TARGET_ACCURACY_DEFINITION = "patched_count_equals_donor_gold_count"
 PATCH_CLUSTER_TARGET = 5
 CORRECT_ABLATION_CLUSTER_TARGET = 10
-CORRECT_ABLATION_COUNTS = (7, 8, 9, 10)
+CORRECT_ABLATION_COUNTS = (1, 2, 3, 4, 5)
 ABLATION_TOP_NS = tuple(range(1, 33))
 
 
@@ -338,6 +338,11 @@ def select_sequential_supplement(
         for seed in observed_fresh_ablation_seeds
         if seed not in initial_ablation_seeds
     ][:initial_ablation_shortage]
+    if added_ablation_seeds:
+        discovery_prefix_end = ordered.index(added_ablation_seeds[-1]) + 1
+        shared_discovery_seed_prefix = ordered[:discovery_prefix_end]
+    else:
+        shared_discovery_seed_prefix = []
     selected_fresh_ablation = fresh_ablation[
         pd.to_numeric(fresh_ablation["seed"], errors="raise")
         .astype(int)
@@ -383,7 +388,7 @@ def select_sequential_supplement(
             }
         )
     manifest = {
-        "schema_version": "realistic_niah_v4_4_correct_intervention_supplement_v1",
+        "schema_version": "realistic_niah_v4_4_correct_intervention_supplement_v2",
         "model_label": model,
         "selection_status": "complete" if quota_met else "insufficient_reserve",
         "stopping_rule": (
@@ -412,6 +417,10 @@ def select_sequential_supplement(
                 for seed in observed_fresh_ablation_seeds
                 if seed not in set(added_ablation_seeds)
             ],
+            "shared_discovery_seed_prefix": shared_discovery_seed_prefix,
+            "shared_discovery_expected_all_example_stimuli": int(
+                len(shared_discovery_seed_prefix) * len(ablation_counts)
+            ),
         },
         "reserve_seeds": ordered,
         "scanned_supplement_seeds": scanned,

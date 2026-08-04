@@ -181,6 +181,7 @@ def _audit_model(
         definition["ablation"]["minimum_fresh_correct_seed_clusters_per_model"]
     )
     ablation_definition = definition["ablation"]
+    ablation_counts = tuple(int(value) for value in ablation_definition["counts"])
     head_bank = str(ablation_definition["head_bank"])
     top_ns = tuple(int(value) for value in ablation_definition["top_n_candidates"])
     audit.check(
@@ -252,6 +253,31 @@ def _audit_model(
         condition=int(selection["correct_only_ablation"]["final_seed_clusters"])
         >= ablation_target,
         detail="correct-only ablation remains below seed quota",
+    )
+    shared_discovery_seeds = [
+        int(value)
+        for value in selection["correct_only_ablation"][
+            "shared_discovery_seed_prefix"
+        ]
+    ]
+    audit.check(
+        model=model,
+        category="selection",
+        name="dual ablation populations use registered count-1--5 domain",
+        condition=ablation_counts == (1, 2, 3, 4, 5)
+        and tuple(int(value) for value in design.get("ablation_counts", []))
+        == ablation_counts,
+        detail="definition or stage design changed the shared ablation count domain",
+    )
+    audit.check(
+        model=model,
+        category="selection",
+        name="shared ablation seeds form an ordered prefix",
+        condition=bool(shared_discovery_seeds)
+        and shared_discovery_seeds
+        == reserve[: len(shared_discovery_seeds)]
+        and set(shared_discovery_seeds).issubset(scanned),
+        detail="dual-population discovery does not use the registered fresh-seed prefix",
     )
     labels = pd.read_csv(stage / "baseline_labels.scanned.csv")
     audit.check(
@@ -371,12 +397,53 @@ def _audit_model(
     new_correct = pd.read_csv(ablation_root / "detail.clean_correct.discovery.csv.gz")
     dual = pd.read_csv(ablation_root / "dual_population_ablation_summary.csv")
     diagnostics = pd.read_csv(ablation_root / "top_n_diagnostics.unfrozen.csv")
+    all_stimuli = all_detail[
+        ["stimulus_id", "seed", "gold_count"]
+    ].drop_duplicates()
+    expected_all_stimuli = len(shared_discovery_seeds) * len(ablation_counts)
+    audit.check(
+        model=model,
+        category="ablation",
+        name="all-example discovery is the complete shared count-1--5 grid",
+        condition=len(all_stimuli) == expected_all_stimuli
+        and set(pd.to_numeric(all_stimuli["seed"]).astype(int))
+        == set(shared_discovery_seeds)
+        and set(pd.to_numeric(all_stimuli["gold_count"]).astype(int))
+        == set(ablation_counts)
+        and int(
+            selection["correct_only_ablation"][
+                "shared_discovery_expected_all_example_stimuli"
+            ]
+        )
+        == expected_all_stimuli,
+        detail="all-example discovery changed seeds, counts, or grid completeness",
+    )
     audit.check(
         model=model,
         category="ablation",
         name="new ablation rows are clean-correct only",
         condition=len(clean_correct_ablation_rows(new_correct)) == len(new_correct),
         detail="new correct-only ablation contains an incorrect clean baseline",
+    )
+    filtered_correct = clean_correct_ablation_rows(all_detail)
+    row_key_columns = ["stimulus_id", "top_n", "condition"]
+    if "random_replicate" in all_detail.columns:
+        row_key_columns.append("random_replicate")
+
+    def ablation_row_keys(frame: pd.DataFrame) -> set[tuple[str, ...]]:
+        selected = frame[row_key_columns].copy()
+        return {
+            tuple("<NA>" if pd.isna(value) else str(value) for value in row)
+            for row in selected.itertuples(index=False, name=None)
+        }
+
+    audit.check(
+        model=model,
+        category="ablation",
+        name="correct-only detail is the exact subset of all-example detail",
+        condition=len(filtered_correct) == len(new_correct)
+        and ablation_row_keys(filtered_correct) == ablation_row_keys(new_correct),
+        detail="correct-only rows were rerun, omitted, or drawn from another seed pool",
     )
     audit.check(
         model=model,
@@ -611,7 +678,7 @@ def main() -> None:
     definition_path = Path(args.definition).resolve()
     definition = json.loads(definition_path.read_text(encoding="utf-8"))
     if definition.get("schema_version") != (
-        "realistic_niah_v4_4_correct_interventions_v1"
+        "realistic_niah_v4_4_correct_interventions_v2"
     ):
         raise ValueError("Unexpected correct-intervention definition schema")
     audit = Audit()
@@ -632,7 +699,7 @@ def main() -> None:
     _write_csv(pd.DataFrame(inventory), audit_root / "file_inventory.csv")
     errors = checks[checks["status"].astype(str).eq("FAIL")]
     payload = {
-        "schema_version": "realistic_niah_v4_4_correct_intervention_audit_v1",
+        "schema_version": "realistic_niah_v4_4_correct_intervention_audit_v2",
         "status": "PASS" if errors.empty else "FAIL",
         "checks": int(len(checks)),
         "passed": int(checks["status"].eq("PASS").sum()),

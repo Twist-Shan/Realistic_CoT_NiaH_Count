@@ -36,6 +36,7 @@ from realistic_niah_v4.correct_interventions import (
     summarize_average_patching_accuracy,
 )
 from realistic_niah_v4.correct_only_slices import (
+    clean_correct_ablation_rows,
     clean_correct_patching_rows,
 )
 from realistic_niah_v4.modeling import load_registered_model
@@ -44,7 +45,7 @@ from realistic_niah_v4.spec import V4Config, resolve_model_spec
 from realistic_niah_v4.stimuli import load_stimuli
 
 
-SCHEMA_VERSION = "realistic_niah_v4_4_correct_intervention_run_v1"
+SCHEMA_VERSION = "realistic_niah_v4_4_correct_intervention_run_v2"
 EXACT_PATCH_GROUPS = (
     "model_label",
     "family",
@@ -184,7 +185,7 @@ def _render(
 def _read_definition(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("schema_version") != (
-        "realistic_niah_v4_4_correct_interventions_v1"
+        "realistic_niah_v4_4_correct_interventions_v2"
     ):
         raise ValueError("Unexpected correct-intervention definition schema")
     return payload
@@ -520,9 +521,10 @@ def _run_correct_ablation(
     design: CausalV2Design,
     encodings_by_id: dict[str, PromptEncoding],
     baseline_labels: dict[str, dict[str, Any]],
-    added_ablation: pd.DataFrame,
+    discovery_baselines: pd.DataFrame,
+    selected_correct_baselines: pd.DataFrame,
     rankings_path: Path,
-    all_examples_discovery_detail_path: Path,
+    legacy_discovery_detail_path: Path,
     legacy_confirmation_detail_path: Path,
     head_bank: str,
     top_ns: Sequence[int],
@@ -539,12 +541,14 @@ def _run_correct_ablation(
     capture_root = ablation_root / "capture"
     frames: list[pd.DataFrame] = []
     index_rows: list[dict[str, Any]] = []
-    identities = added_ablation[["stimulus_id", "seed", "gold_count"]].drop_duplicates()
+    identities = discovery_baselines[
+        ["stimulus_id", "seed", "gold_count"]
+    ].drop_duplicates()
     for row in identities.sort_values(["seed", "gold_count"]).itertuples(index=False):
         stimulus_id = str(row.stimulus_id)
         encoding = encodings_by_id.get(stimulus_id)
         if encoding is None:
-            raise KeyError(f"Missing correct-only ablation encoding {stimulus_id}")
+            raise KeyError(f"Missing shared-population ablation encoding {stimulus_id}")
         shard = (
             capture_root
             / "shards"
@@ -564,11 +568,11 @@ def _run_correct_ablation(
                 top_ns=tuple(int(value) for value in top_ns),
                 random_replicates=int(random_replicates),
                 require_full_sweep=False,
-                require_correct_baseline=True,
+                require_correct_baseline=False,
                 valid_counts=design.valid_counts,
                 max_new_tokens=max_new_tokens,
             )
-            frame["evidence_split"] = "baseline_gated_correct_supplement"
+            frame["evidence_split"] = "fresh_shared_seed_prefix_discovery"
             _write_csv(frame, shard, gzip=True)
         frames.append(frame)
         index_rows.append(
@@ -581,21 +585,47 @@ def _run_correct_ablation(
                 "shard_path": str(shard.relative_to(capture_root)).replace("\\", "/"),
             }
         )
-    new_detail = pd.concat(frames, ignore_index=True, sort=False)
+    all_examples = pd.concat(frames, ignore_index=True, sort=False)
     _write_json(capture_root / "capture_index.json", index_rows)
-    new_path = ablation_root / "detail.clean_correct.discovery.csv.gz"
-    _write_csv(new_detail, new_path, gzip=True)
+    all_path = ablation_root / "detail.all_examples.discovery.csv.gz"
+    _write_csv(all_examples, all_path, gzip=True)
     _write_csv(
-        summarize_generation_head_ablation_v2(new_detail),
+        summarize_generation_head_ablation_v2(all_examples),
+        ablation_root / "summary.all_examples.discovery.csv",
+    )
+    correct_detail = clean_correct_ablation_rows(all_examples)
+    observed_correct_ids = set(
+        correct_detail[["stimulus_id", "seed", "gold_count"]]
+        .drop_duplicates()
+        .itertuples(index=False, name=None)
+    )
+    selected_correct_ids = set(
+        selected_correct_baselines[["stimulus_id", "seed", "gold_count"]]
+        .drop_duplicates()
+        .itertuples(index=False, name=None)
+    )
+    if observed_correct_ids != selected_correct_ids:
+        raise RuntimeError(
+            "Correct-only detail is not the exact baseline-correct subset of the "
+            "registered shared discovery prefix"
+        )
+    correct_path = ablation_root / "detail.clean_correct.discovery.csv.gz"
+    _write_csv(correct_detail, correct_path, gzip=True)
+    _write_csv(
+        summarize_generation_head_ablation_v2(correct_detail),
         ablation_root / "summary.clean_correct.discovery.csv",
     )
 
-    all_examples = pd.read_csv(all_examples_discovery_detail_path, compression="infer")
-    all_examples = all_examples[
-        all_examples["head_bank"].astype(str).eq(str(head_bank))
+    legacy_discovery = pd.read_csv(
+        legacy_discovery_detail_path, compression="infer"
+    )
+    legacy_discovery = legacy_discovery[
+        legacy_discovery["head_bank"].astype(str).eq(str(head_bank))
     ].copy()
-    existing_all_path = ablation_root / "detail.all_examples.discovery.csv.gz"
-    _write_csv(all_examples, existing_all_path, gzip=True)
+    legacy_discovery_path = (
+        ablation_root / "detail.legacy_original_all_examples_discovery.csv.gz"
+    )
+    _write_csv(legacy_discovery, legacy_discovery_path, gzip=True)
     legacy = pd.read_csv(legacy_confirmation_detail_path, compression="infer")
     legacy_path = ablation_root / "detail.legacy_fixed_n_confirmation.csv.gz"
     _write_csv(legacy, legacy_path, gzip=True)
@@ -605,7 +635,7 @@ def _run_correct_ablation(
         bootstrap_repetitions=design.bootstrap_repetitions,
     )
     correct_summary = summarize_ablation_population(
-        new_detail,
+        correct_detail,
         population="clean_correct_only",
         bootstrap_repetitions=design.bootstrap_repetitions,
     )
@@ -619,7 +649,7 @@ def _run_correct_ablation(
         bootstrap_repetitions=design.bootstrap_repetitions,
     )
     correct_diagnostics = summarize_ablation_n_diagnostics(
-        new_detail,
+        correct_detail,
         population="clean_correct_only",
         head_bank=head_bank,
         bootstrap_repetitions=design.bootstrap_repetitions,
@@ -631,13 +661,18 @@ def _run_correct_ablation(
     _write_csv(diagnostics, diagnostics_path)
     return {
         "top_n_selection_status": "unfrozen_discovery_only",
-        "new_clean_correct_discovery_detail": str(new_path),
-        "original_all_examples_discovery_detail": str(existing_all_path),
+        "new_all_examples_discovery_detail": str(all_path),
+        "new_clean_correct_discovery_detail": str(correct_path),
+        "legacy_original_all_examples_discovery_detail": str(
+            legacy_discovery_path
+        ),
         "legacy_fixed_n_confirmation_detail": str(legacy_path),
         "dual_population_summary": str(dual_path),
         "top_n_diagnostics": str(diagnostics_path),
-        "new_rows": int(len(new_detail)),
-        "new_correct_stimuli": int(len(identities)),
+        "new_all_example_rows": int(len(all_examples)),
+        "new_all_example_stimuli": int(len(identities)),
+        "new_correct_rows": int(len(correct_detail)),
+        "new_correct_stimuli": int(len(selected_correct_ids)),
         "candidate_top_ns": [int(value) for value in top_ns],
     }
 
@@ -732,9 +767,13 @@ def main() -> None:
         "correct_ablation_cluster_target": int(
             ablation_definition["minimum_fresh_correct_seed_clusters_per_model"]
         ),
-        "correct_ablation_counts": [
+        "ablation_counts": [
             int(value) for value in definition["ablation"]["counts"]
         ],
+        "ablation_population_pairing": (
+            "same fresh-seed prefix and count domain; clean-correct is an exact "
+            "row subset of all examples"
+        ),
         "ablation_head_bank": head_bank,
         "ablation_top_n_candidates": list(top_ns),
         "top_n_selection_status": "unfrozen_discovery_only",
@@ -801,7 +840,7 @@ def main() -> None:
         existing_ablation_baselines=fresh_ablation_baseline_target,
         patch_target=int(stage_design["patch_cluster_target"]),
         ablation_target=int(stage_design["correct_ablation_cluster_target"]),
-        ablation_counts=tuple(stage_design["correct_ablation_counts"]),
+        ablation_counts=tuple(stage_design["ablation_counts"]),
         max_new_tokens=int(args.generation_max_new_tokens),
         overwrite=args.overwrite,
     )
@@ -816,6 +855,34 @@ def main() -> None:
     labels_path = stage_root / "baseline_labels.scanned.csv"
     baseline_labels = load_generation_labels(labels_path)
     encodings_by_id = {encoding.stimulus_id: encoding for encoding in encodings}
+    shared_ablation_seeds = tuple(
+        int(value)
+        for value in selection["correct_only_ablation"][
+            "shared_discovery_seed_prefix"
+        ]
+    )
+    ablation_counts = tuple(int(value) for value in stage_design["ablation_counts"])
+    if not shared_ablation_seeds:
+        raise RuntimeError("Shared ablation discovery seed prefix is empty")
+    discovery_ablation_baselines = candidate_labels[
+        pd.to_numeric(candidate_labels["seed"], errors="raise")
+        .astype(int)
+        .isin(shared_ablation_seeds)
+        & pd.to_numeric(candidate_labels["gold_count"], errors="raise")
+        .astype(int)
+        .isin(ablation_counts)
+    ].copy()
+    expected_ablation_stimuli = len(shared_ablation_seeds) * len(ablation_counts)
+    if (
+        len(discovery_ablation_baselines) != expected_ablation_stimuli
+        or discovery_ablation_baselines[
+            ["stimulus_id", "seed", "gold_count"]
+        ].drop_duplicates().shape[0]
+        != expected_ablation_stimuli
+    ):
+        raise RuntimeError(
+            "Shared all-example ablation baseline grid is incomplete or duplicated"
+        )
 
     prompt_outputs = _run_patching_family(
         family="prompt_patching",
@@ -859,9 +926,10 @@ def main() -> None:
         design=design,
         encodings_by_id=encodings_by_id,
         baseline_labels=baseline_labels,
-        added_ablation=added_ablation,
+        discovery_baselines=discovery_ablation_baselines,
+        selected_correct_baselines=added_ablation,
         rankings_path=rankings_path,
-        all_examples_discovery_detail_path=ablation_discovery_detail,
+        legacy_discovery_detail_path=ablation_discovery_detail,
         legacy_confirmation_detail_path=ablation_detail,
         head_bank=head_bank,
         top_ns=top_ns,

@@ -1,5 +1,5 @@
 {
-  "schema_version": "realistic_niah_v4_4_correct_interventions_v1",
+  "schema_version": "realistic_niah_v4_4_correct_interventions_v2",
   "source_experiment": "V4.4 causal-v2",
   "reserve_seed_start": 1274,
   "reserve_seed_end_inclusive": 1473,
@@ -15,9 +15,10 @@
   },
   "ablation": {
     "selection_status": "unfrozen_discovery_only",
-    "all_examples_population": "reuse the original n=1..32 discovery sweep without correctness filtering",
-    "correct_only_population": "clean baseline is exact and format-valid before ablation",
-    "counts": [7, 8, 9, 10],
+    "all_examples_population": "all count-1..5 examples from the registered fresh-seed discovery prefix without correctness filtering",
+    "correct_only_population": "the exact baseline-correct and format-valid subset of the same count-1..5 fresh-seed discovery prefix",
+    "shared_population_rule": "run each fresh stimulus once; derive clean-correct rows by filtering the all-example detail, so count domain, seed pool, interventions, ranked bank, and random controls are identical",
+    "counts": [1, 2, 3, 4, 5],
     "minimum_fresh_correct_seed_clusters_per_model": 10,
     "scope": "answer_query",
     "random_replicates": 3,

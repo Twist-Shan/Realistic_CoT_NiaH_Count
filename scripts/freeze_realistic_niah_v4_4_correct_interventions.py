@@ -32,7 +32,7 @@ def main() -> None:
     definition_path = Path(args.definition).resolve()
     definition = json.loads(definition_path.read_text(encoding="utf-8"))
     if definition.get("schema_version") != (
-        "realistic_niah_v4_4_correct_interventions_v1"
+        "realistic_niah_v4_4_correct_interventions_v2"
     ):
         raise ValueError("Unexpected correct-intervention definition schema")
     start = int(definition["reserve_seed_start"])
@@ -66,7 +66,7 @@ def main() -> None:
         json.dumps(
             {
                 "schema_version": (
-                    "realistic_niah_v4_4_correct_intervention_freeze_v1"
+                    "realistic_niah_v4_4_correct_intervention_freeze_v2"
                 ),
                 "definition_path": str(definition_path),
                 "definition_sha256": _sha256(definition_path),

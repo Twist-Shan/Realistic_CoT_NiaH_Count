@@ -83,6 +83,7 @@ def test_sequential_supplement_records_shortage_and_added_seeds() -> None:
         reserve_seeds=(20, 21, 22, 23),
         patch_cluster_target=5,
         ablation_cluster_target=5,
+        ablation_counts=(7, 8, 9, 10),
     )
 
     assert manifest["selection_status"] == "complete"
@@ -99,6 +100,12 @@ def test_sequential_supplement_records_shortage_and_added_seeds() -> None:
     assert set(fresh_pairs["seed"]) == {20, 21, 22}
     assert set(fresh_ablation["seed"]) == {20, 21}
     assert manifest["correct_only_ablation"]["unselected_fresh_eligible_seeds"] == [22]
+    assert manifest["correct_only_ablation"]["shared_discovery_seed_prefix"] == [20, 21]
+    assert (
+        manifest["correct_only_ablation"]
+        ["shared_discovery_expected_all_example_stimuli"]
+        == 8
+    )
 
 
 def test_eligible_pairs_require_both_clean_answers() -> None:
@@ -115,6 +122,46 @@ def test_eligible_pairs_require_both_clean_answers() -> None:
         (0, 3),
         (3, 0),
     }
+
+
+def test_shared_ablation_prefix_keeps_incorrect_seed_clusters() -> None:
+    model = "Gemma4-E4B"
+    existing_pairs = pd.DataFrame(
+        _pair_rows(model, 1, [1, 2, 3, 4, 5])
+        + _pair_rows(model, 3, [1, 2, 3, 4, 5])
+        + _pair_rows(model, 5, [1, 2, 3, 4, 5])
+    )
+    existing_ablation = pd.DataFrame([_label(model, 10, 1, correct=False)])
+    correct = {20: set(), 21: {1}, 22: {2}}
+    candidate = pd.DataFrame(
+        [
+            _label(model, seed, count, correct=count in correct[seed])
+            for seed in correct
+            for count in range(11)
+        ]
+    )
+
+    manifest, _fresh_pairs, fresh_ablation = select_sequential_supplement(
+        existing_pairs=existing_pairs,
+        existing_ablation_baselines=existing_ablation,
+        candidate_baselines=candidate,
+        reserve_seeds=(20, 21, 22),
+        patch_cluster_target=5,
+        ablation_cluster_target=2,
+    )
+
+    assert set(fresh_ablation["seed"]) == {21, 22}
+    assert manifest["correct_only_ablation"]["counts"] == [1, 2, 3, 4, 5]
+    assert manifest["correct_only_ablation"]["shared_discovery_seed_prefix"] == [
+        20,
+        21,
+        22,
+    ]
+    assert (
+        manifest["correct_only_ablation"]
+        ["shared_discovery_expected_all_example_stimuli"]
+        == 15
+    )
 
 
 def test_average_patching_accuracy_is_donor_target_hit() -> None:

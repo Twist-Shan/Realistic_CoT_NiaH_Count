@@ -11,10 +11,10 @@ Usage:
 Runs the independent V4.4 extension sequentially on one GPU. Fresh seeds are
 scanned in ascending order using only clean baseline correctness. The runner
 then patches only the minimum additional clean-correct receiver/donor pairs
-needed to reach five seed clusters per model/k/direction. For ablation it
-reuses the original all-example top-n discovery and runs top-n=1..32 on at
-least ten fresh clean-correct seed clusters. It reports candidates but does
-not freeze or confirm any top-n.
+needed to reach five seed clusters per model/k/direction. For ablation it runs
+top-n=1..32 once on every count-1..5 example in a shared fresh-seed prefix and
+derives the clean-correct population as an exact subset of those rows. It
+reports candidates but does not freeze or confirm any top-n.
 EOF
 }
 

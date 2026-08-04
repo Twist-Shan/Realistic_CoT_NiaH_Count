@@ -6,9 +6,11 @@ This is an additive confirmation extension. It does not overwrite, relabel, or
 reselect any result in the audited V4.4 causal-v2 runs. Prompt/answer patching
 keeps the condition set selected by the original five-seed overall screen.
 Head ablation does **not** freeze an intervention size in this extension.
-Instead, broad-aggregation top-(n), (n=1,\ldots,32), is compared separately
-for the all-example and clean-correct populations. The resulting tables are
-discovery diagnostics for human review, not confirmed choices.
+Instead, broad-aggregation top-(n), (n=1,\ldots,32), is run once on a shared
+fresh-seed count-1--5 population. The all-example analysis retains every row;
+the clean-correct analysis is the exact baseline-correct subset of those same
+rows. The resulting tables are discovery diagnostics for human review, not
+confirmed choices.
 
 The extension answers two narrower questions:
 
@@ -119,10 +121,29 @@ controls are retained. Ranked/random head overlap remains allowed under the
 original registered control definition and is not changed by this extension.
 No model- or population-specific (n) is frozen at this stage.
 
+### Shared count and seed population
+
+Both ablation analyses use counts 1, 2, 3, 4, and 5. Count 0 is excluded
+because it is a qualitatively special no-target case; counts 6--10 are excluded
+from this extension because the available Gemma run yielded no clean-correct
+examples in the previous hard-count 7--10 domain. This scope makes the two
+population estimates directly comparable, but it also limits the resulting
+head-ablation claim to counts 1--5. Nothing in this extension establishes
+generalization to counts 6--10.
+
+Fresh seeds are inspected in ascending order. The registered discovery prefix
+ends at the seed that supplies the tenth seed cluster with at least one exact,
+format-valid count-1--5 baseline. If patching requires scanning farther, those
+later seeds do not enter ablation discovery. Every count-1--5 stimulus in the
+registered prefix is ablated once at every dose and control. Population B is
+then obtained only by filtering Population A; interventions are not rerun.
+
 ### Population A: all examples, signed effect
 
-This population reuses the original 1--32 discovery sweep without filtering on
-baseline correctness. For example (i), the signed shift is
+This population contains every count-1--5 example in the registered fresh-seed
+prefix without filtering on baseline correctness. The original hard-count
+1--32 sweep is retained only as legacy context and is not pooled with or used
+to select a dose for this extension. For example (i), the signed shift is
 
 \[
 \Delta_i^{\mathrm{signed}}
@@ -146,9 +167,10 @@ numeric denominator and report patched valid rate.
 ### Population B: clean-correct baselines only
 
 This population includes an example only if its unmodified greedy output is
-format-valid and exactly correct before ablation. Counts remain 7, 8, 9, and 10,
-matching the original frozen ablation confirmation domain. The primary
-descriptive endpoint is failure induction:
+format-valid and exactly correct before ablation. It is the exact row subset of
+Population A, so count domain, fresh-seed pool, intervention outputs, ranked
+bank, and random controls are identical. The primary descriptive endpoint is
+failure induction:
 
 \[
 \operatorname{CorrectToWrong}
@@ -157,16 +179,14 @@ descriptive endpoint is failure induction:
              \hat y_i^{\mathrm{ablate}}\ne y_i\}.
 \]
 
-The previous fixed-(n) confirmation contains 3 eligible Qwen seed clusters and
-0 eligible Gemma seed clusters, but these rows cannot support an unbiased
-1--32 comparison because they were not evaluated at every (n). They are kept
-only as a legacy reference and do not count toward the new discovery quota.
-The target is therefore 10 **fresh** independent eligible seed clusters per
-model. The ascending reserve scan starts with a shortage of 10 for each model.
-All clean-correct count-7--10 examples from the earliest 10 eligible seeds are
-evaluated at every (n=1,\ldots,32). If patching support requires scanning
-farther into the reserve, later correct seeds are recorded but excluded from
-top-(n) discovery, preventing the dose sweep from expanding post hoc.
+Previous fixed-(n) confirmation rows cannot support an unbiased new 1--32
+comparison because they used a different count domain and were not evaluated
+at every (n). They are kept only as legacy reference. The target is therefore
+10 **fresh** independent eligible seed clusters per model. All clean-correct
+count-1--5 examples in the registered shared prefix are retained. If patching
+support requires scanning farther into the reserve, later correct seeds are
+recorded but excluded from top-(n) discovery, preventing the dose sweep from
+expanding post hoc.
 
 The signed shift, absolute shift, error change, prediction-change rate, strict
 accuracy, and ranked-minus-random comparisons are also reported for this
@@ -221,9 +241,10 @@ implementation fingerprint.
 The strict audit is
 `scripts/audit_realistic_niah_v4_4_correct_interventions.py`. It verifies the
 ordered seed prefix, initial/final quotas, clean-correct eligibility, unchanged
-1--32 candidate set, explicitly unfrozen selection status, complete
-ranked/random controls, explicit patching accuracy denominators, and numerical
-reproduction of both patching and ablation summaries from raw detail.
+1--32 candidate set, explicitly unfrozen selection status, the shared count-1--5
+seed grid, exact subset identity of the correct-only rows, complete ranked/random
+controls, explicit patching accuracy denominators, and numerical reproduction
+of both patching and ablation summaries from raw detail.
 
 Until `correct_interventions.complete` exists and the audit reports `PASS`, the
 extension is an implemented design rather than a completed empirical result.
