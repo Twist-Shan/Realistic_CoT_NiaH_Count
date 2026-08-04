@@ -638,6 +638,170 @@ def _exact_sign_flip_p(values: np.ndarray) -> float:
     )
 
 
+def head_ablation_confirmation_seed_effects(detail: pd.DataFrame) -> pd.DataFrame:
+    """Pair frozen ranked ablation with matched-random controls by stimulus.
+
+    The returned row is the mean ranked-minus-random effect over the four
+    registered counts for one seed.  Invalid numeric generations receive zero
+    numeric effect, as frozen by ``strict_zero_effect_plus_separate_invalid_rate``;
+    ranked and random valid rates remain explicit companion endpoints.
+    """
+
+    identifiers = [
+        "model_label",
+        "stimulus_id",
+        "seed",
+        "gold_count",
+        "head_bank",
+        "top_n",
+    ]
+    metrics = ("accuracy_delta", "absolute_error_delta", "prediction_changed")
+    required = {
+        *identifiers,
+        *metrics,
+        "condition",
+        "random_replicate",
+        "patched_format_valid",
+    }
+    missing = sorted(required - set(detail.columns))
+    if missing:
+        raise ValueError(
+            f"Head-ablation confirmation detail is missing columns: {missing}"
+        )
+    work = detail.copy()
+    for metric in metrics:
+        work[metric] = pd.to_numeric(work[metric], errors="coerce").fillna(0.0)
+    work["patched_format_valid"] = (
+        work["patched_format_valid"].astype(str).str.lower().isin({"1", "true"})
+    ).astype(float)
+    ranked = work[work["condition"].astype(str).eq("ranked")].copy()
+    random = work[
+        work["condition"].astype(str).eq("layer_matched_random")
+    ].copy()
+    if ranked.empty or random.empty:
+        raise ValueError("Confirmation detail needs ranked and matched-random rows")
+    if ranked.duplicated(identifiers).any():
+        raise ValueError("Confirmation detail has duplicate ranked stimulus rows")
+    random_identity = [*identifiers, "random_replicate"]
+    if random.duplicated(random_identity).any():
+        raise ValueError("Confirmation detail has duplicate random replicates")
+    value_columns = [*metrics, "patched_format_valid"]
+    random_mean = (
+        random.groupby(identifiers, as_index=False, dropna=False)[value_columns]
+        .mean()
+        .rename(columns={name: f"{name}_random_mean" for name in value_columns})
+    )
+    ranked_columns = ranked[[*identifiers, *value_columns]].rename(
+        columns={name: f"{name}_ranked" for name in value_columns}
+    )
+    paired = ranked_columns.merge(
+        random_mean, on=identifiers, how="inner", validate="one_to_one"
+    )
+    if len(paired) != len(ranked):
+        raise ValueError("Confirmation detail has incomplete matched-random controls")
+    for metric in metrics:
+        paired[f"ranked_minus_random_{metric}"] = (
+            paired[f"{metric}_ranked"] - paired[f"{metric}_random_mean"]
+        )
+    group_columns = ["model_label", "head_bank", "top_n", "seed"]
+    seed_effects = (
+        paired.groupby(group_columns, as_index=False, dropna=False)
+        .agg(
+            examples=("stimulus_id", "size"),
+            ranked_valid_rate=("patched_format_valid_ranked", "mean"),
+            random_valid_rate=("patched_format_valid_random_mean", "mean"),
+            ranked_minus_random_accuracy_delta=(
+                "ranked_minus_random_accuracy_delta",
+                "mean",
+            ),
+            ranked_minus_random_absolute_error_delta=(
+                "ranked_minus_random_absolute_error_delta",
+                "mean",
+            ),
+            ranked_minus_random_prediction_changed=(
+                "ranked_minus_random_prediction_changed",
+                "mean",
+            ),
+        )
+        .sort_values(group_columns)
+        .reset_index(drop=True)
+    )
+    return seed_effects
+
+
+def head_ablation_confirmation_statistics(
+    seed_effects: pd.DataFrame,
+    *,
+    bootstrap_repetitions: int = 10_000,
+) -> pd.DataFrame:
+    """Estimate frozen-bank effects with seed-cluster uncertainty and tests."""
+
+    if int(bootstrap_repetitions) < 100:
+        raise ValueError("Head-ablation confirmation needs >=100 bootstrap draws")
+    group_columns = ["model_label", "head_bank", "top_n"]
+    metric_columns = {
+        "accuracy_delta": "ranked_minus_random_accuracy_delta",
+        "absolute_error_delta": "ranked_minus_random_absolute_error_delta",
+        "prediction_changed": "ranked_minus_random_prediction_changed",
+    }
+    required = {*group_columns, "seed", *metric_columns.values()}
+    missing = sorted(required - set(seed_effects.columns))
+    if missing:
+        raise ValueError(
+            f"Head-ablation seed effects are missing columns: {missing}"
+        )
+    rows: list[dict[str, Any]] = []
+    for keys, frame in seed_effects.groupby(
+        group_columns, sort=True, dropna=False
+    ):
+        metadata = dict(zip(group_columns, keys))
+        for metric, column in metric_columns.items():
+            values = pd.to_numeric(frame[column], errors="raise").to_numpy(dtype=float)
+            values = values[np.isfinite(values)]
+            if len(values) == 0:
+                raise ValueError(f"No finite confirmation effects for {metric}")
+            rng = np.random.default_rng(
+                _stable_seed(
+                    "head-ablation-confirmation:"
+                    + ":".join(str(metadata[name]) for name in group_columns)
+                    + f":{metric}"
+                )
+            )
+            indices = rng.integers(
+                0,
+                len(values),
+                size=(int(bootstrap_repetitions), len(values)),
+            )
+            distribution = values[indices].mean(axis=1)
+            low, high = np.quantile(distribution, [0.025, 0.975])
+            harmful_multiplier = -1.0 if metric == "accuracy_delta" else 1.0
+            rows.append(
+                {
+                    **metadata,
+                    "metric": metric,
+                    "is_primary_endpoint": metric == "absolute_error_delta",
+                    "harmful_direction": (
+                        "negative" if metric == "accuracy_delta" else "positive"
+                    ),
+                    "seeds": int(len(values)),
+                    "ranked_minus_random_mean": float(values.mean()),
+                    "ci95_low": float(low),
+                    "ci95_high": float(high),
+                    "exact_sign_flip_p": _exact_sign_flip_p(values),
+                    "harmful_seed_fraction": float(
+                        (values * harmful_multiplier > 0).mean()
+                    ),
+                    "nonopposing_seed_fraction": float(
+                        (values * harmful_multiplier >= 0).mean()
+                    ),
+                    "bootstrap_repetitions": int(bootstrap_repetitions),
+                }
+            )
+    return pd.DataFrame(rows).sort_values([*group_columns, "metric"]).reset_index(
+        drop=True
+    )
+
+
 def _holm_adjust(p_values: Sequence[float]) -> list[float]:
     values = np.asarray(p_values, dtype=float)
     result = np.full(len(values), np.nan, dtype=float)

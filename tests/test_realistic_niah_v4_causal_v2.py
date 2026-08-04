@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -13,6 +14,7 @@ from realistic_niah_v4.causal_generation import (
     _completion_from_generation_label,
     causal_v2_monotonic_span_source_indices,
     causal_v2_prompt_span_alignment_table,
+    run_generation_head_ablation_v2,
     run_generation_residual_patching_v2,
 )
 from realistic_niah_v4.causal_v2 import (
@@ -20,6 +22,8 @@ from realistic_niah_v4.causal_v2 import (
     CausalV2Design,
     _exact_sign_flip_p,
     confirmation_statistics,
+    head_ablation_confirmation_seed_effects,
+    head_ablation_confirmation_statistics,
     head_phenotype_scores,
     normalized_transport_metrics,
     rank_head_phenotypes,
@@ -27,6 +31,7 @@ from realistic_niah_v4.causal_v2 import (
 )
 from realistic_niah_v4.prompts import PromptEncoding, TokenSpan
 from scripts.run_realistic_niah_v4_causal_v2 import (
+    _ablation_confirmation_plan,
     _load_attention_phenotype_source,
     _selected_confirmation_detail,
     _write_json_atomic,
@@ -516,6 +521,96 @@ def test_confirmation_statistics_uses_seed_cluster_and_matched_control() -> None
     assert result.iloc[0]["mean_control_adjusted_transport"] == pytest.approx(0.5)
     assert result.iloc[0]["positive_seed_fraction"] == pytest.approx(1.0)
     assert _exact_sign_flip_p(pd.Series([1.0] * 5).to_numpy()) == pytest.approx(2 / 32)
+
+
+def test_ablation_confirmation_uses_independent_model_specific_top_n() -> None:
+    selection = Path(
+        "configs/realistic_niah_v4_causal_v2_ablation_confirmation_selection.json"
+    ).resolve()
+    _payload, qwen = _ablation_confirmation_plan(
+        selection, model_label="Qwen3-8B", repo_root=Path(".").resolve()
+    )
+    _payload, gemma = _ablation_confirmation_plan(
+        selection, model_label="Gemma4-E4B", repo_root=Path(".").resolve()
+    )
+    assert qwen["top_n"] == 8
+    assert gemma["top_n"] == 6
+    assert qwen["seeds"] == gemma["seeds"] == tuple(range(1264, 1274))
+    assert not set(qwen["seeds"]).intersection(range(1254, 1259))
+
+
+def test_confirmation_ablation_accepts_one_frozen_bank() -> None:
+    class Adapter:
+        num_heads = {0: 4}
+
+    with pytest.raises(ValueError, match="No causal-v2 head-ablation rows"):
+        run_generation_head_ablation_v2(
+            None,
+            None,
+            Adapter(),
+            (),
+            baseline_labels={},
+            rankings={"broad_aggregation": [(0, 0), (0, 1)]},
+            top_ns=(2,),
+            random_replicates=3,
+            require_full_sweep=False,
+        )
+    with pytest.raises(ValueError, match="discovery ablation requires"):
+        run_generation_head_ablation_v2(
+            None,
+            None,
+            Adapter(),
+            (),
+            baseline_labels={},
+            rankings={"broad_aggregation": [(0, 0), (0, 1)]},
+            top_ns=tuple(range(1, 33)),
+            require_full_sweep=True,
+        )
+
+
+def test_head_ablation_confirmation_statistics_cluster_by_new_seed() -> None:
+    rows = []
+    for seed in range(1264, 1274):
+        for condition, replicate, accuracy, absolute_error in (
+            ("ranked", -1, -1.0, 2.0),
+            ("layer_matched_random", 0, 0.0, 0.0),
+            ("layer_matched_random", 1, 0.0, 0.0),
+            ("layer_matched_random", 2, 0.0, 0.0),
+        ):
+            rows.append(
+                {
+                    "model_label": "toy",
+                    "stimulus_id": f"seed{seed}-N7",
+                    "seed": seed,
+                    "gold_count": 7,
+                    "head_bank": "broad_aggregation",
+                    "top_n": 8,
+                    "condition": condition,
+                    "random_replicate": replicate,
+                    "accuracy_delta": accuracy,
+                    "absolute_error_delta": absolute_error,
+                    "prediction_changed": float(condition == "ranked"),
+                    "patched_format_valid": True,
+                }
+            )
+    seed_effects = head_ablation_confirmation_seed_effects(pd.DataFrame(rows))
+    assert len(seed_effects) == 10
+    assert set(seed_effects["seed"]) == set(range(1264, 1274))
+    statistics = head_ablation_confirmation_statistics(
+        seed_effects, bootstrap_repetitions=200
+    ).set_index("metric")
+    assert statistics.loc[
+        "absolute_error_delta", "ranked_minus_random_mean"
+    ] == pytest.approx(2.0)
+    assert statistics.loc[
+        "accuracy_delta", "ranked_minus_random_mean"
+    ] == pytest.approx(-1.0)
+    assert statistics.loc[
+        "absolute_error_delta", "exact_sign_flip_p"
+    ] == pytest.approx(2 / 1024)
+    assert statistics.loc[
+        "absolute_error_delta", "harmful_seed_fraction"
+    ] == pytest.approx(1.0)
 
 
 def test_stability_refuses_skipped_full_span_rows() -> None:

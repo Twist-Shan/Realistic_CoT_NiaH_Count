@@ -560,9 +560,18 @@ def run_generation_head_ablation_v2(
     """Run the V4.4 answer-query-only broad/first-locator top-k sweep."""
 
     expected_banks = {"broad_aggregation", "first_locator"}
-    if set(rankings) != expected_banks:
+    observed_banks = set(rankings)
+    if require_full_sweep and observed_banks != expected_banks:
         raise ValueError(
-            "Causal-v2 ablation requires broad_aggregation and first_locator banks"
+            "Causal-v2 discovery ablation requires broad_aggregation and "
+            "first_locator banks"
+        )
+    if not require_full_sweep and (
+        not observed_banks or not observed_banks.issubset(expected_banks)
+    ):
+        raise ValueError(
+            "Causal-v2 confirmation ablation requires a nonempty subset of "
+            "the registered broad_aggregation/first_locator banks"
         )
     normalized_top_ns = tuple(sorted({int(value) for value in top_ns}))
     if require_full_sweep and normalized_top_ns != tuple(range(1, 33)):

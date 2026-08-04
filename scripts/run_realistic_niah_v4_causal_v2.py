@@ -28,6 +28,8 @@ from realistic_niah_v4.causal_generation import (
 from realistic_niah_v4.causal_v2 import (
     CausalV2Design,
     confirmation_statistics,
+    head_ablation_confirmation_seed_effects,
+    head_ablation_confirmation_statistics,
     head_phenotype_scores,
     load_head_phenotype_registry,
     stable_layer_k_conditions,
@@ -1017,6 +1019,73 @@ def _baseline_labels_path(args: argparse.Namespace, context: dict[str, Any]) -> 
     return candidates[0]
 
 
+def _ablation_confirmation_plan(
+    path: Path,
+    *,
+    model_label: str,
+    repo_root: Path,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    expected_schema = (
+        "realistic_niah_v4_causal_v2_ablation_confirmation_selection_v1"
+    )
+    if payload.get("schema_version") != expected_schema:
+        raise ValueError("Unexpected ablation-confirmation selection schema")
+    if payload.get("selection_status") != "frozen_before_confirmation":
+        raise ValueError("Ablation-confirmation selection was not frozen in advance")
+    rule = payload.get("selection_rule")
+    if not isinstance(rule, dict) or not bool(
+        rule.get("applied_separately_per_model")
+    ):
+        raise ValueError("Ablation top-k must be selected separately per model")
+    source = payload.get("discovery_source")
+    if not isinstance(source, dict):
+        raise ValueError("Ablation-confirmation selection lacks discovery provenance")
+    source_table = repo_root / str(source.get("table", ""))
+    if not source_table.is_file():
+        raise FileNotFoundError(source_table)
+    expected_sha = str(source.get("table_sha256", "")).lower()
+    if _sha256_file(source_table).lower() != expected_sha:
+        raise ValueError("Discovery ablation table hash no longer matches selection")
+    confirmation = payload.get("confirmation_design")
+    if not isinstance(confirmation, dict):
+        raise ValueError("Selection lacks confirmation_design")
+    seeds = tuple(int(value) for value in confirmation.get("seeds", ()))
+    counts = tuple(int(value) for value in confirmation.get("counts", ()))
+    discovery_seeds = {
+        int(value) for value in source.get("screen_seeds", ())
+    }
+    if len(seeds) != 10 or len(set(seeds)) != len(seeds):
+        raise ValueError("Formal ablation confirmation requires ten unique new seeds")
+    if discovery_seeds.intersection(seeds):
+        raise ValueError("Ablation confirmation seeds overlap discovery seeds")
+    if counts != (7, 8, 9, 10):
+        raise ValueError("Ablation confirmation must retain counts 7,8,9,10")
+    if int(confirmation.get("random_replicates", 0)) != 3:
+        raise ValueError("Ablation confirmation requires three random replicates")
+    if confirmation.get("scope") != "answer_query":
+        raise ValueError("Ablation confirmation scope must remain answer_query")
+    models = payload.get("models")
+    if not isinstance(models, dict) or model_label not in models:
+        raise ValueError(f"Selection has no frozen plan for {model_label}")
+    plan = models[model_label]
+    if not isinstance(plan, dict):
+        raise ValueError(f"Invalid frozen plan for {model_label}")
+    if plan.get("head_bank") != "broad_aggregation":
+        raise ValueError("Frozen confirmation bank must be broad_aggregation")
+    top_n = int(plan.get("top_n", 0))
+    if not 1 <= top_n <= 32:
+        raise ValueError("Frozen confirmation top_n must lie in [1,32]")
+    return payload, {
+        **plan,
+        "top_n": top_n,
+        "seeds": seeds,
+        "counts": counts,
+        "random_replicates": int(confirmation["random_replicates"]),
+        "random_baseline": str(confirmation["random_baseline"]),
+    }
+
+
 def _ablation_stage(
     args: argparse.Namespace, context: dict[str, Any]
 ) -> dict[str, Any]:
@@ -1026,16 +1095,50 @@ def _ablation_stage(
     if ranking_path is None or not ranking_path.is_file():
         raise ValueError("ablation requires --head-rankings")
     rankings = load_head_phenotype_registry(ranking_path)
-    baseline_path = _baseline_labels_path(args, context)
-    baseline_labels = load_generation_labels(baseline_path)
-    seeds = design.screen_seeds[:1] if args.smoke else design.screen_seeds
-    counts = design.ablation_counts[:1] if args.smoke else design.ablation_counts
-    top_ns = tuple(range(1, 3)) if args.smoke else design.ablation_top_ns
-    # Formal v2 always uses all 1..32. Smoke uses a distinct design/profile.
+    phase = args.phase
+    selection_path: Path | None = None
+    selection_sha: str | None = None
+    plan: dict[str, Any] | None = None
+    baseline_path: Path | None = None
+    baseline_labels: dict[str, dict[str, Any]] | None = None
+    if phase == "screen":
+        baseline_path = _baseline_labels_path(args, context)
+        baseline_labels = load_generation_labels(baseline_path)
+        seeds = design.screen_seeds[:1] if args.smoke else design.screen_seeds
+        counts = design.ablation_counts[:1] if args.smoke else design.ablation_counts
+        top_ns = tuple(range(1, 3)) if args.smoke else design.ablation_top_ns
+        random_replicates = int(design.ablation_random_replicates)
+        random_baseline = str(design.ablation_random_baseline)
+    elif phase == "confirmation":
+        if not args.selection_json:
+            raise ValueError("ablation confirmation requires --selection-json")
+        selection_path = Path(args.selection_json).resolve()
+        if not selection_path.is_file():
+            raise FileNotFoundError(selection_path)
+        _selection, plan = _ablation_confirmation_plan(
+            selection_path,
+            model_label=args.model,
+            repo_root=context["repo_root"],
+        )
+        if tuple(int(value) for value in config.seeds) != tuple(plan["seeds"]):
+            raise ValueError(
+                "Supplemental base config seeds do not match frozen confirmation"
+            )
+        seeds = tuple(plan["seeds"][:1]) if args.smoke else tuple(plan["seeds"])
+        counts = tuple(plan["counts"][:1]) if args.smoke else tuple(plan["counts"])
+        top_ns = (int(plan["top_n"]),)
+        random_replicates = int(plan["random_replicates"])
+        random_baseline = str(plan["random_baseline"])
+        rankings = {str(plan["head_bank"]): rankings[str(plan["head_bank"])]}
+        selection_sha = _sha256_file(selection_path)
+    else:
+        raise ValueError(f"Unknown ablation phase: {phase}")
+    # Discovery always uses all 1..32 and both banks. Confirmation evaluates
+    # exactly one frozen model-specific top-k without any reselection.
     stage_design = {
         **_base_design(
             family="answer_query_head_ablation",
-            phase="screen",
+            phase=phase,
             model_label=args.model,
             stimuli_path=context["stimuli_path"],
             base_config_path=context["base_config_path"],
@@ -1047,16 +1150,27 @@ def _ablation_stage(
         "counts": list(counts),
         "head_banks": sorted(rankings),
         "top_ns": list(top_ns),
-        "random_replicates": design.ablation_random_replicates,
+        "random_replicates": random_replicates,
         "scope": design.ablation_scope,
-        "random_baseline": design.ablation_random_baseline,
+        "random_baseline": random_baseline,
         "rankings_sha256": _sha256_file(ranking_path),
-        "baseline_labels_sha256": _sha256_file(baseline_path),
     }
+    if phase == "screen" and baseline_path is not None:
+        stage_design["baseline_labels_sha256"] = _sha256_file(baseline_path)
+    elif phase == "confirmation" and plan is not None:
+        stage_design.update(
+            {
+                "baseline_source": (
+                    "fresh_clean_generation_on_independent_confirmation_stimuli"
+                ),
+                "selection_sha256": selection_sha,
+                "frozen_model_specific_top_n": int(plan["top_n"]),
+            }
+        )
     stage_root, design_hash = _stage_root(
         context["causal_root"],
         family="answer_query_head_ablation",
-        phase="screen",
+        phase=phase,
         design=stage_design,
     )
     model, tokenizer, adapter = _load_model(
@@ -1069,6 +1183,20 @@ def _ablation_stage(
     encodings = _render(
         rows, tokenizer=tokenizer, model_label=args.model, config=config
     )
+    if phase == "confirmation":
+        clean_outputs = capture_generation_labels(
+            model,
+            tokenizer,
+            encodings,
+            output_dir=stage_root / "clean_baseline",
+            valid_counts=design.valid_counts,
+            max_new_tokens=int(args.generation_max_new_tokens),
+            overwrite=args.overwrite,
+        )
+        baseline_path = clean_outputs["labels"]
+        baseline_labels = load_generation_labels(baseline_path)
+    if baseline_labels is None or baseline_path is None:
+        raise RuntimeError("Head ablation has no clean baseline labels")
     capture_root = stage_root / "capture"
     index_rows: list[dict[str, Any]] = []
     for encoding in encodings:
@@ -1085,12 +1213,14 @@ def _ablation_stage(
                 baseline_labels=baseline_labels,
                 rankings=rankings,
                 top_ns=top_ns,
-                random_replicates=design.ablation_random_replicates,
-                require_full_sweep=not args.smoke,
+                random_replicates=random_replicates,
+                require_full_sweep=phase == "screen" and not args.smoke,
                 valid_counts=design.valid_counts,
                 max_new_tokens=int(args.generation_max_new_tokens),
             )
             frame["behavior_metric"] = stage_design["behavior_metric"]
+            if phase == "confirmation":
+                frame["evidence_split"] = "independent_ablation_confirmation"
             _write_csv_gzip_atomic(frame, shard)
         index_rows.append(
             {
@@ -1114,17 +1244,54 @@ def _ablation_stage(
         ),
         comparison_path,
     )
+    seed_effects_path: Path | None = None
+    statistics_path: Path | None = None
+    if phase == "confirmation":
+        analysis_root = stage_root / "analysis"
+        seed_effects = head_ablation_confirmation_seed_effects(detail)
+        statistics = head_ablation_confirmation_statistics(
+            seed_effects,
+            bootstrap_repetitions=design.bootstrap_repetitions,
+        )
+        seed_effects_path = analysis_root / "head_ablation_seed_effects.csv"
+        statistics_path = (
+            analysis_root / "head_ablation_confirmation_statistics.csv"
+        )
+        _write_csv_atomic(seed_effects, seed_effects_path)
+        _write_csv_atomic(statistics, statistics_path)
+    completion_payload: dict[str, Any] = {
+        "status": "complete",
+        "design_hash": design_hash,
+        "rows": len(detail),
+    }
+    if phase == "confirmation":
+        completion_payload.update(
+            {
+                "phase": phase,
+                "baseline_rows": len(baseline_labels),
+                "seeds": list(seeds),
+                "counts": list(counts),
+                "head_banks": sorted(rankings),
+                "top_ns": list(top_ns),
+                "selection_sha256": selection_sha,
+                "baseline_labels_sha256": _sha256_file(baseline_path),
+            }
+        )
     _write_json_atomic(
         stage_root / "complete.json",
-        {"status": "complete", "design_hash": design_hash, "rows": len(detail)},
+        completion_payload,
     )
-    return {
+    result = {
         "stage_root": str(stage_root),
         "detail": str(detail_path),
         "summary": str(summary_path),
         "comparison": str(comparison_path),
         "rows": len(detail),
     }
+    if seed_effects_path is not None and statistics_path is not None:
+        result["seed_effects"] = str(seed_effects_path)
+        result["confirmation_statistics"] = str(statistics_path)
+    return result
 
 
 def _patching_stage(
