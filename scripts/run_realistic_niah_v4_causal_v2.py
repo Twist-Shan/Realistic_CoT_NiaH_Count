@@ -35,6 +35,8 @@ from realistic_niah_v4.causal_v2 import (
     stable_layer_k_conditions,
     write_head_phenotype_registry,
 )
+from realistic_niah_v4.correct_interventions import summarize_ablation_n_diagnostics
+from realistic_niah_v4.correct_only_slices import clean_correct_ablation_rows
 from realistic_niah_v4.geometric_steering import (
     LayerSetSteeringPlan,
     capture_query_residual_shard,
@@ -396,6 +398,8 @@ def _implementation_fingerprint(repo_root: Path) -> str:
         "src/realistic_niah_v4/behavior.py",
         "src/realistic_niah_v4/causal_generation.py",
         "src/realistic_niah_v4/causal_v2.py",
+        "src/realistic_niah_v4/correct_interventions.py",
+        "src/realistic_niah_v4/correct_only_slices.py",
         "src/realistic_niah_v4/geometric_steering.py",
         "src/realistic_niah_v4/modeling.py",
         "src/realistic_niah_v4/prompts.py",
@@ -1031,12 +1035,21 @@ def _ablation_confirmation_plan(
     repo_root: Path,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    expected_schema = (
+    legacy_schema = (
         "realistic_niah_v4_causal_v2_ablation_confirmation_selection_v1"
     )
-    if payload.get("schema_version") != expected_schema:
+    extrapolation_schema = (
+        "realistic_niah_v4_4_ablation_seed_extrapolation_selection_v1"
+    )
+    schema = payload.get("schema_version")
+    if schema not in {legacy_schema, extrapolation_schema}:
         raise ValueError("Unexpected ablation-confirmation selection schema")
-    if payload.get("selection_status") != "frozen_before_confirmation":
+    expected_status = (
+        "frozen_before_confirmation"
+        if schema == legacy_schema
+        else "frozen_before_seed_extrapolation"
+    )
+    if payload.get("selection_status") != expected_status:
         raise ValueError("Ablation-confirmation selection was not frozen in advance")
     rule = payload.get("selection_rule")
     if not isinstance(rule, dict) or not bool(
@@ -1057,17 +1070,34 @@ def _ablation_confirmation_plan(
         raise ValueError("Selection lacks confirmation_design")
     seeds = tuple(int(value) for value in confirmation.get("seeds", ()))
     counts = tuple(int(value) for value in confirmation.get("counts", ()))
-    discovery_seeds = {
-        int(value) for value in source.get("screen_seeds", ())
-    }
-    if len(seeds) != 10 or len(set(seeds)) != len(seeds):
-        raise ValueError("Formal ablation confirmation requires ten unique new seeds")
-    if discovery_seeds.intersection(seeds):
-        raise ValueError("Ablation confirmation seeds overlap discovery seeds")
-    if counts != (7, 8, 9, 10):
-        raise ValueError("Ablation confirmation must retain counts 7,8,9,10")
+    if len(set(seeds)) != len(seeds):
+        raise ValueError("Ablation confirmation seeds must be unique")
+    if schema == legacy_schema:
+        discovery_seeds = {
+            int(value) for value in source.get("screen_seeds", ())
+        }
+        if len(seeds) != 10:
+            raise ValueError("Formal ablation confirmation requires ten new seeds")
+        if discovery_seeds.intersection(seeds):
+            raise ValueError("Ablation confirmation seeds overlap discovery seeds")
+        if counts != (7, 8, 9, 10):
+            raise ValueError("Ablation confirmation must retain counts 7,8,9,10")
+    else:
+        if len(seeds) != 20:
+            raise ValueError("Seed extrapolation requires exactly twenty new seeds")
+        prior_seed_end = int(source.get("prior_seed_end_inclusive", -1))
+        if not seeds or min(seeds) <= prior_seed_end:
+            raise ValueError("Seed extrapolation overlaps a previously used seed range")
+        if seeds != tuple(range(seeds[0], seeds[0] + len(seeds))):
+            raise ValueError("Seed extrapolation must use one contiguous frozen suffix")
+        if counts != (1, 2, 3, 4, 5):
+            raise ValueError("Seed extrapolation must retain counts 1,2,3,4,5")
     if int(confirmation.get("random_replicates", 0)) != 3:
         raise ValueError("Ablation confirmation requires three random replicates")
+    if confirmation.get("random_baseline") != (
+        "all_heads_in_matched_layers_without_replacement_overlap_allowed"
+    ):
+        raise ValueError("Ablation confirmation random baseline changed")
     if confirmation.get("scope") != "answer_query":
         raise ValueError("Ablation confirmation scope must remain answer_query")
     models = payload.get("models")
@@ -1078,16 +1108,30 @@ def _ablation_confirmation_plan(
         raise ValueError(f"Invalid frozen plan for {model_label}")
     if plan.get("head_bank") != "broad_aggregation":
         raise ValueError("Frozen confirmation bank must be broad_aggregation")
-    top_n = int(plan.get("top_n", 0))
-    if not 1 <= top_n <= 32:
+    if schema == legacy_schema:
+        top_ns = (int(plan.get("top_n", 0)),)
+    else:
+        top_ns = tuple(int(value) for value in plan.get("top_ns", ()))
+        if len(top_ns) != 2 or len(set(top_ns)) != 2:
+            raise ValueError("Seed extrapolation requires two distinct frozen top_n values")
+        if top_ns != tuple(sorted(top_ns)):
+            raise ValueError("Seed extrapolation top_n values must be increasing")
+    if any(not 1 <= top_n <= 32 for top_n in top_ns):
         raise ValueError("Frozen confirmation top_n must lie in [1,32]")
     return payload, {
         **plan,
-        "top_n": top_n,
+        "top_ns": top_ns,
         "seeds": seeds,
         "counts": counts,
         "random_replicates": int(confirmation["random_replicates"]),
         "random_baseline": str(confirmation["random_baseline"]),
+        "selection_status": expected_status,
+        "evidence_split": (
+            "independent_ablation_confirmation"
+            if schema == legacy_schema
+            else "independent_seed_extrapolation"
+        ),
+        "emit_dual_population": schema == extrapolation_schema,
     }
 
 
@@ -1131,7 +1175,7 @@ def _ablation_stage(
             )
         seeds = tuple(plan["seeds"][:1]) if args.smoke else tuple(plan["seeds"])
         counts = tuple(plan["counts"][:1]) if args.smoke else tuple(plan["counts"])
-        top_ns = (int(plan["top_n"]),)
+        top_ns = tuple(int(value) for value in plan["top_ns"])
         random_replicates = int(plan["random_replicates"])
         random_baseline = str(plan["random_baseline"])
         rankings = {str(plan["head_bank"]): rankings[str(plan["head_bank"])]}
@@ -1139,7 +1183,7 @@ def _ablation_stage(
     else:
         raise ValueError(f"Unknown ablation phase: {phase}")
     # Discovery always uses all 1..32 and both banks. Confirmation evaluates
-    # exactly one frozen model-specific top-k without any reselection.
+    # only the frozen model-specific dose or doses without any reselection.
     stage_design = {
         **_base_design(
             family="answer_query_head_ablation",
@@ -1169,9 +1213,12 @@ def _ablation_stage(
                     "fresh_clean_generation_on_independent_confirmation_stimuli"
                 ),
                 "selection_sha256": selection_sha,
-                "frozen_model_specific_top_n": int(plan["top_n"]),
+                "frozen_model_specific_top_ns": list(top_ns),
+                "selection_status": str(plan["selection_status"]),
             }
         )
+        if len(top_ns) == 1:
+            stage_design["frozen_model_specific_top_n"] = int(top_ns[0])
     stage_root, design_hash = _stage_root(
         context["causal_root"],
         family="answer_query_head_ablation",
@@ -1225,7 +1272,7 @@ def _ablation_stage(
             )
             frame["behavior_metric"] = stage_design["behavior_metric"]
             if phase == "confirmation":
-                frame["evidence_split"] = "independent_ablation_confirmation"
+                frame["evidence_split"] = str(plan["evidence_split"])
             _write_csv_gzip_atomic(frame, shard)
         index_rows.append(
             {
@@ -1251,6 +1298,8 @@ def _ablation_stage(
     )
     seed_effects_path: Path | None = None
     statistics_path: Path | None = None
+    clean_correct_path: Path | None = None
+    dual_population_path: Path | None = None
     if phase == "confirmation":
         analysis_root = stage_root / "analysis"
         seed_effects = head_ablation_confirmation_seed_effects(detail)
@@ -1264,6 +1313,38 @@ def _ablation_stage(
         )
         _write_csv_atomic(seed_effects, seed_effects_path)
         _write_csv_atomic(statistics, statistics_path)
+        if plan is not None and bool(plan.get("emit_dual_population")):
+            clean_correct_detail = clean_correct_ablation_rows(detail)
+            clean_correct_path = (
+                analysis_root / "detail.clean_correct.seed_extrapolation.csv.gz"
+            )
+            _write_csv_gzip_atomic(clean_correct_detail, clean_correct_path)
+            all_population = summarize_ablation_n_diagnostics(
+                detail,
+                population="all_examples_signed",
+                bootstrap_repetitions=design.bootstrap_repetitions,
+            )
+            correct_population = summarize_ablation_n_diagnostics(
+                detail,
+                population="clean_correct_only",
+                bootstrap_repetitions=design.bootstrap_repetitions,
+            )
+            for population_frame in (all_population, correct_population):
+                population_frame["selection_status"] = str(
+                    plan["selection_status"]
+                )
+                population_frame["evidence_split"] = str(plan["evidence_split"])
+            dual_population_path = (
+                analysis_root / "dual_population_seed_extrapolation_summary.csv"
+            )
+            _write_csv_atomic(
+                pd.concat(
+                    [all_population, correct_population],
+                    ignore_index=True,
+                    sort=False,
+                ),
+                dual_population_path,
+            )
     completion_payload: dict[str, Any] = {
         "status": "complete",
         "design_hash": design_hash,
@@ -1282,6 +1363,8 @@ def _ablation_stage(
                 "baseline_labels_sha256": _sha256_file(baseline_path),
             }
         )
+        if clean_correct_path is not None:
+            completion_payload["clean_correct_rows"] = int(len(clean_correct_detail))
     _write_json_atomic(
         stage_root / "complete.json",
         completion_payload,
@@ -1296,6 +1379,9 @@ def _ablation_stage(
     if seed_effects_path is not None and statistics_path is not None:
         result["seed_effects"] = str(seed_effects_path)
         result["confirmation_statistics"] = str(statistics_path)
+    if clean_correct_path is not None and dual_population_path is not None:
+        result["clean_correct_detail"] = str(clean_correct_path)
+        result["dual_population_summary"] = str(dual_population_path)
     return result
 
 
