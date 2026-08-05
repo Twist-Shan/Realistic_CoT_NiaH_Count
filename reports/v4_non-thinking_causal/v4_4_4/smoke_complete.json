@@ -1,0 +1,16 @@
+{
+  "beta_zero_candidate_score_max_abs_delta": 0.0,
+  "completed_unix": 1785788958.5028641,
+  "mediation_axis_block_output_norm": 0.07769627124071121,
+  "mediation_blocked_patch_residual_axis_component": -6.332993507385254e-08,
+  "mediation_orthogonal_control_axis_cosine": -9.926493186706798e-09,
+  "mediation_orthogonal_control_output_norm": 0.07769627124071121,
+  "mediation_patch_natural_axis_coefficient": 0.07769627124071121,
+  "mediation_patch_output_norm": 26.155323028564453,
+  "pre_o_output_step_max_abs_delta": 0.021467365324497223,
+  "removal_control_axis_cosine": 1.0734421912490736e-08,
+  "removal_control_output_norm": 0.6073226928710938,
+  "removal_output_norm": 0.6073228120803833,
+  "schema_version": "realistic_niah_v4_4_4_smoke_complete_v1",
+  "seed": 1274
+}

@@ -1041,8 +1041,15 @@ def _ablation_confirmation_plan(
     extrapolation_schema = (
         "realistic_niah_v4_4_ablation_seed_extrapolation_selection_v1"
     )
+    full_span_sweep_schema = (
+        "realistic_niah_v4_4_full_span_topk_confirmation_selection_v2"
+    )
     schema = payload.get("schema_version")
-    if schema not in {legacy_schema, extrapolation_schema}:
+    if schema not in {
+        legacy_schema,
+        extrapolation_schema,
+        full_span_sweep_schema,
+    }:
         raise ValueError("Unexpected ablation-confirmation selection schema")
     expected_status = (
         "frozen_before_confirmation"
@@ -1110,12 +1117,31 @@ def _ablation_confirmation_plan(
         raise ValueError("Frozen confirmation bank must be broad_aggregation")
     if schema == legacy_schema:
         top_ns = (int(plan.get("top_n", 0)),)
-    else:
+    elif schema == extrapolation_schema:
         top_ns = tuple(int(value) for value in plan.get("top_ns", ()))
         if len(top_ns) != 2 or len(set(top_ns)) != 2:
             raise ValueError("Seed extrapolation requires two distinct frozen top_n values")
         if top_ns != tuple(sorted(top_ns)):
             raise ValueError("Seed extrapolation top_n values must be increasing")
+    else:
+        top_ns = tuple(int(value) for value in plan.get("top_ns", ()))
+        if len(top_ns) < 2 or len(set(top_ns)) != len(top_ns):
+            raise ValueError(
+                "Full-span top-k confirmation requires at least two distinct doses"
+            )
+        if top_ns != tuple(sorted(top_ns)):
+            raise ValueError("Full-span top-k doses must be strictly increasing")
+        ranking = payload.get("ranking_definition")
+        if not isinstance(ranking, dict):
+            raise ValueError("Full-span top-k confirmation lacks ranking_definition")
+        if ranking.get("mass_definition") != (
+            "sum of answer-query attention over every token in each active needle span"
+        ):
+            raise ValueError("Full-span top-k confirmation changed the mass definition")
+        if ranking.get("score") != (
+            "mean(broad_mass * exp(entropy(per-needle mass))/needle_count)"
+        ):
+            raise ValueError("Full-span top-k confirmation changed the ranking score")
     if any(not 1 <= top_n <= 32 for top_n in top_ns):
         raise ValueError("Frozen confirmation top_n must lie in [1,32]")
     return payload, {
@@ -1131,7 +1157,10 @@ def _ablation_confirmation_plan(
             if schema == legacy_schema
             else "independent_seed_extrapolation"
         ),
-        "emit_dual_population": schema == extrapolation_schema,
+        "emit_dual_population": schema in {
+            extrapolation_schema,
+            full_span_sweep_schema,
+        },
     }
 
 

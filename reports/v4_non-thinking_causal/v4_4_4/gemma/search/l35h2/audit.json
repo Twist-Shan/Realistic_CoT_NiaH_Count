@@ -1,0 +1,35 @@
+{
+  "all_checks_pass": true,
+  "checks": {
+    "all_confirmation_seeds_present": true,
+    "confirmation_seed_shards": true,
+    "dataset_rows": true,
+    "directed_rows": true,
+    "four_matched_controls": true,
+    "mediation_rows": true,
+    "model_complete": true,
+    "natural_rows": true,
+    "no_full_hidden_state_artifact": true,
+    "no_raw_attention_artifact": true,
+    "selection_precedes_causal_outcomes": true,
+    "single_design_hash_directed": true,
+    "single_design_hash_mediation": true,
+    "single_design_hash_natural": true,
+    "smoke_complete": true
+  },
+  "expected": {
+    "confirmation_seed_shards": 20,
+    "dataset_rows": 300,
+    "directed_rows": 2100,
+    "mediation_rows": 900,
+    "natural_rows": 1000
+  },
+  "observed": {
+    "confirmation_seed_shards": 20,
+    "dataset_rows": 300,
+    "directed_rows": 2100,
+    "mediation_rows": 900,
+    "natural_rows": 1000
+  },
+  "schema_version": "realistic_niah_v4_4_4_audit_v1"
+}

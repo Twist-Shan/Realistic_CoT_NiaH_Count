@@ -10,9 +10,11 @@ from typing import Any
 import pandas as pd
 
 
-SCHEMA = "realistic_niah_v4_4_ablation_seed_extrapolation_audit_v1"
-SELECTION_SCHEMA = "realistic_niah_v4_4_ablation_seed_extrapolation_selection_v1"
-EXPECTED_TOP_NS = {"Qwen3-8B": (2, 4), "Gemma4-E4B": (1, 2)}
+SCHEMA = "realistic_niah_v4_4_ablation_seed_extrapolation_audit_v2"
+SELECTION_SCHEMAS = {
+    "realistic_niah_v4_4_ablation_seed_extrapolation_selection_v1",
+    "realistic_niah_v4_4_full_span_topk_confirmation_selection_v2",
+}
 EXPECTED_RANDOM_BASELINE = (
     "all_heads_in_matched_layers_without_replacement_overlap_allowed"
 )
@@ -87,6 +89,24 @@ def _head_count(value: Any) -> int:
     return len([item for item in str(value).split(",") if item.strip()])
 
 
+def _hook_application_count(value: Any) -> int:
+    payload = value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise ValueError("empty intervention_hook_applications value")
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            payload = text
+    if isinstance(payload, dict):
+        return sum(_hook_application_count(count) for count in payload.values())
+    numeric = float(payload)
+    if not math.isfinite(numeric) or not numeric.is_integer() or numeric < 0:
+        raise ValueError(f"invalid intervention_hook_applications count: {payload!r}")
+    return int(numeric)
+
+
 def _row_keys(frame: pd.DataFrame) -> set[tuple[str, int, str, int]]:
     replicate = pd.to_numeric(frame["random_replicate"], errors="coerce").fillna(-1)
     return set(
@@ -132,6 +152,10 @@ def audit(
     selection = _json(selection_path)
     selection_sha = _sha256(selection_path)
     confirmation = selection.get("confirmation_design", {})
+    expected_top_ns_by_model = {
+        str(model): tuple(int(value) for value in plan.get("top_ns", ()))
+        for model, plan in selection.get("models", {}).items()
+    }
     expected_seeds = tuple(int(value) for value in confirmation.get("seeds", ()))
     expected_counts = tuple(int(value) for value in confirmation.get("counts", ()))
     prior_seed_end = int(
@@ -145,21 +169,21 @@ def audit(
         "campaign",
         "selection",
         "selection_schema_and_frozen_status",
-        selection.get("schema_version") == SELECTION_SCHEMA
+        selection.get("schema_version") in SELECTION_SCHEMAS
         and selection.get("selection_status") == "frozen_before_seed_extrapolation",
         {
             "schema": selection.get("schema_version"),
             "status": selection.get("selection_status"),
         },
         {
-            "schema": SELECTION_SCHEMA,
+            "schema": sorted(SELECTION_SCHEMAS),
             "status": "frozen_before_seed_extrapolation",
         },
     )
     seed_plan_ok = (
         len(expected_seeds) == 20
         and len(set(expected_seeds)) == 20
-        and expected_seeds == tuple(range(1296, 1316))
+        and expected_seeds == tuple(range(expected_seeds[0], expected_seeds[0] + 20))
         and min(expected_seeds) > prior_seed_end
         and expected_counts == (1, 2, 3, 4, 5)
     )
@@ -174,7 +198,7 @@ def audit(
             "prior_seed_end": prior_seed_end,
         },
         {
-            "seeds": tuple(range(1296, 1316)),
+            "seeds": "one frozen contiguous twenty-seed suffix",
             "counts": (1, 2, 3, 4, 5),
             "minimum_seed": prior_seed_end + 1,
         },
@@ -183,17 +207,19 @@ def audit(
         "campaign",
         "selection",
         "frozen_model_specific_doses",
-        all(
-            tuple(int(value) for value in selection["models"][model]["top_ns"])
-            == expected
+        set(expected_top_ns_by_model) == {"Qwen3-8B", "Gemma4-E4B"}
+        and all(
+            len(values) >= 2
+            and values == tuple(sorted(set(values)))
+            and all(1 <= value <= 32 for value in values)
             and selection["models"][model].get("head_bank") == "broad_aggregation"
-            for model, expected in EXPECTED_TOP_NS.items()
+            for model, values in expected_top_ns_by_model.items()
         ),
         {
             model: selection.get("models", {}).get(model)
-            for model in EXPECTED_TOP_NS
+            for model in expected_top_ns_by_model
         },
-        {"Qwen3-8B": [2, 4], "Gemma4-E4B": [1, 2]},
+        {model: list(values) for model, values in expected_top_ns_by_model.items()},
     )
     record(
         "campaign",
@@ -265,17 +291,46 @@ def audit(
             "frozen_v4_4_cells": len(cells),
             "registered_analysis_cells": len(cells.intersection(expected_cells)),
         },
-        {"frozen_v4_4_cells": 220, "registered_analysis_cells": 100},
+        {
+            "frozen_v4_4_cells": len(expected_frozen_cells),
+            "registered_analysis_cells": len(expected_cells),
+        },
     )
 
     expected_implementation = _implementation_fingerprint(repo_root)
-    expected_base_config = (
-        repo_root / "configs/realistic_niah_v4_4_ablation_seed_extrapolation.json"
-    )
+    expected_base_config = repo_root / str(confirmation.get("base_config", ""))
+    if not expected_base_config.is_file():
+        raise FileNotFoundError(expected_base_config)
     expected_causal_config = repo_root / "configs/realistic_niah_v4_causal_v2.json"
 
     for model, ranking_path in ranking_paths.items():
-        expected_top_ns = EXPECTED_TOP_NS[model]
+        expected_top_ns = expected_top_ns_by_model[model]
+        doses = len(expected_top_ns)
+        rows_per_stimulus = doses * 4
+        ranking = _json(ranking_path)
+        broad_rows = ranking.get("rankings", {}).get("broad_aggregation", [])
+        model_plan = selection["models"][model]
+        record(
+            model,
+            "ranking",
+            "hash_locked_full_span_literal_mass_order",
+            ranking.get("model_label") == model
+            and ranking.get("selection_split") == "discovery"
+            and ranking.get("mass_definition")
+            == "sum of answer-query attention over every token in each active needle span"
+            and ranking.get("broad_aggregation_definition")
+            == "mean(broad_mass * exp(entropy(per-needle mass))/needle_count)"
+            and len(broad_rows) >= max(expected_top_ns)
+            and _sha256(ranking_path)
+            == str(model_plan.get("ranking_registry_sha256", "")),
+            {
+                "mass_definition": ranking.get("mass_definition"),
+                "score": ranking.get("broad_aggregation_definition"),
+                "rows": len(broad_rows),
+                "sha256": _sha256(ranking_path),
+            },
+            "hash-locked full-span registry",
+        )
         family = (
             run_root
             / model
@@ -438,7 +493,7 @@ def audit(
         capture_ok = (
             len(index_rows) == 100
             and shard_cells == expected_cells
-            and all(int(row["rows"]) == 8 for row in index_rows)
+            and all(int(row["rows"]) == rows_per_stimulus for row in index_rows)
             and shard_hashes_ok
         )
         record(
@@ -452,7 +507,7 @@ def audit(
                 "row_counts": sorted({int(row["rows"]) for row in index_rows}),
                 "hashes_ok": shard_hashes_ok,
             },
-            {"shards": 100, "cells": 100, "row_counts": [8], "hashes_ok": True},
+            {"shards": 100, "cells": 100, "row_counts": [rows_per_stimulus], "hashes_ok": True},
         )
 
         detail_path = stage_root / "detail.csv.gz"
@@ -496,12 +551,12 @@ def audit(
         )
         detail_ok = (
             not missing_columns
-            and len(detail) == 800
-            and len(ranked) == 200
-            and len(random) == 600
+            and len(detail) == 100 * rows_per_stimulus
+            and len(ranked) == 100 * doses
+            and len(random) == 300 * doses
             and not ranked.duplicated(identity).any()
             and not random.duplicated([*identity, "random_replicate"]).any()
-            and len(random_reps) == 200
+            and len(random_reps) == 100 * doses
             and all(replicates == (0, 1, 2) for replicates in random_reps)
             and tuple(sorted(set(pd.to_numeric(detail["top_n"]).astype(int))))
             == expected_top_ns
@@ -527,11 +582,11 @@ def audit(
             },
             {
                 "missing_columns": [],
-                "rows": 800,
-                "ranked": 200,
-                "random": 600,
+                "rows": 100 * rows_per_stimulus,
+                "ranked": 100 * doses,
+                "random": 300 * doses,
                 "top_ns": list(expected_top_ns),
-                "random_identity_groups": 200,
+                "random_identity_groups": 100 * doses,
             },
         )
         top_n_values = pd.to_numeric(detail["top_n"], errors="raise").astype(int)
@@ -545,9 +600,7 @@ def audit(
             and (overlap[random.index] >= 0).all()
             and (overlap[random.index] <= top_n_values[random.index]).all()
             and (
-                pd.to_numeric(
-                    detail["intervention_hook_applications"], errors="raise"
-                )
+                detail["intervention_hook_applications"].map(_hook_application_count)
                 > 0
             ).all()
         )
@@ -561,7 +614,9 @@ def audit(
                 "random_overlap_min": int(overlap[random.index].min()),
                 "random_overlap_max": int(overlap[random.index].max()),
                 "hook_min": int(
-                    pd.to_numeric(detail["intervention_hook_applications"]).min()
+                    detail["intervention_hook_applications"]
+                    .map(_hook_application_count)
+                    .min()
                 ),
             },
             {
@@ -617,7 +672,7 @@ def audit(
             and _as_bool(clean["baseline_is_correct"]).all()
             and _as_bool(clean["baseline_format_valid"]).all()
             and not clean_group_sizes.empty
-            and set(clean_group_sizes.astype(int)) == {8}
+            and set(clean_group_sizes.astype(int)) == {rows_per_stimulus}
             and int(complete.get("clean_correct_rows", -1)) == len(clean)
         )
         record(
@@ -634,7 +689,7 @@ def audit(
             },
             {
                 "same_row_keys": True,
-                "rows_per_stimulus": [8],
+                "rows_per_stimulus": [rows_per_stimulus],
                 "complete_rows_matches": True,
             },
         )
@@ -682,7 +737,7 @@ def audit(
             "primary_effect_ci95_high",
         ]
         dual_ok = (
-            len(dual) == 4
+            len(dual) == 2 * doses
             and observed_pairs == expected_pairs
             and set(dual["model_label"].astype(str)) == {model}
             and set(dual["head_bank"].astype(str)) == {"broad_aggregation"}
@@ -707,7 +762,7 @@ def audit(
         record(
             model,
             "statistics",
-            "four_frozen_dual_population_estimates",
+            "frozen_dual_population_estimates_for_every_dose",
             dual_ok,
             {
                 "rows": len(dual),
@@ -717,7 +772,7 @@ def audit(
                 "clean_correct_seed_clusters": correct_seed_clusters,
             },
             {
-                "rows": 4,
+                "rows": 2 * doses,
                 "pairs": sorted(expected_pairs),
                 "all_examples": 100,
                 "clean_correct_examples": correct_examples,
@@ -737,12 +792,12 @@ def audit(
         )
         seed_group_sizes = seed_effects.groupby("top_n").size()
         stats_ok = (
-            len(seed_effects) == 40
+            len(seed_effects) == 20 * doses
             and set(pd.to_numeric(seed_effects["seed"]).astype(int))
             == set(expected_seeds)
             and set(pd.to_numeric(seed_effects["examples"]).astype(int)) == {5}
             and set(pd.to_numeric(seed_group_sizes).astype(int)) == {20}
-            and len(statistics) == 6
+            and len(statistics) == 3 * doses
             and set(statistics["metric"].astype(str))
             == {"accuracy_delta", "absolute_error_delta", "prediction_changed"}
             and tuple(
@@ -767,9 +822,9 @@ def audit(
                 "metrics": sorted(set(statistics["metric"].astype(str))),
             },
             {
-                "seed_rows": 40,
+                "seed_rows": 20 * doses,
                 "seed_groups": {str(value): 20 for value in expected_top_ns},
-                "statistic_rows": 6,
+                "statistic_rows": 3 * doses,
                 "metrics": [
                     "absolute_error_delta",
                     "accuracy_delta",

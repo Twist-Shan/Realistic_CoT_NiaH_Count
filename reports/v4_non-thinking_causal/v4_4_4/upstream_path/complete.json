@@ -1,0 +1,70 @@
+{
+  "audit": {
+    "all_checks_pass": true,
+    "checks": [
+      {
+        "detail": {
+          "expected": 540,
+          "observed": 540
+        },
+        "name": "base_row_count",
+        "passed": true
+      },
+      {
+        "detail": [
+          1284,
+          1285,
+          1286,
+          1287,
+          1288,
+          1289,
+          1290,
+          1291,
+          1292,
+          1293
+        ],
+        "name": "seed_registry",
+        "passed": true
+      },
+      {
+        "detail": 0.0,
+        "name": "exact_l28_block_closure",
+        "passed": true
+      },
+      {
+        "detail": 3.4381180569198484e-08,
+        "name": "late_control_orthogonality",
+        "passed": true
+      },
+      {
+        "detail": 0.0,
+        "name": "deterministic_prefill_reproducibility",
+        "passed": true
+      },
+      {
+        "detail": [],
+        "name": "no_persisted_raw_states_or_attention",
+        "passed": true
+      }
+    ],
+    "observed_effect_rows": 2160
+  },
+  "decision": {
+    "base_h16_h19_sufficient": false,
+    "classification": "upstream_read_to_expanded_l28_write_supported_exploratory",
+    "expanded_l28_set_support": true,
+    "expanded_stage_available": true,
+    "inferential_status": "exploratory causal supplement on reused V4.4.4 confirmation seeds; not an independent confirmation",
+    "overall_mechanistic_support": true,
+    "requires_expanded_stage": false,
+    "route_support_with_base_h16_h19": {
+      "answer_query_full": false,
+      "slot_edge_qk": false,
+      "slot_state": false
+    }
+  },
+  "effect_rows": 2160,
+  "schema_version": "realistic_niah_v4_4_4_upstream_analysis_complete_v1",
+  "seed_metric_rows": 360,
+  "summary_rows": 36
+}

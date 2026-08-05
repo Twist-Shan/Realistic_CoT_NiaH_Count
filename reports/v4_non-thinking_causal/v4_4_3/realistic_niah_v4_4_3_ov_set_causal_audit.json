@@ -1,0 +1,24 @@
+{
+  "complete": true,
+  "models": {
+    "Gemma4-E4B": {
+      "actual_directed_shards": 270,
+      "actual_patch_shards": 540,
+      "complete": true,
+      "directed_rows": 2430,
+      "expected_directed_shards": 270,
+      "expected_patch_shards": 540,
+      "patch_rows": 2700
+    },
+    "Qwen3-8B": {
+      "actual_directed_shards": 450,
+      "actual_patch_shards": 900,
+      "complete": true,
+      "directed_rows": 4050,
+      "expected_directed_shards": 450,
+      "expected_patch_shards": 900,
+      "patch_rows": 4500
+    }
+  },
+  "schema_version": "realistic_niah_v4_4_3_set_audit_v1"
+}
