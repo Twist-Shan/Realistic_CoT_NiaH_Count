@@ -1,0 +1,153 @@
+{
+  "exact_sign_flip_assignments_per_test": 1048576,
+  "inputs": {
+    "Gemma4-E4B": {
+      "detail_sha256": "3d87578fae81aaddce80fc0e250be5a8c06a5e591465d5c7db89cd2bcff9a9cc",
+      "dual_summary_sha256": "e87a3fad4e7672e712aee062b3d7b593f0b98b37b0bc96006d9ce20ab9ea85af",
+      "ranking_sha256": "52646c9bec4d90336f469c46aecd8ffbaf54008648f7aef45f56215984744de7",
+      "stage_root": "C:\\Users\\HP\\AppData\\Local\\Temp\\v444_fullspan_report\\Gemma4-E4B\\numeric\\causal_v2\\answer_query_head_ablation\\confirmation_dbd0f31e279d",
+      "top_ns": [
+        1,
+        2,
+        4,
+        8,
+        16,
+        32
+      ]
+    },
+    "Qwen3-8B": {
+      "detail_sha256": "1b8b0f4f45a58df07fa3a340b811d6e30ffb2837069298b64d1a553c93b26bf8",
+      "dual_summary_sha256": "e484954c99443ca64a482828839d1dd1a7152e51d52a73bba2208739dccba69e",
+      "ranking_sha256": "7caa1362c675ea47818cf0420d78c66963a2cca3aca17639e16327fb14434492",
+      "stage_root": "C:\\Users\\HP\\AppData\\Local\\Temp\\v444_fullspan_report\\Qwen3-8B\\numeric\\causal_v2\\answer_query_head_ablation\\confirmation_851acddf4f4d",
+      "top_ns": [
+        1,
+        2,
+        4,
+        8,
+        16,
+        32
+      ]
+    }
+  },
+  "models": [
+    "Qwen3-8B",
+    "Gemma4-E4B"
+  ],
+  "outputs": {
+    "membership": "C:\\Users\\HP\\AppData\\Local\\Temp\\v444_fullspan_report\\analysis_equal_seed\\full_span_topk_membership.csv",
+    "primary_statistics": "C:\\Users\\HP\\AppData\\Local\\Temp\\v444_fullspan_report\\analysis_equal_seed\\full_span_topk_primary_statistics.csv",
+    "report_summary": "C:\\Users\\HP\\AppData\\Local\\Temp\\v444_fullspan_report\\analysis_equal_seed\\seed_extrapolation_summary_v2.json",
+    "seed_effects": "C:\\Users\\HP\\AppData\\Local\\Temp\\v444_fullspan_report\\analysis_equal_seed\\full_span_topk_seed_effects.csv"
+  },
+  "primary_endpoint_families": 2,
+  "ranking_definition": {
+    "mass": "full needle-span literal attention mass",
+    "query": "answer query",
+    "score": "mean(broad_mass * occurrence coverage)"
+  },
+  "schema_version": "realistic_niah_v4_4_full_span_topk_analysis_v2",
+  "significant_holm": [
+    {
+      "analysis_population": "all_examples_signed",
+      "holm_p_within_primary_endpoint_12_tests": 6.866455078125e-05,
+      "model_label": "Gemma4-E4B",
+      "primary_effect": 0.25666666666666665,
+      "top_n": 1
+    },
+    {
+      "analysis_population": "all_examples_signed",
+      "holm_p_within_primary_endpoint_12_tests": 0.0008544921875,
+      "model_label": "Gemma4-E4B",
+      "primary_effect": 0.17,
+      "top_n": 2
+    },
+    {
+      "analysis_population": "all_examples_signed",
+      "holm_p_within_primary_endpoint_12_tests": 0.03338623046875,
+      "model_label": "Gemma4-E4B",
+      "primary_effect": 0.08666666666666667,
+      "top_n": 4
+    },
+    {
+      "analysis_population": "all_examples_signed",
+      "holm_p_within_primary_endpoint_12_tests": 2.288818359375e-05,
+      "model_label": "Gemma4-E4B",
+      "primary_effect": 0.7666666666666666,
+      "top_n": 8
+    },
+    {
+      "analysis_population": "all_examples_signed",
+      "holm_p_within_primary_endpoint_12_tests": 2.288818359375e-05,
+      "model_label": "Gemma4-E4B",
+      "primary_effect": 0.2866666666666667,
+      "top_n": 16
+    },
+    {
+      "analysis_population": "all_examples_signed",
+      "holm_p_within_primary_endpoint_12_tests": 0.022430419921875,
+      "model_label": "Gemma4-E4B",
+      "primary_effect": 0.24333333333333335,
+      "top_n": 32
+    },
+    {
+      "analysis_population": "all_examples_signed",
+      "holm_p_within_primary_endpoint_12_tests": 0.022430419921875,
+      "model_label": "Qwen3-8B",
+      "primary_effect": 0.08333333333333334,
+      "top_n": 4
+    },
+    {
+      "analysis_population": "all_examples_signed",
+      "holm_p_within_primary_endpoint_12_tests": 0.00018310546875,
+      "model_label": "Qwen3-8B",
+      "primary_effect": 0.5199999999999999,
+      "top_n": 16
+    },
+    {
+      "analysis_population": "all_examples_signed",
+      "holm_p_within_primary_endpoint_12_tests": 2.288818359375e-05,
+      "model_label": "Qwen3-8B",
+      "primary_effect": 1.6233333333333335,
+      "top_n": 32
+    },
+    {
+      "analysis_population": "clean_correct_only",
+      "holm_p_within_primary_endpoint_12_tests": 0.00775909423828125,
+      "model_label": "Gemma4-E4B",
+      "primary_effect": 0.1986111111111111,
+      "top_n": 8
+    },
+    {
+      "analysis_population": "clean_correct_only",
+      "holm_p_within_primary_endpoint_12_tests": 0.000335693359375,
+      "model_label": "Gemma4-E4B",
+      "primary_effect": 0.2027777777777778,
+      "top_n": 16
+    },
+    {
+      "analysis_population": "clean_correct_only",
+      "holm_p_within_primary_endpoint_12_tests": 0.000335693359375,
+      "model_label": "Qwen3-8B",
+      "primary_effect": 0.3166666666666667,
+      "top_n": 16
+    },
+    {
+      "analysis_population": "clean_correct_only",
+      "holm_p_within_primary_endpoint_12_tests": 2.288818359375e-05,
+      "model_label": "Qwen3-8B",
+      "primary_effect": 0.5869444444444445,
+      "top_n": 32
+    }
+  ],
+  "status": "complete",
+  "tests_per_primary_endpoint_family": 12,
+  "top_ns": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32
+  ]
+}

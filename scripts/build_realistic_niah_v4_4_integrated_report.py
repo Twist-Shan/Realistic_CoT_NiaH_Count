@@ -8,7 +8,7 @@ import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -269,14 +269,23 @@ def write_trace_svg(
 
 
 def evidence_gate_svg(
-    families: list[dict[str, Any]], *, id_prefix: str = "gate"
+    families: list[dict[str, Any]],
+    *,
+    id_prefix: str = "gate",
+    title: str = "Four preregistered natural-OV evidence gates",
+    description: str = (
+        "Four boxes summarize natural signal, true pre-O sufficiency, centered "
+        "z-space necessity, and path mediation. A check or cross marks the "
+        "family-level decision; the global intersection-union p value is the "
+        "largest family p value."
+    ),
 ) -> str:
     width, height = 1040, 470
     positions = [(28, 38), (530, 38), (28, 246), (530, 246)]
     parts = [
         f'<svg class="stat-svg gate-svg" viewBox="0 0 {width} {height}" role="img" aria-labelledby="{id_prefix}-title {id_prefix}-desc">',
-        f'<title id="{id_prefix}-title">Four preregistered natural-OV evidence gates</title>',
-        f'<desc id="{id_prefix}-desc">Four boxes summarize natural signal, true pre-O sufficiency, centered z-space necessity, and path mediation. A check or cross marks the family-level decision; the global intersection-union p value is the largest family p value.</desc>',
+        f'<title id="{id_prefix}-title">{html.escape(title)}</title>',
+        f'<desc id="{id_prefix}-desc">{html.escape(description)}</desc>',
     ]
     for idx, family in enumerate(families):
         x, y = positions[idx]
@@ -628,6 +637,147 @@ def ablation_topk_svg(seed_confirmation: dict[str, Any]) -> str:
     return "".join(parts)
 
 
+def ablation_topk_svg_fullspan(seed_confirmation: dict[str, Any]) -> str:
+    """Plot the preregistered full-span K grid on a log2-like categorical axis."""
+
+    width, height = 1180, 540
+    models = ("Qwen3-8B", "Gemma4-E4B")
+    colors = {"Qwen3-8B": "#27685F", "Gemma4-E4B": "#A66A45"}
+    ks = sorted(
+        {
+            int(k)
+            for model in models
+            for k in seed_confirmation["models"][model]
+        }
+    )
+    panels = (
+        {
+            "x0": 62,
+            "width": 500,
+            "title": "All samples",
+            "metric": "all_absolute_shift",
+            "ylabel": "ranked − random |count shift|",
+        },
+        {
+            "x0": 650,
+            "width": 468,
+            "title": "Clean-correct only",
+            "metric": "clean_correct_to_wrong",
+            "ylabel": "ranked − random failure probability",
+        },
+    )
+    top, bottom = 86, 102
+    plot_h = height - top - bottom
+    parts = [
+        f'<svg class="stat-svg ablation-topk" viewBox="0 0 {width} {height}" role="img" aria-labelledby="fullspan-topk-title fullspan-topk-desc">',
+        '<title id="fullspan-topk-title">Full-span-ranked nested head-bank ablation</title>',
+        '<desc id="fullspan-topk-desc">For Qwen and Gemma, K equals 1, 2, 4, 8, 16, or 32. The left panel shows ranked-minus-layer-matched-random absolute generated-count shift over all samples. The right panel shows correct-to-wrong probability excess among baseline-correct samples. Filled markers pass Holm correction across twelve model-by-K tests within the endpoint; hollow markers do not.</desc>',
+    ]
+    for panel_index, panel in enumerate(panels):
+        x0 = float(panel["x0"])
+        panel_w = float(panel["width"])
+        plot_left, plot_right = x0 + 70, x0 + panel_w - 18
+        lows = [0.0]
+        highs = [0.0]
+        for model in models:
+            for metrics in seed_confirmation["models"][model].values():
+                item = metrics[str(panel["metric"])]
+                lows.append(float(item["ci95_low"]))
+                highs.append(float(item["ci95_high"]))
+        raw_low, raw_high = min(lows), max(highs)
+        span = max(raw_high - raw_low, 1e-6)
+        ymin = min(0.0, raw_low - 0.08 * span)
+        ymax = raw_high + 0.14 * span
+
+        def x(k: int) -> float:
+            return plot_left + ks.index(int(k)) / max(len(ks) - 1, 1) * (
+                plot_right - plot_left
+            )
+
+        def y(value: float) -> float:
+            return top + (ymax - float(value)) / (ymax - ymin) * plot_h
+
+        parts.append(
+            f'<text class="panel-title" x="{x0 + panel_w / 2:.1f}" y="34" text-anchor="middle">{html.escape(str(panel["title"]))}</text>'
+        )
+        for tick in _nice_ticks(ymin, ymax, 6):
+            if tick < ymin or tick > ymax:
+                continue
+            yy = y(tick)
+            parts.append(
+                f'<line class="grid" x1="{plot_left:.1f}" y1="{yy:.1f}" x2="{plot_right:.1f}" y2="{yy:.1f}"/>'
+            )
+            parts.append(
+                f'<text class="tick" x="{plot_left - 9:.1f}" y="{yy + 4:.1f}" text-anchor="end">{fmt(tick, 2)}</text>'
+            )
+        zero_y = y(0.0)
+        parts.append(
+            f'<line class="axis" x1="{plot_left:.1f}" y1="{zero_y:.1f}" x2="{plot_right:.1f}" y2="{zero_y:.1f}"/>'
+        )
+        parts.append(
+            f'<line class="axis" x1="{plot_left:.1f}" y1="{top}" x2="{plot_left:.1f}" y2="{height-bottom}"/>'
+        )
+        for k in ks:
+            xx = x(k)
+            parts.append(
+                f'<line class="x-guide" x1="{xx:.1f}" y1="{top}" x2="{xx:.1f}" y2="{height-bottom}"/>'
+            )
+            parts.append(
+                f'<text class="tick" x="{xx:.1f}" y="{height-bottom+25}" text-anchor="middle">{k}</text>'
+            )
+        parts.append(
+            f'<text class="axis-label" x="{(plot_left+plot_right)/2:.1f}" y="{height-30}" text-anchor="middle">full-span-ranked head-set size K</text>'
+        )
+        parts.append(
+            f'<text class="axis-label" transform="translate({x0 + 14:.1f} {top + plot_h / 2:.1f}) rotate(-90)" text-anchor="middle">{html.escape(str(panel["ylabel"]))}</text>'
+        )
+        for model in models:
+            points = []
+            for k_text, metrics in sorted(
+                seed_confirmation["models"][model].items(),
+                key=lambda item: int(item[0]),
+            ):
+                points.append((int(k_text), metrics[str(panel["metric"])]))
+            path = " ".join(
+                ("M" if index == 0 else "L")
+                + f" {x(k):.1f} {y(item['effect']):.1f}"
+                for index, (k, item) in enumerate(points)
+            )
+            parts.append(
+                f'<path class="series-line" d="{path}" style="stroke:{colors[model]}"/>'
+            )
+            for k, item in points:
+                xx, yy = x(k), y(float(item["effect"]))
+                low_y, high_y = y(float(item["ci95_low"])), y(
+                    float(item["ci95_high"])
+                )
+                holm = float(item["holm_p_across_twelve_frozen_sets"])
+                fill = colors[model] if holm <= 0.05 else "#FBFAF5"
+                parts.append(
+                    f'<line class="ci" x1="{xx:.1f}" y1="{low_y:.1f}" x2="{xx:.1f}" y2="{high_y:.1f}" style="stroke:{colors[model]}"/>'
+                )
+                if model == "Qwen3-8B":
+                    parts.append(
+                        f'<circle class="series-dot" cx="{xx:.1f}" cy="{yy:.1f}" r="7" style="fill:{fill};stroke:{colors[model]}"/>'
+                    )
+                else:
+                    parts.append(
+                        f'<rect x="{xx-7:.1f}" y="{yy-7:.1f}" width="14" height="14" rx="2" style="fill:{fill};stroke:{colors[model]};stroke-width:2"/>'
+                    )
+        if panel_index == 0:
+            parts.append(
+                '<text class="legend-label" x="146" y="61" style="fill:#27685F">● Qwen3-8B</text>'
+            )
+            parts.append(
+                '<text class="legend-label" x="288" y="61" style="fill:#A66A45">■ Gemma4-E4B</text>'
+            )
+            parts.append(
+                '<text class="legend-label" x="442" y="61">filled = 12-way Holm p≤.05</text>'
+            )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
 def build_mechanism_overview(
     ov: dict[str, Any],
     read_write: dict[str, Any],
@@ -757,6 +907,7 @@ def build_running_index_block() -> str:
     return """
 <div class="figure-block running-index-block">
 <h3>3.1 Running-index 3D · 逐个 occurrence 播放</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>如果模型在读 prompt 时维护累计状态，那么同一条 N=10 prompt 中，第 1 到第 10 个 active needle endpoint 的 residual 应随读取进度系统变化，而不是只在最终答案位置突然出现 count。</span><strong>定义与评估。</strong><span>第 n 个 endpoint state 定义为 <code>h<sup>P</sup><sub>s,n,ℓ</sub>=h<sub>ℓ</sub>(t<sup>end</sup><sub>s,n</sub>)</code>。PCA basis 只在 disjoint discovery rows 上拟合并冻结；V4.4 的30个 seeds只做 out-of-sample 投影。3D 图用于展示轨迹，正式效应由完整 residual 空间的 count regression、cross-validation 与后续因果实验判断。</span><strong>图中怎么看。</strong><span>PC1/PC2/PC3 是冻结 basis 的前三个方向；颜色表示 n=1…10，半透明小点是 seed-level states，大点是每个 n 的 centroid。轨迹有序说明 running index 可解码，但不单独证明模型必然使用它。</span></div>
 <p class="figure-intro">这张图先把 prompt counter 解释成“读取进度”：播放 n=1→10 时，彩色大点沿冻结 PCA 空间前进；当前 n 的半透明小点是 30 个 V4.4 seeds 的真实 needle-end states。它先展示 centroid trajectory，下一张 3D 再提供 layer、split、outcome 与 PC 轴的完整交互。</p>
 <figure>
 <div class="running-controls">
@@ -881,11 +1032,18 @@ def build_answer_fit_sensitivity(answer_data: dict[str, Any]) -> str:
     return f"""
 <div class="fit-sensitivity-block">
 <h3>5.1 all-fit 与 correct-only-fit：错误样本是否制造了 geometry？</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>主 PCA 若把答错样本也用于拟合，视觉上的 count trajectory 可能被错误模式或不同 accuracy composition 扭曲；因此需要用只含 clean-correct discovery rows 的 basis 做敏感性复核。</span><strong>定义与评估。</strong><span><code>all-fit</code> 与 <code>correct-only-fit</code> 都只在 V4.1 discovery 上拟合，然后投影完全相同的 V4.4 answer states。我们比较 full-space count decodability、前三PC捕获的方差/信号，以及十个 V4.4 count centroids 的45个两两距离相关；最后一项对 PCA 的旋转、镜像与轴交换不敏感。</span><strong>图表判定。</strong><span>高 centroid-distance correlation 表示两种 fit 得到相近的 count geometry；但 correct-only 在某些 count 无样本时属于类别截断的敏感性分析，不能自动替代平衡的 all-fit 主分析。</span></div>
 <p>两种 basis 都在 V4.1 discovery 上拟合，再投影完全相同的 V4.4 answer-query states。<code>common capture</code> 使用共同的 V4.1 全样本方差分母；最后一列比较相同 V4.4 states 所形成的十个 count centroids 的 45 个两两距离，因此不受 PCA 旋转和轴正负号影响。</p>
 {table(["model", "layer/use", "fit n all→correct", "correct per-count support", "common capture PC1–3", "PCA3 CV R²", "count-axis capture", "V4.4 centroid distance corr"], rows)}
 <p>Gemma 两层的 centroid-distance correlation 为 0.994–1.000，PCA3 CV R² 只变化约 0.003–0.007；Qwen 为 0.956–0.980，correct-only basis 的 R² 与 count-axis capture 有更明显下降。关键原因是 Qwen correct-only fit 在 N=7、9、10 没有样本，而 Gemma 每个 count 至少仍有 1 个正确样本；所以 correct-only 不是平衡的“更干净主分析”，而是有类别截断的敏感性分析。</p>
 <div class="conclusion"><strong>本段结论</strong>四个主层的 V4.4 centroid-distance correlation 均≥{min(correlations):.3f}，因此有序 answer geometry 不是由错误样本凭空制造；但 Qwen 的 correct-only basis 因高 count 缺类而较不稳定。主文继续使用 all-fit，correct-only 只用于确认结论方向。</div>
 </div>
+"""
+
+
+def build_answer_geometry_preface() -> str:
+    return """
+<div class="study-preface"><strong>为什么做。</strong><span>prompt-side running index 只有在最终 query 被整理成可供 LM head 使用的 answer state，才能解释模型为何输出具体数字。本节先问 answer residual 是否按 gold count 有序，再用 patching 检验该 state 是否可执行。</span><strong>定义与评估。</strong><span>在第一个答案 token 生成前保存 prompt-final <code>Total:</code> query 的 post-block residual <code>h<sup>A</sup><sub>s,N,ℓ</sub></code>；count step 与 PCA basis 均只在独立 discovery rows 上拟合。正式几何证据使用 full-space cross-validated count regression，correct-only fit 作为 outcome-conditioned sensitivity。</span><strong>可视化。</strong><span>交互 3D 图的 PC1/PC2/PC3 是冻结 basis 的前三轴，颜色表示 gold count 1–10；点间视觉距离不是显著性检验。共同坐标图只用于显示 prompt 与 answer roles 的旋转/缩放，不能因两条轨迹不平行而否定传递。</span></div>
 """
 
 
@@ -4096,6 +4254,16 @@ CLEAR_CSS = r"""
 """
 
 
+REPORT_REFINEMENT_CSS = r"""
+.study-preface{display:grid;grid-template-columns:150px 1fr;gap:10px 18px;margin:16px 0 22px;padding:16px 0;border-top:2px solid #7C8F88;border-bottom:1px solid #D1D2CC}.study-preface strong{color:#24302D}.study-preface span{line-height:1.65}
+.mechanism-actor-table{margin:18px 0 24px}.mechanism-actor-table td:nth-child(1){font-weight:700;color:#24302D}.mechanism-actor-table td{line-height:1.55}
+.causal-ledger{width:100%;min-width:1120px;table-layout:fixed}.causal-ledger th,.causal-ledger td{overflow-wrap:anywhere}.causal-ledger td{vertical-align:top;line-height:1.52}.causal-ledger td:nth-child(1){font-weight:700;color:#24302D}.causal-ledger code{white-space:normal}
+.ov-short-flow{display:grid;grid-template-columns:1.15fr 34px 1.1fr 34px 1fr 34px 1.15fr;align-items:stretch;margin:20px 0 24px}.ov-short-flow .ov-box{padding:14px 15px;border-top:3px solid #27685F;border-bottom:1px solid #BFC5C0;background:#F4F5F1}.ov-short-flow .ov-box strong{display:block;margin-bottom:6px}.ov-short-flow .ov-box span{font-size:13px;line-height:1.5;color:#515A55}.ov-short-flow .ov-arrow{display:flex;align-items:center;justify-content:center;color:#27685F;font-size:24px;font-weight:700}.ov-operation-table td:nth-child(1){font-weight:700;white-space:nowrap}.ov-operation-table td{vertical-align:top;line-height:1.55}.ov-data-strip{margin:14px 0 20px;padding:12px 15px;border-left:4px solid #27685F;background:#F4F5F1;line-height:1.62}.ov-data-strip.gemma{border-left-color:#A66A45}
+@media(max-width:980px){.ov-short-flow{grid-template-columns:1fr}.ov-short-flow .ov-arrow{height:30px;transform:rotate(90deg)}}
+@media(max-width:820px){.study-preface{grid-template-columns:1fr}.mechanism-actor-table{min-width:980px}.causal-ledger{min-width:1120px}}
+"""
+
+
 def _route_row(
     analysis: dict[str, Any], model: str, route: str
 ) -> dict[str, Any]:
@@ -4107,6 +4275,30 @@ def _route_row(
     if len(hits) != 1:
         raise RuntimeError(f"Missing route row for {model}/{route}")
     return hits[0]
+
+
+def _fullspan_upstream_row(
+    analysis: dict[str, Any], *, early_set: str, route: str
+) -> dict[str, Any]:
+    primary_late_set = str(analysis["config"]["primary_late_set"])
+    hits = [
+        row
+        for row in analysis["summary"]
+        if str(row["early_set"]) == early_set
+        and str(row["route"]) == route
+        and str(row["late_set"]) == primary_late_set
+    ]
+    if len(hits) != 1:
+        raise RuntimeError(
+            f"Missing full-span upstream row {early_set}/{route}/{primary_late_set}"
+        )
+    return hits[0]
+
+
+def _head_labels(candidates: Sequence[Sequence[Any]], k: int) -> list[str]:
+    return [
+        f"L{int(item[0])}H{int(item[1])}" for item in list(candidates)[: int(k)]
+    ]
 
 
 def answer_patch_comparison_svg(causal_v2: dict[str, Any]) -> str:
@@ -4198,6 +4390,20 @@ def build_mechanism_overview_clear(
     g_all = causal_v2["primary_confirmation_family_summary"]["Gemma4-E4B::answer_patching"]
     q_correct = causal_v2["correct_interventions"]["patch_pooled"]["Qwen3-8B::answer_patching"]
     g_correct = causal_v2["correct_interventions"]["patch_pooled"]["Gemma4-E4B::answer_patching"]
+    q_actor_rows = [
+        ["Needle-end residual hᴾ(s,n,ℓ)", "第 n 个 active needle 的最后 token", "decoder block 把此前上下文与当前 record 更新进 residual；count step bᴾℓ 用 discovery OLS 提取", "分布在 prompt positions 的 running-index state", "frozen-basis geometry；不是单独的因果 head 定位"],
+        ["Early bank: L23H28/L23H29/L26H20/L27H18", "注册 slot-query positions 上可访问的 prompt states", "各 head 计算 zₕ(q)=Σⱼαₕ(q,j)Vg(h)h(j)，再经自身 Wᴼʰ 写回；实验只确认 set-level source function，不虚构四个 head 的逐头分工", "送入 L28 之前的 donor-directed state change", f"fresh serial source+mediation IUT p={fmt_p(upstream['primary_decision']['intersection_union_p'])}"],
+        ["L28 H16/H19", "进入 L28 的可访问 state；α 选择 source，V 提供 content", "RR/RD/DR/DD 交叉替换后做 Shapley 分解；两部分形成 pre-O z，再由 ΣWᴼʰzₕ 写入 residual", "L28 post-attention count-related residual step", "routing 与 value families 均显著；natural-OV global IUT 显著"],
+        ["H19 within the L28 set", "与 H16 共享的 L28 mediator input", "leave-one-out 删除单 head，测完整 set mediation 的下降", "set 内非冗余的主要锚点；不等同于 H19 单头充分", "H19 LOO decrement 显著；H16 更接近 companion/redundant role"],
+        ["L29–L35 answer-query residual", "L28 Wᴼ 写回后的 residual state", "attention/MLP block 与 residual skip 共同施加下游 Jacobian Jℓ→A；沿每层冻结 bᴬℓ 测投影", "可由 LM head 读取的 terminal answer-count state", "natural−orthogonal propagation 在各层通过 Holm；answer patch 改变数字"],
+    ]
+    g_actor_rows = [
+        ["Needle-end residual hᴾ(s,n,ℓ)", "第 n 个 active needle endpoint；S layer 仅见512-token窗口，F layer见完整 prefix", "局部更新、周期性 full-attention refresh 与 residual/MLP 变换共同形成有序 state", "prompt-side running-index representation", "frozen-basis geometry；不把 state 简化为窗口内单一整数 token"],
+        ["L29H4 (full-attention)", "answer query 可访问的完整 causal prefix", "z₂₉,₄=Σⱼα₂₉,₄(q,j)Vg(h)h(j)，再由自身 Wᴼ²⁹,⁴ 写回", "第一次冻结 source-bank write；与 L35H2 联合作为 K2 source", "full-span rank #1；K1/K2 matched-control ablation 与 K2 path patch"],
+        ["L35H2 (full-attention)", "经过 L29–L34 处理后的全 prefix state", "z₃₅,₂=ΣⱼαV 汇集，再经自身 Wᴼ³⁵,² 写回；实验确认 K2 联合路径，不声称它独自完成全部计数", "进入 L36–L40 sliding stack 前的全局刷新", "full-span rank #2；与 L29H4 共同构成确认 source bank"],
+        ["L37 answer-query residual mediator", "K2 source patch 在前两层 Wᴼ 写回后诱发的 δ₃₇", "exact block 删除完整 δ₃₇；count-axis block 删除 projᵦ₃₇(δ₃₇)，均与等范数正交删除比较", "窗口内继续传播的分布式、部分 count-aligned state", "exact 与 count-axis mediation families 均通过 IUT"],
+        ["L41 terminal full-attention state", "L37 经 L38–L40 residual/局部 blocks 传来的 state，并可再次访问完整 prefix", "测 Δh₄₁ 在冻结 b₄₁ 上的 donor-count adoption，再由 LM head 生成数字", "可执行 answer count distribution", "terminal adoption 与独立 answer-state patch 均显著"],
+    ]
     return f"""
 <section id="mechanism-overview" class="mechanism-main mechanism-clear">
 <div class="main-figure-kicker">NON-THINKING COUNTING · MODEL-SPECIFIC MECHANISMS</div>
@@ -4235,6 +4441,7 @@ def build_mechanism_overview_detailed(
     ov: dict[str, Any],
     read_write: dict[str, Any],
     upstream: dict[str, Any],
+    fullspan_upstream: dict[str, Any],
     gemma_residual: dict[str, Any],
     causal_v2: dict[str, Any],
     correct_state: dict[str, Any],
@@ -4245,6 +4452,31 @@ def build_mechanism_overview_detailed(
     g_all = causal_v2["primary_confirmation_family_summary"]["Gemma4-E4B::answer_patching"]
     q_correct = causal_v2["correct_interventions"]["patch_pooled"]["Qwen3-8B::answer_patching"]
     g_correct = causal_v2["correct_interventions"]["patch_pooled"]["Gemma4-E4B::answer_patching"]
+    q_fs_top4 = _fullspan_upstream_row(
+        fullspan_upstream, early_set="top4", route="slot_state"
+    )
+    q_fs_top4_p = max(
+        float(q_fs_top4["early_donor_log_odds_gain_holm_p"]),
+        float(q_fs_top4["donor_log_odds_mediation_specificity_holm_p"]),
+    )
+    q_fs_top4_heads = _head_labels(
+        fullspan_upstream["config"]["early_candidates"], 4
+    )
+    q_fs_top4_text = ", ".join(q_fs_top4_heads)
+    q_actor_rows = [
+        ["Needle-end residual hᴾ(s,n,ℓ)", "同一 N=10 prompt 中第 n 个 active needle 的最后 token", "decoder block 把此前 causal prefix 与当前 record 更新进 residual；在 discovery seeds 上逐维 OLS 得到单位 count step bᴾℓ", "分布在 prompt positions 的 running-index state", "冻结 basis 的 ordered geometry；这里只定位 state，不把它虚构成某个单头"],
+        [f"Full-span early top-4：{q_fs_top4_text}", "注册的 slot-state positions 上已经形成的 prompt-side states", "每个 head 先算 zₕ(q)=Σⱼαₕ(q,j)Vg(h)h(j)，再由自身 Wᴼʰ 写回；把 donor pre-O z patch 到 receiver 后，测 donor log-odds gain，并在 L28 H16/H19 精确阻断 induced natural-OV component", "送入 L28 之前的 donor-directed state change", f"10 seeds、6个K×3 routes 内 Holm；top-4 source与mediation均p={fmt_p(q_fs_top4_p)}。这是set-level证据，不臆造四个head的逐头专职"],
+        ["L28 H16/H19", "进入 L28 的可访问 state；α 选择 source positions，V 提供被读取的 content", "构造 RR/RD/DR/DD 四个 α×V 组合并做 Shapley 分账，形成 pre-O z；随后计算 ΣₕWᴼʰzₕ", "L28 post-attention residual 中的 count-related write", "routing 与 value families 均显著；natural-OV global IUT 显著"],
+        ["H19（H16/H19 set 内）", "与 H16 共用的 L28 mediator input", "leave-one-out 删除单 head，测完整 set mediation 相对下降", "set 内非冗余的主要锚点；不等同于 H19 单头充分", "H19 LOO decrement 显著；H16 是联合路径成员，但单独贡献更接近 companion/redundant role"],
+        ["L29–L35 answer-query residual", "L28 Wᴼ 写回后的 residual state", "residual skip、后续 attention 与 MLP 共同施加局部 Jacobian Jℓ→A；每层用冻结 bᴬℓ 测差分投影", "可被 LM head 读出的 terminal answer-count state", "natural-vs-orthogonal propagation 通过校正；answer-state patch 改变数字输出"],
+    ]
+    g_actor_rows = [
+        ["Needle-end residual hᴾ(s,n,ℓ)", "第 n 个 active needle endpoint；S layer 只见512-token窗口，F layer可见完整 prefix", "局部更新、周期性 full-attention refresh 与 residual/MLP 变换共同形成有序 state", "prompt-side running-index representation", "冻结 basis 的 ordered geometry；不把窗口内任意单 token 等同于完整整数寄存器"],
+        ["L29H4（full-attention）", "answer query 可访问的完整 causal prefix", "z₂₉,₄=Σⱼα₂₉,₄(q,j)Vg(h)h(j)，再由该 head 自身 Wᴼ²⁹,⁴ 写回", "第一次冻结 source-bank write；与 L35H2 联合形成 K2 source", "full-span rank #1；K1 all-sample matched-control ablation 与 K2 path experiment"],
+        ["L35H2（full-attention）", "经 L29–L34 更新后的全-prefix state", "z₃₅,₂=Σⱼα₃₅,₂(q,j)Vg(h)h(j)，再经自身 Wᴼ³⁵,² 写回；实验确认 K2 联合路径，不声称它独自完成全部计数", "进入 L36–L40 sliding stack 前的全局 refresh", "full-span rank #2；与 L29H4 共同构成确认 source bank"],
+        ["L37 answer-query residual mediator", "K2 source patch 经两组 Wᴼ 写回后诱发的 δ₃₇", "exact block 删除完整 δ₃₇；count-axis block 删除 projᵦ₃₇(δ₃₇)，并与等范数正交删除比较", "窗口内继续传播的分布式、部分 count-aligned state", "exact 与 count-axis mediation families 均通过 IUT"],
+        ["L41 terminal full-attention state", "L37 经 L38–L40 residual/局部 blocks 传来的 state，并可在 L41 再访问完整 prefix", "计算 Δh₄₁ 在冻结 b₄₁ 上的 donor-count adoption，随后由 LM head 映射到数字 logits", "可执行 answer count distribution", "terminal adoption 与独立 answer-state patch 均显著"],
+    ]
     return f"""
 <section id="mechanism-overview" class="mechanism-main mechanism-clear">
 <div class="main-figure-kicker">NON-THINKING COUNTING · MODEL-SPECIFIC MECHANISMS</div>
@@ -4266,7 +4498,7 @@ def build_mechanism_overview_detailed(
 <text class="lane-label" x="22" y="48">Qwen3-8B</text><text class="lane-sub" x="22" y="68">all layers can address the full causal prefix</text>
 <g class="paper-node qwen-node" data-mechanism-stage="0"><rect x="22" y="92" width="190" height="112" rx="8"/><text class="node-title" x="117" y="122" text-anchor="middle">Prompt running index</text><text class="node-sub" x="117" y="148" text-anchor="middle">needle-end hᴾ(s,n,ℓ)</text><text class="node-sub" x="117" y="169" text-anchor="middle">n = 1 … 10</text></g>
 <path class="paper-edge qwen-edge" data-mechanism-edge="1" d="M216 148 L260 148" marker-end="url(#mechanism-arrow-q)"/>
-<g class="paper-node qwen-node" data-mechanism-stage="1"><rect x="268" y="92" width="190" height="112" rx="8"/><text class="node-title" x="363" y="119" text-anchor="middle">Early slot-state bank</text><text class="node-sub" x="363" y="145" text-anchor="middle">L23H28 · L23H29</text><text class="node-sub" x="363" y="166" text-anchor="middle">L26H20 · L27H18</text></g>
+<g class="paper-node qwen-node" data-mechanism-stage="1"><rect x="268" y="92" width="190" height="112" rx="8"/><text class="node-title" x="363" y="119" text-anchor="middle">Full-span early top-4</text><text class="node-sub" x="363" y="145" text-anchor="middle">L27H18 · L23H29</text><text class="node-sub" x="363" y="166" text-anchor="middle">L23H13 · L23H28</text></g>
 <path class="paper-edge qwen-edge" data-mechanism-edge="2" d="M462 148 L506 148" marker-end="url(#mechanism-arrow-q)"/>
 <g class="paper-node qwen-node" data-mechanism-stage="2"><rect x="514" y="92" width="190" height="112" rx="8"/><text class="node-title" x="609" y="119" text-anchor="middle">L28 H16/H19 read</text><text class="node-sub" x="609" y="145" text-anchor="middle">z = Σⱼ α(q,j)V(j)</text><text class="node-sub" x="609" y="166" text-anchor="middle">routing + value content</text></g>
 <path class="paper-edge qwen-edge" data-mechanism-edge="3" d="M708 148 L752 148" marker-end="url(#mechanism-arrow-q)"/>
@@ -4300,49 +4532,63 @@ def build_mechanism_overview_detailed(
 <div><strong>Prompt state</strong><span>对 seed <em>s</em> 的同一个 N=10 prompt，定位第 <em>n</em> 个 active needle 的最后一个 token <code>t<sup>end</sup><sub>s,n</sub></code>，保存第 ℓ 个 decoder block 后的完整 residual：<code>h<sup>P</sup><sub>s,n,ℓ</sub>=h<sub>ℓ</sub>(t<sup>end</sup><sub>s,n</sub>)</code>。所以 n=1…10 是同一条 prompt 内的读取进度，不是十条不同 prompt。</span></div>
 <div><strong>Answer state</strong><span>对 gold count 为 N 的 prompt，在生成第一个答案 token 之前，保存 prompt-final <code>Total:</code> query 的 post-block residual：<code>h<sup>A</sup><sub>s,N,ℓ</sub></code>。这一位置之后直接连接 LM head，因此 answer patching 在此处检验“state 是否可执行”。</span></div>
 <div><strong>Count step</strong><span>在独立 discovery seeds 上对完整 residual 做逐维 OLS：<code>b<sub>ℓ</sub>=Σ<sub>i</sub>(c<sub>i</sub>−c̄)(h<sub>i,ℓ</sub>−h̄<sub>ℓ</sub>)/Σ<sub>i</sub>(c<sub>i</sub>−c̄)²</code>。它表示 count 增加 1 时 residual 的平均向量变化；单位轴为 <code>u<sub>ℓ</sub>=b<sub>ℓ</sub>/||b<sub>ℓ</sub>||</code>。PCA 只把 frozen discovery basis 投影成 3D，不参与因果干预。</span></div>
-<div><strong>Head read/write</strong><span>在 query q，<code>α<sub>h</sub>(q,j)=softmax(q<sub>h</sub>k<sub>j</sub>/√d)</code>，pre-O state 为 <code>z<sub>h</sub>(q)=Σ<sub>j</sub>α<sub>h</sub>(q,j)V<sub>g(h)</sub>h(j)</code>，写回为 <code>o<sub>h</sub>(q)=W<sub>O</sub><sup>h</sup>z<sub>h</sub>(q)</code>。α 回答“从哪里取”，V 回答“取到什么”，W<sub>O</sub> 回答“以什么 residual direction 写回”。</span></div>
+<div><strong>Natural V-path step</strong><span>OV intervention 不把上面的 raw-residual axis 直接塞进 head。先在 value-source layer 对实际 pre-attention input <code>x=RMSNorm(h)</code> 拟合一单位 count slope <code>s<sup>x</sup></code>。在线性 value path 中，query head h 的 pre-O one-count step 是 <code>d<sub>z,h</sub>=W<sub>V</sub><sup>g(h)</sup>s<sup>x</sup></code>；若模型有共享 value-source layer 或 <code>v_norm</code>，则直接对实际 <code>v<sub>g</sub>(c)</code> 做 OLS，取经验 slope <code>d<sub>z,h</sub></code>。因此 injection 使用的是模型自然 V path 中“一次 count 增量”的 head-space 向量，而不是答案轴的任意可达投影。</span></div>
+<div><strong>Head read/write</strong><span>先对进入 attention block 的 residual 做该模型的 RMSNorm，记为 <code>x(j)=Norm<sub>ℓ</sub>(h(j))</code>。对 query head h 及其 GQA KV group <code>g(h)</code>：<code>q<sub>h</sub>=W<sub>Q</sub><sup>h</sup>x(q)</code>，<code>k<sub>g</sub>(j)=W<sub>K</sub><sup>g(h)</sup>x(j)</code>，<code>v<sub>g</sub>(j)=W<sub>V</sub><sup>g(h)</sup>x(j)</code>；应用架构中的 Q/K normalization 与 RoPE 后，<code>α<sub>h</sub>(q,j)=softmax<sub>j∈A(q)</sub>(q<sub>h</sub>·k<sub>g</sub>(j)/√d)</code>，其中 <code>A(q)</code> 是 full prefix 或 Gemma 的512-token window。pre-O state 为 <code>z<sub>h</sub>(q)=Σ<sub>j∈A(q)</sub>α<sub>h</sub>(q,j)v<sub>g</sub>(j)</code>，写回为 <code>o<sub>h</sub>(q)=W<sub>O</sub><sup>h</sup>z<sub>h</sub>(q)</code>，block output 再通过 residual addition 接回 <code>h(q)</code>。α 回答“从哪里取”，V 回答“取到什么”，W<sub>O</sub> 回答“以什么 residual direction 写回”。</span></div>
 <div><strong>Causal transport</strong><span>head/path intervention 用 gold-count 间距归一化：<code>T<sub>E</sub>=[E(C)<sub>I</sub>−E(C)<sub>R</sub>]/(D−R)</code>。answer-query full-state patch 则以两条自然预测的间距归一化：<code>T<sub>pred</sub>=(y<sub>patch</sub>−y<sub>R</sub>)/(y<sub>D</sub>−y<sub>R</sub>)</code>，只在两端预测均为有效且不同的数字时定义。correct-only 分析要求 donor 与 receiver 的原始输出都正确，再计算 patch 后采用 donor gold count 的比例。</span></div>
 </div><p class="mechanism-index-note">除非另行说明，本报告中的 layer/head index 均为 zero-based；所有 axes、head sets 与 mediator layer 都在 confirmation outcome 之前冻结。</p>
 </div>
 
 <article class="model-mechanism qwen">
-<div class="model-mechanism-header"><h3>Qwen3-8B：从全上下文读取到局部 OV 写入</h3><p><strong>完整路径：</strong>needle-end running state → early slot-state bank → L28 H16/H19 的 α/V mixed read → H16/H19 自身 W<sub>O</sub> 写回 → L29–L35 answer-query count state → <code>Total:N</code>。</p></div>
+<div class="model-mechanism-header"><h3>Qwen3-8B：从 full-span early retrieval 到局部 OV 写入</h3><p><strong>完整路径：</strong>needle-end running state → L&lt;28 full-span early top-4 → L28 H16/H19 的 α/V mixed read → H16/H19 自身 W<sub>O</sub> 写回 → L29–L35 answer-query count state → <code>Total:N</code>。</p></div>
+{table(["执行者/位置", "读取对象", "具体计算", "写入或输出", "支持证据"], q_actor_rows, classes="paper-table compact-result-table mechanism-actor-table")}
 <ol class="mechanism-step-list">
 <li><span class="mechanism-step-number">01</span><span class="mechanism-step-title">在 needle endpoint 提取 running state</span><span class="mechanism-step-action">按上面的 <code>h<sup>P</sup><sub>s,n,ℓ</sub></code> 定义，在同一 N=10 prompt 中依次读取十个 endpoint。对 discovery seeds 拟合 <code>b<sup>P</sup><sub>ℓ</sub></code>；V4.4 states 只投影进冻结的 V4.1 basis。它检验的是“读到第 n 个 occurrence 后 residual 是否有序变化”，不假设神经元里存在字面整数 n。<span class="formula-line">hᴾ(s,1,ℓ) → hᴾ(s,2,ℓ) → … → hᴾ(s,10,ℓ)</span></span><span class="mechanism-step-evidence">prompt full-space CV R²：L1 0.989；display L8 0.982</span></li>
-<li><span class="mechanism-step-number">02</span><span class="mechanism-step-title">early bank 改写 slot states</span><span class="mechanism-step-action">在 discovery 中用 <code>mean(total needle-end attention mass × relative coverage)</code> 排序 broad-retrieval heads，并冻结 L23H28、L23H29、L26H20、L27H18。因果确认只在注册的 slot-query positions 把这些 heads 的 donor pre-O <code>z</code> 写入 receiver，再测量后续 L28 与答案分布的变化。随后把 L28 induced <code>Δz</code> 精确恢复到 receiver baseline；若 donor shift 被特异消除，则建立 early bank → L28 的串联关系。</span><span class="mechanism-step-evidence">fresh-seed serial-path IUT p={fmt_p(upstream['primary_decision']['intersection_union_p'])}</span></li>
+<li><span class="mechanism-step-number">02</span><span class="mechanism-step-title">full-span early bank 改写 slot states</span><span class="mechanism-step-action">在 discovery 中按 full-span literal mass × occurrence coverage 排序，并冻结 nested K=1/2/4/8/16/32。top-4 是 {q_fs_top4_text}。对10个 evaluation seeds、count 1–10、6个双向 donor pairs，只在注册 slot-state positions 把这四个 heads 的 donor pre-O <code>z</code> 写入 receiver，再测 donor-vs-receiver log-odds gain。随后在 L28 H16/H19 的真实 pre-O slices 精确删除 early patch 诱发的 natural-OV component，并与同输出 span、等范数正交 block 比较。</span><span class="mechanism-step-evidence">top-4 slot-state source={q_fs_top4['early_donor_log_odds_gain_mean']:.3f} [{q_fs_top4['early_donor_log_odds_gain_ci_low']:.3f}, {q_fs_top4['early_donor_log_odds_gain_ci_high']:.3f}] · mediation={q_fs_top4['donor_log_odds_mediation_specificity_mean']:.3f} [{q_fs_top4['donor_log_odds_mediation_specificity_ci_low']:.3f}, {q_fs_top4['donor_log_odds_mediation_specificity_ci_high']:.3f}] · both Holm p={fmt_p(q_fs_top4_p)}</span></li>
 <li><span class="mechanism-step-number">03</span><span class="mechanism-step-title">L28 H16/H19 同时用 routing 与 value 读取</span><span class="mechanism-step-action">在 answer query q 保存 receiver/donor 的全部 α 与 V，并构造四个 pre-O endpoint：RR、RD、DR、DD；第一个字母表示 α 来源，第二个表示 V 来源。Shapley 分解把同一个 donor movement 精确分账：<span class="formula-line">Δz<sub>value</sub>=½[(z<sub>RD</sub>−z<sub>RR</sub>)+(z<sub>DD</sub>−z<sub>DR</sub>)]</span><span class="formula-line">Δz<sub>route</sub>=½[(z<sub>DR</sub>−z<sub>RR</sub>)+(z<sub>DD</sub>−z<sub>RD</sub>)]</span>两个分量都必须既推动 donor count，又通过冻结 natural-OV axis 才算自然读取。</span><span class="mechanism-step-evidence">routing family p={fmt_p(read_write['primary_decision']['read_mode']['routing_family_p'])} · value family p={fmt_p(read_write['primary_decision']['read_mode']['value_family_p'])}</span></li>
-<li><span class="mechanism-step-number">04</span><span class="mechanism-step-title">真实 pre-O OV 写入并改变坐标</span><span class="mechanism-step-action">先把 prompt 单位 count step 投影到每个 GQA value path：<code>d<sub>z,h</sub>=W<sub>V</sub><sup>g(h)</sup>b<sup>P</sup></code>；再定义 set 的自然写入方向 <code>m<sub>S</sub>=Σ<sub>h∈S</sub>W<sub>O</sub><sup>h</sup>d<sub>z,h</sub></code>。真实 injection 在 W<sub>O</sub> 之前做 <code>z<sub>h</sub>←z<sub>h</sub>+βd<sub>z,h</sub></code>；centered removal 从 <code>z−z₀</code> 中删除沿 <code>m<sub>S</sub></code> 的自然分量，并与同一 W<sub>O</sub> span、等 post-O 范数的正交控制比较。所有 residual 变化都必须经过 heads 自己的 W<sub>O</sub>。</span><span class="mechanism-step-evidence">natural OV global IUT p={fmt_p(ov['primary_decision']['global_intersection_union_p'])}</span></li>
+<li><span class="mechanism-step-number">04</span><span class="mechanism-step-title">真实 pre-O OV 写入并改变坐标</span><span class="mechanism-step-action">先在 value-source layer 的实际 RMSNorm 后输入上拟合单位 count slope <code>s<sup>x</sup></code>，并按 GQA 映射到每个 query head：标准线性 value path 用 <code>d<sub>z,h</sub>=W<sub>V</sub><sup>g(h)</sup>s<sup>x</sup></code>；共享/非线性 value path 则直接拟合实际 value states 的经验 slope。再定义 set 的自然写入方向 <code>m<sub>S</sub>=Σ<sub>h∈S</sub>W<sub>O</sub><sup>h</sup>d<sub>z,h</sub></code>。真实 injection 在 W<sub>O</sub> 之前做 <code>z<sub>h</sub>←z<sub>h</sub>+βd<sub>z,h</sub></code>；centered removal 从 <code>z−z₀</code> 中删除沿 <code>m<sub>S</sub></code> 的自然分量，并与同一 W<sub>O</sub> span、等 post-O 范数的正交控制比较。所有 residual 变化都必须经过 heads 自己的 W<sub>O</sub>。</span><span class="mechanism-step-evidence">natural OV global IUT p={fmt_p(ov['primary_decision']['global_intersection_union_p'])}</span></li>
 <li><span class="mechanism-step-number">05</span><span class="mechanism-step-title">沿 frozen answer axes 传播并驱动数字</span><span class="mechanism-step-action">对每个 downstream layer 用 discovery answer-query states 拟合自然 count step <code>b<sup>A</sup><sub>ℓ</sub></code>，再计算注入差分在该轴上的系数：<span class="formula-line">a<sub>ℓ</sub>=&lt;[h<sub>ℓ</sub>(+β)−h<sub>ℓ</sub>(−β)]/(2β), b<sup>A</sup><sub>ℓ</sub>&gt;/||b<sup>A</sup><sub>ℓ</sub>||²</span>最后，用单层 full-residual donor patch 替换 receiver 的 <code>Total:</code> query state，并从原 receiver context 完整 greedy 生成；这检验的是可执行信息，不是 PCA 相似度。</span><span class="mechanism-step-evidence">all-sample transport={q_all['mean_effect']:.3f} · correct-only adoption={100*q_correct['pooled_average_patching_acc']:.1f}% · fresh p={fmt_p(q_patch['source_donor_log_odds_gain_p'])}</span></li>
 </ol>
 </article>
 
 <article class="model-mechanism gemma">
 <div class="model-mechanism-header"><h3>Gemma4-E4B：周期性全局读取与窗口内 residual 传递</h3><p><strong>完整路径：</strong>needle-end running state → full-attention L29H4/L35H2 K2 bank → donor pre-O z 经各自 W<sub>O</sub> 写回 → L37 distributed residual mediator → L41 terminal state → <code>Total:N</code>。</p></div>
+{table(["执行者/位置", "读取对象", "具体计算", "写入或输出", "支持证据"], g_actor_rows, classes="paper-table compact-result-table mechanism-actor-table")}
 <div class="window-explainer"><h4>512-token window 实际改变了什么？</h4><div class="window-explainer-grid"><div><strong>Sliding layer S</strong><p>query q 只能访问 <code>j∈[max(0,q−511),q]</code>。在约 10k-token prompt 的末端，S layer 无法直接重新读取大部分远端 needles。</p></div><div><strong>Full layer F</strong><p>每六层出现一次 full attention；zero-based 为 L5、11、17、23、29、35、41。确认的 L29H4/L35H2 正好都在 F layers，因此能够在 answer query 直接汇集全 prompt。</p></div><div><strong>机制后果</strong><p>L35 先把全局信息写进 answer-query residual；之后 L36–L40 的 S layers 即使看不到远端 needles，residual skip 仍携带这个 state，并可结合近端 query context 局部变换；L41 再进行一次全局层更新。</p></div></div><p class="mechanism-index-note">这不是说 window 内的单个 token 必须保存完整整数；它说明已确认的因果路径具有“F layer 全局刷新 → S layer 在同一 query residual 上保持/变换 → terminal readout”的架构节奏。Gemma4 配置中的 <a href="https://huggingface.co/google/gemma-4-E4B-it/blob/ee0ef6023621cff504d758262d4e04895a5af4a2/config.json">layer_types 与 sliding_window</a>固定为本实验所用 revision。</p></div>
 <ol class="mechanism-step-list">
 <li><span class="mechanism-step-number">01</span><span class="mechanism-step-title">用同一定义提取 prompt running state</span><span class="mechanism-step-action">仍然保存每个 active needle 最后 token 的 post-block residual <code>h<sup>P</sup><sub>s,n,ℓ</sub></code>，并在独立 discovery seeds 上拟合完整空间 count step。因为 S layer 的感受野有限，某层 endpoint state 可能是局部累计、前面 full layer 的全局刷新以及 residual/MLP 变换的合成；ordered geometry 本身不把三者强行拆开。</span><span class="mechanism-step-evidence">prompt full-space CV R²：display L9 0.913；probe L22 0.932</span></li>
-<li><span class="mechanism-step-number">02</span><span class="mechanism-step-title">冻结 full-attention K2 source bank</span><span class="mechanism-step-action">从预先排序的 correct-only broad-retrieval bank 冻结 L29H4 与 L35H2，并准备三个 layer-matched K2 controls。对 donor/receiver count pair，只在 receiver 的 answer-query pre-O slice 替换这两个 heads 的 <code>z<sub>h</sub></code>；其余 heads、tokens 与 receiver context 不变。因为 replacement 位于 W<sub>O</sub> 输入端，任何 downstream effect 都由 Gemma 自己的 output projections 写入。</span><span class="mechanism-step-evidence">fresh top-k ablation：K1/K2 correct-only Holm-significant</span></li>
+<li><span class="mechanism-step-number">02</span><span class="mechanism-step-title">冻结 full-attention K2 source bank</span><span class="mechanism-step-action">从 full-span broad-retrieval 排序冻结 L29H4 与 L35H2，并准备三个 layer-matched K2 controls。对 donor/receiver count pair，只在 receiver 的 answer-query pre-O slice 替换这两个 heads 的 <code>z<sub>h</sub></code>；其余 heads、tokens 与 receiver context 不变。因为 replacement 位于 W<sub>O</sub> 输入端，任何 downstream effect 都由 Gemma 自己的 output projections 写入。</span><span class="mechanism-step-evidence">fresh full-span ablation：K1/K2 all-sample Holm-significant；K2 residual-path IUT significant</span></li>
 <li><span class="mechanism-step-number">03</span><span class="mechanism-step-title">从候选 layers 中冻结 L37 residual mediator</span><span class="mechanism-step-action">在 discovery seeds 上先对自然 answer-query residual 拟合 <code>h<sub>ℓ</sub>(c)=a<sub>ℓ</sub>+c·b<sub>ℓ</sub></code>；再对 L36–L40 计算 K2 donor patch 引起的 <code>Δh<sub>ℓ</sub></code> 沿单位 count step 的平均投影。按 <code>mean&lt;Δh<sub>ℓ</sub>,u<sub>ℓ</sub>&gt;</code> 最大且 layer index 打破并列的预注册规则选择 L37，之后不再用 confirmation outcome 重选。</span><span class="mechanism-step-evidence">discovery seeds 1456–1465 · fit counts 1/3/5/7/9 · selected L37</span></li>
 <li><span class="mechanism-step-number">04</span><span class="mechanism-step-title">用 exact block 与 count-axis block 验证传播</span><span class="mechanism-step-action">在 confirmation trial 中先测 source patch 在 L37 诱发的精确变化 <code>δ=h<sub>37</sub><sup>patch</sup>−h<sub>37</sub><sup>receiver</sup></code>。随后分别加入 <code>−δ</code>（exact block）或 <code>−proj<sub>b37</sub>(δ)</code>（count-axis block）；对照向量与被删分量等范数且正交。若 block 比对照更强地消除 donor log-odds gain，并同时降低 L41 沿 frozen count step 的 adoption，才认为 L37 中介 source-bank effect。</span><span class="mechanism-step-evidence">source + exact/count-axis mediation · global IUT p={fmt_p(gemma_residual['primary_decision']['global_intersection_union_p'])}</span></li>
 <li><span class="mechanism-step-number">05</span><span class="mechanism-step-title">L41 terminal state 与完整答案输出</span><span class="mechanism-step-action">L41 的 state change 用 <code>&lt;Δh<sub>41</sub>,b<sub>41</sub>&gt;/||b<sub>41</sub>||²/(D−R)</code> 量化 donor count adoption；独立 answer-query full-state patch 再检验整个聚合 state 是否足以改变 greedy 数字。前者追踪 K2→L37→L41 的特定路径，后者验证最终 state 的可执行性。</span><span class="mechanism-step-evidence">terminal adoption p={fmt_p(gemma_residual['primary_decision']['families']['terminal_count_adoption']['intersection_union_p'])} · all-sample transport={g_all['mean_effect']:.3f} · correct-only adoption={100*g_correct['pooled_average_patching_acc']:.1f}% · fresh p={fmt_p(g_patch['source_donor_log_odds_gain_p'])}</span></li>
 </ol>
 </article>
 
-<div class="mechanism-principle"><strong>为什么 prompt counter 与 answer counter 可以方向不同？</strong><div class="equation">u<sub>P</sub> → d<sub>z</sub>=W<sub>V</sub>u<sub>P</sub> → m<sub>S</sub>=ΣW<sub>O</sub>d<sub>z</sub> → u<sub>A</sub>∝J<sub>write→answer</sub>m<sub>S</sub></div><p>模型需要保持的是 count ordering、可解码性和 donor-directed causal transport，而不是让两个 token role 在欧氏空间共用一条直线。V projection、W<sub>O</sub> 与后续 attention/MLP Jacobian 都会旋转、缩放或压缩表示；所以判断“同一个 counter”应看 frozen-axis transport 与干预特异性，而不是要求两张 PCA 图视觉平行。</p></div>
+<div class="mechanism-principle"><strong>为什么 prompt counter 与 answer counter 可以方向不同？</strong><div class="equation">h<sup>P</sup> → s<sup>x</sup>=OLS[Norm(h<sup>P</sup>)∼c] → d<sub>z,h</sub>=VPath<sub>g(h)</sub>(s<sup>x</sup>) → m<sub>S</sub>=ΣW<sub>O</sub>d<sub>z</sub> → u<sub>A</sub>∝J<sub>write→answer</sub>m<sub>S</sub></div><p>模型需要保持的是 count ordering、可解码性和 donor-directed causal transport，而不是让两个 token role 在欧氏空间共用一条直线。RMSNorm/value path、W<sub>O</sub> 与后续 attention/MLP Jacobian 都会旋转、缩放或压缩表示；所以判断“同一个 counter”应看 frozen-axis transport 与干预特异性，而不是要求两张 PCA 图视觉平行。</p></div>
+<div class="conclusion"><strong>机制总览结论</strong>两模型都实现“prompt 累计 state → attention-head read → pre-O head state → W<sub>O</sub>/residual write → executable answer state”。Qwen 的已确认写入粒度是 L28 H16/H19 set；Gemma 的已确认粒度是 L29H4/L35H2 source bank 及其 L37 residual mediator。表中未被单头干预区分的步骤只作 set-level 陈述，不据 attention 排名臆造逐头专职。</div>
 </section>
 """
 
 
 def build_scope_clear(
-    causal_v2: dict[str, Any], ov: dict[str, Any], upstream: dict[str, Any], gemma_residual: dict[str, Any]
+    causal_v2: dict[str, Any],
+    ov: dict[str, Any],
+    fullspan_upstream: dict[str, Any],
+    gemma_residual: dict[str, Any],
 ) -> str:
+    q_fs_top4 = _fullspan_upstream_row(
+        fullspan_upstream, early_set="top4", route="slot_state"
+    )
+    q_fs_top4_p = max(
+        float(q_fs_top4["early_donor_log_odds_gain_holm_p"]),
+        float(q_fs_top4["donor_log_odds_mediation_specificity_holm_p"]),
+    )
     return f"""
 <section id="scope">
 <h2>1 · 结论先行</h2>
 <div class="scope-lines">
 <div class="scope-line"><strong>Prompt representation</strong><span>Qwen 与 Gemma 都形成随 occurrence index 有序变化的 running-counter geometry。</span><span class="status">REPRESENTATION</span></div>
 <div class="scope-line"><strong>Broad retrieval</strong><span>冻结 top-k bank 的 ablation 相对 layer-matched random heads 造成更大的计数行为变化。</span><span class="status">FUNCTIONAL</span></div>
-<div class="scope-line"><strong>Qwen causal path</strong><span>early broad bank → L28 H16/H19 mixed α/V read → natural OV write → L35 answer state。</span><span class="status">IUT p={fmt_p(ov['primary_decision']['global_intersection_union_p'])}</span></div>
+<div class="scope-line"><strong>Qwen causal path</strong><span>full-span early top-4 → L28 H16/H19 mixed α/V read → natural OV write → L35 answer state。</span><span class="status">serial Holm p={fmt_p(q_fs_top4_p)} · OV IUT p={fmt_p(ov['primary_decision']['global_intersection_union_p'])}</span></div>
 <div class="scope-line"><strong>Gemma causal path</strong><span>L29H4/L35H2 bank → L37 count-aligned residual → L41 answer state。</span><span class="status">IUT p={fmt_p(gemma_residual['primary_decision']['global_intersection_union_p'])}</span></div>
 <div class="scope-line"><strong>Answer readout</strong><span>all-sample 与 correct-only answer-query patching 都显示 donor state 能推动 receiver 采用 donor count。</span><span class="status">CAUSAL PATCH</span></div>
 </div>
@@ -4351,13 +4597,189 @@ def build_scope_clear(
 """
 
 
-def build_methods_clear(
-    ov: dict[str, Any], upstream: dict[str, Any], gemma_residual: dict[str, Any]
+def build_causal_experiment_ledger(
+    causal_v2: dict[str, Any],
+    ov: dict[str, Any],
+    read_write: dict[str, Any],
+    upstream: dict[str, Any],
+    fullspan_upstream: dict[str, Any],
+    gemma_residual: dict[str, Any],
 ) -> str:
+    q_fs_top4 = _fullspan_upstream_row(
+        fullspan_upstream, early_set="top4", route="slot_state"
+    )
+    q_fs_top4_p = max(
+        float(q_fs_top4["early_donor_log_odds_gain_holm_p"]),
+        float(q_fs_top4["donor_log_odds_mediation_specificity_holm_p"]),
+    )
+    q_answer_conditions = int(
+        causal_v2["selection"]["Qwen3-8B"]["answer_patching"][
+            "selected_conditions"
+        ]
+    )
+    g_answer_conditions = int(
+        causal_v2["selection"]["Gemma4-E4B"]["answer_patching"][
+            "selected_conditions"
+        ]
+    )
+    q_steer_conditions = int(
+        causal_v2["selection"]["Qwen3-8B"]["steering"]["selected_conditions"]
+    )
+    g_steer_conditions = int(
+        causal_v2["selection"]["Gemma4-E4B"]["steering"]["selected_conditions"]
+    )
+    directed_pairs_v2 = (
+        "R←D: 0←1/1←0, 4←5/5←4, 9←10/10←9; "
+        "0←3/3←0, 3←6/6←3, 7←10/10←7; "
+        "0←5/5←0, 2←7/7←2, 5←10/10←5"
+    )
+    bidirectional_pairs = "R←D: 1←6, 6←1, 3←8, 8←3, 5←10, 10←5"
+    return table(
+        [
+            "实验",
+            "数据与冻结规则",
+            "source → receiver",
+            "实际改动位置与内容",
+            "matched control",
+            "effect 与显著性",
+        ],
+        [
+            [
+                "Full-span Top-K ablation",
+                "Qwen/Gemma；fresh seeds 1316–1335；count 1–5；每模型100条。full-span score 与 nested K=1/2/4/8/16/32 在结果前冻结。",
+                "无 donor；每条样本只改自身 final <code>Total:</code> query。",
+                "仅在 final answer query 把 ranked heads 的 pre-<em>O</em> output slices 置零；prompt tokens 和其他 query 不改。",
+                "3个 layer-matched random banks；每层删除的 head 数与 ranked bank 完全一致。",
+                "all-sample: ranked−random absolute generated-count shift；correct-only: ranked−random correct→wrong rate。20个 seed 等权，10,000次 bootstrap；每 endpoint 12-way Holm。",
+            ],
+            [
+                "All-sample answer-query patch",
+                f"counts 0–10；screen seeds 1254–1258，held-out confirmation 1259–1263；screen 后冻结 Qwen {q_answer_conditions} / Gemma {g_answer_conditions} 个 layer×protocol×k 条件。",
+                directed_pairs_v2,
+                "把 donor 在 final <code>Total:</code> query 的完整 post-block residual 向量复制给 receiver；<code>single_layer</code> 只替换一层，<code>cumulative_from_layer</code> 从该层一直 clamp 到 final layer。",
+                "同位置 self-patch；另加同 count、不同 seed 的 answer state。",
+                "<code>T=(yP−y0)/(D−R)</code>，再减 matched controls。每个保留条件用5个 held-out seeds；seed bootstrap、exact sign flip，条件内 Holm。",
+            ],
+            [
+                "Correct-only answer-query patch",
+                "复用上一行已经冻结的 exact conditions；只保留同一 seed 内 donor 与 receiver clean generation 都正确的 pairs。每个 model×k×direction 至少5个 eligible seed clusters；k=1/3/5。",
+                directed_pairs_v2,
+                "仍是完整 answer-query residual donor→receiver copy；不重新选 layer、protocol 或 k。Qwen 缺口补入 seeds 1274/1275/1276/1278；Gemma 补入 1275/1277/1281/1295。",
+                "正确性是入组条件；invalid patched generation 记 donor-adoption failure。",
+                "<code>A=1[patched count=D]</code>；按 eligible pair pooled，seed-cluster bootstrap CI。Qwen/Gemma adoption 为96.6%/96.0%。",
+            ],
+            [
+                "Geometric residual steering（宏观）",
+                f"answer-query centroids 用 seeds 1234–1253、counts 0–10 拟合；screen 1254–1258，confirm 1259–1263；singleton screen 保留 Qwen {q_steer_conditions} / Gemma {g_steer_conditions} 个条件，并冻结 multi-layer plans。",
+                directed_pairs_v2,
+                "不是 donor patch。对 receiver 在 layer L 加 <code>μL,D−μL,R</code>；multi-layer plan 在冻结的多层同时加各层自己的 centroid delta；α=1。",
+                "同一 layer、同一 receiver、与 centroid delta 正交且范数相同的确定性方向。",
+                "control-adjusted normalized transport。它证明 population count direction 可操纵，不定位某个 OV head set。",
+            ],
+            [
+                "Fresh correct-only answer aggregate patch",
+                "20个共同 clean-correct seeds：1700/1701/1702/1704/1706–1713/1715–1722；counts 1/2/3；每 seed 六个有向 pairs。",
+                "R←D: 1←2, 2←1, 1←3, 3←1, 2←3, 3←2。",
+                "在 answer query 把冻结 source-bank 的完整 pre-<em>O</em> z 从 donor patch 到 receiver。Qwen source=L27H18/L23H28/L23H29/L26H20；Gemma source=L29H4/L35H2/L35H7/L35H1/L35H3/L29H2。",
+                "同一 frozen writer space 的 exact block 与等输出范数正交 block；正文这里只使用不依赖 writer 成败的 source-patch endpoint。",
+                "donor-vs-receiver sequence log-odds gain；20个 seed exact sign flip。Qwen p=1.43×10<sup>−5</sup>，Gemma p=9.54×10<sup>−7</sup>。",
+            ],
+            [
+                "Qwen full-span early bank → L28",
+                "seeds 1284–1293；counts 1–10；L&lt;28 full-span nested K=1/2/4/8/16/32；routes=<code>slot_state</code>/<code>slot_edge_qk</code>/<code>answer_query_full</code>。",
+                bidirectional_pairs,
+                "主路径把 donor 的 early top-4 pre-<em>O</em> slot-state <code>z</code> patch 给 receiver；随后在 L28 H16/H19 精确删除该 patch 诱发的 natural-axis output component。",
+                "在同一 H16/H19 <em>W</em><sub>O</sub> span 删除等 post-<em>O</em> 范数、与 natural axis 正交的 component。",
+                f"source donor log-odds gain 与 L28 mediation specificity 必须同时为正；18个K×route组合内 Holm，top-4 两项均 p={fmt_p(q_fs_top4_p)}。",
+            ],
+            [
+                "Qwen route-family fresh replication",
+                "fresh seeds 1294–1313；counts 1–10；旧 endpoint-ranked early top-4 与 slot-state route 预先冻结。",
+                bidirectional_pairs,
+                "同样先做 early donor-z patch，再在 L28 H16–H19 frozen set 做 exact/LOO block。",
+                "L28 matched orthogonal block；并做 leave-one-out。",
+                f"source+mediation IUT p={fmt_p(upstream['primary_decision']['intersection_union_p'])}；确认 route family，不冒充新 full-span exact-set replication。",
+            ],
+            [
+                "Qwen α/V read decomposition",
+                "direction/center seeds 1264–1273；evaluation 1274–1293；counts 1–10；L28 H16/H19；downstream trace L28–L35。",
+                bidirectional_pairs,
+                "在同一 receiver query 构造 RR=<code>αRVR</code>、RD=<code>αRVD</code>、DR=<code>αDVR</code>、DD=<code>αDVD</code> 四个 pre-<em>O</em> states；Shapley 分解 full donor movement。",
+                "每个 component patch 再与 L28 natural-axis block / same-span orthogonal block配对。",
+                f"routing family p={fmt_p(read_write['primary_decision']['read_mode']['routing_family_p'])}；value family p={fmt_p(read_write['primary_decision']['read_mode']['value_family_p'])}。",
+            ],
+            [
+                "Qwen natural pre-O steering",
+                "direction seeds 1234–1253（fit counts 1/3/5/7/9；held-out 2/4/6/8/10）；center 1264–1273；confirmation 1274–1293；causal counts 2/5/8。",
+                "无 donor。向 receiver 自己的 L28 H16/H19 state 加一个冻结的自然 one-count step。",
+                "在实际 pre-attention value-source input <code>x=RMSNorm(h)</code> 上拟合 unit-count slope <code>sˣ</code>，经真实 GQA value path 得 <code>dz,h=WV[g(h)]sˣ</code>；在 <code>Total:</code> query 执行 <code>z←z+βdz</code>，β=−2/−1/0/1/2，变化只经这些 heads 自己的 <em>W</em><sub>O</sub> 写回。",
+                "4个 outcome-blind matched K2 head sets；按 GQA relative position、natural-step norm、answer cosine、reachable cosine 与 baseline norm 匹配。",
+                f"<code>ΔE[C]</code> 对 β 的 dose slope；candidate effect 与 candidate−control specificity 做 IUT，完整 natural-OV global p={fmt_p(ov['primary_decision']['global_intersection_union_p'])}。",
+            ],
+            [
+                "Qwen centered removal",
+                "同上 confirmation seeds 1274–1293；causal counts 2/5/8；count-zero center 只用1264–1273拟合。",
+                "无 donor；删除 receiver clean state 当前实际含有的 natural component。",
+                "从 <code>zS−z0,S</code> 中减去其经 <em>W</em><sub>O</sub> 后沿 natural output step 的分量；不删除静态 offset。",
+                "同一 <em>W</em><sub>O</sub> column span、相同 post-<em>O</em> norm、与 natural output step 正交的 removal。",
+                "axis−control absolute-error increase 与 correct-margin decrease 必须同时显著；检验自然必要性。",
+            ],
+            [
+                "Qwen donor-z mediation",
+                "confirmation seeds 1274–1293；L28 H16/H19；三组低→高 pairs。",
+                "R←D: 1←6, 3←8, 5←10。",
+                "先把 donor 的完整 H16/H19 pre-<em>O</em> <code>z</code> 替换到 receiver；再仅删除 donor−receiver patch output 中平行 natural axis 的部分。",
+                "在同一 <em>W</em><sub>O</sub> span加入等范数正交 block。",
+                "donor transport 必须为正，且 <code>M=Torth−Taxis-block&gt;0</code>；检验 donor effect 是否经过该自然 OV channel。",
+            ],
+            [
+                "Qwen downstream write trace",
+                "discovery 1264–1273；evaluation 1274–1293；write counts 2/5/8；trace layers L28–L35；β=1。",
+                "无 donor（write trace）；另用上面的双向 pairs做 read decomposition。",
+                "比较 +natural step 与 −natural step 对每层 answer-query residual 的中心差分，并投影到该层冻结 answer-count step。",
+                "同 span、等 post-<em>O</em> 范数的正交 injection propagation。",
+                "natural−orthogonal frozen-axis coefficient；layer-wise Holm，检验写入后是否继续沿 answer-count direction 传播。",
+            ],
+            [
+                "Gemma K2 source write",
+                "candidate L29H4/L35H2；discovery 1456–1465；confirmation 1466–1485；counts 1–10，fit odd/held-out even；mediator candidates L36–L40 后冻结 L37。",
+                "R←D: 1←6, 3←8, 5←10。",
+                "在 answer query 依次把 receiver 的 L29H4 与 L35H2 pre-<em>O</em> <code>z</code> 替换为 donor <code>z</code>；每个 patched head 仍经自身 <em>W</em><sub>O</sub> 写回。",
+                "3个冻结 layer-matched K2 banks：L29H1/L35H3、L29H6/L35H2、L29H7/L35H6。",
+                f"normalized donor transport candidate core 与 candidate−control specificity 做 IUT；四阶段 global p={fmt_p(gemma_residual['primary_decision']['global_intersection_union_p'])}。",
+            ],
+            [
+                "Gemma L37 block → L41 adoption",
+                "与上一行同一 frozen split、pairs 与 controls；L37/L41 count axes 只用 discovery 拟合。",
+                "source 是 K2 patch 在 receiver 内诱发的 <code>δ37</code>；target 是 receiver 的 L37 residual / L41 terminal state。",
+                "exact block 删除完整 <code>δ37</code>；count-axis block 只删除 <code>proj_b37(δ37)</code>；随后测 L41 state 在冻结 <code>b41</code> 上采用 donor gap 的比例。",
+                "对 exact 与 count-axis 删除分别构造 residual-space 等范数正交删除；source bank 同时与3个 matched banks 比。",
+                "source transport、exact mediation、count-axis mediation、terminal adoption 四个 family 全部通过 IUT。",
+            ],
+        ],
+        classes="paper-table causal-ledger",
+    )
+
+
+def build_methods_clear(
+    causal_v2: dict[str, Any],
+    ov: dict[str, Any],
+    read_write: dict[str, Any],
+    upstream: dict[str, Any],
+    fullspan_upstream: dict[str, Any],
+    gemma_residual: dict[str, Any],
+) -> str:
+    q_fs_top4 = _fullspan_upstream_row(
+        fullspan_upstream, early_set="top4", route="slot_state"
+    )
+    q_fs_top4_p = max(
+        float(q_fs_top4["early_donor_log_odds_gain_holm_p"]),
+        float(q_fs_top4["donor_log_odds_mediation_specificity_holm_p"]),
+    )
     return f"""
 <section id="methods">
 <h2>2 · 实验设定与统计口径</h2>
-<p>每个 stimulus 是约 10,000-token realistic haystack，包含十个可控 slots。non-thinking 条件关闭原生 thinking，并在 assistant 侧预填 <code>Total:</code>。V4.4 随 seed 随机化 needle 位置、内容与顺序；hidden state、attention 与 causal effects 都按模型分别分析。</p>
+<p>每个 stimulus 是约 10,000-token realistic haystack，包含十个可控 slots；gold count 由 active needles 的数量决定。non-thinking 条件关闭原生 thinking，并在 assistant 侧预填 <code>Total:</code>，随后对第一个数字 token 做 greedy generation。V4.4 随 seed 随机化 needle 的位置、内容与排列，从而避免把固定位置或固定文本误认为 count。Qwen3-8B 与 Gemma4-E4B 分开拟合 axes、冻结 heads 与计算显著性；layer/head 编号均为 zero-based。</p>
 <div class="causal-roadmap">
 <div><strong>Representation</strong><span>在冻结 PCA / full-space axis 上检验 prompt running state 与 answer state 是否携带 count。</span></div>
 <div><strong>Ablation</strong><span>置零 ranked top-k head outputs，并减去三个 layer-matched random sets 的平均影响。</span></div>
@@ -4368,14 +4790,19 @@ def build_methods_clear(
     ["实验", "独立单位", "样本/seed 设计", "主判定"],
     [
         ["V4.4 representation", "seed", "30 V4.4 seeds；count 1–10", "冻结 basis 投影；full-space statistics"],
-        ["Frozen top-k ablation", "seed", "20 fresh seeds；count 1–5；100 examples/model", "seed-cluster CI；exact sign flip；4-way Holm"],
+        ["Full-span frozen top-k ablation", "seed", "20 fresh seeds；count 1–5；100 examples/model；K=1/2/4/8/16/32", "equal-seed mean；seed bootstrap CI；exact sign flip；每个 endpoint 12-way Holm"],
         ["Answer-query patching", "seed / directed pair", "all-sample held-out confirmation + clean-correct supplement", "control-adjusted donor transport / donor-target adoption"],
         ["Qwen natural OV", "seed", "20 confirmation seeds；matched W<sub>O</sub>-span controls", f"four-family IUT p={fmt_p(ov['primary_decision']['global_intersection_union_p'])}"],
-        ["Qwen serial path", "seed", "20 fresh seeds；route与head sets冻结", f"source+mediation IUT p={fmt_p(upstream['primary_decision']['intersection_union_p'])}"],
+        ["Qwen full-span read→write sweep", "seed", "10 frozen V4.4.4 seeds；count 1–10；K=1/2/4/8/16/32；3 routes", f"top-4 slot-state source与L28 mediation均Holm p={fmt_p(q_fs_top4_p)}（18 comparisons/endpoint）"],
+        ["Qwen route-family independent replication", "seed", "20 fresh seeds；旧endpoint-ranked top-4；slot-state route冻结", f"source+mediation IUT p={fmt_p(upstream['primary_decision']['intersection_union_p'])}；仅作为route-family replication"],
         ["Gemma residual path", "seed", "20 confirmation seeds；candidate vs 3 matched banks", f"four-endpoint IUT p={fmt_p(gemma_residual['primary_decision']['global_intersection_union_p'])}"],
     ],
 )}
-<p><strong>统一统计单位：</strong>同一 seed 内的 counts、layers 与 donor pairs 先聚合，再跨 seed bootstrap 或 exact sign flip。图中的 point 是 seed-level effect mean，error bar 是 95% seed-cluster CI。多个必要条件组成一条机制时使用 intersection–union test：global p 取必要条件中最大的 p。</p>
+<p><strong>统一统计单位：</strong>同一 seed 内的 counts、layers 与 donor pairs 先聚合，再让20个或30个 seed 等权进入跨-seed推断。图中的 point 是 equal-seed macro mean，error bar 是对 seed means 做10,000次 bootstrap 的95% CI；exact sign-flip 也以 seed effect 为输入。correct-only 条件下，不同 seed 的 eligible 样本数不同，因此另报 pooled eligible-example mean 作为敏感性量，但不把它与等权 seed mean 混为同一 estimand。多个必要条件组成一条机制时使用 intersection–union test（IUT）：family 或 global p 取全部必要检验中最大的 p，只有每一项都达到阈值时整条机制才通过。</p>
+<p><strong>控制与多重比较：</strong>head-set ablation 的主效应均写成 ranked set 减去三个 layer-matched random sets 的平均效应，以控制“删除任意 K 个同层 heads”造成的一般扰动。对每个 endpoint，2 models × 6 K 形成12个冻结比较，并用 Holm 方法控制 family-wise error rate。OV/path 实验按问题使用两类控制：natural-signal 与 pre-O steering/injection 将候选 set 和四个 outcome-blind matched K=2 sets 比较；centered removal 与 mediation 则使用同一 <em>W</em><sub>O</sub> span、等 post-O 范数且与 natural count direction 正交的向量控制。这样分别排除“候选 heads 只是普通同层 heads”和“任意大向量都能推动输出”两种解释。</p>
+<h3>2.1 Causal experiment ledger：每个 effect 到底改了什么</h3>
+<p>下表使用统一记号 <code>R←D</code>，表示“把 donor count D 的 state 搬到 receiver count R 的 forward 中”。没有 donor 的 steering/removal 会明确写成“无 donor”。同一实验即使共享 seeds，也不会把不同量纲的 effect 相加。</p>
+{build_causal_experiment_ledger(causal_v2, ov, read_write, upstream, fullspan_upstream, gemma_residual)}
 <div class="conclusion"><strong>本节结论</strong>不同实验量纲不相加；机制由 representation、functional perturbation 与 causal mediation 在同一方向上收敛而建立。</div>
 </section>
 """
@@ -4385,15 +4812,16 @@ def build_attention_estimand_note() -> str:
     return r"""
 <div class="plain-protocol attention-estimand-note">
 <h3>5.1 两种 key mass 回答的是不同问题</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>running state 存在并不等于 answer query 会读取它；attention atlas 用来定位哪些 heads 在最终 query 把概率质量分配给 needle evidence，并据此冻结后续 ablation 的 retrieval bank。</span><strong>如何定义与评估。</strong><span>query 固定为 prompt-final <code>Total:</code> token；主 discovery score 对每个 active needle 的完整 literal span 求 attention mass，再乘 occurrence coverage。endpoint-key 只作为“是否读取预定义 endpoint carrier”的位置特异诊断。heads 只用 discovery data 排序，K 与 confirmation outcomes 无关。</span><strong>可视化。</strong><span>atlas 的行是 layer、列是 head，单元格颜色编码该 score 的 seed-aggregated magnitude；默认显示 full-span literal score。颜色用于发现候选，功能性必须由 matched-control ablation 验证。</span></div>
 <p>两种图的 query 都固定为最终 <code>Total:</code> token；变化的只是 key pool。设第 <em>i</em> 条 active needle 的 token span 为 <code>S<sub>i</sub></code>、最后一个 token 为 <code>e<sub>i</sub></code>，head <em>h</em> 的 attention row 为 <code>α<sub>h</sub>(q,j)</code>：</p>
 <div class="equation">endpoint-key mass: m<sub>i,h</sub><sup>end</sup>=α<sub>h</sub>(q,e<sub>i</sub>); &nbsp;&nbsp; full-span literal mass: m<sub>i,h</sub><sup>span</sup>=Σ<sub>j∈S<sub>i</sub></sub>α<sub>h</sub>(q,j).</div>
-<p>对任一 pooling，令 <code>M<sub>h</sub>=Σ<sub>i</sub>m<sub>i,h</sub></code>、<code>p<sub>i,h</sub>=m<sub>i,h</sub>/M<sub>h</sub></code>、<code>C<sub>h</sub>=exp(−Σ<sub>i</sub>p<sub>i,h</sub>log p<sub>i,h</sub>)/N</code>；图中 broad score 是 <code>S<sub>h</sub>=M<sub>h</sub>C<sub>h</sub></code>。因此高分要求既有较大总 mass，又覆盖多个 occurrences，而不是只盯一个 needle。</p>
+<p>对单个样本和任一 pooling，令 <code>M<sub>h</sub>=Σ<sub>i</sub>m<sub>i,h</sub></code>、<code>p<sub>i,h</sub>=m<sub>i,h</sub>/M<sub>h</sub></code>、<code>C<sub>h</sub>=exp(−Σ<sub>i</sub>p<sub>i,h</sub>log p<sub>i,h</sub>)/N</code>；样本级 broad score 是 <code>S<sub>h</sub>=M<sub>h</sub>C<sub>h</sub></code>。其中 <code>M</code> 是分给所有 active needles 的总 mass，<code>C∈[1/N,1]</code> 是 entropy effective-number coverage 除以 N；discovery ranking 再对注册 queries/counts 先在 seed 内平均、随后对 discovery seeds 等权平均。因此高分要求既有较大总 mass，又覆盖多个 occurrences，而不是只盯一个 needle。</p>
 <div class="causal-roadmap">
 <div><strong>Endpoint-key</strong><span>检验 answer query 是否直接读取我们预先定义的 needle-end running-state carrier。它是<strong>位置特异的 carrier-localization 指标</strong>，不是无意义，但会漏掉落在 needle 内其他 tokens 的读取。</span></div>
 <div><strong>Full-span literal</strong><span>不预设 carrier 在 span 中的哪个 token；检验 head 是否从整条 needle 文本获得 attention evidence。它更适合作为<strong>通用 retrieval-head discovery</strong> 的主排序。</span></div>
 </div>
 <p><strong>长度敏感性。</strong>literal sum 会随 span token 数增加而机械变大；当前 needle 使用同一固定模板，因此它比 span mean 更贴近“分给整条 needle 的总注意力概率”，但正式重排仍应同时报告 token-length-adjusted sensitivity（例如按 span length 分层，或把 mass 对 token length 回归后使用残差）。这样可以确认 top heads 来自检索强度，而不是某些 city/score 文本恰好分词更长。</p>
-<div class="conclusion"><strong>本报告的判定规则</strong>后面的 full-span 图默认首先显示，并作为未来 generic retrieval bank 的主筛选；endpoint 图保留为“是否集中读取 endpoint carrier”的二级定位诊断。现有 causal-v2 bank 是按历史 <code>span_end</code> 定义冻结并确认的，因此它仍然证明 endpoint-ranked bank 的功能贡献，但不能在不重排、不做 fresh-seed ablation 的情况下改称 full-span-ranked bank。</div>
+<div class="conclusion"><strong>本报告的判定规则</strong>full-span literal score 是 retrieval-bank discovery 与 nested-K 排序的主定义；endpoint 图只保留为“是否集中读取 endpoint carrier”的二级定位诊断。我们已经按 full-span score 重新冻结 Qwen/Gemma 的 K=1/2/4/8/16/32 排序，并在 20 个 fresh seeds 上完成 layer-matched ablation。行为 ablation 使用全 layer 排序；Qwen upstream path 为避免把 mediator 自己混入“上游”，使用同一 score 但先限制到 L&lt;28，再冻结 early K。两者都是 full-span 排序，但候选域不同，不能把两个 top-4 成员表混用。Gemma top-2 仍为 L29H4/L35H2。</div>
 </div>
 """
 
@@ -4403,12 +4831,6 @@ def build_causal_section_clear(
     seed_confirmation: dict[str, Any],
     correct_state: dict[str, Any],
 ) -> str:
-    frozen_sets = {
-        ("Qwen3-8B", "2"): "L27H18, L28H19",
-        ("Qwen3-8B", "4"): "L27H18, L28H19, L23H29, L23H13",
-        ("Gemma4-E4B", "1"): "L29H4",
-        ("Gemma4-E4B", "2"): "L29H4, L35H2",
-    }
     topk_rows: list[list[str]] = []
     for model in ("Qwen3-8B", "Gemma4-E4B"):
         for k_text, metrics in sorted(
@@ -4416,16 +4838,39 @@ def build_causal_section_clear(
         ):
             all_shift = metrics["all_absolute_shift"]
             correct = metrics["clean_correct_to_wrong"]
+            heads = [str(value) for value in metrics["heads"]]
+            head_text = ", ".join(heads[:4])
+            if len(heads) > 4:
+                head_text += f" … (+{len(heads) - 4})"
             topk_rows.append(
                 [
                     model,
                     f"K={k_text}",
-                    frozen_sets[(model, str(k_text))],
+                    head_text,
                     f"{fmt(all_shift['effect'], 4)} [{fmt(all_shift['ci95_low'], 4)}, {fmt(all_shift['ci95_high'], 4)}]",
+                    f"{fmt_p(all_shift.get('two_sided_exact_seed_sign_flip_p'))} / {fmt_p(all_shift.get('holm_p_across_twelve_frozen_sets'))}",
                     f"{fmt(correct['effect'], 4)} [{fmt(correct['ci95_low'], 4)}, {fmt(correct['ci95_high'], 4)}]",
-                    f"{fmt_p(correct.get('two_sided_exact_seed_sign_flip_p'))} / {fmt_p(correct.get('holm_p_across_four_frozen_sets'))}",
+                    f"{fmt_p(correct.get('two_sided_exact_seed_sign_flip_p'))} / {fmt_p(correct.get('holm_p_across_twelve_frozen_sets'))}",
                 ]
             )
+
+    def significant_ks(model: str, metric: str) -> list[int]:
+        return [
+            int(k_text)
+            for k_text, metrics in sorted(
+                seed_confirmation["models"][model].items(),
+                key=lambda item: int(item[0]),
+            )
+            if float(metrics[metric]["holm_p_across_twelve_frozen_sets"]) <= 0.05
+        ]
+
+    q_all_sig = significant_ks("Qwen3-8B", "all_absolute_shift")
+    q_clean_sig = significant_ks("Qwen3-8B", "clean_correct_to_wrong")
+    g_all_sig = significant_ks("Gemma4-E4B", "all_absolute_shift")
+    g_clean_sig = significant_ks("Gemma4-E4B", "clean_correct_to_wrong")
+
+    def format_k_set(values: list[int]) -> str:
+        return ", ".join(str(value) for value in values) if values else "none"
 
     patch_rows: list[list[str]] = []
     for model in ("Qwen3-8B", "Gemma4-E4B"):
@@ -4471,16 +4916,19 @@ def build_causal_section_clear(
 <dt>Correct-only donor adoption</dt><dd>只保留 donor 与 receiver 的 clean 输出都等于各自 gold count 的 pair；<span class="formula-line">A=1[y<sub>P</sub>=D]</span>表中百分比是所有 eligible pairs 的 pooled mean <code>mean(A)</code>，即 patch 后精确生成 donor gold count 的比例。</dd>
 <dt>Fresh low-count source gain</dt><dd>对候选数字序列计算 donor-vs-receiver log-odds，令 <code>ℓ<sub>D</sub>−ℓ<sub>R</sub></code> 为 donor count 相对 receiver count 的优势：<span class="formula-line">G=([ℓ<sub>D</sub>−ℓ<sub>R</sub>]<sub>patch</sub>−[ℓ<sub>D</sub>−ℓ<sub>R</sub>]<sub>clean</sub>)</span>正值表示 patch 提高 donor count 的相对概率；这是 fresh correct-only path 实验的连续 endpoint。</dd>
 </dl></div>
-<p>所有逐样本值先在 seed 内平均，再把 seed 当作独立 cluster 求总体均值；95% CI 用 10,000 次 seed-cluster bootstrap。注册的 p 值来自 seed-level exact sign-flip；四个冻结 model×K 比较使用 Holm 校正。图中的点不是把 token、head 或 donor pair 当独立样本得到的。</p>
+<p>所有逐样本值先在 seed 内平均，再把 seed 当作独立 cluster 求总体均值；95% CI 用 10,000 次 seed-cluster bootstrap。注册的 p 值来自 seed-level exact sign-flip；每个 endpoint 的12个冻结 model×K 比较使用 Holm 校正。图中的点不是把 token、head 或 donor pair 当独立样本得到的。</p>
 
-<h3>6.3 Top-k ablation：随着 K 增加，行为影响怎样变化？</h3>
-<figure>{ablation_topk_svg(seed_confirmation)}<figcaption><strong>Figure · Frozen top-k ablation effect.</strong> 两图横轴都是冻结 head-set size K。左图纵轴是 ranked set 相对三个 layer-matched random sets 多造成的绝对 generated-count shift；右图纵轴是 clean-correct 样本中多造成的 correct-to-wrong rate。点为 20 个 seed means 的总体 effect，竖线为 seed-cluster bootstrap 95% CI。两模型使用各自冻结的 K 网格；连线只显示同模型随 K 的变化。</figcaption></figure>
-{table(["model", "K", "frozen heads", "all-sample effect [95% CI]", "correct-only effect [95% CI]", "correct-only exact/Holm p"], topk_rows, classes="paper-table compact-result-table")}
-<p>Qwen 从 K=2 增加到 K=4 后，all-sample effect 从 0.0367 增至 0.0567，clean-correct effect 从 0.0203 增至 0.0650。Gemma 的 K=1 与 K=2 均产生较大影响：all-sample effect 为 0.2433 与 0.2200，clean-correct effect 为 0.1231 与 0.1282。Gemma 两个 clean-correct 比较均通过四比较 Holm；Qwen K=4 的 companion ΔMAE Holm p=0.03125。</p>
-<div class="conclusion"><strong>本小节结论</strong>两模型的 counting 都依赖分布式 ranked bank；K 的增加不是简单单调剂量，说明新增 heads 可能带来冗余或功能混合。</div>
-<div class="callout warning"><strong>是否需要 ablate 更多 heads？</strong>有必要做一个<strong>有限、预冻结的 nested-K 补充实验</strong>，目的不是追求更大的 effect，而是区分“稀疏核心”“冗余 bank”与“加入无关 heads 后稀释”。建议用 full-span score 重新冻结排序，Qwen 取 K={{1,2,4,8,16}}，Gemma 取 K={{1,2,4,8}}，并在全新 seeds 上同时报告上面的 <code>d<sup>abs</sup></code>、<code>d<sup>fail</sup></code>、<code>d<sup>MAE</sup></code> 与 layer-matched random controls。若 effect 在某个 K 后平台或下降，应解释为范围边界，而不是继续扩大 K 直到显著。当前图只包含 Qwen K=2/4 与 Gemma K=1/2，不能据此外推完整 dose-response。</div>
+<h3>6.3 Full-span Top-K ablation：检索 bank 是否具有因果功能？</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>attention score 只能说明某些 heads 把概率质量分配给 needle spans；它不能证明这些 heads 对生成 count 有用。我们因此删除按 full-span literal score 冻结的 nested head sets，并要求其影响超过删除同层随机 heads。</span><strong>如何定义与评估。</strong><span>排序分数对每个 head 先求全部 active needle spans 的 attention mass，再乘 entropy-based occurrence coverage；K 在任何 outcome 之前冻结为 1/2/4/8/16/32。实验使用 fresh seeds 1316–1335、count 1–5，共100条/model。只在 final <code>Total:</code> query 把 selected heads 的 pre-<em>O</em> output slices 置零；其他 prompt/query positions 不变。每个 ranked K 配3个层分配完全相同的 layer-matched random banks。主 estimands 是上节定义的 <code>d<sup>abs</sup></code> 与 <code>d<sup>fail</sup></code>；exact sign-flip 以20个 seed effects 为输入，并在每个 endpoint 的12个 model×K tests 内做 Holm 校正。</span></div>
+<figure>{ablation_topk_svg_fullspan(seed_confirmation)}<figcaption><strong>Figure · Full-span-ranked nested-K ablation.</strong> 横轴是冻结的 K=1/2/4/8/16/32，等距展示对应 log<sub>2</sub> 剂量。左图纵轴为 all-sample ranked-minus-random absolute generated-count shift；右图为 baseline-correct 样本的 correct-to-wrong probability excess。圆形为 Qwen，方形为 Gemma；实心表示该 model×K 在本 endpoint 的12比较 Holm p≤.05，空心表示未通过。竖线是对等权 seed means 做10,000次 bootstrap 的95% CI。</figcaption></figure>
+{table(["model", "K", "full-span-ranked heads（前4名）", "all-sample effect [95% CI]", "all exact/Holm p", "correct-only effect [95% CI]", "correct exact/Holm p"], topk_rows, classes="paper-table compact-result-table")}
+<p><strong>结果。</strong>Qwen 的 all-sample effect 在 K={format_k_set(q_all_sig)} 通过12比较 Holm，correct-only effect 在 K={format_k_set(q_clean_sig)} 通过；Gemma 的 all-sample effect 在 K={format_k_set(g_all_sig)} 通过，correct-only effect 在 K={format_k_set(g_clean_sig)} 通过。全-layer behavior ranking 的 Qwen top-4 为 L27H18、L28H19、L23H29、L23H13；Gemma top-2 为 L29H4、L35H2。Qwen 的 upstream path 另按同一 full-span score 在 L&lt;28 候选域排序，其 early top-4 为 L27H18、L23H29、L23H13、L23H28。这个区分保证 mediator L28H19 不会同时被计作上游 source。</p>
+<p>剂量曲线明显非单调：Qwen K=8 小于 K=4，而 K=16/32 急剧增大；Gemma K=4 小于 K=1/2，而 K=8 达到峰值。这说明 K 不是“同一种独立 head 功能”的线性剂量。较大 set 同时删除协同、冗余和可能互相补偿的 heads；因此本实验定位的是功能 bank 的范围，而不是从曲线反推出唯一最小 circuit。</p>
+<div class="conclusion"><strong>本小节结论</strong>full-span-ranked heads 对两模型的 counting 都有可重复、matched-control-specific 的因果贡献；核心机制 heads 位于该排序前部。结果支持分布式 retrieval bank，但不支持 effect 随 K 单调增加或存在唯一最佳 K。</div>
 
 <h3>6.4 Answer-query patching：all samples 与 correct-only</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>Ablation 只表明 retrieval bank 对行为重要，尚不能证明最终 answer-query residual 已经携带可执行的 count state。若把 donor 的 answer state 搬给 receiver 能系统推动 donor count，才说明该 representation 位于输出因果链上。</span><strong>如何定义与评估。</strong><span>all-sample 使用 counts 0–10、18个有向 anchor pairs；seeds 1254–1258 只做 screen，1259–1263 才做 held-out confirmation。每个条件把 donor 在 final <code>Total:</code> query 的完整 residual patch 给 receiver：single-layer 只替换 layer L，cumulative protocol 从 L 到 final layer 持续 clamp；控制为 self-patch 与 same-count different-seed state。correct-only 完全复用冻结条件，只筛选 donor/receiver clean 都正确的 pairs，测 donor gold adoption。</span><strong>可视化。</strong><span>左 panel 的纵轴是 control-adjusted normalized transport，右 panel 是 donor adoption probability；两者是不同 estimands，不能直接比较柱高。表中同时给出 held-out CI coverage、fresh continuous effect 的95% CI 与 p 值。</span></div>
+<div class="ov-data-strip"><strong>具体配对。</strong><code>k=1</code>: 0↔1、4↔5、9↔10；<code>k=3</code>: 0↔3、3↔6、7↔10；<code>k=5</code>: 0↔5、2↔7、5↔10（每个↔都执行两个方向）。all-sample screen 后冻结 Qwen 149、Gemma 177 个 answer layer×protocol×k 条件。correct-only 要求每个 model×k×direction 至少5个 eligible seed clusters；Qwen 追加 1274/1275/1276/1278，Gemma 追加 1275/1277/1281/1295，追加规则只看 clean correctness，不看 patch outcome。</div>
 <figure>{answer_patch_comparison_svg(causal_v2)}<figcaption><strong>Figure · Answer-query state transport.</strong> 左图纵轴是 all-sample held-out confirmation 中，answer-query patch 相对 control 的平均 donor transport；右图纵轴是 donor 与 receiver 都 clean-correct 时，patch 后 receiver 生成 donor gold count 的比例。两个 panel 的统计量不同，因此只在各自 panel 内比较模型。</figcaption></figure>
 {table(["model", "all-sample mean transport", "conditions with CI>0", "correct-only donor adoption", "fresh low-count source gain [95% CI]", "fresh p"], patch_rows, classes="paper-table compact-result-table")}
 <p>all-sample estimand 中，Qwen 的平均 control-adjusted donor transport 为 0.7580，149/149 个冻结条件的 held-out CI 均大于 0；Gemma 为 0.7010，177/177 个条件均大于 0。clean-correct donor adoption 分别为 96.6% 与 96.0%。在另一组 20 fresh seeds、count 1–3 且 donor/receiver 都正确的实验中，Qwen 与 Gemma 的 answer aggregate source gain 也分别显著（p=1.43×10<sup>−5</sup> 与 9.54×10<sup>−7</sup>）。</p>
@@ -4506,6 +4954,7 @@ def build_positive_mechanism_section(
     ov: dict[str, Any],
     read_write: dict[str, Any],
     upstream: dict[str, Any],
+    fullspan_upstream: dict[str, Any],
     gemma_residual: dict[str, Any],
 ) -> str:
     q_rows = []
@@ -4545,52 +4994,194 @@ def build_positive_mechanism_section(
 
     rw = read_write["primary_decision"]
     up = upstream["primary_decision"]
+    q_fs_top4 = _fullspan_upstream_row(
+        fullspan_upstream, early_set="top4", route="slot_state"
+    )
+    q_fs_top4_p = max(
+        float(q_fs_top4["early_donor_log_odds_gain_holm_p"]),
+        float(q_fs_top4["donor_log_odds_mediation_specificity_holm_p"]),
+    )
+    q_fs_supported_rows: list[list[str]] = []
+    q_fs_route_labels = {
+        "slot_state": "slot-state pre-O z",
+        "slot_edge_qk": "slot-edge α/V",
+        "answer_query_full": "answer-query full",
+    }
+    for row in sorted(
+        (
+            item
+            for item in fullspan_upstream["summary"]
+            if bool(item["serial_path_supported"])
+        ),
+        key=lambda item: (
+            int(str(item["early_set"]).replace("top", "")),
+            str(item["route"]),
+        ),
+    ):
+        q_fs_supported_rows.append(
+            [
+                str(row["early_set"]),
+                q_fs_route_labels.get(str(row["route"]), str(row["route"])),
+                f"{row['early_donor_log_odds_gain_mean']:.4f} [{row['early_donor_log_odds_gain_ci_low']:.4f}, {row['early_donor_log_odds_gain_ci_high']:.4f}]",
+                fmt_p(row["early_donor_log_odds_gain_holm_p"]),
+                f"{row['donor_log_odds_mediation_specificity_mean']:.4f} [{row['donor_log_odds_mediation_specificity_ci_low']:.4f}, {row['donor_log_odds_mediation_specificity_ci_high']:.4f}]",
+                fmt_p(row["donor_log_odds_mediation_specificity_holm_p"]),
+            ]
+        )
+    q_rows.insert(
+        0,
+        [
+            "Full-span early→L28 serial path",
+            "L<28 full-span top-4 slot-state patch 先推动 donor count；阻断 L28 H16/H19 natural component 再特异消除该 effect",
+            (
+                f"source {q_fs_top4['early_donor_log_odds_gain_mean']:.4f} "
+                f"[{q_fs_top4['early_donor_log_odds_gain_ci_low']:.4f}, {q_fs_top4['early_donor_log_odds_gain_ci_high']:.4f}]; "
+                f"mediation {q_fs_top4['donor_log_odds_mediation_specificity_mean']:.4f} "
+                f"[{q_fs_top4['donor_log_odds_mediation_specificity_ci_low']:.4f}, {q_fs_top4['donor_log_odds_mediation_specificity_ci_high']:.4f}]"
+            ),
+            f"both Holm {fmt_p(q_fs_top4_p)}",
+        ],
+    )
+    q_families = ov["primary_decision"]["families"]
+    q_natural = _ov_component(ov, "natural_signal", "natural_carrier_count_slope")
+    q_injection = _ov_component(ov, "pre_o_injection", "injection_dose_slope")
+    q_error = _ov_component(ov, "centered_removal", "removal_error_axis_minus_control")
+    q_margin = _ov_component(ov, "centered_removal", "removal_margin_axis_minus_control")
+    q_donor = _ov_component(ov, "path_mediation", "donor_patch_transport")
+    q_mediation = _ov_component(ov, "path_mediation", "mediation_control_minus_axis_block")
+    q_gate = evidence_gate_svg(
+        [
+            {"title": "Natural carrier", "main": f"count slope {ci_text(q_natural)}", "sub": "clean forward; candidate also exceeds matched sets", "p": f"family IUT p={fmt_p(q_families['natural_signal']['intersection_union_p'])}", "passed": q_families["natural_signal"]["passes_alpha"]},
+            {"title": "True pre-O sufficiency", "main": f"dose slope {ci_text(q_injection)}", "sub": "z injection; output written only through H16/H19 W_O", "p": f"family IUT p={fmt_p(q_families['pre_o_injection']['intersection_union_p'])}", "passed": q_families["pre_o_injection"]["passes_alpha"]},
+            {"title": "Centered necessity", "main": f"error specificity {ci_text(q_error)}", "sub": f"margin specificity {ci_text(q_margin)}", "p": f"family IUT p={fmt_p(q_families['centered_removal']['intersection_union_p'])}", "passed": q_families["centered_removal"]["passes_alpha"]},
+            {"title": "Path mediation", "main": f"donor transport {ci_text(q_donor)}", "sub": f"axis-block specificity {ci_text(q_mediation)}", "p": f"family IUT p={fmt_p(q_families['path_mediation']['intersection_union_p'])}", "passed": q_families["path_mediation"]["passes_alpha"]},
+        ],
+        id_prefix="qwen-natural-ov-gates",
+        title="Qwen L28 H16/H19 natural-OV evidence gates",
+        description="Natural carrier, true pre-output sufficiency, centered necessity, and donor-path mediation must all pass. The global intersection-union p value is the largest family p value.",
+    )
+    g_gate_entries = []
+    for family in (
+        "source_donor_transport",
+        "exact_residual_mediation",
+        "count_axis_mediation",
+        "terminal_count_adoption",
+    ):
+        document = gemma_residual["primary_decision"]["families"][family]
+        core = next(
+            item for item in document["components"] if item["role"] == "candidate_core"
+        )
+        label, meaning = labels[family]
+        g_gate_entries.append(
+            {
+                "title": label,
+                "main": f"effect {core['mean']:.4f} [{core['ci95_low']:.4f}, {core['ci95_high']:.4f}]",
+                "sub": meaning,
+                "p": f"family IUT p={fmt_p(document['intersection_union_p'])}",
+                "passed": document["passes_alpha_and_ci"],
+            }
+        )
+    g_gate = evidence_gate_svg(
+        g_gate_entries,
+        id_prefix="gemma-residual-gates",
+        title="Gemma K2 source-to-residual causal gates",
+        description="Source transport, exact L37 residual mediation, count-axis mediation, and L41 terminal adoption must all pass against three matched source banks.",
+    )
+    q_write_rows = sorted(
+        [
+            row
+            for row in read_write["summary"]
+            if row.get("metric") == "write_residual_specificity"
+            and row.get("stratum") == "all"
+        ],
+        key=lambda row: int(row["layer"]),
+    )
+    q_write_svg = write_trace_svg(
+        q_write_rows,
+        id_prefix="qwen-write-propagation",
+        title="Qwen L28 natural OV write propagation",
+        description="Layer is on the horizontal axis. Natural-minus-orthogonal count-axis specificity is on the vertical axis. Points are equal-seed means and bars are 95 percent confidence intervals.",
+    )
     return f"""
 <section id="natural-ov">
 <h2>7 · 已确认的写入与传播机制</h2>
 
-<h3>7.1 共同的行为 readout 与“写入”判据</h3>
-<p>所有连续行为 effect 都从同一组候选数字序列概率计算。若 <code>p(c)</code> 是候选 count <code>c</code> 的 sequence probability，则：</p>
-<div class="equation">E[C]=Σ<sub>c</sub>c·p(c)/Σ<sub>c</sub>p(c); &nbsp;&nbsp; T=(E[C]<sub>I</sub>−E[C]<sub>R</sub>)/(D−R).</div>
-<p><code>E[C]</code> 把整个数字候选分布压成可比较的 expected count；<code>T</code> 是 intervention 相对 donor–receiver count gap 的归一化运输。这里“head 写入 residual”不只是架构上存在 <code>W<sub>O</sub></code>：实验必须在真实 pre-O <code>z</code> 边界干预，让变化通过被选 heads 自己的 <code>W<sub>O</sub></code>，并证明自然方向比同一输出子空间、等 post-O 范数的正交方向更重要。传播则要求该写入造成的 residual change 在后续层仍可沿冻结 count axis 追踪，且阻断中间 residual component 会削弱行为运输。</p>
-<div class="conclusion"><strong>判定标准</strong>pre-O sufficiency 说明“这个 channel 能写”；centered removal 说明“自然运行依赖它”；donor patch + 中介阻断说明“上游 effect 正通过它传递”；downstream frozen-axis trace 说明“写入没有在下一层立即消失”。四者承担不同命题，不能由一个显著 injection 互相替代。</div>
+<h3>7.1 OV 到底是什么：head 先读成 z，再由 W<sub>O</sub> 写进 residual</h3>
+<p>对 answer query <code>q</code>，attention head 的计算可以拆成两步。第一步，attention 权重 <code>α</code> 从可访问的 key positions 加权读取 value，得到 head-space 向量 <code>z<sub>h</sub></code>；第二步，该 head 对应的输出投影 <code>W<sub>O</sub><sup>h</sup></code> 把 <code>z<sub>h</sub></code> 变换成与 residual stream 同维度的写入向量 <code>w<sub>h</sub></code>：</p>
+<div class="equation">z<sub>h</sub>(q)=Σ<sub>j</sub>α<sub>h</sub>(q,j)v<sub>h</sub>(j); &nbsp;&nbsp; w<sub>h</sub>(q)=W<sub>O</sub><sup>h</sup>z<sub>h</sub>(q); &nbsp;&nbsp; h′(q)=h(q)+Σ<sub>h</sub>w<sub>h</sub>(q).</div>
+<div class="ov-short-flow" role="img" aria-label="OV computation from source count state to answer output">
+<div class="ov-box"><strong>1 · 提取 count step</strong><span>从独立 discovery data 拟合一单位 count 变化；Qwen 再让它经过真实 value path，得到每个 head 的 <code>d<sub>z,h</sub></code>。</span></div><div class="ov-arrow" aria-hidden="true">→</div>
+<div class="ov-box"><strong>2 · 在 pre-O z 改动</strong><span>在指定 query/head slice 做 add、replace 或 remove；此处仍是 head-space，不直接碰 residual answer axis。</span></div><div class="ov-arrow" aria-hidden="true">→</div>
+<div class="ov-box"><strong>3 · W<sub>O</sub> 写回</strong><span>模型自己的 <code>W<sub>O</sub></code> 把改动映射成 full residual direction；这一步可以旋转和缩放 count direction。</span></div><div class="ov-arrow" aria-hidden="true">→</div>
+<div class="ov-box"><strong>4 · 下游形成答案</strong><span>后续 attention、MLP 与 residual skip 继续传播该变化，最后改变候选数字的概率与生成 count。</span></div>
+</div>
+<p>因此，prompt counter direction 与 answer counter direction 不需要平行：语义上的“一单位 count”先经过 <code>V</code>、<code>W<sub>O</sub></code>，再经过后续 blocks 的局部变换。我们测量行为时，用候选数字序列概率计算 <code>E[C]=Σ<sub>c</sub>c·p(c)/Σ<sub>c</sub>p(c)</code>；有 donor/receiver 时再用 <code>T=(E[C]<sub>I</sub>−E[C]<sub>R</sub>)/(D−R)</code> 归一化。</p>
+{table(
+    ["操作", "向量从哪里来", "加到/替换哪里", "它单独验证什么"],
+    [
+        ["Steering / injection", "独立 discovery data 拟合的 one-count step <code>d<sub>z</sub></code>；不是 donor sample", "receiver 自己的指定 pre-O <code>z</code> 加 <code>βd<sub>z</sub></code>", "带符号充分性：这个 channel 能否按剂量推动 count"],
+        ["Donor patch", "同 seed、不同 count 的 donor 完整 <code>z</code> 或 residual state", "用 donor state 替换 receiver 的同一 query/layer/site", "样本特异充分性：完整 donor state 能否被 receiver 使用"],
+        ["Centered removal", "receiver 自己当前 <code>z−z<sub>0</sub></code> 中沿 natural axis 的分量", "只从 receiver pre-O <code>z</code> 删除可由该 head set 实现的分量", "自然必要性：模型原本是否依赖这条 channel"],
+        ["Mediation", "先由 donor patch 产生 effect，再计算其中沿 natural axis 的 patch-induced component", "donor patch 保持不变，只在 mediator 处删除 natural component；与正交删除比较", "路径使用：donor effect 是否正经由该 write/relay 传递"],
+    ],
+    classes="paper-table ov-operation-table",
+)}
+<div class="conclusion"><strong>最短判读</strong>steering 回答“能不能写”，removal 回答“自然运行是否需要”，mediation 回答“上游 effect 是否走这条路”。只有把改动放在 pre-O <code>z</code>，并让变化通过指定 heads 自己的 <code>W<sub>O</sub></code>，才是本报告所说的 OV intervention。</div>
 
 <article class="positive-mechanism-model qwen">
 <h3>7.2 Qwen：L28 H16/H19 的 localized natural-OV write</h3>
-<p class="result-sentence">H16/H19 在 answer query 的 pre-O head state 中读取 count-related content，并通过自身 <em>W</em><sub>O</sub> 把该 state 写入 residual。四类证据——自然载荷、pre-O 充分性、centered 必要性、donor-path mediation——全部显著，global IUT p={fmt_p(ov['primary_decision']['global_intersection_union_p'])}。</p>
-{table(["证据", "具体验证什么", "effect [95% CI]", "p"], q_rows, classes="paper-table compact-result-table")}
-<div class="test-card"><h4>Qwen 的 effect 是怎样算出来的</h4><dl>
-<dt>① 自然 carrier</dt><dd>用独立 center seeds 估计 count-neutral pre-O center <code>z<sub>0,S</sub></code>，并令 natural one-count output step 为 <code>m<sub>S</sub>=W<sub>O</sub><sup>S</sup>d<sub>S</sub></code>。自然系数为 <span class="formula-line">a<sub>S</sub>(z)=&lt;W<sub>O</sub><sup>S</sup>(z<sub>S</sub>−z<sub>0,S</sub>),m̂<sub>S</sub>&gt;/||m<sub>S</sub>||</span>表中的 carrier effect 是每个 seed 内 <code>a<sub>S</sub></code> 对 gold count 的 OLS slope；正值说明 clean forward 的 set output 自然携带递增 count。</dd>
-<dt>② True pre-O injection</dt><dd>在 answer query 的真实 H16/H19 head slices 做 <code>z<sub>S</sub>←z<sub>S</sub>+βd<sub>S</sub></code>，不直接向 residual 加 answer axis。对每个 count 拟合 <code>ΔE[C]</code> 对剂量 <code>β</code> 的 slope，再在 seed 内平均；正 slope 表示变化经过自身 <code>W<sub>O</sub></code> 后按剂量提高 expected count。</dd>
-<dt>③ Centered removal</dt><dd>从 <code>z<sub>S</sub>−z<sub>0,S</sub></code> 删除 natural component，并与同一 <code>W<sub>O</sub><sup>S</sup></code> span、等 post-O norm 的正交删除比较。error effect=<code>Δ|E[C]−gold|<sub>axis</sub>−Δ|E[C]−gold|<sub>orth</sub></code>，预期为正；margin effect=<code>Δmargin<sub>axis</sub>−Δmargin<sub>orth</sub></code>，预期为负。</dd>
-<dt>④ Donor-path mediation</dt><dd>先把 donor 的 L28 pre-O <code>z<sub>S</sub></code> patch 给 receiver，得到 <code>T<sub>patch</sub></code>；随后分别阻断 natural axis 或加入等范数正交 control。中介 effect 为 <span class="formula-line">M=T<sub>orth</sub>−T<sub>natural-block</sub></span>正值表示阻断同一自然写入轴比正交扰动多消除 donor transport。</dd>
-<dt>⑤ Downstream propagation</dt><dd>对每个下游 layer ℓ，用 discovery clean states 冻结 answer count step <code>b<sub>ℓ</sub><sup>A</sup></code>，并把双侧 injection 差分投影到它上面：<span class="formula-line">a<sub>ℓ</sub>=&lt;[h<sub>ℓ</sub>(+β)−h<sub>ℓ</sub>(−β)]/(2β),b<sub>ℓ</sub><sup>A</sup>&gt;/||b<sub>ℓ</sub><sup>A</sup>||²</span>再减去 matched orthogonal propagation；L35 specificity={rw['write_propagation']['final_residual_specificity_mean']:.4f}，Holm p={fmt_p(rw['write_propagation']['final_residual_specificity_holm_p'])}。</dd>
+<div class="study-preface"><strong>为什么做。</strong><span>Top-K ablation 只说明某个 bank 对 counting 有功能贡献；我们还要证明自然运行的 count component 确实进入 L28 H16/H19 的 <code>z</code>，经这两个 heads 自己的 <code>W<sub>O</sub></code> 写回，并继续影响答案。</span><strong>如何评估。</strong><span>候选 H16/H19、方向、center、matched controls 和20个 confirmation seeds 都在因果 outcome 前冻结。四个必要 families 是 natural carrier、pre-O steering、centered removal 与 donor-path mediation；global IUT p 取四个 family p 中最大者。</span></div>
+<div class="ov-data-strip"><strong>冻结数据。</strong>one-count direction：seeds 1234–1253，odd counts 1/3/5/7/9 拟合、even counts 2/4/6/8/10 验证；count-zero center：1264–1273；因果确认：1274–1293。steering/removal 用 counts 2/5/8、β=−2/−1/0/1/2；donor mediation 用 <code>R←D: 1←6, 3←8, 5←10</code>。query 始终是第一个答案 token 前的 <code>Total:</code> position。</div>
+<div class="test-card"><h4>Qwen 四步验证</h4><dl>
+<dt>① 提取 natural one-count step</dt><dd>先在实际 value-source input <code>x=RMSNorm(h)</code> 上拟合“一单位 count”的 slope <code>s<sup>x</sup></code>。Qwen 使用 GQA，因此 query head <code>h</code> 对应 KV group <code>g(h)</code>；让 slope 经过模型真实 value projection：<span class="formula-line">d<sub>z,h</sub>=W<sub>V</sub><sup>g(h)</sup>s<sup>x</sup></span>堆叠 H16/H19 后得到 <code>d<sub>S</sub></code>。再让它经过各 head 自己的 output projection：<span class="formula-line">m<sub>S</sub>=Σ<sub>h∈S</sub>W<sub>O</sub><sup>h</sup>d<sub>z,h</sub></span><code>m<sub>S</sub></code> 才是写进 residual 的一单位 natural output step。</dd>
+<dt>② Clean forward 是否自然携带它</dt><dd>用独立 center seeds 对每个 head 拟合 count=0 截距 <code>z<sub>0,h</sub></code>。将 clean <code>z<sub>S</sub>−z<sub>0,S</sub></code> 经 <code>W<sub>O</sub></code> 后投影到 <code>m<sub>S</sub></code>；该系数随 gold count 的 seed-level OLS slope 为 natural-carrier effect。它不做干预，只确认自然信号确实存在于该 write channel。</dd>
+<dt>③ Steering 与 removal</dt><dd><strong>Steering：</strong>在 receiver 自己的 H16/H19 pre-O slices 加 <code>βd<sub>S</sub></code>，β 从−2到+2；不使用 donor，也不直接加 answer axis。主效应是 <code>ΔE[C]</code> 对 β 的 slope。<strong>Removal：</strong>从 receiver 当前 centered <code>z</code> 中删除沿 <code>m<sub>S</sub></code> 的可实现分量；与同 <code>W<sub>O</sub></code> span、等 post-O norm 的正交删除比较。前者检验充分性，后者检验自然必要性。</dd>
+<dt>④ Donor mediation 与下游 trace</dt><dd>把 donor 的完整 H16/H19 <code>z</code> patch 给 receiver 后，计算 patch output 沿 <code>m<sub>S</sub></code> 的分量，并只删除该分量；中介效应 <code>M=T<sub>orth</sub>−T<sub>axis-block</sub></code>。随后将 ±steering 在 L28–L35 造成的 residual 中心差分投影到每层冻结 answer-count step；natural−orthogonal specificity 检验写入是否继续传播。L35 specificity={rw['write_propagation']['final_residual_specificity_mean']:.4f}，Holm p={fmt_p(rw['write_propagation']['final_residual_specificity_holm_p'])}。</dd>
 </dl></div>
-<p><strong>读取机制。</strong>在 H16/H19 上固定 receiver/donor 的 attention routing <code>α</code> 与 value content <code>V</code>，构造 RR、RD、DR、DD 四个 pre-O states；Shapley identity 将完整 donor movement 分为 routing 与 value 两部分。两者都显著：routing family p={fmt_p(rw['read_mode']['routing_family_p'])}，value family p={fmt_p(rw['read_mode']['value_family_p'])}。因此这里不是“只靠 QK 指向哪里”或“只靠 V 中已有内容”，而是路由与被路由内容共同决定写入。</p>
-<p><strong>上游接入。</strong>fresh-seed 串联实验先 patch early broad bank，再在 L28 恢复/阻断该自然 channel：early source gain={up['early_effect']['mean']:.4f} [{up['early_effect']['ci_low']:.4f}, {up['early_effect']['ci_high']:.4f}]，L28 mediation={up['mediation']['mean']:.4f} [{up['mediation']['ci_low']:.4f}, {up['mediation']['ci_high']:.4f}]，联合 IUT p={fmt_p(up['intersection_union_p'])}。这验证的是 early retrieval effect 会经过 L28 writer，而不是两个独立显著模块的并列。</p>
-<div class="conclusion"><strong>Qwen 机制结论</strong>prompt running state 经 early broad bank 到达 L28；H16/H19 用 α 与 V 共同读取，再由 W<sub>O</sub> 写入新的 answer-residual direction，并传播到最终输出。</div>
+<p><strong>H16/H19 如何“读”。</strong>对同一个 receiver/donor pair 构造 RR=<code>α<sub>R</sub>V<sub>R</sub></code>、RD=<code>α<sub>R</sub>V<sub>D</sub></code>、DR=<code>α<sub>D</sub>V<sub>R</sub></code>、DD=<code>α<sub>D</sub>V<sub>D</sub></code>。Shapley 分账把 RR→DD 的完整变化拆成 routing 贡献（换 <code>α</code>）与 value-content 贡献（换 <code>V</code>）。routing family p={fmt_p(rw['read_mode']['routing_family_p'])}，value family p={fmt_p(rw['read_mode']['value_family_p'])}；所以两个 heads 既改变“读哪里”，也利用“读到什么”。</p>
+<p><strong>上游接入。</strong>使用同一 full-span score 在 L&lt;28 候选域冻结 nested K 后，top-4=L27H18/L23H29/L23H13/L23H28 的 slot-state patch 产生 donor log-odds gain={q_fs_top4['early_donor_log_odds_gain_mean']:.4f} [{q_fs_top4['early_donor_log_odds_gain_ci_low']:.4f}, {q_fs_top4['early_donor_log_odds_gain_ci_high']:.4f}]；在 L28 H16/H19 阻断 induced natural component 的 mediation specificity={q_fs_top4['donor_log_odds_mediation_specificity_mean']:.4f} [{q_fs_top4['donor_log_odds_mediation_specificity_ci_low']:.4f}, {q_fs_top4['donor_log_odds_mediation_specificity_ci_high']:.4f}]，两项在6个K×3 routes内 Holm p={fmt_p(q_fs_top4_p)}。这直接把 full-span early bank 接到 H16/H19 writer。另一个旧 endpoint-ranked top-4（与新 set 共享3/4成员）在20个独立 fresh seeds 上也得到 source+mediation IUT p={fmt_p(up['intersection_union_p'])}；它只作为 route-family 的独立 replication，不冒充新 top-4 的 exact-set replication。</p>
+{table(["full-span early set", "source intervention", "source gain [95% CI]", "source Holm p", "L28 mediation [95% CI]", "mediation Holm p"], q_fs_supported_rows, classes="paper-table compact-result-table")}
+<p>上表只列同时通过 source 与 L28 mediation 的组合。K=4/8/16/32 的 slot-state route 通过，K=16 的 slot-edge α/V route 也通过；K=1/2 没有通过串联 conjunction。因为所有 K 与 routes 在 outcome 前冻结且 p 已在18个组合内 Holm 校正，我们采用较小且已通过的 top-4 slot-state route 作为主图，而不以最大 effect 的 K 事后选路。</p>
+<figure>{q_gate}<figcaption><strong>Figure · Qwen natural-OV conjunction.</strong> 四个框对应四个不可互相替代的证据门；框内给出该 family 的核心 effect、95% CI 与 IUT p。勾号表示 family 通过。global IUT p 是四个 family p 的最大值，因此只有四门全部显著才支持自然 OV channel。</figcaption></figure>
+<figure>{q_write_svg}<figcaption><strong>Figure · Qwen write propagation.</strong> 横轴为 decoder layer L28–L35；纵轴为 natural pre-O intervention 相对同 W<sub>O</sub> span、等 post-O norm 正交 control 多产生的 frozen answer-count-axis coefficient。点为20个 seed effects 的均值，竖线为95% CI；0 表示 natural 与 control 在该层的 count-aligned propagation 没有差异。</figcaption></figure>
+<p class="result-sentence"><strong>结果。</strong>H16/H19 的自然载荷、pre-O 充分性、centered 必要性和 donor-path mediation 四个 families 全部通过，global IUT p={fmt_p(ov['primary_decision']['global_intersection_union_p'])}。routing 与 value 两个读取分量也分别显著；写入后的 specificity 一直保留到 L35。</p>
+{table(["证据", "具体验证什么", "effect [95% CI]", "p"], q_rows, classes="paper-table compact-result-table")}
+<div class="conclusion"><strong>Qwen 机制结论</strong>prompt running state 经 full-span-ranked early top-4 到达 L28；H16/H19 用 α 与 V 共同读取，再由自身 W<sub>O</sub> 写入新的 answer-residual direction，并传播到最终输出。新 exact-set 串联证据为复用冻结 seeds 的多重比较校正探索性确认；独立 fresh-seed 结果确认的是同一路由家族。</div>
 </article>
 
 <article class="positive-mechanism-model gemma">
 <h3>7.3 Gemma：K2 bank 写入 L37 distributed residual</h3>
-<p class="result-sentence">冻结的 L29H4/L35H2 source bank 把 count information 写入 L37 的分布式 residual state；精确 residual block 与 count-axis block 都能特异削弱 donor transport，而 L41 terminal state 会采用这部分写入。四个注册 endpoints 全部通过，global IUT p={fmt_p(gemma_residual['primary_decision']['global_intersection_union_p'])}。</p>
-{table(["证据", "具体验证什么", "effect [95% CI]", "p"], g_rows, classes="paper-table compact-result-table")}
-<div class="test-card"><h4>Gemma 的 source write 与 residual propagation 如何验证</h4><dl>
-<dt>① True pre-O source write</dt><dd>在 answer query 只把 receiver 的 <code>z<sub>29,4</sub></code> 与 <code>z<sub>35,2</sub></code> 替换为 donor 值，其他 heads 与 residual 保持 receiver。两个 head outputs 必须分别经过自身 <code>W<sub>O</sub></code>；source effect 是该 patch 的 normalized donor transport <code>T<sub>source</sub></code>。</dd>
-<dt>② 定义 L37 mediator</dt><dd>在 discovery seeds 上计算同一 source patch 引起的 <span class="formula-line">δ<sub>37</sub>=h<sub>37</sub><sup>source-patch</sup>−h<sub>37</sub><sup>clean receiver</sup></span>并冻结 L37、该 induced change 的构造、count axis 与三个 layer-matched K2 controls；confirmation 不重新挑 layer。</dd>
-<dt>③ Exact residual mediation</dt><dd>source patch 后在 L37 删除完整 <code>δ<sub>37</sub></code>；matched condition 删除等范数、与 <code>δ<sub>37</sub></code> 正交的 residual direction。表中正向 effect 为 <span class="formula-line">M<sub>exact</sub>=T<sub>orth-exact</sub>−T<sub>exact-block</sub></span>它检验 source effect 是否真的通过 source patch 在 L37 造成的那段 residual change。</dd>
-<dt>④ Count-axis mediation</dt><dd>只删除 <code>δ<sub>37</sub></code> 在冻结 L37 count direction <code>b<sub>37</sub></code> 上的投影，并与等范数正交删除比较：<span class="formula-line">M<sub>count</sub>=T<sub>orth-count</sub>−T<sub>count-block</sub></span>正值说明 exact mediator 中至少一部分是 count-aligned，而不只是任意 source-specific residual disturbance。</dd>
-<dt>⑤ Terminal adoption</dt><dd>追踪 source patch 在 L41 引起的 state change <code>Δh<sub>41</sub></code>，投影到 discovery 时冻结的 terminal count step：<span class="formula-line">A<sub>41</sub>=&lt;Δh<sub>41</sub>,b<sub>41</sub>&gt;/||b<sub>41</sub>||²/(D−R)</span>正值表示 L41 state 采用 donor count 的比例。</dd>
+<div class="study-preface"><strong>为什么做。</strong><span>Gemma 的 sliding layers 只能直接查看512-token窗口，所以后层不必重新注意全部远端 needles。更合适的命题是：周期性 full-attention heads 先把全局信息写入 answer-query residual；中间局部 blocks 再传播这个已经写入的 state。</span><strong>如何评估。</strong><span>full-span ranking 冻结 K2=L29H4/L35H2；discovery 只选 mediator 与 count axes，confirmation 不再换 heads 或 layer。source transport、exact L37 mediation、count-axis mediation、L41 adoption 四项都必须通过 candidate 与 matched-control 两道门。</span></div>
+<div class="ov-data-strip gemma"><strong>冻结数据。</strong>discovery seeds 1456–1465，confirmation 1466–1485；counts 1–10，odd counts 1/3/5/7/9 拟合 axes、even counts 2/4/6/8/10 held out；pairs 为 <code>R←D: 1←6, 3←8, 5←10</code>。mediator 只在 L36–L40 中用 discovery 选择，最终冻结 L37；terminal layer 固定 L41。三个 K2 controls 为 (L29H1,L35H3)、(L29H6,L35H2)、(L29H7,L35H6)。</div>
+<div class="test-card"><h4>Gemma 四步验证</h4><dl>
+<dt>① K2 pre-O source patch</dt><dd>在 receiver 的 <code>Total:</code> query，先于 output projection 把 <code>z<sub>29,4</sub></code> 和 <code>z<sub>35,2</sub></code> 替换成同 seed donor 的值；其他 heads 与 receiver residual 不改。被替换的两个 <code>z</code> 分别通过各自的 <code>W<sub>O</sub></code> 写入。因此它不是直接把 donor answer direction 加到 residual，而是真实的 head-output-path patch。source effect 是 <code>T<sub>source</sub></code>。</dd>
+<dt>② 在 L37 定义实际写入结果</dt><dd>同一 K2 patch 到达 L37 时产生 <span class="formula-line">δ<sub>37</sub>=h<sub>37</sub><sup>K2 patch</sup>−h<sub>37</sub><sup>clean R</sup></span><code>δ<sub>37</sub></code> 包含 L29/L35 两次 <code>W<sub>O</sub></code> 写回及其间 blocks 的合成结果；它是在 residual space 中观察到的实际 mediator。</dd>
+<dt>③ 阻断 L37 mediator</dt><dd><strong>Exact block：</strong>在保留 K2 patch 的 forward 中删除完整 <code>δ<sub>37</sub></code>。<strong>Count-axis block：</strong>只删除 <code>δ<sub>37</sub></code> 在冻结 L37 count direction <code>b<sub>37</sub></code> 上的投影。两者都和 residual-space 等范数正交删除比较：<span class="formula-line">M=T<sub>orth</sub>−T<sub>block</sub></span>正值说明 K2 donor effect 确实经过 L37，并且其中有可识别的 count-aligned component。</dd>
+<dt>④ 检查是否到达 terminal answer state</dt><dd>计算 K2 patch 在 L41 造成的 <code>Δh<sub>41</sub></code>，投影到 discovery 冻结的 terminal count step：<span class="formula-line">A<sub>41</sub>=&lt;Δh<sub>41</sub>,b<sub>41</sub>&gt;/||b<sub>41</sub>||²/(D−R)</span>它表示 terminal state 沿 donor–receiver count gap 前进的比例。</dd>
 </dl></div>
-<p><strong>Gemma window 带来的机制差异。</strong>L29H4 与 L35H2 位于周期性 full-attention layers，因而 source write 时可从完整 causal prefix 汇集远端 needles；它们之间及之后的 sliding-attention layers 只能直接访问有限窗口。我们的结果不要求每个 sliding layer 重新检索所有 needles：full-attention K2 先把全局 count information 写进 answer-query residual，随后 residual connection 与局部 block transformation 把这一 state 送到 L37，再传播到 L41。exact block、count-axis block 与 terminal adoption 分别验证“有特定 induced residual”“其中含 count component”“该 component 到达 terminal state”三步。</p>
+<p><strong>Window 的具体作用。</strong>L29H4 与 L35H2 位于 full-attention layers，能在 answer query 汇集完整 causal prefix；L30–L34、L36–L40 的 sliding layers不能直接重新看见大部分远端 needles，但 residual connection 会把此前已写入的 state 带入下一层，局部 attention/MLP 再变换它。因而 Gemma 路径不是“每层重新检索”，而是“full-attention 写入 → windowed residual 传播 → L41 terminal readout”。</p>
 <p>表中的四个 candidate-core effects 均显著；完整判定还要求每个 endpoint 同时优于三个冻结 layer-matched K2 controls。family p 取候选效应与 candidate-minus-control specificity 中较弱者，global IUT p 再取四个 family p 的最大值；因此 global IUT p={fmt_p(gemma_residual['primary_decision']['global_intersection_union_p'])} 表示四步 conjunction 全部通过，而不是从多个 endpoint 中挑最小 p。</p>
+<figure>{g_gate}<figcaption><strong>Figure · Gemma source→residual→terminal conjunction.</strong> 四个框按计算顺序展示 K2 source transport、删除完整 L37 induced residual、仅删除其 count-axis component，以及 L41 donor-count adoption。每框给出 candidate-core effect、95% CI 和包含 matched-specificity 的 family IUT p；global p 为四框中最大的 family p。</figcaption></figure>
+<p class="result-sentence"><strong>结果。</strong>L29H4/L35H2 source patch 产生显著 donor transport；删除完整 δ<sub>37</sub> 或只删除其 count-aligned component 都会特异削弱 transport；L41 state 显著采用 donor count。四个 families 全部通过，global IUT p={fmt_p(gemma_residual['primary_decision']['global_intersection_union_p'])}。</p>
+{table(["证据", "具体验证什么", "effect [95% CI]", "p"], g_rows, classes="paper-table compact-result-table")}
 <div class="conclusion"><strong>Gemma 机制结论</strong>L29H4/L35H2 在 full-attention answer queries 聚合全 prompt，并经各自 W<sub>O</sub> 写回；写入形成 L37 的分布式、部分 count-aligned residual mediator。后续 sliding layers 不必重新访问远端 needles，而是让该 residual state 继续传播到 L41 answer computation。</div>
 </article>
 </section>
 """
 
 
-def build_synthesis_clear(ov: dict[str, Any], gemma_residual: dict[str, Any]) -> str:
+def build_synthesis_clear(
+    ov: dict[str, Any],
+    fullspan_upstream: dict[str, Any],
+    gemma_residual: dict[str, Any],
+) -> str:
+    q_fs_top4 = _fullspan_upstream_row(
+        fullspan_upstream, early_set="top4", route="slot_state"
+    )
+    q_fs_top4_p = max(
+        float(q_fs_top4["early_donor_log_odds_gain_holm_p"]),
+        float(q_fs_top4["donor_log_odds_mediation_specificity_holm_p"]),
+    )
     return f"""
 <section id="synthesis">
 <h2>8 · 最终机制对照</h2>
@@ -4598,11 +5189,11 @@ def build_synthesis_clear(ov: dict[str, Any], gemma_residual: dict[str, Any]) ->
     ["阶段", "Qwen3-8B", "Gemma4-E4B"],
     [
         ["Prompt state", "needle-end running counter", "needle-end running counter"],
-        ["Retrieval", "L23H28/L23H29/L26H20/L27H18 early broad bank", "L29H4/L35H2 K2 broad bank"],
+        ["Retrieval", "full-span top-4 L27H18/L23H29/L23H13/L23H28", "full-span top-2 L29H4/L35H2"],
         ["Read / write", "L28 H16/H19 mixed α/V read + localized W<sub>O</sub> write", "K2 source-bank output writes L37 distributed residual"],
         ["Propagation", "L29–L35 answer-count axes", "L37 → L41 residual path"],
         ["Answer", "Total query residual drives N", "Total query residual drives N"],
-        ["Causal conjunction", f"natural OV IUT p={fmt_p(ov['primary_decision']['global_intersection_union_p'])}", f"residual path IUT p={fmt_p(gemma_residual['primary_decision']['global_intersection_union_p'])}"],
+        ["Causal conjunction", f"early→L28 Holm p={fmt_p(q_fs_top4_p)}；natural OV IUT p={fmt_p(ov['primary_decision']['global_intersection_union_p'])}", f"residual path IUT p={fmt_p(gemma_residual['primary_decision']['global_intersection_union_p'])}"],
     ],
     classes="paper-table compact-result-table",
 )}
@@ -4618,14 +5209,17 @@ def build_limits_clear(
     ov: dict[str, Any],
     read_write: dict[str, Any],
     upstream: dict[str, Any],
+    fullspan_upstream: dict[str, Any],
     gemma_residual: dict[str, Any],
     correct_state: dict[str, Any],
 ) -> str:
     rows = [
         ["Macro representation / patching", "reports/v4_non-thinking_causal/v4_4_causal_v2/report_summary.json", causal_v2["schema_version"]],
-        ["Frozen top-k extrapolation", "reports/v4_non-thinking_causal/v4_4_causal_v2/seed_extrapolation_summary.json", f"audit {seed_confirmation['audit']['passed']}/{seed_confirmation['audit']['checks']} PASS"],
+        ["Full-span frozen top-k extrapolation", "reports/v4_non-thinking_causal/v4_4_causal_v2/full_span_topk/seed_extrapolation_summary_v2.json", f"audit {seed_confirmation['audit']['passed']}/{seed_confirmation['audit']['checks']} PASS"],
+        ["Full-span top-k primary statistics", "reports/v4_non-thinking_causal/v4_4_causal_v2/full_span_topk/full_span_topk_primary_statistics.csv", "equal-seed estimand + pooled sensitivity"],
         ["Qwen natural OV", "reports/v4_non-thinking_causal/v4_4_4/realistic_niah_v4_4_4_analysis.json", ov["schema_version"]],
         ["Qwen α/V read-write", "reports/v4_non-thinking_causal/v4_4_4/read_write/realistic_niah_v4_4_4_read_write_analysis.json", read_write["schema_version"]],
+        ["Qwen full-span early→L28 K-sweep", "reports/v4_non-thinking_causal/v4_4_4/qwen/full_span_upstream/realistic_niah_v4_4_4_upstream_path_analysis.json", f"audit {str(fullspan_upstream['audit']['all_checks_pass']).upper()} · 1080 effects"],
         ["Qwen fresh serial path", "reports/v4_non-thinking_causal/v4_4_4/upstream_confirmation/realistic_niah_v4_4_4_upstream_confirmation_analysis.json", upstream["schema_version"]],
         ["Gemma K2 residual path", "reports/v4_non-thinking_causal/v4_4_4/gemma/residual/k2/realistic_niah_v4_4_4_residual_analysis.json", gemma_residual["schema_version"]],
         ["Fresh correct-only answer routes", "reports/v4_non-thinking_causal/v4_4_4/correct_state_routes/correct_state_route_analysis.json", correct_state["schema_version"]],
@@ -4635,7 +5229,6 @@ def build_limits_clear(
 <h2>9 · 复现信息</h2>
 <p>报告中的显著性均来自保存的 seed-level 聚合与审计文件；HTML 不复制 raw hidden states、full value tensors 或 raw attention rows。原始捕获继续保留在 FileStream。</p>
 {details_table("Source ledger", ["component", "relative path", "schema/audit"], rows, opened=True)}
-<p class="provenance-note">Interface restructuring followed the imported design-taste-frontend workflow (MIT; upstream source commit 9bad53f2426e310c33ef5bacf9f845855197be6a). Scientific definitions and numerical results remain sourced from the V4.4 analysis files above.</p>
 <div class="conclusion"><strong>复现结论</strong>所有进入正文的因果结果都对应 audit PASS 的机器可读 analysis；图形只负责展示 effect 与结构，不替代统计文件。</div>
 </section>
 """
@@ -4649,6 +5242,8 @@ def validate_inputs(repo_root: Path) -> dict[str, Path]:
         / "reports/v4_non-thinking_causal/v4_4_causal_v2/report_summary.json",
         "seed_confirmation": repo_root
         / "reports/v4_non-thinking_causal/v4_4_causal_v2/seed_extrapolation_summary.json",
+        "full_span_topk": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_causal_v2/full_span_topk/seed_extrapolation_summary_v2.json",
         "exact_reanalysis": repo_root
         / "reports/v4_non-thinking_causal/v4_4_causal_v2/exact_sign_flip_reanalysis.json",
         "cue": repo_root
@@ -4661,6 +5256,8 @@ def validate_inputs(repo_root: Path) -> dict[str, Path]:
         / "reports/v4_non-thinking_causal/v4_4_4/realistic_niah_v4_4_4_relay_analysis.json",
         "upstream": repo_root
         / "reports/v4_non-thinking_causal/v4_4_4/upstream_confirmation/realistic_niah_v4_4_4_upstream_confirmation_analysis.json",
+        "fullspan_upstream": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_4/qwen/full_span_upstream/realistic_niah_v4_4_4_upstream_path_analysis.json",
         "gemma_l37_ov": repo_root
         / "reports/v4_non-thinking_causal/v4_4_4/gemma/natural_ov/realistic_niah_v4_4_4_analysis.json",
         "gemma_l29_ov": repo_root
@@ -4686,12 +5283,14 @@ def validate_inputs(repo_root: Path) -> dict[str, Path]:
         "base",
         "causal_v2",
         "seed_confirmation",
+        "full_span_topk",
         "exact_reanalysis",
         "cue",
         "ov",
         "read_write",
         "relay",
         "upstream",
+        "fullspan_upstream",
         "gemma_l37_ov",
         "correct_state",
         "correct_state_geometry",
@@ -5208,7 +5807,7 @@ function makeMechanismWalkthrough(){
  if(!prev||!next||!play||!qTitle||!qBody||!gTitle||!gBody)return;
  const stages=[
   {qTitle:'1/5 · Qwen 提取 prompt running state',qBody:'在同一 N=10 prompt 内，于第 n 个 active needle 的最后 token 保存 post-block residual；n=1…10 是读取进度。',gTitle:'1/5 · Gemma 提取 prompt running state',gBody:'使用相同 endpoint 定义；sliding layers 的 state 可以同时包含局部更新、前序 full-layer 刷新与 residual/MLP 变换。'},
-  {qTitle:'2/5 · Qwen early slot-state bank',qBody:'冻结 early top-4，并只在注册 slot-query positions 替换 donor pre-O z；后续 L28 exact restoration 检验串联中介。',gTitle:'2/5 · Gemma full-attention K2 bank',gBody:'L29H4 与 L35H2 位于 full-attention layers，可在 answer query 汇集整个 causal prefix；三个 layer-matched K2 sets 作为对照。'},
+  {qTitle:'2/5 · Qwen full-span early top-4',qBody:'按完整 needle spans 冻结 L27H18/L23H29/L23H13/L23H28，并只在注册 slot-state positions 替换 donor pre-O z；随后在 L28 H16/H19 阻断 induced natural-OV component。',gTitle:'2/5 · Gemma full-attention K2 bank',gBody:'L29H4 与 L35H2 位于 full-attention layers，可在 answer query 汇集整个 causal prefix；三个 layer-matched K2 sets 作为对照。'},
   {qTitle:'3/5 · Qwen α/V mixed read',qBody:'在 L28 H16/H19 构造 RR、RD、DR、DD 四个 pre-O endpoints，用 Shapley identity 把 donor-z movement 分成 routing 与 value 两部分。',gTitle:'3/5 · Gemma true pre-O source patch',gBody:'只替换 answer-query 的 z(29,4) 与 z(35,2)；写入必须经过这两个 heads 自己的 W_O，receiver 其他状态保持不变。'},
   {qTitle:'4/5 · Qwen natural OV write',qBody:'在 W_O 前注入或删除 natural V-path count step，并与同 W_O span、等 post-O 范数的正交方向比较；影响沿 L29–L35 frozen count axes 追踪。',gTitle:'4/5 · Gemma L37 residual mediator',gBody:'测量 K2 patch 在 L37 诱发的 δ；exact block 删除整个 δ，count-axis block 只删除其 count-aligned component，再追踪至 L41。'},
   {qTitle:'5/5 · Qwen answer state 执行输出',qBody:'把 donor 的 Total: query full residual 单层替换给 receiver，再从 receiver context 完整 greedy 生成；输出显著向 donor count 移动。',gTitle:'5/5 · Gemma terminal state 执行输出',gBody:'L41 frozen count-axis adoption 与独立 full-state answer patch 共同显示：窗口化传播后的 terminal query state 可以改变最终数字。'}
@@ -5237,39 +5836,26 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     base = paths["base"].read_text(encoding="utf-8")
     answer_data = extract_embedded_json(base, "ANSWER_DATA")
     causal_v2 = read_json(paths["causal_v2"])
-    seed_confirmation = read_json(paths["seed_confirmation"])
-    exact_reanalysis = read_json(paths["exact_reanalysis"])
+    seed_confirmation = read_json(paths["full_span_topk"])
     ov = read_json(paths["ov"])
     read_write = read_json(paths["read_write"])
     upstream = read_json(paths["upstream"])
+    fullspan_upstream = read_json(paths["fullspan_upstream"])
     gemma_residual = read_json(paths["gemma_residual_k2"])
     correct_state = read_json(paths["correct_state"])
-
-    exact_rows = {
-        (str(row["model"]), str(row["top_k"])): row
-        for row in exact_reanalysis["results"]
-    }
-    for model, model_rows in seed_confirmation["models"].items():
-        for k_text, metrics in model_rows.items():
-            audited = exact_rows[(str(model), str(k_text))]
-            metrics["clean_correct_to_wrong"][
-                "two_sided_exact_seed_sign_flip_p"
-            ] = float(audited["clean_correct_failure"]["exact_p"])
-            metrics["clean_correct_to_wrong"][
-                "holm_p_across_four_frozen_sets"
-            ] = float(audited["clean_correct_failure"]["holm_p"])
 
     if any(
         causal_v2["audits"][model]["status"] != "PASS"
         for model in ("Qwen3-8B", "Gemma4-E4B")
     ):
         raise RuntimeError("causal-v2 audit did not pass")
-    if seed_confirmation["audit"]["status"] != "PASS":
+    if str(seed_confirmation["audit"]["status"]).lower() != "passed":
         raise RuntimeError("Frozen top-k audit did not pass")
     for label, document in (
         ("Qwen natural OV", ov),
         ("Qwen read/write", read_write),
         ("Qwen upstream", upstream),
+        ("Qwen full-span upstream", fullspan_upstream),
         ("Gemma residual", gemma_residual),
     ):
         if not document.get("audit", {}).get("all_checks_pass", False):
@@ -5285,7 +5871,11 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     )
     if "</style>" not in base:
         raise RuntimeError("Base report has no style terminator")
-    base = base.replace("</style>", EXTRA_CSS + CLEAR_CSS + "\n</style>", 1)
+    base = base.replace(
+        "</style>",
+        EXTRA_CSS + CLEAR_CSS + REPORT_REFINEMENT_CSS + "\n</style>",
+        1,
+    )
     nav = """<nav><a href="#mechanism-overview">Mechanism</a><a href="#scope">结论</a><a href="#methods">设定</a><a href="#prompt">Prompt geometry</a><a href="#answer">Answer geometry</a><a href="#attention">Attention</a><a href="#causal">Ablation / patching</a><a href="#natural-ov">Write / propagation</a><a href="#synthesis">对照</a><a href="#limits">复现</a></nav>"""
     base, nav_count = re.subn(r"<nav>.*?</nav>", nav, base, count=1, flags=re.S)
     if nav_count != 1:
@@ -5303,13 +5893,26 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     if header_count != 1:
         raise RuntimeError("Could not replace report header")
 
-    scope = build_scope_clear(causal_v2, ov, upstream, gemma_residual)
+    scope = build_scope_clear(causal_v2, ov, fullspan_upstream, gemma_residual)
     base = replace_section(base, "scope", scope)
     overview = build_mechanism_overview_detailed(
-        ov, read_write, upstream, gemma_residual, causal_v2, correct_state
+        ov,
+        read_write,
+        upstream,
+        fullspan_upstream,
+        gemma_residual,
+        causal_v2,
+        correct_state,
     )
     base = base.replace('<section id="scope">', overview + '\n\n<section id="scope">', 1)
-    methods = build_methods_clear(ov, upstream, gemma_residual)
+    methods = build_methods_clear(
+        causal_v2,
+        ov,
+        read_write,
+        upstream,
+        fullspan_upstream,
+        gemma_residual,
+    )
     base = base.replace('<section id="prompt">', methods + '\n\n<section id="prompt">', 1)
 
     base = base.replace(
@@ -5345,7 +5948,7 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     answer_marker = '<div class="figure-block"><h3>4.2 Interactive V4.4 answer-query counter</h3>'
     if answer_marker not in base:
         raise RuntimeError("Could not locate answer counter figure")
-    fit_block = build_answer_fit_sensitivity(answer_data).replace(
+    fit_block = build_answer_geometry_preface() + build_answer_fit_sensitivity(answer_data).replace(
         "<h3>5.1 ", "<h3>4.1 ", 1
     )
     base = base.replace(answer_marker, fit_block + "\n\n" + answer_marker, 1)
@@ -5397,9 +6000,9 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
         build_causal_section_clear(causal_v2, seed_confirmation, correct_state),
     )
     positive_section = build_positive_mechanism_section(
-        ov, read_write, upstream, gemma_residual
+        ov, read_write, upstream, fullspan_upstream, gemma_residual
     )
-    synthesis_section = build_synthesis_clear(ov, gemma_residual)
+    synthesis_section = build_synthesis_clear(ov, fullspan_upstream, gemma_residual)
     base = base.replace(
         '<section id="limits">',
         positive_section + "\n\n" + synthesis_section + '\n\n<section id="limits">',
@@ -5414,6 +6017,7 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
             ov,
             read_write,
             upstream,
+            fullspan_upstream,
             gemma_residual,
             correct_state,
         ),

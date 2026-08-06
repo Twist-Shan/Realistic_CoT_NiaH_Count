@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 
-SCHEMA = "realistic_niah_v4_4_full_span_topk_analysis_v1"
+SCHEMA = "realistic_niah_v4_4_full_span_topk_analysis_v2"
 MODELS = ("Qwen3-8B", "Gemma4-E4B")
 
 
@@ -58,6 +58,32 @@ def _holm(values: Iterable[float]) -> list[float]:
         running = max(running, min(1.0, float(raw[index]) * (len(order) - rank)))
         adjusted[index] = running
     return adjusted.tolist()
+
+
+def _seed_mean_bootstrap_ci(
+    values: Iterable[float], *, label: str, repetitions: int = 10_000
+) -> tuple[float, float]:
+    """Bootstrap the equal-seed estimand used by the exact sign-flip test.
+
+    Correct-only eligibility varies by seed, so an equal-seed mean and a pooled
+    eligible-example mean are different estimands.  The primary report treats
+    seed as the independent replication unit; its confidence interval must
+    therefore resample the twenty seed effects rather than reuse the pooled-row
+    interval emitted by the generic dual-population summary.
+    """
+
+    vector = np.asarray(list(values), dtype=np.float64)
+    vector = vector[np.isfinite(vector)]
+    if not len(vector):
+        raise ValueError("Seed bootstrap requires at least one finite effect")
+    stable_seed = int.from_bytes(
+        hashlib.sha256(label.encode("utf-8")).digest()[:8], "little"
+    )
+    rng = np.random.default_rng(stable_seed)
+    indices = rng.integers(0, len(vector), size=(int(repetitions), len(vector)))
+    distribution = vector[indices].mean(axis=1)
+    low, high = np.quantile(distribution, [0.025, 0.975])
+    return float(low), float(high)
 
 
 def _stage_root(run_root: Path, model: str) -> Path:
@@ -155,7 +181,12 @@ def analyze(run_root: Path, output_dir: Path) -> dict[str, object]:
         ):
             raise RuntimeError(f"{model} registry is not full-span literal mass")
         bank = ranking["rankings"]["broad_aggregation"]
-        top_ns = sorted(pd.to_numeric(dual["top_n"], errors="raise").astype(int).unique())
+        top_ns = [
+            int(value)
+            for value in sorted(
+                pd.to_numeric(dual["top_n"], errors="raise").astype(int).unique()
+            )
+        ]
         for top_n in top_ns:
             selected = bank[:top_n]
             for row in selected:
@@ -198,11 +229,11 @@ def analyze(run_root: Path, output_dir: Path) -> dict[str, object]:
             raise RuntimeError("Could not align dual-population summary")
         record = dual_row.iloc[0]
         effect = float(values.mean())
-        if not math.isclose(effect, float(record["primary_effect"]), abs_tol=1e-12):
-            raise RuntimeError(
-                f"Primary-effect mismatch for {model} K={top_n} {population}: "
-                f"seed={effect} dual={record['primary_effect']}"
-            )
+        ci_low, ci_high = _seed_mean_bootstrap_ci(
+            values,
+            label=f"{model}:K{int(top_n)}:{population}:equal-seed-mean",
+        )
+        pooled_example_effect = float(record["primary_effect"])
         summaries.append(
             {
                 "model_label": model,
@@ -210,8 +241,10 @@ def analyze(run_root: Path, output_dir: Path) -> dict[str, object]:
                 "analysis_population": population,
                 "primary_metric": metric,
                 "primary_effect": effect,
-                "ci95_low": float(record["primary_effect_ci95_low"]),
-                "ci95_high": float(record["primary_effect_ci95_high"]),
+                "ci95_low": ci_low,
+                "ci95_high": ci_high,
+                "pooled_eligible_example_effect": pooled_example_effect,
+                "equal_seed_minus_pooled_effect": effect - pooled_example_effect,
                 "exact_sign_flip_p": _exact_sign_flip_p(values),
                 "seed_clusters": len(values),
                 "positive_seed_fraction": float(np.mean(values > 0)),
@@ -258,6 +291,9 @@ def analyze(run_root: Path, output_dir: Path) -> dict[str, object]:
                     "effect": float(all_row["primary_effect"]),
                     "ci95_low": float(all_row["ci95_low"]),
                     "ci95_high": float(all_row["ci95_high"]),
+                    "pooled_eligible_example_effect": float(
+                        all_row["pooled_eligible_example_effect"]
+                    ),
                     "two_sided_exact_seed_sign_flip_p": float(all_row["exact_sign_flip_p"]),
                     "holm_p_across_twelve_frozen_sets": float(
                         all_row["holm_p_within_primary_endpoint_12_tests"]
@@ -267,6 +303,9 @@ def analyze(run_root: Path, output_dir: Path) -> dict[str, object]:
                     "effect": float(clean_row["primary_effect"]),
                     "ci95_low": float(clean_row["ci95_low"]),
                     "ci95_high": float(clean_row["ci95_high"]),
+                    "pooled_eligible_example_effect": float(
+                        clean_row["pooled_eligible_example_effect"]
+                    ),
                     "two_sided_exact_seed_sign_flip_p": float(clean_row["exact_sign_flip_p"]),
                     "holm_p_across_twelve_frozen_sets": float(
                         clean_row["holm_p_within_primary_endpoint_12_tests"]
@@ -308,6 +347,18 @@ def analyze(run_root: Path, output_dir: Path) -> dict[str, object]:
         json.dumps(report_summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    significant_holm = [
+        {
+            "model_label": str(row["model_label"]),
+            "top_n": int(row["top_n"]),
+            "analysis_population": str(row["analysis_population"]),
+            "primary_effect": float(row["primary_effect"]),
+            "holm_p_within_primary_endpoint_12_tests": float(
+                row["holm_p_within_primary_endpoint_12_tests"]
+            ),
+        }
+        for _, row in statistics.loc[statistics["significant_holm_0_05"]].iterrows()
+    ]
     summary = {
         "schema_version": SCHEMA,
         "status": "complete",
@@ -328,10 +379,7 @@ def analyze(run_root: Path, output_dir: Path) -> dict[str, object]:
             "membership": str(membership_path),
             "report_summary": str(report_summary_path),
         },
-        "significant_holm": statistics.loc[
-            statistics["significant_holm_0_05"],
-            ["model_label", "top_n", "analysis_population", "primary_effect", "holm_p_within_primary_endpoint_12_tests"],
-        ].to_dict(orient="records"),
+        "significant_holm": significant_holm,
     }
     summary_path = output_dir / "full_span_topk_analysis.json"
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
