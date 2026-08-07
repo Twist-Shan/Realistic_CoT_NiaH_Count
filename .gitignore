@@ -11,6 +11,8 @@ wandb/
 *.pth
 *.safetensors
 data/niah-example/
+data/realistic_niah_v3/
+data/realistic_niah_v3_1/
 archive/**
 !archive/README.md
 artifacts/**
@@ -36,6 +38,24 @@ reports/generated/
 # rendered reports, figures, and copied build scripts. Keep the complete
 # release local/Drive rather than committing any part of the report tree.
 reports/v*_realistic_niah_analysis_*/
+
+# Local credentials and machine-specific configuration.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Hugging Face/model caches and scheduler scratch files.
+.cache/
+huggingface/
+hf_cache/
+model_cache/
+tokenizer_cache/
+*.claim
+*.pid
+slurm-*.out
+nohup.out
 
 .DS_Store
 Thumbs.db

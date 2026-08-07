@@ -14,6 +14,23 @@ python -m pip install -r requirements.txt
 
 Remote: `https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git`
 
+## Registered Realistic NIAH V3
+
+V3 implements the behavior-comparison and empirical-law portions of the new
+counting pipeline while explicitly excluding mechanistic and causal claims.
+It freezes 980 shared stimuli over seven final passage lengths, fourteen true
+needle counts, and ten paired seeds; every needle lies in the final-passage
+5%–95% depth interval. Four prompt modes are evaluated across ten switchable
+Qwen, Gemma, and Nemotron checkpoints plus the registered GLM and Ministral
+matched checkpoint pairs.
+
+The complete plan has 48 resumable model × mode shards and 47,040 requests.
+It produces separate behavior and empirical-law HTML reports, uses grouped
+cross-validation by seed, retains every attempted formula, and never edits or
+filters raw failures. See
+[`docs/realistic_niah_v3.md`](docs/realistic_niah_v3.md) for the exact matrix,
+prompts, checkpoint revisions, estimands, commands, audits, and scope boundary.
+
 ## Registered Realistic NIAH V2
 
 The current counting protocol is specified in

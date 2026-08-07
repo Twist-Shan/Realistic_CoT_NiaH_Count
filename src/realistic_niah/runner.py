@@ -49,6 +49,17 @@ class EngineConfig:
     request_batch_size: int = 32
 
 
+@dataclass(frozen=True)
+class RunProtocol:
+    protocol_version: str = "realistic_niah_v2"
+    run_manifest_schema_version: str = "realistic_niah_run_manifest_v2"
+    request_schema_version: str = "realistic_niah_request_v2"
+    request_id_namespace: str | None = None
+
+
+V2_RUN_PROTOCOL = RunProtocol()
+
+
 def decoding_config(model_spec: ModelSpec, prompt_mode: str) -> DecodingConfig:
     if model_spec.reasoning_policy == "always_on":
         if prompt_mode not in model_spec.prompt_modes:
@@ -128,10 +139,12 @@ def request_id(
     prompt_mode: str,
     query_layout: str,
     stimulus_id: str,
+    namespace: str | None = None,
 ) -> str:
-    return "/".join(
-        (model_spec.label, prompt_mode, query_layout, stimulus_id)
-    )
+    components = (model_spec.label, prompt_mode, query_layout, stimulus_id)
+    if namespace:
+        components = (namespace, *components)
+    return "/".join(components)
 
 
 def build_requests(
@@ -140,7 +153,9 @@ def build_requests(
     model_spec: ModelSpec,
     prompt_modes: Iterable[str] | None = None,
     query_layout: str = QUERY_LAYOUT,
+    protocol: RunProtocol | None = None,
 ) -> list[dict[str, Any]]:
+    resolved_protocol = protocol or V2_RUN_PROTOCOL
     modes = tuple(prompt_modes or model_spec.prompt_modes)
     supported = set(model_spec.prompt_modes)
     unsupported = sorted(set(modes) - supported)
@@ -166,6 +181,7 @@ def build_requests(
                         prompt_mode=prompt_mode,
                         query_layout=query_layout,
                         stimulus_id=stimulus["stimulus_id"],
+                        namespace=resolved_protocol.request_id_namespace,
                     ),
                     "model_label": model_spec.label,
                     "model_id": model_spec.model_id,
@@ -435,11 +451,20 @@ def run_vllm_experiment(
     cache_dir: str | Path | None = None,
     repo_root: str | Path = ".",
     require_clean_git: bool = False,
+    registered_model_spec: ModelSpec | None = None,
+    protocol: RunProtocol | None = None,
 ) -> dict[str, Any]:
     from transformers import AutoTokenizer
     from vllm import LLM, SamplingParams
 
-    model_spec = resolve_model_spec(model)
+    resolved_protocol = protocol or V2_RUN_PROTOCOL
+    model_spec = registered_model_spec or resolve_model_spec(model)
+    if model not in {model_spec.label, model_spec.model_id}:
+        raise ValueError(
+            "The requested model does not match registered_model_spec: "
+            f"{model!r} not in "
+            f"{{{model_spec.label!r}, {model_spec.model_id!r}}}"
+        )
     selected = select_stimuli(
         load_stimuli(stimuli_path),
         passage_lengths=passage_lengths,
@@ -453,6 +478,7 @@ def run_vllm_experiment(
         model_spec=model_spec,
         prompt_modes=prompt_modes,
         query_layout=query_layout,
+        protocol=resolved_protocol,
     )
     output = Path(output_dir)
     results_path = output / "requests.jsonl"
@@ -488,6 +514,7 @@ def run_vllm_experiment(
     else:
         expected_existing = {
             "schema_version": existing_manifest.get("schema_version"),
+            "protocol_version": existing_manifest.get("protocol_version"),
             "model_id": existing_manifest.get("model", {}).get("model_id"),
             "query_layout": existing_manifest.get("query_layout"),
             "stimuli_sha256": existing_manifest.get("stimuli_sha256"),
@@ -500,7 +527,8 @@ def run_vllm_experiment(
             "git_commit": existing_manifest.get("git", {}).get("commit"),
         }
         current = {
-            "schema_version": "realistic_niah_run_manifest_v2",
+            "schema_version": resolved_protocol.run_manifest_schema_version,
+            "protocol_version": resolved_protocol.protocol_version,
             "model_id": model_spec.model_id,
             "query_layout": query_layout,
             "stimuli_sha256": stimuli_sha256,
@@ -539,8 +567,8 @@ def run_vllm_experiment(
             )
 
     manifest = {
-        "schema_version": "realistic_niah_run_manifest_v2",
-        "protocol_version": "realistic_niah_v2",
+        "schema_version": resolved_protocol.run_manifest_schema_version,
+        "protocol_version": resolved_protocol.protocol_version,
         "created_at_utc": created_at_utc,
         "last_updated_at_utc": datetime.now(timezone.utc).isoformat(),
         "model": asdict(model_spec),
@@ -684,13 +712,25 @@ def run_vllm_experiment(
                     max_output_tokens=decode.max_tokens,
                 )
                 completed[request["request_id"]] = {
-                    "schema_version": "realistic_niah_request_v2",
-                    "protocol_version": "realistic_niah_v2",
+                    "schema_version": resolved_protocol.request_schema_version,
+                    "protocol_version": resolved_protocol.protocol_version,
                     "request_id": request["request_id"],
                     "model_label": model_spec.label,
                     "model_id": model_spec.model_id,
                     "model_revision": immutable_revision,
                     "stimulus_id": stimulus["stimulus_id"],
+                    **(
+                        {
+                            "stimulus_schema_version": stimulus.get(
+                                "schema_version"
+                            ),
+                            "insertion_depth_policy": stimulus.get(
+                                "insertion_depth_policy"
+                            ),
+                        }
+                        if resolved_protocol != V2_RUN_PROTOCOL
+                        else {}
+                    ),
                     "seed": stimulus["seed"],
                     "target_passage_tokens": stimulus["target_passage_tokens"],
                     "canonical_passage_tokens": stimulus[
