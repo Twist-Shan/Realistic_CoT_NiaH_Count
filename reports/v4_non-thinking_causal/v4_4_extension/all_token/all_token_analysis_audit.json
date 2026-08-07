@@ -1,0 +1,17 @@
+{
+  "schema_version": "realistic_niah_v4_4_all_token_control_analysis_v1",
+  "fit_split": "discovery",
+  "evaluation_split": "confirmation",
+  "basis": "PCA32 fit to prompt needle-end states only",
+  "curve": "ten discovery needle-end count centroids, centered by their mean",
+  "formula_models": {
+    "category_baseline": "discovery mean separately for each token category",
+    "endpoint_gated_curve": "baseline + gamma(occurrence) only at needle endpoints",
+    "needle_span_gated_curve": "baseline + gamma(occurrence) at every needle-span token",
+    "ungated_prefix_curve": "baseline + gamma(completed-prefix-count) at all token categories"
+  },
+  "metric_rows": 96,
+  "formula_rows": 384,
+  "projection_rows": 182352,
+  "status": "PASS"
+}

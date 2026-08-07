@@ -5,7 +5,7 @@ from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import torch
 from torch import nn
@@ -691,6 +691,107 @@ def generate_with_residual_interventions(
     if violations:
         raise RuntimeError(
             "Residual intervention must apply exactly once per selected layer; "
+            f"violations={violations}"
+        )
+    return {
+        **result,
+        "intervention_hook_applications": {
+            str(layer): int(count) for layer, count in sorted(applied.items())
+        },
+    }
+
+
+@torch.inference_mode()
+def generate_with_residual_transforms(
+    model: nn.Module,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    encoding: PromptEncoding,
+    transforms: dict[
+        int, tuple[Sequence[int], Callable[[torch.Tensor], torch.Tensor]]
+    ],
+    *,
+    max_new_tokens: int = 16,
+) -> dict[str, Any]:
+    """Greedily generate after dynamic one-shot post-block transforms.
+
+    Unlike :func:`generate_with_residual_interventions`, a transform receives
+    the *actual* selected prefill activations at its layer.  This is required
+    for mediation tests: an early projected donor patch may first alter the
+    forward pass, after which a later hook removes only the downstream count
+    subspace from the causally changed state.  Transform functions must map a
+    tensor of shape ``[batch, positions, hidden]`` to the same shape.
+    """
+
+    if not transforms:
+        raise ValueError("At least one residual transform is required")
+    normalized: dict[
+        int, tuple[tuple[int, ...], Callable[[torch.Tensor], torch.Tensor]]
+    ] = {}
+    for raw_layer, (raw_positions, transform) in transforms.items():
+        layer = int(raw_layer)
+        if not 0 <= layer < adapter.num_layers:
+            raise ValueError(f"Invalid residual-transform layer: {layer}")
+        positions = tuple(int(position) for position in raw_positions)
+        if not positions or len(set(positions)) != len(positions):
+            raise ValueError("Residual-transform positions must be unique")
+        if not callable(transform):
+            raise TypeError("Residual transform must be callable")
+        normalized[layer] = (positions, transform)
+
+    applied = {layer: 0 for layer in normalized}
+    handles = []
+    for layer, (positions, transform) in normalized.items():
+
+        def hook(
+            _module: nn.Module,
+            _args: tuple[Any, ...],
+            output: Any,
+            *,
+            layer: int = layer,
+            positions: tuple[int, ...] = positions,
+            transform: Callable[[torch.Tensor], torch.Tensor] = transform,
+        ) -> Any:
+            hidden = _tensor_from_output(output)
+            if not _is_prompt_prefill(hidden, encoding):
+                return output
+            if any(
+                position < 0 or position >= hidden.shape[1]
+                for position in positions
+            ):
+                raise RuntimeError(
+                    "A residual-transform position is outside prefill output"
+                )
+            selected = hidden[:, list(positions), :]
+            replacement = transform(selected)
+            if not isinstance(replacement, torch.Tensor):
+                raise TypeError("Residual transform must return a tensor")
+            if replacement.shape != selected.shape:
+                raise RuntimeError(
+                    "Residual transform changed shape: "
+                    f"{tuple(selected.shape)} -> {tuple(replacement.shape)}"
+                )
+            if replacement.device != hidden.device or replacement.dtype != hidden.dtype:
+                replacement = replacement.to(device=hidden.device, dtype=hidden.dtype)
+            if not torch.isfinite(replacement).all():
+                raise RuntimeError("Residual transform produced non-finite values")
+            patched = hidden.clone()
+            patched[:, list(positions), :] = replacement
+            applied[layer] += 1
+            return _replace_output_tensor(output, patched)
+
+        handles.append(adapter.layers[layer].register_forward_hook(hook))
+    try:
+        result = generate_answer_completion(
+            model, tokenizer, encoding, max_new_tokens=max_new_tokens
+        )
+    finally:
+        for handle in handles:
+            handle.remove()
+    violations = sorted(layer for layer, count in applied.items() if count != 1)
+    if violations:
+        raise RuntimeError(
+            "Residual transform must apply exactly once per selected layer; "
             f"violations={violations}"
         )
     return {

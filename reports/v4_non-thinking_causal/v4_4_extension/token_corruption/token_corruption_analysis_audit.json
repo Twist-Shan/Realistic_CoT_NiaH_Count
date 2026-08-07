@@ -1,0 +1,12 @@
+{
+  "schema_version": "realistic_niah_v4_4_token_corruption_analysis_v1",
+  "inference_unit": "seed after averaging count-conditioned prompts",
+  "primary_specificity": "needle damage minus equal-token-budget ordinary-passage corruption damage",
+  "p_value": "two-sided exact sign-flip over seed effects",
+  "confidence_interval": "50,000 seed bootstrap resamples",
+  "multiplicity": "Holm within all-sample and clean-correct-only populations",
+  "detail_rows": 600,
+  "seed_effect_rows": 160,
+  "statistics_rows": 48,
+  "status": "PASS"
+}

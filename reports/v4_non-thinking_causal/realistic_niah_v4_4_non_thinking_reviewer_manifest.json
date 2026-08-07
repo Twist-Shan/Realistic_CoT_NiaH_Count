@@ -1,6 +1,6 @@
 {
   "schema_version": "realistic_niah_v4_4_report_reviewer_manifest_v1",
-  "generated_utc": "2026-08-06T05:31:21Z",
+  "generated_utc": "2026-08-06T14:40:49Z",
   "target_report": "reports/realistic_niah_v4_4_non_thinking_integrated_mechanism_report.html",
   "scope_note": "Hashes cover the code, configs, local summaries, provenance and environment required to inspect this report; raw tensors remain on FileStream.",
   "files": [
@@ -8,15 +8,15 @@
       "category": "report",
       "role": "final HTML",
       "path": "reports/realistic_niah_v4_4_non_thinking_integrated_mechanism_report.html",
-      "bytes": 5857595,
-      "sha256": "cb6fb55a79fbb6c43ecd07aa430496e031f4d10a53f33debce24a0c9a3defaf7"
+      "bytes": 5867522,
+      "sha256": "0a47e4745048d1544f60682aacefc175555221efa17493c89a5e6a6075a9d44f"
     },
     {
       "category": "report_builder",
       "role": "integrated report renderer",
       "path": "scripts/build_realistic_niah_v4_4_integrated_report.py",
-      "bytes": 415211,
-      "sha256": "881a16dcdbe13573994b5513f4de6e9a7e53c04c7db417a646feed0449575ebf"
+      "bytes": 429552,
+      "sha256": "0d896d33a5aff32ff4287c7b8e651b1f4687ae4f8a754dfeffa2b7d8aa6613ac"
     },
     {
       "category": "report_builder",
@@ -344,8 +344,8 @@
       "category": "core",
       "role": "model adapters and hooks",
       "path": "src/realistic_niah_v4/modeling.py",
-      "bytes": 37304,
-      "sha256": "64fdfad66e979c8fc30c22f570f3d3b89ce5e9320e2feae4c194687fe94a4deb"
+      "bytes": 41481,
+      "sha256": "b64996f1bb042ce49ae99ecfb2e98b2a87eebd5861b9f37e3c1629f877c0224e"
     },
     {
       "category": "core",

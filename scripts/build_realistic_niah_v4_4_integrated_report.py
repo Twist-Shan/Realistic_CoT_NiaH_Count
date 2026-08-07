@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import html
 import json
 import math
+import random
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +20,28 @@ def read_json(path: Path) -> dict[str, Any]:
 def read_csv_rows(path: Path) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def read_csv_rows_gzip(path: Path) -> list[dict[str, str]]:
+    with gzip.open(path, "rt", encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def ensure_viewport_meta(document: str) -> str:
+    """Make responsive report CSS use the physical device viewport."""
+
+    if re.search(r'<meta\s+name=["\']viewport["\']', document, flags=re.I):
+        return document
+    document, count = re.subn(
+        r"<head>",
+        '<head>\n<meta name="viewport" content="width=device-width, initial-scale=1">',
+        document,
+        count=1,
+        flags=re.I,
+    )
+    if count != 1:
+        raise RuntimeError("Base report has no head element for viewport metadata")
+    return document
 
 
 def fmt(value: float | int | None, digits: int = 4, *, signed: bool = False) -> str:
@@ -65,6 +89,7 @@ def ci_text(
 def table(
     headers: list[str], rows: Iterable[Iterable[str]], *, classes: str = "paper-table"
 ) -> str:
+    """Render a table body; the final report pass makes it collapsible."""
     head = "".join(f"<th>{html.escape(cell)}</th>" for cell in headers)
     body = "".join(
         "<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>" for row in rows
@@ -83,10 +108,227 @@ def details_table(
     rendered = list(rows)
     return (
         f'<details class="data-table"{opened_attr}>'
-        f"<summary>{html.escape(title)} · {len(rendered)} rows</summary>"
+        f"<summary>{html.escape(title)} · {len(rendered)} rows · 点击展开</summary>"
         f"{table(headers, rendered)}"
         "</details>"
     )
+
+
+def make_all_tables_collapsible(document: str) -> str:
+    """Wrap every table not already inside a native ``details`` disclosure.
+
+    Some inherited V4.4 tables are literal HTML rather than calls to ``table``.
+    This final pass covers both sources while avoiding nested disclosures.
+    """
+
+    pattern = re.compile(
+        r'<div class="table-scroll"><table\b.*?</table></div>', re.S
+    )
+    pieces: list[str] = []
+    cursor = 0
+    for match in pattern.finditer(document):
+        pieces.append(document[cursor : match.start()])
+        prefix = document[: match.start()]
+        inside_details = len(re.findall(r"<details\b", prefix)) > len(
+            re.findall(r"</details>", prefix)
+        )
+        block = match.group(0)
+        if inside_details:
+            pieces.append(block)
+        else:
+            row_count = max(0, len(re.findall(r"<tr\b", block)) - 1)
+            pieces.append(
+                '<details class="data-table">'
+                f'<summary>数据表 · {row_count} rows · 点击展开</summary>'
+                f"{block}</details>"
+            )
+        cursor = match.end()
+    pieces.append(document[cursor:])
+    return "".join(pieces)
+
+
+def make_secondary_content_collapsible(document: str) -> str:
+    """Collapse secondary analyses while leaving each heading and claim discoverable."""
+
+    secondary_subsections = {
+        "2.1 ": "展开：Transformer对象与操作词典",
+        "4.5 ": "展开：cue-removal 表征敏感性",
+        "5.2 ": "展开：outside-context mask 的负面/范围受限结果",
+    }
+    for prefix, summary in secondary_subsections.items():
+        pattern = re.compile(
+            rf'(<h3[^>]*>{re.escape(prefix)}.*?</h3>)(.*?)(?=<h3\b|</section>)',
+            re.S,
+        )
+        document, count = pattern.subn(
+            lambda match: (
+                match.group(1)
+                + f'<details class="secondary-analysis"><summary>{summary}</summary>'
+                + '<div class="secondary-analysis-body">'
+                + match.group(2)
+                + "</div></details>"
+            ),
+            document,
+            count=1,
+        )
+        if count != 1:
+            raise RuntimeError(f"Could not collapse secondary subsection {prefix}")
+
+    limits_pattern = re.compile(
+        r'(<section id="limits">\s*<h2>12\s*·.*?</h2>)(.*?)(</section>)', re.S
+    )
+    document, count = limits_pattern.subn(
+        lambda match: (
+            match.group(1)
+            + '<details class="secondary-section"><summary>展开：复现路径、审计文件与 source ledger</summary>'
+            + '<div class="secondary-section-body">'
+            + match.group(2)
+            + "</div></details>"
+            + match.group(3)
+        ),
+        document,
+        count=1,
+    )
+    if count != 1:
+        raise RuntimeError("Could not collapse reproduction section body")
+    return document
+
+
+def model_coverage_matrix() -> str:
+    """Machine-readable editorial audit: every core question covers both models."""
+
+    rows = [
+        ("Prompt/answer geometry", "rank、PCA、ridge、固定分类器", "Qwen全层", "Gemma全层", "同定义"),
+        ("Prompt noise", "balanced count×prompt decomposition", "Qwen全层", "Gemma全层", "同定义"),
+        ("Token-role gate", "冻结endpoint basis投影全部token", "Qwen L8", "Gemma L9", "同定义"),
+        ("Cue removal", "present/absent共享basis", "prompt+answer", "prompt+answer", "同定义"),
+        ("Earlier-span", "top-10 full-span minus matched ordinary", "10 heads×10 seeds", "10 heads×10 seeds", "同estimand；Gemma仅改为单query-row重建"),
+        ("Endpoint key restriction", "clean/needle-only/matched ordinary", "Qwen L8", "Gemma L9", "同定义"),
+        ("Needle corruption", "等token-budget输入替换", "all+correct-only", "all+correct-only", "同定义"),
+        ("Fixed prompt plane", "rank-3 removal vs orthogonal", "Qwen L8", "Gemma L9", "同定义"),
+        ("Rotating transport", "aligned vs orthogonal；1×/2×", "L28→L29", "L36→L37", "同因果问题，层位模型特异"),
+        ("Broad retrieval", "full-span frozen top-K ablation", "K=1–32", "K=1–32", "同定义"),
+        ("Executable answer state", "donor→receiver residual patch", "all+correct-only", "all+correct-only", "同定义"),
+        ("Write/mediation", "pre-O/residual write与下游采用", "L28 H16/H19", "K2→L37→L41", "同机制问题，边界随架构改变"),
+        ("Answer error", "|generated count−gold count|", "全部样本", "全部样本", "同定义"),
+    ]
+    rendered = table(
+        ["核心问题", "实验/estimand", "Qwen", "Gemma", "可比性"],
+        rows,
+        classes="paper-table compact-result-table model-coverage-table",
+    )
+    return f"""
+<details class="secondary-analysis model-coverage" open>
+<summary>双模型覆盖审计：核心问题是否同时有 Qwen 与 Gemma 结果？</summary>
+<div class="secondary-analysis-body">
+<p>下表逐项检查正文的核心实验。<strong>“同定义”</strong>表示样本单位、effect与推断口径一致；<strong>“同机制问题”</strong>表示科学问题相同，但由于Gemma的sliding/full-attention交替结构，具体层或hook边界不能强制与Qwen相同。没有用一个模型的结果替代另一个模型。</p>
+{rendered}
+<div class="conclusion"><strong>覆盖审计结论。</strong>所有核心representation、formation、retrieval、causal execution与error实验均同时报告Qwen和Gemma。唯一不能逐head镜像的是最终写入路径：Qwen定位为局部H16/H19 pre-O写入，Gemma定位为distributed K2→L37→L41 residual path；这是一项明确报告的架构差异，不是缺失数据。</div>
+</div></details>
+"""
+
+
+def merge_transport_into_section_5_4(document: str) -> str:
+    """Remove the standalone transport chapter and close the numbering gap."""
+
+    document, nav_count = re.subn(
+        r'<a href="#transport-subspace">.*?</a>', "", document, count=1
+    )
+    if nav_count != 1:
+        raise RuntimeError("Could not remove the standalone transport nav entry")
+
+    # The former chapter 7 now lives inside 5.4B.  Later visible chapter and
+    # subsection numbers therefore shift down by one, while stable HTML ids do
+    # not change.
+    def heading_number(match: re.Match[str]) -> str:
+        return match.group(1) + str(int(match.group(2)) - 1)
+
+    document = re.sub(
+        r'(<h[23][^>]*>)(13|12|11|10|9|8)(?=(?:\.\d+)?(?:\s|·))',
+        heading_number,
+        document,
+    )
+
+    document = document.replace("第7节", "本小节下方").replace(
+        "第 7 节", "本小节下方"
+    )
+
+    def section_reference(match: re.Match[str]) -> str:
+        major = int(match.group(1))
+        suffix = match.group(2) or ""
+        if major == 7:
+            return "§5.4B" + suffix
+        return "§" + str(major - 1) + suffix
+
+    document = re.sub(
+        r'§(13|12|11|10|9|8|7)(\.\d+)?', section_reference, document
+    )
+
+    def chinese_section_reference(match: re.Match[str]) -> str:
+        major = int(match.group(1))
+        suffix = match.group(2) or ""
+        return f"第{major - 1}{suffix}节"
+
+    document = re.sub(
+        r'第\s*(13|12|11|10|9|8)\s*(\.\d+)?\s*节',
+        chinese_section_reference,
+        document,
+    )
+    return document
+
+
+def insert_concrete_examples(document: str) -> str:
+    """Place a worked example immediately after every study rationale."""
+
+    examples = [
+        "一条 N=10 prompt 读到第4条目标记录时，我们取第4条记录最后一个 token 的 residual；若它比第3条更靠近 count=4 的冻结中心、比第5条更远，就把这一步视为 running-index 表征的一个具体观测。",
+        "即使 count=1…10 的十个中心几乎落在一条三维曲线上，同一个 count=6 在30个不同 prompt 中仍可能沿几十个其他方向散开；前者是低维信号，后者是上下文背景。",
+        "例如分类器只在 seeds 1–15 的 state 上学习，随后面对完全未见过文本的 seed 16；若把其中 gold count=7 的 answer state 判为7，才算 held-out 可解码，而不是记住某个 prompt。",
+        "设 seed A 的所有 endpoint states 都整体向方向 u 平移，这是 seed/context 主效应；若 seed A 的 n=1→10 曲线比 seed B 更陡或更弯，则额外部分属于 count×seed interaction。",
+        "在句子“Reno has a score of 7.”中，我们分别投影内部 token“score”和记录末端 token“.”；若只有末端随它是第几条目标记录而移动，就说明 count state 是 endpoint-gated。",
+        "对同一段 passage 做成一对输入：A 保留开头的计数说明，B 只删除这两句；比较两者 count=6 中心相对 count=5、7 的位置是否保持。",
+        "当 query 位于第6个 needle 的末端时，候选 head 若主要回看前5个 needle 的完整句子，而不是同长度、同深度的普通文本，就符合 earlier-span aggregation。",
+        "在第6个 endpoint，我们让它只能读取已出现的6段 needle；另一个等预算条件只能读取6段位置匹配的普通文本。若 needle-only 反而更差，ordinary context 就不是可直接删掉的纯噪声。",
+        "原始输入中的“Reno has a score of 7.”会被等 token 数的普通 passage 片段替换，而不是删除；控制条件则只替换另一段普通文本，因此两者的长度、query 位置和改动 token 数完全相同。",
+        "以 gold count=6 为例，模型已有6个 active endpoint states。实验同时从这6个向量中删除冻结 rank-3 count component，再与删除等范数正交 component 比较最终答案，而不是只改最后一个 endpoint。",
+        "gold=8 时，预测7的 absolute deviation 是1，预测3则是5；accuracy 都记为错误，但后者说明内部计数偏离更严重。",
+        "例如 prompt endpoint 的 count=5 方向不必与 answer query 的 count=5 方向平行；只要把 count=3 donor 的 answer state patch 给 count=8 receiver 后，receiver 沿可执行输出方向转向3，就说明 answer state 已完成重新编码。",
+        "如果 all-fit PCA 把 count=8 与9分开，而只用答对 discovery rows 拟合后，同一批 V4.4 states 的8/9中心距离仍几乎不变，就说明几何不是由错误样本人为制造。",
+        "对 receiver=1、donor=2，我们只注入 source transport basis 中的1-count差；若下一层沿1→2 centroid chord 前进约1单位，而等范数正交注入接近0，就说明该局部 subspace 能传递 count。",
+        "若一个 answer-query head 对每条 active needle 的整句都分配质量，它的 full-span score 会高；只盯每句最后一个 token 的 endpoint-key score则可能漏掉这种分布式读取。",
+        "例如 K=4 时只将冻结排名前4的 heads 在 Total: query 的 pre-O 输出置零；若 absolute error 比删除同层4个随机 heads 增加更多，这才是检索 bank 的特异因果效应。",
+        "receiver 的正确答案为3、donor 的正确答案为8；把 donor 的 answer-query residual patch 到 receiver 后，若输出概率从3移向8，就是 donor adoption，而不只是 hidden state 变近。",
+        "receiver 当前倾向输出3。若在某个 head 的 pre-O z 加入一个自然的+1 count step，经过这个 head 自己的 W_O 后，答案期望值向4移动；这才说明该 head 的 OV path 能把读到的 count 写进 residual。",
+        "对 Qwen receiver=3，我们在 L28 H16/H19 的 pre-O z 中加入 +1 个自然 count step；只有经过这两个 heads 自己的 W_O 后，答案期望值也向4移动，才算 OV 写入充分性。",
+        "对 Gemma receiver=3、donor=8，我们只替换 L29H4/L35H2 的 pre-O z；若 L37 出现 donor-aligned residual，删除这段 induced residual 又让输出退回3附近，就构成 source→mediator→answer 的具体路径。",
+    ]
+    pattern = re.compile(r'<div class="study-preface">.*?</div>', re.S)
+    blocks = list(pattern.finditer(document))
+    if len(blocks) != len(examples):
+        raise RuntimeError(
+            f"Study-preface/example mismatch: {len(blocks)} blocks vs {len(examples)} examples"
+        )
+    pieces: list[str] = []
+    cursor = 0
+    for match, example in zip(blocks, examples):
+        block = match.group(0)
+        if "具体例子。" not in block:
+            first_span_end = block.find("</span>")
+            if first_span_end < 0:
+                raise RuntimeError("Study preface has no first explanatory span")
+            insertion = (
+                "<strong>具体例子。</strong><span>" + example + "</span>"
+            )
+            block = (
+                block[: first_span_end + len("</span>")]
+                + insertion
+                + block[first_span_end + len("</span>") :]
+            )
+        pieces.append(document[cursor : match.start()])
+        pieces.append(block)
+        cursor = match.end()
+    pieces.append(document[cursor:])
+    return "".join(pieces)
 
 
 def _nice_ticks(low: float, high: float, count: int = 5) -> list[float]:
@@ -126,7 +368,7 @@ def forest_svg(
     left: int = 310,
     right: int = 300,
     zero: float = 0.0,
-    colors: tuple[str, ...] = ("#6750E8", "#00A88F", "#D94B86", "#D6B52C"),
+    colors: tuple[str, ...] = ("#6750E8", "#00D4B4", "#FF5FA2", "#F6E36A"),
 ) -> str:
     top, bottom = 44, 74
     row_h = 54
@@ -316,6 +558,1439 @@ def evidence_gate_svg(
     return "".join(parts)
 
 
+def transport_dose_svg(condition_rows: list[dict[str, str]]) -> str:
+    """Two-panel dose plot for the discovery-frozen adjacent-layer relay test."""
+    width, height = 1120, 390
+    left, panel_w, gap, top, bottom = 76, 430, 105, 52, 76
+    colors = {"Qwen3-8B": "#6750E8", "Gemma4-E4B": "#00D4B4"}
+    labels = {
+        "matched_orthogonal": "orthogonal\ncontrol",
+        "aligned_dose_1": "aligned\ndose 1",
+        "aligned_dose_2": "aligned\ndose 2",
+    }
+    order = ["matched_orthogonal", "aligned_dose_1", "aligned_dose_2"]
+    rows = [row for row in condition_rows if row["support"] == "answer_query_relay"]
+    by_model = {
+        model: {row["condition"]: float(row["mean_target_donor_fraction"]) for row in rows if row["model_label"] == model}
+        for model in ("Qwen3-8B", "Gemma4-E4B")
+    }
+    ymax = 2.05
+    parts = [
+        f'<svg class="stat-svg transport-dose-svg" viewBox="0 0 {width} {height}" role="img" aria-labelledby="transport-dose-title transport-dose-desc">',
+        '<title id="transport-dose-title">Direction-specific adjacent-layer count transport</title>',
+        '<desc id="transport-dose-desc">For Qwen and Gemma, aligned dose one and dose two move the next-layer state toward the donor count, while an equal-norm orthogonal control does not.</desc>',
+    ]
+    for panel, model in enumerate(("Qwen3-8B", "Gemma4-E4B")):
+        x0 = left + panel * (panel_w + gap)
+        plot_h = height - top - bottom
+        y = lambda value: top + plot_h * (1.0 - value / ymax)
+        for tick in (0.0, 0.5, 1.0, 1.5, 2.0):
+            yy = y(tick)
+            parts.append(f'<line class="grid" x1="{x0}" y1="{yy:.1f}" x2="{x0 + panel_w}" y2="{yy:.1f}"/>')
+            if panel == 0:
+                parts.append(f'<text class="tick" x="{x0 - 12}" y="{yy + 4:.1f}" text-anchor="end">{tick:.1f}</text>')
+        parts.append(f'<text class="panel-title" x="{x0 + panel_w/2:.1f}" y="24" text-anchor="middle">{model}</text>')
+        points = []
+        for index, condition in enumerate(order):
+            xx = x0 + 55 + index * (panel_w - 110) / 2
+            yy = y(by_model[model][condition])
+            points.append((xx, yy))
+            parts.append(f'<circle cx="{xx:.1f}" cy="{yy:.1f}" r="7" fill="{colors[model]}"/>')
+            parts.append(f'<text class="bar-label" x="{xx:.1f}" y="{yy - 14:.1f}" text-anchor="middle">{by_model[model][condition]:.3f}</text>')
+            for line_index, line in enumerate(labels[condition].split("\n")):
+                parts.append(f'<text class="tick" x="{xx:.1f}" y="{height-bottom+24+line_index*15}" text-anchor="middle">{line}</text>')
+        parts.append('<polyline points="' + " ".join(f"{x:.1f},{y_: .1f}" for x, y_ in points) + f'" fill="none" stroke="{colors[model]}" stroke-width="3"/>')
+    parts.append(f'<text class="axis-label" transform="translate(18 {top + (height-top-bottom)/2:.1f}) rotate(-90)" text-anchor="middle">target-layer donor fraction</text>')
+    parts.append('</svg>')
+    return "".join(parts)
+
+
+def build_transport_aligned_section(
+    condition_rows: list[dict[str, str]],
+    contrast_rows: list[dict[str, str]],
+) -> str:
+    def contrast(model: str, name: str) -> dict[str, str]:
+        return next(
+            row for row in contrast_rows
+            if row["model_label"] == model
+            and row["support"] == "answer_query_relay"
+            and row["contrast"] == name
+            and row["metric"] == "target_donor_fraction"
+        )
+
+    rows = []
+    for model, edge in (("Qwen3-8B", "L28 → L29"), ("Gemma4-E4B", "L36 → L37")):
+        specificity = contrast(model, "aligned_dose_1_minus_orthogonal")
+        dose = contrast(model, "dose_2_minus_dose_1")
+        rows.append(
+            [
+                model,
+                edge,
+                f'{float(specificity["mean_contrast"]):.3f} '
+                f'[{float(specificity["bootstrap_95ci_low"]):.3f}, {float(specificity["bootstrap_95ci_high"]):.3f}]',
+                fmt_p(float(specificity["exact_seed_signflip_p_two_sided"])),
+                f'{float(dose["mean_contrast"]):.3f} '
+                f'[{float(dose["bootstrap_95ci_low"]):.3f}, {float(dose["bootstrap_95ci_high"]):.3f}]',
+                fmt_p(float(dose["exact_seed_signflip_p_two_sided"])),
+            ]
+        )
+    return f"""
+<div class="transport-subspace-embedded" id="transport-subspace">
+<h4>5.4B · 完整结果图、统计量与边界对照</h4>
+<div class="study-preface"><strong>为什么做。</strong><span>跨层 PCA 轴不必保持同一个欧氏方向，因此直接把上一层的 PCA vector 塞进下一层可能失败。这里检验更精确的问题：answer-query residual 中是否存在一个从上游 count coordinates 映射到下一层 count coordinates 的方向特异通道。</span><strong>如何定义。</strong><span>只在 discovery count centroids 上，把 source residual 回归到 target 的 rank-3 count coordinates，再对回归权重的 row-space 做 QR，得到冻结的 source transport basis <code>B</code>。对 confirmation receiver count R 与 donor count D，注入 <code>Proj<sub>B</sub>(μ<sub>D</sub>−μ<sub>R</sub>)</code> 的 1×、2× dose；控制是在 <code>B</code> 正交补中、与 1× dose 等范数的方向。</span><strong>如何评估。</strong><span>target donor fraction 为干预后 target state 沿 frozen receiver→donor centroid chord 移动的比例；1 表示到达 donor centroid，0 表示未移动。每 seed 先平均 1→2、2→1、5→6、6→5 四对，再用10个 confirmation seeds做50,000次 bootstrap CI与双侧 exact sign-flip。</span></div>
+<figure>{transport_dose_svg(condition_rows)}<figcaption><strong>Figure · Adjacent-layer transport-aligned dose response.</strong> 左、右面板分别是 Qwen L28→L29 与 Gemma L36→L37。横轴依次是等范数正交控制、transport-aligned 1×、2× dose；纵轴是下一层 target donor fraction。正交控制接近0，而 aligned dose 接近1并在2×时接近1.8；这同时检验方向特异性与近似剂量响应。</figcaption></figure>
+{table(["model", "tested edge", "dose1 − orthogonal", "exact p", "dose2 − dose1", "exact p"], rows, classes="paper-table compact-result-table")}
+<p><strong>边界对照。</strong>同一分析也把旧的“最后一个 prompt needle endpoint”当 source support；Gemma 的 target movement 为0，Qwen 仅约2×10<sup>−4</sup>。因此正结果定位的是<strong>同一 answer-query position 的局部 relay</strong>，不是“最后一个 prompt endpoint 会直接跳到 answer”。</p>
+<div class="conclusion"><strong>本节结论</strong>Qwen 与 Gemma 的 answer-query residual 中都存在一个 discovery-frozen、方向特异且近似剂量响应的 count transport subspace，并能跨各自测试的相邻层传播（两模型的 specificity 与 dose-increment 均 exact p=0.001953）。这证明局部 residual relay 的可用性；它不声称所有相邻层共享同一静态 PCA basis，也不把 prompt endpoint 误写成直接 source。</div>
+</div>
+"""
+
+
+SERIES_COLORS = (
+    "#23165C", "#6750E8", "#00C2FF", "#00D4B4", "#39E58C", "#C04DFF", "#FF5FA2"
+)
+
+
+def layer_curve_svg(
+    rows: list[dict[str, Any]],
+    *,
+    panels: Sequence[tuple[str, str, str]],
+    series_key: str,
+    value_key: str,
+    series_order: Sequence[str],
+    y_min: float,
+    y_max: float,
+    y_label: str,
+    title: str,
+    description: str,
+) -> str:
+    width, panel_h = 1160, 300
+    panel_w, left, gap, top, bottom = 480, 76, 90, 44, 60
+    height = panel_h + 72
+    title_id = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    parts = [
+        f'<svg class="stat-svg layer-curve-svg" viewBox="0 0 {width} {height}" role="img" aria-labelledby="{title_id}-title {title_id}-desc">',
+        f'<title id="{title_id}-title">{html.escape(title)}</title>',
+        f'<desc id="{title_id}-desc">{html.escape(description)}</desc>',
+    ]
+    for panel_index, (model, role, panel_title) in enumerate(panels):
+        x0 = left + panel_index * (panel_w + gap)
+        subset = [row for row in rows if str(row.get("model_label")) == model and str(row.get("role")) == role]
+        layers = sorted({int(row["layer"]) for row in subset})
+        if not layers:
+            continue
+        x = lambda layer: x0 + (int(layer) - layers[0]) / max(layers[-1] - layers[0], 1) * panel_w
+        y = lambda value: top + (y_max - float(value)) / max(y_max - y_min, 1e-12) * (panel_h - top - bottom)
+        for fraction in (0.0, 0.25, 0.5, 0.75, 1.0):
+            value = y_min + fraction * (y_max - y_min)
+            yy = y(value)
+            parts.append(f'<line class="grid" x1="{x0}" y1="{yy:.1f}" x2="{x0+panel_w}" y2="{yy:.1f}"/>')
+            if panel_index == 0:
+                parts.append(f'<text class="tick" x="{x0-10}" y="{yy+4:.1f}" text-anchor="end">{value:.2f}</text>')
+        for tick in (layers[0], layers[len(layers)//2], layers[-1]):
+            xx = x(tick)
+            parts.append(f'<line class="axis" x1="{xx:.1f}" y1="{panel_h-bottom}" x2="{xx:.1f}" y2="{panel_h-bottom+5}"/>')
+            parts.append(f'<text class="tick" x="{xx:.1f}" y="{panel_h-bottom+22}" text-anchor="middle">L{tick}</text>')
+        parts.append(f'<text class="panel-title" x="{x0+panel_w/2:.1f}" y="24" text-anchor="middle">{html.escape(panel_title)}</text>')
+        for series_index, series in enumerate(series_order):
+            points = sorted(
+                ((int(row["layer"]), float(row[value_key])) for row in subset if str(row.get(series_key)) == series and str(row.get(value_key, "")) not in {"", "nan", "NaN"}),
+                key=lambda item: item[0],
+            )
+            if not points:
+                continue
+            color = SERIES_COLORS[series_index % len(SERIES_COLORS)]
+            parts.append('<polyline points="' + " ".join(f"{x(layer):.1f},{y(value):.1f}" for layer, value in points) + f'" fill="none" stroke="{color}" stroke-width="2.3"/>')
+        parts.append(f'<text class="axis-label" x="{x0+panel_w/2:.1f}" y="{panel_h+5}" text-anchor="middle">decoder layer</text>')
+    legend_y = height - 25
+    legend_x = 130
+    for index, series in enumerate(series_order):
+        x0 = legend_x + index * 155
+        color = SERIES_COLORS[index % len(SERIES_COLORS)]
+        parts.append(f'<line x1="{x0}" y1="{legend_y}" x2="{x0+25}" y2="{legend_y}" stroke="{color}" stroke-width="3"/>')
+        parts.append(f'<text class="tick" x="{x0+32}" y="{legend_y+4}">{html.escape(series)}</text>')
+    parts.append(f'<text class="axis-label" transform="translate(18 {top+(panel_h-top-bottom)/2:.1f}) rotate(-90)" text-anchor="middle">{html.escape(y_label)}</text>')
+    parts.append('</svg>')
+    return "".join(parts)
+
+
+def all_token_scatter_svg(
+    rows: list[dict[str, str]], *, model: str, layer: int
+) -> str:
+    subset = [row for row in rows if row["model_label"] == model and int(row["layer"]) == layer]
+    # Keep every endpoint and a deterministic thin sample of the much larger controls.
+    controls = [row for row in subset if row["category"] != "needle_endpoint"]
+    stride = max(1, len(controls) // 900)
+    plotted = [row for row in subset if row["category"] == "needle_endpoint"] + controls[::stride]
+    xs = [float(row["pc1"]) for row in plotted]
+    ys = [float(row["pc2"]) for row in plotted]
+    xmin, xmax, ymin, ymax = min(xs), max(xs), min(ys), max(ys)
+    width, height, left, right, top, bottom = 530, 440, 58, 22, 36, 56
+    x = lambda value: left + (float(value) - xmin) / max(xmax - xmin, 1e-12) * (width-left-right)
+    y = lambda value: top + (ymax - float(value)) / max(ymax - ymin, 1e-12) * (height-top-bottom)
+    category_color = {
+        "needle_endpoint": "#F6E36A",
+        "needle_interior": "#6750E8",
+        "hard_negative": "#FF5FA2",
+        "ordinary_passage": "#8190A5",
+    }
+    parts = [f'<svg class="stat-svg all-token-scatter" viewBox="0 0 {width} {height}" role="img" aria-label="{model} layer {layer} frozen endpoint PCA projection">']
+    parts.append(f'<rect x="{left}" y="{top}" width="{width-left-right}" height="{height-top-bottom}" fill="#15142A"/>')
+    for row in plotted:
+        category = row["category"]
+        radius = 3.2 if category == "needle_endpoint" else 1.5
+        opacity = 0.85 if category == "needle_endpoint" else 0.25
+        parts.append(f'<circle cx="{x(row["pc1"]):.2f}" cy="{y(row["pc2"]):.2f}" r="{radius}" fill="{category_color[category]}" opacity="{opacity}"/>')
+    parts.append(f'<text class="panel-title" x="{width/2}" y="22" text-anchor="middle">{model} · L{layer}</text>')
+    parts.append(f'<text class="axis-label" x="{left+(width-left-right)/2}" y="{height-12}" text-anchor="middle">endpoint-fitted PC1</text>')
+    parts.append(f'<text class="axis-label" transform="translate(16 {top+(height-top-bottom)/2}) rotate(-90)" text-anchor="middle">endpoint-fitted PC2</text>')
+    parts.append('</svg>')
+    return "".join(parts)
+
+
+def _row(
+    rows: Sequence[dict[str, str]], **criteria: Any
+) -> dict[str, str]:
+    hits = [
+        item
+        for item in rows
+        if all(str(item.get(key)) == str(value) for key, value in criteria.items())
+    ]
+    if len(hits) != 1:
+        raise RuntimeError(f"Expected one row for {criteria}; found {len(hits)}")
+    return hits[0]
+
+
+def _global_classifier_ranking(
+    rows: Sequence[dict[str, str]], algorithms: Sequence[str]
+) -> list[tuple[str, float]]:
+    ranking = []
+    for algorithm in algorithms:
+        values = [
+            float(item["accuracy"])
+            for item in rows
+            if item["algorithm"] == algorithm
+        ]
+        if not values:
+            raise RuntimeError(f"No classifier rows for {algorithm}")
+        ranking.append((algorithm, sum(values) / len(values)))
+    return sorted(ranking, key=lambda item: item[1], reverse=True)
+
+
+def build_extension_representation_section(
+    rank_rows: list[dict[str, str]],
+    regression_rows: list[dict[str, str]],
+    clustering_rows: list[dict[str, str]],
+    noise_rows: list[dict[str, str]],
+    all_token_metrics: list[dict[str, str]],
+    formula_rows: list[dict[str, str]],
+    projection_rows: list[dict[str, str]],
+    classifier_rows: list[dict[str, str]],
+    classifier_correct_rows: list[dict[str, str]],
+    cue_doc: str,
+) -> str:
+    """Paper-facing answer to the representation questions in the extension memo."""
+
+    landmarks = (
+        ("Qwen3-8B", "prompt_running", 8, "Prompt running index"),
+        ("Gemma4-E4B", "prompt_running", 9, "Prompt running index"),
+        ("Qwen3-8B", "answer_query", 29, "Answer query"),
+        ("Gemma4-E4B", "answer_query", 37, "Answer query"),
+    )
+    algorithms = (
+        "logistic_l2",
+        "ridge_classifier",
+        "linear_svm",
+        "nearest_centroid",
+        "shrinkage_lda",
+        "knn_k5_cosine",
+    )
+    algorithm_labels = {
+        "logistic_l2": "L2 logistic",
+        "ridge_classifier": "ridge",
+        "linear_svm": "linear SVM",
+        "nearest_centroid": "centroid",
+        "shrinkage_lda": "shrinkage LDA",
+        "knn_k5_cosine": "cosine kNN-5",
+    }
+
+    rank_curve_rows: list[dict[str, Any]] = []
+    for item in rank_rows:
+        for series, field in (
+            ("all-state rank-3", "total_variance_capture_k3"),
+            ("count-centroid rank-3", "centroid_curve_capture_k3"),
+        ):
+            rank_curve_rows.append(
+                {
+                    "model_label": item["model_label"],
+                    "role": item["role"],
+                    "layer": item["layer"],
+                    "series": series,
+                    "value": item[field],
+                }
+            )
+    prompt_rank_svg = layer_curve_svg(
+        rank_curve_rows,
+        panels=(
+            ("Qwen3-8B", "prompt_running", "Qwen prompt endpoints"),
+            ("Gemma4-E4B", "prompt_running", "Gemma prompt endpoints"),
+        ),
+        series_key="series",
+        value_key="value",
+        series_order=("all-state rank-3", "count-centroid rank-3"),
+        y_min=0.0,
+        y_max=1.0,
+        y_label="variance fraction",
+        title="Prompt endpoint rank three variance",
+        description=(
+            "Layerwise rank-three variance of every endpoint state and of the ten "
+            "count centroids, fit on discovery seeds."
+        ),
+    )
+    answer_rank_svg = layer_curve_svg(
+        rank_curve_rows,
+        panels=(
+            ("Qwen3-8B", "answer_query", "Qwen answer query"),
+            ("Gemma4-E4B", "answer_query", "Gemma answer query"),
+        ),
+        series_key="series",
+        value_key="value",
+        series_order=("all-state rank-3", "count-centroid rank-3"),
+        y_min=0.0,
+        y_max=1.0,
+        y_label="variance fraction",
+        title="Answer query rank three variance",
+        description=(
+            "Layerwise rank-three variance of answer-query states and of the ten "
+            "count centroids."
+        ),
+    )
+
+    regression_plot_rows = []
+    for item in regression_rows:
+        regression_plot_rows.append(
+            {
+                **item,
+                "display_r2": max(-0.25, min(1.0, float(item["r2_mean"]))),
+            }
+        )
+    prompt_regression_svg = layer_curve_svg(
+        regression_plot_rows,
+        panels=(
+            ("Qwen3-8B", "prompt_running", "Qwen prompt endpoints"),
+            ("Gemma4-E4B", "prompt_running", "Gemma prompt endpoints"),
+        ),
+        series_key="algorithm",
+        value_key="display_r2",
+        series_order=("ridge", "knn5_distance"),
+        y_min=-0.25,
+        y_max=1.0,
+        y_label="held-out R² (floor at −0.25)",
+        title="Prompt count regression",
+        description=(
+            "Held-out count regression across layers. Values below minus 0.25 are "
+            "display-clipped but retained exactly in the tables."
+        ),
+    )
+    answer_regression_svg = layer_curve_svg(
+        regression_plot_rows,
+        panels=(
+            ("Qwen3-8B", "answer_query", "Qwen answer query"),
+            ("Gemma4-E4B", "answer_query", "Gemma answer query"),
+        ),
+        series_key="algorithm",
+        value_key="display_r2",
+        series_order=("ridge", "knn5_distance"),
+        y_min=-0.25,
+        y_max=1.0,
+        y_label="held-out R² (floor at −0.25)",
+        title="Answer count regression",
+        description="Seed-grouped held-out count regression at the answer query.",
+    )
+
+    classifier_display_rows = [
+        {**item, "algorithm_label": algorithm_labels[item["algorithm"]]}
+        for item in classifier_rows
+    ]
+    classifier_order = tuple(algorithm_labels[item] for item in algorithms)
+    prompt_classifier_svg = layer_curve_svg(
+        classifier_display_rows,
+        panels=(
+            ("Qwen3-8B", "prompt_running", "Qwen prompt endpoints"),
+            ("Gemma4-E4B", "prompt_running", "Gemma prompt endpoints"),
+        ),
+        series_key="algorithm_label",
+        value_key="accuracy",
+        series_order=classifier_order,
+        y_min=0.0,
+        y_max=1.0,
+        y_label="10-class held-out accuracy",
+        title="Prompt classifier comparison",
+        description="All six fixed classifier families are shown at every layer.",
+    )
+    answer_classifier_svg = layer_curve_svg(
+        classifier_display_rows,
+        panels=(
+            ("Qwen3-8B", "answer_query", "Qwen answer query"),
+            ("Gemma4-E4B", "answer_query", "Gemma answer query"),
+        ),
+        series_key="algorithm_label",
+        value_key="accuracy",
+        series_order=classifier_order,
+        y_min=0.0,
+        y_max=1.0,
+        y_label="10-class held-out accuracy",
+        title="Answer classifier comparison",
+        description="All-sample answer-query classification with seed-grouped folds.",
+    )
+    classifier_correct_display_rows = [
+        {**item, "algorithm_label": algorithm_labels[item["algorithm"]]}
+        for item in classifier_correct_rows
+    ]
+    answer_classifier_correct_svg = layer_curve_svg(
+        classifier_correct_display_rows,
+        panels=(
+            ("Qwen3-8B", "answer_query", "Qwen correct-only answer"),
+            ("Gemma4-E4B", "answer_query", "Gemma correct-only answer"),
+        ),
+        series_key="algorithm_label",
+        value_key="balanced_accuracy",
+        series_order=classifier_order,
+        y_min=0.0,
+        y_max=1.0,
+        y_label="correct-only balanced accuracy",
+        title="Correct-only answer classifier comparison",
+        description=(
+            "All six fixed classifier families on clean-correct answer-query rows. "
+            "Balanced accuracy gives each surviving count class equal weight."
+        ),
+    )
+
+    classifier_ranking = _global_classifier_ranking(classifier_rows, algorithms)
+    global_primary = classifier_ranking[0][0]
+    classifier_rank_table = [
+        [algorithm_labels[name], fmt(value, 3)]
+        for name, value in classifier_ranking
+    ]
+
+    representative_rows = []
+    correct_rows = []
+    cluster_rows = []
+    for model, role, layer, label in landmarks:
+        rank = _row(rank_rows, model_label=model, role=role, layer=layer)
+        ridge = _row(
+            regression_rows,
+            model_label=model,
+            role=role,
+            layer=layer,
+            algorithm="ridge",
+        )
+        classifier = _row(
+            classifier_rows,
+            model_label=model,
+            role=role,
+            layer=layer,
+            algorithm=global_primary,
+        )
+        cluster = _row(clustering_rows, model_label=model, role=role, layer=layer)
+        representative_rows.append(
+            [
+                model,
+                label,
+                f"L{layer}",
+                fmt(float(rank["stable_rank"]), 2),
+                str(rank["numeric_rank_90"]),
+                fmt(float(rank["total_variance_capture_k3"]), 3),
+                fmt(float(rank["centroid_curve_capture_k3"]), 3),
+                fmt(float(rank["count_eta_squared"]), 3),
+                fmt(float(ridge["r2_mean"]), 3),
+                fmt(float(classifier["accuracy"]), 3),
+            ]
+        )
+        cluster_rows.append(
+            [
+                model,
+                label,
+                f"L{layer}",
+                fmt(float(cluster["silhouette_cosine_mean"]), 3),
+                fmt(float(cluster["calinski_harabasz_mean"]), 2),
+                fmt(float(cluster["davies_bouldin_mean"]), 2),
+            ]
+        )
+        if role == "answer_query":
+            sensitivity = _row(
+                classifier_correct_rows,
+                model_label=model,
+                role=role,
+                layer=layer,
+                algorithm=global_primary,
+            )
+            correct_rows.append(
+                [
+                    model,
+                    f"L{layer}",
+                    f'{classifier["rows"]} / {sensitivity["rows"]}',
+                    fmt(float(classifier["accuracy"]), 3),
+                    fmt(float(sensitivity["accuracy"]), 3),
+                    fmt(float(sensitivity["balanced_accuracy"]), 3),
+                    str(sensitivity["count_class_count"]),
+                ]
+            )
+
+    noise_plot_rows: list[dict[str, Any]] = []
+    for item in noise_rows:
+        if item["population"] != "confirmation":
+            continue
+        for series, field in (
+            ("count main effect", "fraction_count"),
+            ("seed/context main effect", "fraction_seed_context"),
+            ("count×seed deformation", "fraction_count_by_seed_interaction"),
+        ):
+            noise_plot_rows.append(
+                {
+                    "model_label": item["model_label"],
+                    "role": item["role"],
+                    "layer": item["layer"],
+                    "series": series,
+                    "value": item[field],
+                }
+            )
+    noise_svg = layer_curve_svg(
+        noise_plot_rows,
+        panels=(
+            ("Qwen3-8B", "prompt_running", "Qwen confirmation endpoints"),
+            ("Gemma4-E4B", "prompt_running", "Gemma confirmation endpoints"),
+        ),
+        series_key="series",
+        value_key="value",
+        series_order=(
+            "count main effect",
+            "seed/context main effect",
+            "count×seed deformation",
+        ),
+        y_min=0.0,
+        y_max=1.0,
+        y_label="fraction of balanced Frobenius SS",
+        title="Prompt endpoint variance decomposition",
+        description=(
+            "Balanced two-way decomposition of prompt endpoint states into count, "
+            "seed-context, and count-by-seed deformation."
+        ),
+    )
+    noise_landmark_rows = []
+    for model, layer in (("Qwen3-8B", 8), ("Gemma4-E4B", 9)):
+        item = _row(
+            noise_rows,
+            model_label=model,
+            role="prompt_running",
+            layer=layer,
+            population="confirmation",
+        )
+        noise_landmark_rows.append(
+            [
+                model,
+                f"L{layer}",
+                fmt(float(item["fraction_count"]), 3),
+                fmt(float(item["fraction_seed_context"]), 3),
+                fmt(float(item["fraction_count_by_seed_interaction"]), 3),
+            ]
+        )
+
+    token_rows = []
+    for model, layer in (("Qwen3-8B", 8), ("Gemma4-E4B", 9)):
+        endpoint = _row(
+            all_token_metrics,
+            model_label=model,
+            layer=layer,
+            category="needle_endpoint",
+        )
+        interior = _row(
+            all_token_metrics,
+            model_label=model,
+            layer=layer,
+            category="needle_interior",
+        )
+        hard = _row(
+            all_token_metrics,
+            model_label=model,
+            layer=layer,
+            category="hard_negative",
+        )
+        ordinary = _row(
+            all_token_metrics,
+            model_label=model,
+            layer=layer,
+            category="ordinary_passage",
+        )
+        endpoint_formula = _row(
+            formula_rows,
+            model_label=model,
+            layer=layer,
+            category="needle_endpoint",
+            model="endpoint_gated_curve",
+        )
+        interior_formula = _row(
+            formula_rows,
+            model_label=model,
+            layer=layer,
+            category="needle_interior",
+            model="needle_span_gated_curve",
+        )
+        ordinary_formula = _row(
+            formula_rows,
+            model_label=model,
+            layer=layer,
+            category="ordinary_passage",
+            model="ungated_prefix_curve",
+        )
+        token_rows.append(
+            [
+                model,
+                f"L{layer}",
+                fmt(float(endpoint["nearest_endpoint_count_accuracy"]), 3),
+                fmt(float(interior["nearest_endpoint_count_accuracy"]), 3),
+                fmt(float(hard["nearest_endpoint_count_accuracy"]), 3),
+                fmt(float(ordinary["nearest_endpoint_count_accuracy"]), 3),
+                fmt(float(endpoint_formula["incremental_r2_vs_category_baseline"]), 3),
+                fmt(float(interior_formula["incremental_r2_vs_category_baseline"]), 3),
+                fmt(float(ordinary_formula["incremental_r2_vs_category_baseline"]), 3),
+            ]
+        )
+
+    nt = extract_js_json(cue_doc, "NT_GEOM")
+    prompt = extract_js_json(cue_doc, "PROMPT_GEOM")
+    cue_rows = []
+    for payload, site, label in (
+        (prompt, "prompt_counter", "Prompt running index"),
+        (nt, "answer_query", "Answer query"),
+    ):
+        for model, role_layers in payload["landmarks"].items():
+            for landmark_name in ("display", "probe"):
+                layer = int(role_layers[landmark_name])
+                stat = payload["statistics"][f"{model}|{site}|{layer}"]
+                cue_rows.append(
+                    [
+                        model,
+                        label,
+                        f"L{layer} ({landmark_name})",
+                        fmt(float(stat["centroid_cka"]), 3),
+                        f'{fmt(float(stat["count_eta_present"]), 3)} → {fmt(float(stat["count_eta_absent"]), 3)}',
+                        fmt_p(float(stat["interaction_q"])),
+                        fmt_p(float(stat["count_eta_q"])),
+                    ]
+                )
+
+    return f"""
+<section id="representation-extension">
+<h2>4 · 从“看起来像曲线”到可审计的 count representation</h2>
+
+<h3>4.1 轨迹是否真的低维：必须区分原始状态云与十个 count 中心</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>3D PCA 中的有序曲线可能只来自十个中心，而每个中心周围仍有很高维的上下文变化。若不区分两者，就会把“中心轨迹低维”误写成“全部 hidden states 低秩”。</span><strong>定义。</strong><span>对中心化状态矩阵 <code>X</code>，stable rank 定义为 <code>||X||²_F / ||X||²_2</code>；numeric rank-k% 是累计奇异值平方达到 k% 所需维数。另令十个 count 中心组成 <code>C</code>，分别报告 rank-3 对 <code>X</code> 与 <code>C</code> 的方差解释率。count η² 是 count 分组均值相对总平方和的比例。</span><strong>设定。</strong><span>Prompt 使用 30 seeds×10 个同一 N=10 prompt 内的 needle endpoints；几何只在 discovery seeds 拟合。Answer 使用 20 seeds×counts 1–10；逐层报告，不以 3D 可视距离替代 full-space 指标。</span></div>
+<div class="figure-grid"><figure>{prompt_rank_svg}<figcaption><strong>图 4A · Prompt endpoint 的 rank-3 方差。</strong>横轴是 decoder layer，纵轴是前三个奇异方向解释的方差比例。深色线为所有 endpoint states，浅色线为十个 count centroids。两线间距量化“有序中心轨迹”之外的上下文维度。</figcaption></figure><figure>{answer_rank_svg}<figcaption><strong>图 4B · Answer-query 的 rank-3 方差。</strong>坐标定义与图 4A 相同；每个 count 的 answer-query state 来自独立 V4.4 prompt。该图用于检查进入答案位置后 count-centroid 轨迹是否比原始状态云更集中。</figcaption></figure></div>
+{table(["model", "site", "layer", "stable rank", "rank90", "all-state k=3", "centroid k=3", "count η²", "ridge R²", f"{algorithm_labels[global_primary]} acc."], representative_rows, classes="paper-table compact-result-table")}
+<div class="conclusion"><strong>本段结论。</strong>两模型在 prompt 与 answer 的十个 count centroids 上都存在近低维的有序轨迹，但原始状态云明显更高维。例如 Qwen prompt L8 的 centroid rank-3 解释 0.988，而全部 endpoint states 只有 0.690；Gemma prompt L9 分别为 0.979 与 0.598。因此严谨表述是“低维 count curve 嵌在高维、上下文依赖的 residual state 中”，而不是“hidden state 整体是三维的”。</div>
+
+<h3>4.2 压缩、解码与聚类：count 线性可读，但 PCA 中心轨迹可以弯曲</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>低维中心轨迹若能在 held-out seed 上预测 count，才是可泛化表征；若只在训练样本上形成十个簇，可能是可视化过拟合。这里还必须区分两个问题：“能否用线性函数读出 count”与“十个 centroids 是否落在一条欧氏直线上”不是同一命题。</span><strong>具体例子。</strong><span>十个点可以沿一条弯曲的弧线排列，但它们在某个方向上的标量投影仍随 count 单调增加。此时 ridge 可以准确预测 count，而前三个 PCA 轴中的轨迹仍明显弯曲；因此高线性解码 R²不能被写成“geometry 是直线”。</span><strong>评估。</strong><span>连续解码比较 ridge 与 distance-weighted kNN-5 的 held-out R²、MAE 与 Pearson r。离散解码比较六种固定算法；PCA-32、标准化和分类器全部只在训练 fold 拟合，fold 按 seed 切分。聚类在 train-fitted PCA 中计算 held-out cosine silhouette、Calinski–Harabasz 与 Davies–Bouldin。</span><strong>固定分类器规则。</strong><span>不允许每层挑最优算法。我们先在四个 model×site 的全部层上求平均准确率，只选一个全局 primary；结果为 <code>{algorithm_labels[global_primary]}</code>。这一步是描述性选择，不作为显著性检验；所有六条曲线同时公开。</span></div>
+<div class="figure-grid"><figure>{prompt_regression_svg}<figcaption><strong>图 4C · Prompt count 连续解码。</strong>横轴为层，纵轴为 held-out R²；紫/绿线分别表示 ridge 与 kNN-5。为保持后层可读性，低于 −0.25 的早层 R² 只在图中截到 −0.25，CSV 保留原值。</figcaption></figure><figure>{answer_regression_svg}<figcaption><strong>图 4D · Answer count 连续解码。</strong>与图 4C 相同，但样本单位是 answer-query state，5-fold GroupKFold 以 seed 分组。</figcaption></figure></div>
+<figure>{prompt_classifier_svg}<figcaption><strong>图 4E · Prompt 十分类器逐层比较（全样本）。</strong>横轴为层，纵轴为 held-out 10-class accuracy，机会水平0.1；六条线对应固定的 L2 logistic、ridge classifier、linear SVM、nearest centroid、shrinkage LDA 与 cosine kNN-5。Prompt running-index 的一个样本属于整条 N=10 轨迹中的某个 occurrence；若按最终答案 correct-only 筛选，会整条删除很多轨迹并破坏 count×seed 平衡，因此这里保留全样本。</figcaption></figure>
+<div class="figure-grid"><figure>{answer_classifier_svg}<figcaption><strong>图 4F-left · Answer classification：全样本。</strong>横轴为层，纵轴为 held-out accuracy；200条/model、20 seeds、counts 1–10完整平衡。它回答“无论最终答对与否，gold count 是否仍可从 state 读出”。</figcaption></figure><figure>{answer_classifier_correct_svg}<figcaption><strong>图 4F-right · Answer classification：clean-correct-only。</strong>横轴为层，纵轴为 held-out balanced accuracy；Qwen 100条、Gemma 73条，均只保留 clean forward 最终数字正确的 rows。剩余 count classes 各自等权，但两模型都只剩8个 classes，因此不能把纵轴与左图的十分类 raw accuracy 直接相减。</figcaption></figure></div>
+{details_table("六种算法跨四个 model×site、全部层的平均准确率", ["algorithm", "global mean accuracy"], classifier_rank_table, opened=True)}
+{table(["model", "answer layer", "all / correct-only rows", "all accuracy", "correct-only accuracy", "correct-only balanced acc.", "correct-only classes"], correct_rows, classes="paper-table compact-result-table")}
+{table(["model", "site", "layer", "cosine silhouette", "Calinski–Harabasz", "Davies–Bouldin"], cluster_rows, classes="paper-table compact-result-table")}
+<p><strong>为什么不能只报 correct-only。</strong>Correct-only 很适合回答“模型成功作答时，state 是否清楚记录 gold count”，但它是由最终输出决定的 outcome-conditioned subset：Qwen 失去 counts 7/9，Gemma 失去9/10，chance level 由0.1变为0.125，且容易留下较简单样本。只报它会高估总体可解码性并隐藏错误机制。因此正文把 correct-only balanced accuracy 作为<strong>成功计算路径的主敏感性分析</strong>，同时保留平衡 all-sample 作为总体机制诊断。</p>
+<p><strong>连续解码结果。</strong>Qwen prompt L8 的 ridge / kNN R²为0.945 / 0.711，Gemma prompt L9为0.719 / 0.374；Qwen answer L29为0.891 / 0.871，Gemma answer L37为0.885 / 0.773。线性 ridge 在四个代表点都不差于kNN，说明 count 可由 hidden state 的线性组合稳定读出。它不说明 centroid path 本身是直线：PCA 图中两模型的轨迹都有可见曲率，而ridge只要求存在一个线性投影能够预测标量count。kNN在高维中还会受到seed/context dispersion和有限样本的影响，因此“ridge更好”也不能用于否定曲率。</p>
+<p><strong>离散解码与聚类结果。</strong>固定 L2 logistic 在 correct-only answer代表层的 raw / balanced accuracy 分别为Qwen 0.880 / 0.759、Gemma 0.918 / 0.625。代表层 cosine silhouette 为Qwen prompt −0.075、Gemma prompt −0.043、Qwen answer 0.056、Gemma answer −0.038；十类并未形成紧密球状clusters。最一致的几何描述因此是<strong>“线性可读的、有曲率的有序中心轨迹，外加seed/context形变”</strong>。</p>
+<div class="conclusion"><strong>本段结论。</strong>Qwen 与 Gemma 的 prompt/answer count 都能在 held-out seeds 上被线性模型读出；这里的“线性”描述 decoder，不描述 PCA 轨迹形状。两模型的 PCA centroid trajectory 均可弯曲，且低 silhouette 表明它们不是十个紧密小球。Correct-only 证实成功计算时 answer state 明确携带 gold count，但因类别截断不能替代平衡的 all-sample 结果。</div>
+
+<h3>4.3 “Noise”是什么：确定性的上下文形变，而不是采样随机性</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>同一个 running count 在不同 prompt 中不会落在同一点。我们要回答的不只是“点有多散”，而是这些偏离究竟来自整条 prompt 轨迹一起平移，还是来自不同 prompt 的轨迹形状本身不同。</span><strong>具体例子。</strong><span>假设 seed A 的 count 1–10 全部比总体轨迹向右移同样距离，这叫 <em>seed/context offset</em>；如果 seed A 在 count 1–4 与总体一致、到 count 8–10 却被压缩或弯向另一方向，这叫 <em>count×seed interaction</em>。两者都让点偏离 count 中心，但计算含义不同。</span><strong>Noise 的直接定义。</strong><span>模型是确定性 forward，因此这里的 noise 不是重复采样的随机波动，而是同一 count 在不同 prompt 间的确定性 dispersion。令 <code>H[c,s]</code> 为 seed <code>s</code> 中第 <code>c</code> 个 needle endpoint 的 hidden state，<code>μ<sub>c</sub></code> 为 count <code>c</code> 跨 seeds 的中心，则 <code>ε<sub>c,s</sub>=H[c,s]−μ<sub>c</sub></code>。它表示该点离“所有 prompt 共享的 count 中心”有多远。</span><strong>Seed 与 context。</strong><span><code>seed</code> 只是 prompt 身份的<strong>类别标签</strong>：它一起决定 haystack 文本、needle identity、位置、顺序与普通段落。计算中使用 one-hot 固定效应；不会把 1255 当成比 1254 大 1 的连续变量。因为一个 seed 只对应一个整体 context，本实验能分离“哪条 prompt”造成的变异，却不能进一步断言是某个词、某个位置或某种句法单独造成。</span></div>
+<div class="noise-decomposition-grid" aria-label="Noise decomposition definition">
+  <div><strong>① 共享 count signal</strong><code>μ<sub>c</sub>−μ</code><span>不同 prompts 共同拥有的 running-count 轨迹。</span></div>
+  <div><strong>② Prompt-wide offset</strong><code>μ<sub>s</sub>−μ</code><span>同一 seed 的十个 count states 一起平移的部分。</span></div>
+  <div><strong>③ Seed-specific deformation</strong><code>H<sub>c,s</sub>−μ<sub>c</sub>−μ<sub>s</sub>+μ</code><span>不能由“共享轨迹 + 整体平移”解释的弯曲、压缩或局部偏差。</span></div>
+</div>
+<div class="equation"><code>H<sub>c,s</sub>−μ = (μ<sub>c</sub>−μ) + (μ<sub>s</sub>−μ) + (H<sub>c,s</sub>−μ<sub>c</sub>−μ<sub>s</sub>+μ)</code></div>
+<p><strong>如何得到三个比例。</strong>在平衡的 <code>count×seed</code> 网格中，分别对上面三个向量项求所有样本、所有 hidden dimensions 的平方和：<code>SS=Σ||component||²</code>，再除以总平方和 <code>SS<sub>total</sub>=Σ||H<sub>c,s</sub>−μ||²</code>。平衡设计使三项正交，所以比例之和为 1（表中因三位小数舍入可能相差 0.001）。这也可逐维写成含 count、seed 与 count×seed one-hot 项的 two-way ANOVA；它是方差记账，不是拿 seed 编号做数值预测。</p>
+<figure>{noise_svg}<figcaption><strong>图 4G · Prompt endpoint 的 balanced two-way variance decomposition。</strong>横轴是层，纵轴是 confirmation states 的 Frobenius 总平方和比例；三条线之和为 1。count 主效应是跨 seed 共享的 count trajectory，seed/context 是跨 count 共享的 prompt offset，interaction 是 seed 特异的轨迹形变。</figcaption></figure>
+{table(["model", "layer", "count", "seed/context", "count×seed"], noise_landmark_rows, classes="paper-table compact-result-table")}
+<p><strong>Qwen：noise 来自什么。</strong>Qwen L8 的总变异中，59.9%是跨 prompts 共享的 count trajectory，剩余40.2%可视为相对count centroid的noise。以<strong>noise本身</strong>为分母，prompt identity所对应的整条轨迹offset解释16.1/(16.1+24.1)=40.0%，count×prompt interaction解释60.0%。因此Qwen的noise约四成是“整条轨迹一起平移”，约六成是“不同prompt使轨迹发生count-dependent弯曲、压缩或局部偏移”。</p>
+<p><strong>Gemma：noise 来自什么。</strong>Gemma L9 的共享 count trajectory解释38.5%的总变异，剩余61.4%是noise。以<strong>noise本身</strong>为分母，prompt-wide offset解释22.8/(22.8+38.6)=37.1%，count×prompt interaction解释62.9%。Gemma比Qwen更noisy，具体表现为共享count signal占比更低，而且绝对interaction份额更大（38.6% vs 24.1%的总变异）。</p>
+<p><strong>“Feature 能解释多少”必须谨慎回答。</strong>当前non-thinking V4.4中，唯一可作为主效应解释变量的是categorical <code>prompt identity</code>：它解释Qwen 40.0%、Gemma 37.1%的within-count noise。余下60.0%/62.9%被记为<code>count×prompt interaction</code>；这是从每个count×prompt cell留下的形变项，不是一个能对新prompt做held-out预测的具体feature。因此不能说我们已经用feature解释了全部noise。更具体的needle位置、lexical identity、间距或段落长度没有被独立操纵或回归；它们的解释率是<strong>尚未识别，而不是0%</strong>。</p>
+<p><strong>下一步如何识别具体来源。</strong>需要factorial prompts：固定文本只改needle位置、固定位置只改literal identity、固定二者再改ordinary context，并在每个组合下重复多个seeds；随后用按seed held-out的增量R²或variance partitioning报告每个feature block对<code>||ε<sub>c,s</sub>||</code>或完整residual vector的额外解释量。此前V4.4.0中的metadata feature regression使用的是<strong>native-thinking</strong>样本，不能把它的R²移植为本non-thinking V4.4的feature解释率。V4.4高-count correct strata又很稀疏，尤其Qwen confirmation的N=10没有完整correct trajectory，因此本节不把correct-only ANOVA写成有充分power的主结论。</p>
+<div class="conclusion"><strong>本段结论。</strong>Qwen的within-count noise约40.0%来自prompt-wide offset、60.0%来自count-dependent prompt deformation；Gemma分别为37.1%和62.9%。所以两模型的主要noise形式都是轨迹形状随context改变，Gemma的总noise比例更高。现有实验只把noise分到prompt identity及其与count的interaction，尚不能把它归因到needle位置、词汇或段落结构等具体features。</div>
+
+<h3>4.4 把同一 endpoint PCA 投到所有 token：count curve 是 endpoint-gated</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>若每个 needle 内部 token 都携带同一 running index，公式应对整段成立；若只有记录结束时形成汇总状态，只有 endpoint 应沿 count curve 排列。</span><strong>设定。</strong><span>用 discovery needle endpoints 拟合 PCA-32、十个 centroids 与 curve；冻结后投影 confirmation 的全部 needle endpoints、needle interiors、hard negatives，以及每个 prompt 128 个按深度分层抽取的 ordinary passage tokens。比较 category-only baseline、endpoint-gated curve、whole-needle-span gated curve 与把 prefix count 强加给普通 token 的 ungated curve。</span><strong>指标。</strong><span>表中 acc. 是 token 到最近 endpoint count centroid 的十分类准确率；ΔR² 是加入指定 count curve 后相对 category mean baseline 减少的 full-space SSE 比例，负值表示公式比只用 token category 更差。</span></div>
+<div class="figure-grid token-role-comparison"><figure>{all_token_scatter_svg(projection_rows, model="Qwen3-8B", layer=8)}<figcaption><strong>图 4H-left · Qwen L8：同一 endpoint basis 下的 token roles。</strong>横轴/纵轴是只用 discovery endpoints 拟合的 PC1/PC2。黄色=needle endpoint，紫色=同一句内部 token，棕色=外形相似但不是目标记录的 hard negative，灰色=普通 passage。问题不是各颜色是否视觉分开，而是哪一类能被冻结 count centroids 正确排序。</figcaption></figure><figure>{all_token_scatter_svg(projection_rows, model="Gemma4-E4B", layer=9)}<figcaption><strong>图 4H-right · Gemma L9：与左图完全相同的定义。</strong>两图并列用于比较模型，而正式判定使用下表的 full-space nearest-centroid accuracy 与ΔR²。endpoint-gated ΔR²问“只给 endpoint 加 count curve能减少多少误差”；span/ungated ΔR²问把同一公式错误推广到其他 token 会怎样。</figcaption></figure></div>
+{table(["model", "layer", "endpoint acc.", "interior acc.", "hard-neg. acc.", "ordinary acc.", "endpoint-gated ΔR²", "span-gated interior ΔR²", "ungated ordinary ΔR²"], token_rows, classes="paper-table compact-result-table")}
+<div class="equation">h_t = b_{{type(t)}} + 1[t is a needle endpoint] · γ(N(s≤t)) + ε_t.</div>
+<p>Qwen L8 的 endpoint 最近中心准确率为 0.49、MAE 0.87，而 interior / hard-negative / ordinary 仅为 0.016 / 0.008 / 0.025；endpoint-gated curve 增量 R²=0.551。Gemma L9 的 endpoint accuracy=0.28、增量 R²=0.326，而三类非 endpoint 均约机会水平。把 curve 扩展到整个 needle interior 或普通 passage 会得到负的 ΔR²。因此原 memo 中的 <code>1(t∈needle span)</code> 需要收紧为 endpoint gate。</p>
+<div class="conclusion"><strong>本段结论。</strong>两个模型都不是在 needle 的每个 token 上持续写同一个 running index；可泛化 count curve 主要形成在 needle endpoint。最符合数据的经验公式是 category baseline 加 endpoint-gated count curve，其他 token 保持高维 context state。</div>
+
+<h3>4.5 开头 instruction cue 是否生成了 running counter</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>我们要区分“提示语创建了 counter”与“提示语只调节一个由重复 record 结构自然形成的 counter”。</span><strong>设定。</strong><span>V4.4.2 保持同一 non-thinking flag 与 passage，只删去开头两句 city-score 定义。Centroid CKA 比较十个 count 中心的相对 topology；full-space count×cue interaction 检验提示造成的变化是否依赖 count；count η² 的变化按 layer 做 BH-FDR。</span></div>
+{table(["model", "site", "layer", "centroid CKA", "count η² present → absent", "count×cue q", "Δ strength q"], cue_rows, classes="paper-table compact-result-table")}
+<p>所有列出的 centroid CKA 为 0.981–0.997，说明移除提示后 count 的相对拓扑高度保留；同时 count×cue interaction 显著，说明 full state 并非只做共同平移。换言之，开头提示能调制增益、局部方向或 role offset，但重复 record 结构与上下文本身已足以形成 running-index ordering。</p>
+<div class="conclusion"><strong>本段结论。</strong>开头 cue 不是 running-index topology 的必要生成源，但会显著调制完整 residual geometry；因此正文可说 counter 对 cue removal 稳健，不能说 cue 对机制完全无影响。现有主因果链仍限定在 cue-present V4.4。</div>
+</section>
+"""
+
+
+def build_endpoint_formation_section(
+    attention_stats: list[dict[str, str]],
+    earlier_heads: list[dict[str, str]],
+    attention_audit: dict[str, Any],
+) -> str:
+    """Explain the endpoint-attention tests without treating masks as pure ablations."""
+
+    primary = [
+        row
+        for row in attention_stats
+        if row["primary_layer"] == "True" and row["estimand"] == "specificity"
+    ]
+    metric_labels = {
+        "continuous_absolute_error": "continuous count absolute error",
+        "nearest_centroid_accuracy": "nearest-centroid count accuracy",
+        "normalized_noise": "gold-centroid normalized distance",
+    }
+    specificity_rows = []
+    for model in ("Qwen3-8B", "Gemma4-E4B"):
+        for metric in (
+            "continuous_absolute_error",
+            "nearest_centroid_accuracy",
+            "normalized_noise",
+        ):
+            row = next(
+                item
+                for item in primary
+                if item["model_label"] == model and item["metric"] == metric
+            )
+            specificity_rows.append(
+                [
+                    model,
+                    f'L{row["layer"]}',
+                    metric_labels[metric],
+                    f'{fmt(float(row["mean"]), 3)} [{fmt(float(row["ci95_low"]), 3)}, {fmt(float(row["ci95_high"]), 3)}]',
+                    fmt_p(float(row["p_value"])),
+                    fmt_p(float(row["holm_p_primary_family"])),
+                ]
+            )
+
+    improvement_rows = []
+    for model in ("Qwen3-8B", "Gemma4-E4B"):
+        layer = 8 if model == "Qwen3-8B" else 9
+        for metric in (
+            "continuous_absolute_error",
+            "nearest_centroid_accuracy",
+            "normalized_noise",
+        ):
+            row = next(
+                item
+                for item in attention_stats
+                if item["model_label"] == model
+                and int(item["layer"]) == layer
+                and item["metric"] == metric
+                and item["estimand"] == "needle_only_improvement"
+            )
+            improvement_rows.append(
+                [
+                    model,
+                    metric_labels[metric],
+                    fmt(float(row["mean"]), 3, signed=True),
+                    f'[{fmt(float(row["ci95_low"]), 3)}, {fmt(float(row["ci95_high"]), 3)}]',
+                    fmt_p(float(row["p_value"])),
+                ]
+            )
+
+    earlier_by_model = {
+        model: sorted(
+            [row for row in earlier_heads if row["model_label"] == model],
+            key=lambda item: int(item["rank"]),
+        )
+        for model in ("Qwen3-8B", "Gemma4-E4B")
+    }
+    if any(len(rows) != 10 for rows in earlier_by_model.values()):
+        raise RuntimeError(
+            "Earlier-span confirmation must contain ten frozen heads for each model"
+        )
+
+    def earlier_head_plot(model: str, color: str) -> str:
+        rows = earlier_by_model[model]
+        return forest_svg(
+            [
+                {
+                    "label": f'rank {row["rank"]} · L{row["layer"]}H{row["head"]}',
+                    "mean": float(row["confirmation_preference_mean"]),
+                    "low": float(row["ci95_low"]),
+                    "high": float(row["ci95_high"]),
+                    "value": (
+                        f'{fmt(float(row["confirmation_preference_mean"]), 3)} · '
+                        f'Holm p={fmt_p(float(row["holm_p_within_model"]))}'
+                    ),
+                    "color": color,
+                }
+                for row in rows
+            ],
+            title=f"{model} earlier-needle-span attention confirmation",
+            description=(
+                "Discovery-ranked heads are evaluated on confirmation seeds. The effect "
+                "is attention mass to prior needle spans minus equal-length ordinary spans "
+                "at matched depth."
+            ),
+            x_label="prior-needle full-span mass minus matched ordinary-span mass",
+            left=250,
+            right=270,
+            zero=0.0,
+        )
+
+    q_head_svg = earlier_head_plot("Qwen3-8B", "#6750E8")
+    g_head_svg = earlier_head_plot("Gemma4-E4B", "#00D4B4")
+    q_earlier = earlier_by_model["Qwen3-8B"]
+    g_earlier = earlier_by_model["Gemma4-E4B"]
+
+    q_specificity = {
+        row["metric"]: row
+        for row in primary
+        if row["model_label"] == "Qwen3-8B"
+    }
+    g_specificity = {
+        row["metric"]: row
+        for row in primary
+        if row["model_label"] == "Gemma4-E4B"
+    }
+    return f"""
+<section id="formation-tests">
+<h2>5 · Prompt running state 如何形成：earlier-span aggregation 与上下文支架</h2>
+
+<h3>5.1 Earlier-span attention：Qwen 与 Gemma 的同口径独立确认</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>重复记录可能使模型在第 n 个 needle endpoint 更新 running index 时回看前 n−1 个 needle spans。若成立，这提供一种形成累计状态的候选计算，而不要求某一个 head 独自完成计数。</span><strong>具体例子。</strong><span>当 query 位于第6条 needle 的末端时，若某个 head 对前5条 needle 完整文本的总注意力明显大于对5段同长度、同相对深度普通文本的注意力，就称它表现出 earlier-span aggregation。</span><strong>定义。</strong><span>每个模型分别在 discovery rows 上按“query endpoint 指向更早 needle 的 full-span literal mass”冻结前10个 heads；在 confirmation seeds 上计算 <code>P=mass(prior needle spans)−mass(equal-length, same-depth ordinary spans)</code>。这里使用整个 literal span，而不是只看最后一个 key token。</span><strong>推断。</strong><span>每个 head 先对同一 seed 的 occurrences 2/4/6/8/10 求均值，再对10个 seed effects 做双侧 exact sign-flip；各模型10个冻结 heads 内分别做 Holm 校正。两模型的 estimand、seeds、occurrences、control 与推断完全一致。Gemma 仅在工程上重建冻结 head 的单个 query row，以避免保存全层二次方 attention tensor；逐行 softmax 审计的最大归一化误差为5.6×10<sup>−7</sup>。</span></div>
+<div class="figure-grid token-role-comparison"><figure>{q_head_svg}<figcaption><strong>图 5A-left · Qwen earlier-span attention。</strong>纵轴为 discovery 冻结的top-10 heads；横轴为 prior-needle full-span mass减去等长度、等深度ordinary-span mass。点为10个confirmation seeds的均值，横线为95% seed bootstrap CI；右侧为模型内10-head Holm p。</figcaption></figure><figure>{g_head_svg}<figcaption><strong>图 5A-right · Gemma earlier-span attention。</strong>坐标、冻结规则、10个seeds与推断均与左图相同；绿色只编码模型身份，不改变统计含义。</figcaption></figure></div>
+<p><strong>Qwen结果。</strong>十个冻结heads的confirmation preference均为正，范围为{fmt(min(float(row['confirmation_preference_mean']) for row in q_earlier), 3)}–{fmt(max(float(row['confirmation_preference_mean']) for row in q_earlier), 3)}；每个head的exact p=0.001953，模型内Holm p=0.019531。</p>
+<p><strong>Gemma结果。</strong>十个冻结heads同样全部为正，范围为{fmt(min(float(row['confirmation_preference_mean']) for row in g_earlier), 3)}–{fmt(max(float(row['confirmation_preference_mean']) for row in g_earlier), 3)}；每个head的exact p=0.001953，模型内Holm p=0.019531。最强的L5H5/L5H0/L5H3 effects分别为0.960、0.945与0.922；说明Gemma虽有sliding-window层，早期full-attention layers仍存在强烈的跨已出现needle spans聚合。</p>
+<div class="conclusion"><strong>本段结论。</strong><strong>共同结果：</strong>Qwen与Gemma都在全新confirmation seeds上确认了endpoint→prior-needle full-span的特异聚合，而且效应不是由等长度、等深度ordinary context解释。该结果支持“endpoint更新时会汇聚更早目标记录”的候选形成机制；它仍不足以证明previous-token matching、复制操作等完整经典induction-circuit定义，也不等于这些heads单独完成counting。</div>
+
+<h3>5.2 把 outside-needle attention 当作 noise 会怎样？</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>§4.3 只把 dispersion 分成 seed/context offset 与 count×seed deformation，并不知道它们由什么计算产生。这里检验一个具体因果解释：ordinary context 是否通过 attention 向 endpoint 注入无用变化；如果是，屏蔽它应减少 centroid noise。</span><strong>干预。</strong><span>在 occurrences 2/4/6/8/10 的 endpoint query 上比较三种 forward：clean；<code>needle-only</code>（只允许该 query 读取所有 active needle spans）；<code>matched ordinary-only</code>（只允许读取相同 key 数、相近相对深度的 ordinary passage tokens）。其余 queries 不改。Qwen/Gemma 主层分别冻结为 L8/L9，共10个 confirmation seeds、每模型50个 endpoints。</span><strong>指标。</strong><span>continuous error、nearest-centroid accuracy 与 normalized gold-centroid distance 都在冻结 geometry 中计算。误差型 improvement=<code>clean error−masked error</code>，accuracy improvement=<code>masked acc−clean acc</code>；正值统一表示 mask 后更好。specificity=<code>needle-only improvement−ordinary-only improvement</code>。推断以 seed 为单位做 bootstrap 与 exact sign-flip，并对6个主 endpoints 做 Holm 校正。</span></div>
+{table(["model", "metric", "needle-only improvement", "95% CI", "exact p"], improvement_rows, classes="paper-table compact-result-table")}
+{table(["model", "layer", "specificity metric", "needle−ordinary [95% CI]", "exact p", "Holm p"], specificity_rows, classes="paper-table compact-result-table")}
+<p>两模型的三项 needle-only improvement 均未显示 clean 之上的改善：Qwen L8 的 continuous error、accuracy 与 normalized distance effects 分别为 −0.261、−0.280、−1.610；Gemma L9 为 −3.688、−0.080、−1.568。也就是说，去掉所有 ordinary/context keys 会破坏而不是净化 running state。相对同 key-budget 的 ordinary-only control，Qwen 仍有明确的 needle-specific information：continuous、accuracy、distance specificity 分别为 {fmt(float(q_specificity['continuous_absolute_error']['mean']), 3)}、{fmt(float(q_specificity['nearest_centroid_accuracy']['mean']), 3)}、{fmt(float(q_specificity['normalized_noise']['mean']), 3)}，三项 Holm 均≤0.023438。Gemma 只有 normalized-distance specificity 通过 familywise 校正（{fmt(float(g_specificity['normalized_noise']['mean']), 3)}，Holm p={fmt_p(float(g_specificity['normalized_noise']['holm_p_primary_family']))}）；continuous 与 accuracy 的方向不支持更强行为主张。</p>
+<div class="conclusion"><strong>本段结论。</strong><strong>共同结果：</strong>Qwen与Gemma在needle-only条件下都没有比clean更少noise，因此“outside context只是应被删除的噪声来源”不成立。<strong>Qwen：</strong>needle-only相对matched ordinary-only在continuous error、accuracy和normalized distance三项都有特异性（Holm≤0.023438），支持needle keys携带额外count信息。<strong>Gemma：</strong>只有normalized-distance specificity通过Holm（3.307，p=0.011719），continuous error与accuracy不支持相同的行为主张。Ordinary context可能提供位置、语法或格式支架，但当前实验不区分这些具体作用。审计状态：{html.escape(str(attention_audit['status']))}。</div>
+</section>
+"""
+
+
+def _extension_stat(
+    rows: Sequence[dict[str, str]], **criteria: Any
+) -> dict[str, str]:
+    hits = [
+        row
+        for row in rows
+        if all(str(row.get(key)) == str(value) for key, value in criteria.items())
+    ]
+    if len(hits) != 1:
+        raise RuntimeError(f"Expected one extension statistic for {criteria}; got {len(hits)}")
+    return hits[0]
+
+
+def build_prompt_direct_causal_subsections(
+    token_stats: list[dict[str, str]],
+    token_audit: dict[str, Any],
+    subspace_stats: list[dict[str, str]],
+    subspace_audit: dict[str, Any],
+) -> str:
+    """Direct prompt-side interventions requested by the extension memo."""
+
+    behavior_endpoints = ("accuracy_drop", "absolute_error_increase")
+    populations = ("all", "clean_correct_only")
+    models = ("Qwen3-8B", "Gemma4-E4B")
+    token_behavior_rows = []
+    for population in populations:
+        for model in models:
+            for endpoint in behavior_endpoints:
+                needle = _extension_stat(
+                    token_stats,
+                    population=population,
+                    model_label=model,
+                    endpoint=endpoint,
+                    estimand="needle_damage",
+                )
+                control = _extension_stat(
+                    token_stats,
+                    population=population,
+                    model_label=model,
+                    endpoint=endpoint,
+                    estimand="control_damage",
+                )
+                specific = _extension_stat(
+                    token_stats,
+                    population=population,
+                    model_label=model,
+                    endpoint=endpoint,
+                    estimand="specificity",
+                )
+                token_behavior_rows.append(
+                    [
+                        population.replace("_", " "),
+                        model,
+                        endpoint.replace("_", " "),
+                        fmt(float(needle["mean"]), 3, signed=True),
+                        fmt(float(control["mean"]), 3, signed=True),
+                        f'{fmt(float(specific["mean"]), 3, signed=True)} '
+                        f'[{fmt(float(specific["ci95_low"]), 3)}, {fmt(float(specific["ci95_high"]), 3)}]',
+                        f'{fmt_p(float(specific["p_value"]))} / '
+                        f'{fmt_p(float(specific["holm_p_within_population"]))}',
+                    ]
+                )
+
+    token_rep_rows = []
+    for row in token_stats:
+        if row["estimand"] != "specificity" or not row["endpoint"].startswith(
+            "gold_centroid_distance_increase_L"
+        ):
+            continue
+        token_rep_rows.append(
+            [
+                row["population"].replace("_", " "),
+                row["model_label"],
+                row["endpoint"].replace("gold_centroid_distance_increase_", ""),
+                f'{fmt(float(row["mean"]), 3, signed=True)} '
+                f'[{fmt(float(row["ci95_low"]), 3)}, {fmt(float(row["ci95_high"]), 3)}]',
+                fmt_p(float(row["p_value"])),
+                fmt_p(float(row["holm_p_within_population"])),
+            ]
+        )
+
+    token_forest_rows = []
+    for model in models:
+        row = _extension_stat(
+            token_stats,
+            population="all",
+            model_label=model,
+            endpoint="absolute_error_increase",
+            estimand="specificity",
+        )
+        token_forest_rows.append(
+            {
+                "label": model,
+                "mean": float(row["mean"]),
+                "low": float(row["ci95_low"]),
+                "high": float(row["ci95_high"]),
+                "value": f'{fmt(float(row["mean"]), 3)} · Holm p={fmt_p(float(row["holm_p_within_population"]))}',
+                "color": "#6750E8" if model == "Qwen3-8B" else "#00D4B4",
+            }
+        )
+    token_svg = forest_svg(
+        token_forest_rows,
+        title="Needle-token corruption specificity",
+        description=(
+            "Needle corruption damage minus equal-token-budget ordinary-passage "
+            "corruption damage on generated-count absolute error."
+        ),
+        x_label="specific absolute-error increase (needle corruption minus control)",
+        left=230,
+        right=290,
+    )
+    token_specific_rows = [
+        row
+        for row in token_stats
+        if row["estimand"] == "specificity"
+        and float(row["ci95_low"]) > 0
+        and float(row["holm_p_within_population"]) <= 0.05
+    ]
+    token_all_q_error = _extension_stat(
+        token_stats,
+        population="all",
+        model_label="Qwen3-8B",
+        endpoint="absolute_error_increase",
+        estimand="specificity",
+    )
+    token_all_g_error = _extension_stat(
+        token_stats,
+        population="all",
+        model_label="Gemma4-E4B",
+        endpoint="absolute_error_increase",
+        estimand="specificity",
+    )
+    token_all_q_acc = _extension_stat(
+        token_stats,
+        population="all",
+        model_label="Qwen3-8B",
+        endpoint="accuracy_drop",
+        estimand="specificity",
+    )
+    token_all_g_acc = _extension_stat(
+        token_stats,
+        population="all",
+        model_label="Gemma4-E4B",
+        endpoint="accuracy_drop",
+        estimand="specificity",
+    )
+
+    subspace_behavior_rows = []
+    for population in populations:
+        for model in models:
+            for condition in ("actual_rank3_remove", "centroid_curve_remove"):
+                for endpoint in behavior_endpoints:
+                    row = _extension_stat(
+                        subspace_stats,
+                        population=population,
+                        model_label=model,
+                        condition=condition,
+                        endpoint=endpoint,
+                    )
+                    subspace_behavior_rows.append(
+                        [
+                            population.replace("_", " "),
+                            model,
+                            condition.replace("_", " "),
+                            endpoint.replace("_", " "),
+                            f'{fmt(float(row["mean"]), 3, signed=True)} '
+                            f'[{fmt(float(row["ci95_low"]), 3)}, {fmt(float(row["ci95_high"]), 3)}]',
+                            f'{fmt_p(float(row["p_value"]))} / '
+                            f'{fmt_p(float(row["holm_p_within_population"]))}',
+                        ]
+                    )
+    subspace_rep_rows = []
+    for row in subspace_stats:
+        if not row["endpoint"].startswith("gold_centroid_distance_increase_L"):
+            continue
+        subspace_rep_rows.append(
+            [
+                row["population"].replace("_", " "),
+                row["model_label"],
+                row["condition"].replace("_", " "),
+                row["endpoint"].replace("gold_centroid_distance_increase_", ""),
+                f'{fmt(float(row["mean"]), 3, signed=True)} '
+                f'[{fmt(float(row["ci95_low"]), 3)}, {fmt(float(row["ci95_high"]), 3)}]',
+                f'{fmt_p(float(row["p_value"]))} / '
+                f'{fmt_p(float(row["holm_p_within_population"]))}',
+            ]
+        )
+
+    def significant_summary(rows: Sequence[dict[str, str]], population: str) -> str:
+        registered = [row for row in rows if row["population"] == population]
+        hits = [
+            row
+            for row in registered
+            if float(row["holm_p_within_population"]) <= 0.05
+            and float(row["ci95_low"]) > 0
+        ]
+        if not hits:
+            return "没有 endpoint 在 Holm 校正后呈正向 specificity"
+        behavior_hits = [
+            row
+            for row in hits
+            if row["endpoint"] in {"accuracy_drop", "absolute_error_increase"}
+        ]
+        behavior_text = "；".join(
+            f'{row["model_label"]} {row["condition"].replace("_", " ")} '
+            f'{row["endpoint"].replace("_", " ")} '
+            f'({fmt(float(row["mean"]), 3)}, Holm p={fmt_p(float(row["holm_p_within_population"]))})'
+            for row in behavior_hits
+        )
+        if not behavior_text:
+            behavior_text = "behavior endpoints 无 Holm-significant 正效应"
+        return (
+            f"{len(hits)}/{len(registered)} 个注册 endpoints 为正且通过 Holm；"
+            f"behavior：{behavior_text}。下游 geometry 逐项见折叠表"
+        )
+
+    subspace_forest_rows = []
+    subspace_colors = {
+        ("Qwen3-8B", "actual_rank3_remove"): "#6750E8",
+        ("Qwen3-8B", "centroid_curve_remove"): "#00C2FF",
+        ("Gemma4-E4B", "actual_rank3_remove"): "#00D4B4",
+        ("Gemma4-E4B", "centroid_curve_remove"): "#39E58C",
+    }
+    for model in models:
+        for condition in ("actual_rank3_remove", "centroid_curve_remove"):
+            row = _extension_stat(
+                subspace_stats,
+                population="all",
+                model_label=model,
+                condition=condition,
+                endpoint="absolute_error_increase",
+            )
+            subspace_forest_rows.append(
+                {
+                    "label": f'{model} · {condition.replace("_", " ")}',
+                    "mean": float(row["mean"]),
+                    "low": float(row["ci95_low"]),
+                    "high": float(row["ci95_high"]),
+                    "value": f'{fmt(float(row["mean"]), 3)} · Holm p={fmt_p(float(row["holm_p_within_population"]))}',
+                    "color": subspace_colors[(model, condition)],
+                }
+            )
+    subspace_svg = forest_svg(
+        subspace_forest_rows,
+        title="Set-wide prompt count-subspace removal",
+        description=(
+            "Specific absolute-error increase for removing the actual or idealized "
+            "rank-3 prompt count component relative to an equal-norm orthogonal removal."
+        ),
+        x_label="specific absolute-error increase (count-subspace minus orthogonal removal)",
+        left=330,
+        right=290,
+    )
+
+    return f"""
+<h3>5.3 Needle token corruption：直接移除输入证据</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>Attention mask 只改某一个 endpoint query 的可见 keys；模型仍可能在别的位置读取原始 needle。要检验输入证据是否必要，必须让整条 forward 都看不到原 needle 内容。</span><strong>到底 corrupt 什么。</strong><span>对 seeds 1254–1263、gold count 1–10（每模型100条），定位从每条 active needle 第一个 token 到最后一个 token 的完整 span，并逐 span 替换成同一 prompt 中抽取的<strong>等 token 数 ordinary sequence</strong>。不是删除、打乱位置或改 answer query。matched control 在普通 passage 中选取总 token 数和深度匹配的 spans，也替换成 ordinary sequence。两种条件保持序列长度、所有后续绝对位置、query position 与改动 token budget相同。</span><strong>评估。</strong><span>clean、needle-corrupt、ordinary-control 都从头 greedy 生成。behavior damage 是 accuracy drop 与 absolute-error increase；representation damage 是 answer residual 到 discovery-frozen gold centroid 的 squared-distance increase；specificity=needle damage−ordinary-control damage。先在 seed 内平均 counts，再以10 seeds做bootstrap、exact sign-flip和population内 Holm校正。clean-correct-only 仅保留原 clean forward 答对的 Qwen 44/100、Gemma 36/100 rows。</span></div>
+<figure>{token_svg}<figcaption><strong>图 5B · Needle-token corruption 的特异行为损伤。</strong>横轴是 needle corruption 相对等 token-budget ordinary corruption 多增加的 absolute count error；0 表示两类同规模文本破坏影响相同，正值表示 needle tokens 有额外的计数必要性。点为10个等权 seed effects 的均值，横线为95% seed-bootstrap CI。</figcaption></figure>
+{table(["population", "model", "endpoint", "needle damage", "ordinary damage", "specificity [95% CI]", "exact / Holm p"], token_behavior_rows, classes="paper-table compact-result-table")}
+{details_table("Needle corruption 对下游 answer geometry 的全部结果", ["population", "model", "answer layer", "specificity [95% CI]", "exact p", "Holm p"], token_rep_rows)}
+<p>全样本中，ordinary control 的 absolute-error damage 接近零（Qwen −0.010；Gemma +0.040），而 needle corruption 相对它额外增加的 absolute error 为 Qwen {fmt(float(token_all_q_error['mean']), 3)}、Gemma {fmt(float(token_all_g_error['mean']), 3)}；额外 accuracy drop 为 {fmt(float(token_all_q_acc['mean']), 3)} / {fmt(float(token_all_g_acc['mean']), 3)}。两模型行为与两个下游 answer layers 的 specificity 都为正；all 与 clean-correct-only 合计 {len(token_specific_rows)}/16 个注册 specificity endpoints 通过各自 population 的 Holm 校正（这些最小 exact p=0.001953 的检验经24项保守校正后 Holm p=0.046875）。</p>
+<p><strong>这项实验能推出什么、不能推出什么。</strong>干预发生在<strong>输入token层</strong>：Qwen与Gemma只在真实needle内容被替换时出现远大于ordinary-control的损伤，所以两模型都必须使用needle中携带的信息。它没有直接改某个内部hidden state；一旦输入被替换，后面所有attention、MLP和residual states都会随之改变。因此该实验不能区分“信息先存在哪个endpoint”“由哪一组heads搬运”或“哪一个subspace是唯一carrier”，这些定位必须由后续state/head intervention完成。</p>
+<div class="conclusion"><strong>本小节结论。</strong>Token corruption 审计为 {html.escape(str(token_audit['status']))}。<strong>Qwen：</strong>needle-specific absolute-error increase为{fmt(float(token_all_q_error['mean']), 3)}，accuracy drop为{fmt(float(token_all_q_acc['mean']), 3)}。<strong>Gemma：</strong>对应为{fmt(float(token_all_g_error['mean']), 3)}与{fmt(float(token_all_g_acc['mean']), 3)}；两模型主行为结果均Holm p=0.046875。结论只到“原始needle内容是必要输入证据”，不把input-level necessity误写成某个内部carrier的唯一必要性。</div>
+
+<h3>5.4 两个不同的 subspace 实验：固定 prompt plane 为负，局部跨层 transport 为正</h3>
+<div class="callout evidence-note"><strong>先分清逻辑。</strong>实验A与B改变的层、方向定义和因果问题都不同，所以结果不矛盾：A问一个<strong>固定早层PCA平面是否必要</strong>；B问一个<strong>允许跨层旋转的晚层transport方向是否足以搬运count</strong>。必要性检验为null、局部充分性检验为positive，可以同时成立。</div>
+<div class="subspace-logic-grid">
+  <article><span>实验 A · necessity</span><strong>删掉固定 prompt plane，模型会坏吗？</strong><p>位置：Qwen L8 / Gemma L9 的全部active endpoints。方向：跨seeds平均得到的静态rank-3 PCA plane。结果：相对等范数正交删除，32个注册tests无一通过Holm；行为effects接近0。</p><p><b>只说明：</b>这个特定静态平面不是模型无法绕开的必要瓶颈。模型可能冗余存储、从literal spans重算，或在后层旋转方向。</p></article>
+  <article><span>实验 B · local sufficiency</span><strong>沿跨层对齐方向注入，下一层会读到吗？</strong><p>位置：Qwen L28→L29 / Gemma L36→L37 的answer query。方向：discovery学习的source→target rank-3 transport basis，允许两层坐标不同。结果：aligned 1×远大于等范数orthogonal，2×又大于1×；四项exact p=0.001953。</p><p><b>只说明：</b>测试的相邻晚层存在可用、方向特异、近似剂量响应的局部count通道；不说明它是唯一通道。</p></article>
+</div>
+<h4>5.4A · 实验 A：固定 prompt rank-3 PCA plane 是否是必要瓶颈？——负结果</h4>
+<div class="study-preface"><strong>为什么做。</strong><span>旧 single-endpoint ablation 接近零，可能是因为 count state 分散在多个 active endpoints，删一个位置会被其他位置补偿。新实验同时干预全部 active endpoints，并区分“当前 prompt 实际落在 count subspace 中的变化”与“discovery 数据给出的理想 centroid curve”。</span><strong>干预。</strong><span>对 seeds 1254–1263、counts 2–10，在 prompt 代表层 Qwen L8 / Gemma L9 的所有 active needle endpoints 同时执行两种 rank-3 removal，随后让未修改的后续层继续生成完整答案。对照从 within-count residual 的主方向中构造与 count basis 正交的 rank-3 basis，并把每个 prompt 的删除量缩放到与候选删除相同的 Frobenius norm。</span><strong>评估。</strong><span>behavior 使用 accuracy drop 与 absolute-error increase；representation 使用 Qwen L29/L35、Gemma L37/L41 answer residual 到冻结 gold centroid 的 squared-distance increase。所有主 effects 都是 count-subspace damage−orthogonal damage；先在 seed 内平均，再做10-seed exact sign-flip、50,000次 bootstrap，并在 all / clean-correct-only populations 内分别对2 models×2 removals×4 endpoints=16项做 Holm 校正。</span></div>
+<p><strong>精确定义。</strong>用 discovery endpoints 对每个 running count <em>n</em> 求 centroid <code>μ<sub>n</sub></code>，把十个 centroids 整体中心化后做 SVD，取前三个右奇异向量组成正交 basis <code>U∈R<sup>d×3</sup></code>。对一个含 <em>N</em> 个 active endpoints 的样本，将状态堆为 <code>H∈R<sup>N×d</sup></code>。<code>actual rank-3 remove</code> 使用 <code>H′=H−(H−rowmean(H))UUᵀ</code>，删除该样本跨 endpoints 的实际 count-aligned variation，但保留共同 offset；<code>centroid-curve remove</code> 使用 <code>H′<sub>n</sub>=H<sub>n</sub>−(μ<sub>n</sub>−mean(μ<sub>1:N</sub>))UUᵀ</code>，删除 discovery 所预测的理想 running-index step。控制 basis <code>V</code> 来自 <code>h−μ<sub>count</sub></code> 的前三个 residual PCs，经 Gram–Schmidt 与 <code>U</code> 正交化；删除 <code>(H−rowmean(H))VVᵀ</code> 后再缩放，使其删除范数与对应 <code>U</code>-removal 完全相同。</p>
+<figure>{subspace_svg}<figcaption><strong>图 5C · Set-wide prompt count-subspace removal 的特异行为效应。</strong>横轴为删除 count subspace 相对删除等 Frobenius 范数正交 subspace 多增加的 absolute count error；0 表示两类同强度 residual intervention 没有差别，正值表示 count-aligned component 更具行为作用。每点先在 seed 内平均 counts 2–10，再对10个 seed 等权求均值；横线为95% seed-bootstrap CI。actual 与 centroid-curve 是两种不同删除量，不作为重复试验合并。</figcaption></figure>
+{table(["population", "model", "removed subspace", "behavior endpoint", "specificity [95% CI]", "exact / Holm p"], subspace_behavior_rows, classes="paper-table compact-result-table")}
+{details_table("Prompt subspace ablation 对下游 answer geometry 的全部结果", ["population", "model", "removed subspace", "answer layer", "specificity [95% CI]", "exact / Holm p"], subspace_rep_rows)}
+<p><strong>全样本 familywise 正向结果：</strong>{significant_summary(subspace_stats, 'all')}。</p>
+<p><strong>Clean-correct-only familywise 正向结果：</strong>{significant_summary(subspace_stats, 'clean_correct_only')}。</p>
+<p><strong>结果分析。</strong>32 个注册的 population×model×removal×endpoint specificity 中，没有一项在各自 population 的 16 项 Holm family 内通过；本轮所有 Holm p 均为 1.0。全样本 absolute-error specificity 也很小：Qwen 的 actual / centroid-curve removal 为 +0.056 / +0.067，Gemma 为 −0.022 / −0.011，四个95% CI 均跨0；clean-correct-only 的行为效应同样接近0。下游 L29/L35/L37/L41 centroid-distance 也没有稳定、方向一致的 specificity。</p>
+<p><strong>为什么会是 null。</strong>这里删除的是一个在 prompt L8/L9、跨 seeds 平均后得到的静态 rank-3 PCA basis，并假设它同时是自然计算的瓶颈。这个假设可能过强：模型可以把同一 count 以冗余方式分布在多个 token；后层可以从未干预的 literal spans 重新计算；真正的 carrier 可以随 layer 旋转、随 context 改变或高于3维；PCA 最大化描述方差，也不保证找到最有因果作用的方向。等范数正交 control 还可能同时删除通用的格式/位置支架，使 candidate−control specificity 变小。</p>
+<div class="conclusion"><strong>实验 A 的结论（negative）。</strong>没有证据表明 Qwen L8 或 Gemma L9 中跨 seed 平均得到的固定三维 PCA plane，是模型无法绕开的必要 count bottleneck。这个 null 只否定“全网络沿同一个静态三维平面传递 count”的强假设，不否定 residual stream 中存在会旋转、可重算或更高维的 count carrier。</div>
+
+<h4>5.4B · 实验 B：允许方向随层变化后，局部 residual subspace 能否搬运 count？——正结果</h4>
+<div class="test-card"><p><strong>为什么做。</strong>若第 ℓ 层把 count 写在方向 <code>Uℓ</code>，下一层把它写在不同方向 <code>Uℓ+1</code>，直接删除或复制同一个 PCA vector 会漏掉真实传输；因此我们学习一个低秩 source→target map，而不要求两个层共享同一欧氏坐标。</p><p><strong>具体例子。</strong>对 receiver=1、donor=2，只把 source centroid 差 <code>μsource,2−μsource,1</code> 在冻结 transport basis 内的分量注入 receiver。若下一层沿 target 的1→2 centroid chord 前进约1单位，而等范数正交注入接近0，说明这个局部 subspace 能传递一单位 count；把同一分量加到2×后若前进接近2单位，则形成剂量响应。</p><p><strong>如何构造。</strong>只用 discovery count centroids，以 reduced-rank regression 将 source residual 映射到 target 的 rank-3 count coordinates，再对回归权重 row-space 做QR，得到冻结 source transport basis <code>B</code>。Confirmation 中注入 <code>ProjB(μD−μR)</code> 的1×和2×；control 位于 <code>B</code> 的正交补中，并与1× intervention 等范数。</p><p><strong>如何评估。</strong><code>target donor fraction</code> 是干预后 target state 沿 receiver→donor centroid chord 移动的比例：0表示未移动，1表示到达 donor centroid。要求同时满足 <code>aligned 1× &gt; orthogonal</code>（方向特异性）和 <code>aligned 2× &gt; aligned 1×</code>（剂量响应）。每个seed先平均1↔2、5↔6的双向 pairs，再对10个confirmation seeds做exact sign-flip与bootstrap。</p><p><strong>结果。</strong>Qwen L28→L29 的 orthogonal / aligned 1× / aligned 2× donor fraction 为0.007 / 0.949 / 1.810；Gemma L36→L37为0.002 / 0.976 / 1.801。两模型的1×方向特异性与2×增量均为 exact <code>p=0.001953</code>。完整并列图和置信区间见第7节。</p></div>
+<div class="conclusion"><strong>实验 B 的结论（positive）。</strong>两个模型在测试的相邻 answer-query layers 间都存在 discovery-frozen、方向特异且近似剂量响应的局部 count transport subspace。该结果证明“局部 residual relay 可用于搬运 count”，但不证明所有层共享一个固定 basis，也不证明该局部通道是唯一通道。</div>
+<!--TRANSPORT_ALIGNED_FULL-->
+{table(
+    ["更强的 subspace 证据", "具体做法", "它比静态 PCA removal 多解决什么", "当前状态"],
+    [
+        ["跨层表示对齐", "在 discovery 上用 reduced-rank regression / PLS / CCA 学 source→target count map，确认 basis 后冻结", "允许 count axis 随层旋转，不要求同一个 PCA 向量贯穿网络", "已实现：rank-3 transport basis"],
+        ["方向特异的 subspace patch", "只 patch donor−receiver 在 transport basis 内的分量，并与等范数正交分量比较", "把‘能解码’升级为‘该方向足以搬运 count’", "已确认：Qwen L28→L29、Gemma L36→L37"],
+        ["剂量响应", "比较 aligned 1× 与2×，要求 target movement 近似随剂量增加", "排除偶然的大范数扰动或单点非线性", "两模型 dose2−dose1 exact p=0.001953"],
+        ["路径中介", "先做 source subspace patch，再在下游 writer/mediator 删除诱导分量", "检验信息是否真的沿指定 residual→writer 路径使用", "Qwen/Gemma 的后续 OV/residual tests 已分别闭合"],
+        ["分布式 causal scrubbing", "跨多个 token、多个相邻层同时 patch或remove frozen low-rank coordinates", "处理冗余、重算和跨 token relay", "建议的下一步；尚未作为本文确认结果"],
+    ],
+    classes="paper-table compact-result-table",
+)}
+<p><strong>什么才足以支持“residual stream 传递 count”。</strong>仅有跨层 CKA/CCA 或 decoder accuracy 不够，因为那只是相似性。当前最强证据是第7节的 transport-aligned intervention：discovery-only 学到 source transport basis，confirmation 中只注入其 donor−receiver 分量；aligned 1× 明显超过等范数正交 control，2× 又超过1×。Qwen L28→L29 与 Gemma L36→L37 的两项 exact p 均为0.001953。这说明<strong>测试的 answer-query 相邻层之间确实存在可用、方向特异、近似剂量响应的 count-carrying residual subspace</strong>。</p>
+<div class="conclusion"><strong>本小节结论。</strong>Subspace ablation 审计为 {html.escape(str(subspace_audit['status']))}。确认性 null 只否定“prompt L8/L9 的单一静态 rank-3 PCA curve 是必要瓶颈”；它不否定 subspace 传递。用允许跨层旋转的 transport-aligned basis，Qwen 与 Gemma 都得到局部因果 positive。严谨表述因此是“存在经测试相邻 answer layers 的局部 transport subspace”，而不是“全网络共享一个固定三维 counter plane”。</div>
+"""
+
+
+def _build_extension_question_audit_legacy(
+    token_stats: list[dict[str, str]],
+    subspace_stats: list[dict[str, str]],
+    causal_v2: dict[str, Any],
+    ov: dict[str, Any],
+    gemma_residual: dict[str, Any],
+) -> str:
+    """One-row-per-question audit of reports/non-thinking extension.md."""
+
+    def token_value(model: str, endpoint: str) -> str:
+        row = _extension_stat(
+            token_stats,
+            population="all",
+            model_label=model,
+            endpoint=endpoint,
+            estimand="specificity",
+        )
+        return (
+            f'{fmt(float(row["mean"]), 3, signed=True)} '
+            f'[{fmt(float(row["ci95_low"]), 3)}, {fmt(float(row["ci95_high"]), 3)}], '
+            f'Holm p={fmt_p(float(row["holm_p_within_population"]))}'
+        )
+
+    subspace_positive = [
+        row
+        for row in subspace_stats
+        if row["population"] == "all"
+        and float(row["ci95_low"]) > 0
+        and float(row["holm_p_within_population"]) <= 0.05
+    ]
+    subspace_answer = (
+        f"{len(subspace_positive)}/{len([row for row in subspace_stats if row['population'] == 'all'])} "
+        "all-sample endpoints 为正且通过 population-wise Holm"
+    )
+    q_patch = causal_v2["primary_confirmation_family_summary"][
+        "Qwen3-8B::answer_patching"
+    ]
+    g_patch = causal_v2["primary_confirmation_family_summary"][
+        "Gemma4-E4B::answer_patching"
+    ]
+    rows = [
+        ["Step 1", "Needle-end hidden states 是否低维？", "rank / variance", "十个 count centroids 的 rank-3 capture 很高（Qwen L8 0.988；Gemma L9 0.979），但全部 endpoint states 只有0.690/0.598。", "低维的是嵌在高维 residual 中的 count-centroid curve，不是全部 state cloud。", "§4.1"],
+        ["Step 1", "Running-index curve 对 state 变化解释多少？线性还是非线性？", "held-out ridge / kNN", "Prompt L8/L9 ridge R²=0.945/0.719；代表层中 ridge 优于 distance-weighted kNN。", "存在可泛化、近似线性的 ordinal coordinate；不需要用非线性模型才能读出。", "§4.2"],
+        ["Step 1", "常见分类器能否预测 count？", "六个固定 classifier", "所有层公开六条曲线；全局固定 primary 为 L2 logistic，机会水平0.1，未逐层挑最优算法。", "count 可离散读出；classifier 选择规则不利用单层结果。", "§4.2"],
+        ["Step 1", "十个 count 是否形成紧密 clusters？", "silhouette / CH / DB", "代表层 cosine silhouette 很小或为负，尽管连续 count 解码良好。", "更像连续有序曲线加 context deformation，不像十个各向同性小球。", "§4.2"],
+        ["Step 1", "Prompt geometry 的 noise 来自哪里？", "balanced two-way decomposition", "Qwen L8 count/seed-context/interaction=0.599/0.161/0.241；Gemma L9=0.385/0.229/0.386。", "Gemma 的 context-dependent deformation 更强；这里的 noise 是确定性 residual variation，不是采样噪声。", "§4.3"],
+        ["Step 1", "所有 token 是否都遵循 prefix-count curve？", "frozen endpoint PCA + gated formulas", "Endpoint-gated incremental R² 为 Qwen 0.551、Gemma 0.326；ordinary/interior 的 ungated或span-gated曲线增量 R² 接近0或为负。", "经验式应含 endpoint gate：count curve 主要出现在 needle endpoint，不贯穿全部 prompt tokens。", "§4.4"],
+        ["Step 1", "开头 instruction cue 是否生成 running counter？", "cue-present / cue-absent frozen-basis comparison", "去 cue 后 centroid CKA 仍为0.981–0.997，但 count×cue interaction 显著。", "Cue 不是有序拓扑的来源，但会调制 full-space state；主因果链仍只覆盖 cue-present。", "§4.5"],
+        ["Step 1", "Earlier-span / induction-like attention 是否存在？", "discovery-ranked full-span head confirmation", "Qwen top-10 preference=0.859–0.979；Gemma=0.273–0.960；两模型每个head的模型内Holm p=0.019531。", "Qwen与Gemma均支持earlier-span aggregation；尚不足以命名为完整经典induction circuit。", "§5.1"],
+        ["Step 1", "删除 outside-needle attention 会不会减少 noise？", "needle-only vs equal-key ordinary-only mask", "Needle-only 相对 clean 在两模型三项指标上均未改善；Qwen 相对 ordinary-only 有三项特异性，Gemma 仅 normalized-distance specificity 过 Holm。", "Outside context 不是纯噪声，而是格式/位置支架；该原始假说被否定。", "§5.2"],
+        ["Step 1", "直接破坏 needle tokens 会怎样？", "equal-token-budget token corruption", f"All-sample specific absolute-error increase：Qwen {token_value('Qwen3-8B','absolute_error_increase')}；Gemma {token_value('Gemma4-E4B','absolute_error_increase')}。", "这回答输入 needle evidence 的必要性；不把 token corruption 等同于某一 hidden-state carrier 的必要性。", "§5.3"],
+        ["Step 1", "Set-wide running-index subspace 是否因果影响 answer？", "all-endpoint rank-3 / centroid-curve removal", subspace_answer, "只把相对等范数正交控制、并经 Holm 的 behavior/answer-geometry endpoint 写成支持；其余明确作为 null 或几何扰动。", "§5.4"],
+        ["Step 2", "Broad retrieval heads 是否真正有功能？", "full-span nested top-K matched ablation", "两模型均出现 Holm-significant ranked-minus-layer-matched-random behavior effects；剂量曲线非单调。", "存在分布式 retrieval bank；K 不是独立同质 head 的线性剂量，也不推出唯一最小 circuit。", "§8–9.3"],
+        ["Step 2", "Retrieval 与 OV rewriting 是否跨层？", "pre-O OV / residual mediation", f"Qwen L28 H16/H19 natural-OV global IUT p={fmt_p(ov['primary_decision']['global_intersection_union_p'])}；Gemma K2→L37→L41 global IUT p={fmt_p(gemma_residual['primary_decision']['global_intersection_union_p'])}。", "Qwen 已定位 localized OV set；Gemma 已定位 distributed residual write，二者均支持 retrieval 后再写入。", "§10"],
+        ["Step 3", "Answer-query state 是否也有可解码 count geometry？", "rank / regression / fixed classifiers / clustering", "Qwen L29 / Gemma L37 ridge R²=0.891/0.885；centroid rank-3 capture=0.947/0.981；correct-only 另作敏感性分析。", "Answer query 含稳定 count coordinate，但仍嵌在高维 state 中。", "§4.1–4.2, §6"],
+        ["Step 3", "Answer state 是否能驱动最终数字？", "all-sample + correct-only state patch", f"All-sample mean transport Qwen={q_patch['mean_effect']:.3f}、Gemma={g_patch['mean_effect']:.3f}；correct-only donor adoption=96.6%/96.0%。", "Answer representation 是可执行 state，而不只是与 gold count 相关。", "§9.4"],
+        ["Step 3", "不同层间是否存在可传播的 count subspace？", "transport-aligned adjacent-layer intervention", "Qwen L28→L29 与 Gemma L36→L37 的 aligned−orthogonal、dose2−dose1 均 exact p=0.001953；旧 final prompt endpoint support 接近0。", "两模型均有方向特异、近似剂量响应的局部 answer-query residual relay；不声称全层共享静态 PCA basis。", "§7"],
+        ["Step 3", "层越深是否发生 consolidation？", "layerwise rank / decoding + causal write trace", "Answer centroids 维持高 rank-3 capture，held-out decodability 在中后层升高；Qwen write 沿 L29–L35 保留，Gemma K2 effect 经 L37 到 L41。", "Consolidation 定义为可解码性增强、相对 noise 减少和 late-state 可执行性，而不是只凭3D视觉变紧。", "§4, §7, §10"],
+    ]
+    return f"""
+<section id="question-audit">
+<h2>12 · Extension memo 逐题回答</h2>
+<p>下表逐行对应 <code>reports/non-thinking extension.md</code>。正、负和范围受限的结果都保留；“未支持某个更强解释”不等于删除该问题，也不会被其他显著实验替代。</p>
+{table(["阶段", "原问题", "主实验", "结果", "当前可写结论", "正文位置"], rows, classes="paper-table causal-ledger")}
+<div class="conclusion"><strong>逐题审计结论。</strong>Memo 中的 representation、noise、attention、token/subspace causal、broad retrieval、OV/relay 与 answer consolidation 问题均已有对应实验和明确判定。当前最完整的共同机制是“endpoint-gated prompt state → distributed full-span retrieval → coordinate-changing residual write → local answer-state relay → executable digit output”；模型间差异只按通过的因果定位粒度书写。</div>
+</section>
+"""
+
+
+def build_extension_question_audit(
+    token_stats: list[dict[str, str]],
+    subspace_stats: list[dict[str, str]],
+    causal_v2: dict[str, Any],
+    ov: dict[str, Any],
+    gemma_residual: dict[str, Any],
+    earlier_heads: list[dict[str, str]],
+) -> str:
+    """Readable, one-question-at-a-time audit of reports/non-thinking extension.md."""
+
+    def token_value(model: str, endpoint: str) -> str:
+        row = _extension_stat(
+            token_stats,
+            population="all",
+            model_label=model,
+            endpoint=endpoint,
+            estimand="specificity",
+        )
+        return (
+            f'{fmt(float(row["mean"]), 3, signed=True)} '
+            f'[{fmt(float(row["ci95_low"]), 3)}, {fmt(float(row["ci95_high"]), 3)}], '
+            f'Holm p={fmt_p(float(row["holm_p_within_population"]))}'
+        )
+
+    all_subspace = [row for row in subspace_stats if row["population"] == "all"]
+    positive_subspace = [
+        row
+        for row in all_subspace
+        if float(row["ci95_low"]) > 0
+        and float(row["holm_p_within_population"]) <= 0.05
+    ]
+    q_patch = causal_v2["primary_confirmation_family_summary"][
+        "Qwen3-8B::answer_patching"
+    ]
+    g_patch = causal_v2["primary_confirmation_family_summary"][
+        "Gemma4-E4B::answer_patching"
+    ]
+    q_ov_p = fmt_p(ov["primary_decision"]["global_intersection_union_p"])
+    g_ov_p = fmt_p(
+        gemma_residual["primary_decision"]["global_intersection_union_p"]
+    )
+    earlier_ranges: dict[str, tuple[float, float]] = {}
+    for model in ("Qwen3-8B", "Gemma4-E4B"):
+        values = [
+            float(row["confirmation_preference_mean"])
+            for row in earlier_heads
+            if row["model_label"] == model
+        ]
+        if len(values) != 10:
+            raise RuntimeError(f"Expected ten earlier-span heads for {model}")
+        earlier_ranges[model] = (min(values), max(values))
+
+    questions = [
+        {
+            "group": "12.1 · Prompt-side representation 与 noise",
+            "question": "Needle-end hidden states 是否真的是低维的？",
+            "method": "把两件事分开算：一是全部 endpoint states 的协方差秩；二是十个 count centroids 组成的中心轨迹秩。报告 rank-3 对两者各自的方差捕获率，而不是只看三维 PCA 图。",
+            "result": "在 prompt 代表层，rank-3 对 count-centroid curve 的捕获率为 Qwen L8 0.988、Gemma L9 0.979；但对全部 endpoint states 只有0.690和0.598，numeric rank-90 分别为30和25。",
+            "answer": "低维的是嵌在高维 residual 中的共享 count-centroid trajectory；不能说全部 hidden-state cloud 只有三维。",
+            "boundary": "三维图适合展示中心轨迹，不足以证明所有样本都被压在同一个三维平面。",
+            "where": "§4.1",
+        },
+        {
+            "group": "12.1 · Prompt-side representation 与 noise",
+            "question": "Count 能否被线性读出？这是否意味着 PCA 轨迹是直线？",
+            "method": "PCA、标准化和预测器都只在 training seeds 拟合，再按 seed 做 held-out prediction。连续 count 同时比较 ridge 与 distance-weighted kNN-5；主要指标为 full-state held-out R²。",
+            "result": "Prompt代表层ridge/kNN R²为Qwen L8 0.945/0.711、Gemma L9 0.719/0.374；answer代表层为Qwen L29 0.891/0.871、Gemma L37 0.885/0.773。两模型的PCA centroid paths仍有明显曲率。",
+            "answer": "两模型的count都<strong>线性可读</strong>：存在hidden-state的线性组合可预测count。但这不等于geometry是一条直线；弯曲轨迹仍可在某个方向上单调投影。准确表述是“线性可读的有曲率ordinal trajectory”。",
+            "boundary": "Ridge优于kNN可能还受高维context noise与样本量影响，不能据此否定曲率；高R²也不自动证明该decoder方向是自然forward的唯一必要通路。",
+            "where": "§4.2",
+        },
+        {
+            "group": "12.1 · Prompt-side representation 与 noise",
+            "question": "常见分类器能否从 hidden state 预测 count？如何避免每层挑最优算法？",
+            "method": "固定比较 L2 logistic、ridge classifier、linear SVM、nearest centroid、shrinkage LDA 与 cosine kNN-5。先跨四个 model×site 的全部层求平均，只选一个全局 primary；结果是 L2 logistic。所有六条逐层曲线都公开。",
+            "result": "全局平均 accuracy 最高的是 L2 logistic 0.371，nearest centroid 为0.370。Answer 代表层 all-sample accuracy 为 Qwen L29 0.560、Gemma L37 0.530；在 clean-correct rows 上 raw/balanced accuracy 分别为 Qwen 0.880/0.759、Gemma 0.918/0.625，均只剩8个 count classes。",
+            "answer": "Count 可以被多类简单分类器离散读出；结论不是逐层挑算法所得。Correct-only accuracy 更高，但它改变了类别组成，因此只作为答案状态的敏感性分析。",
+            "boundary": "Prompt running-index 必须保留完整 count×seed 网格，不能用最终答案 correct-only 筛选，否则会整条删除高-count trajectories。",
+            "where": "§4.2",
+        },
+        {
+            "group": "12.1 · Prompt-side representation 与 noise",
+            "question": "十个 count 是十个紧密 clusters，还是一条带 context 形变的连续轨迹？",
+            "method": "在 train-fitted PCA 中对 held-out seeds 计算 cosine silhouette、Calinski–Harabasz 与 Davies–Bouldin；同时与连续 ridge decoding 对照。",
+            "result": "Cosine silhouette 在 Qwen prompt L8为−0.075、Gemma prompt L9为−0.043；answer L29/L37为0.056/−0.038。尽管 cluster separation 很弱，连续 ridge R²仍为0.719–0.945（prompt）和0.885–0.891（answer）。",
+            "answer": "Count geometry 更像一条有序曲线叠加 prompt-dependent offset/deformation，而不是十个互相孤立、近似球形的小簇。",
+            "boundary": "Silhouette 低不代表没有 count information；它只否定“十个紧密球状簇”这个更强形状假说。",
+            "where": "§4.2",
+        },
+        {
+            "group": "12.1 · Prompt-side representation 与 noise",
+            "question": "Prompt geometry 的 noise 到底是什么，来自哪里？",
+            "method": "对平衡的 count×seed endpoint tensor 做 two-way Frobenius/ANOVA：共享 count trajectory、prompt-wide seed/context offset、count×seed trajectory deformation。Seed 使用 categorical one-hot，不把 seed 编号当连续数值。",
+            "result": "Qwen L8总变异的count/offset/interaction为0.599/0.161/0.241：noise占40.2%，其中prompt identity main effect解释40.0%，剩余60.0%是count×prompt deformation。Gemma L9为0.385/0.228/0.386：noise占61.4%，prompt identity解释37.1%，interaction占62.9%。",
+            "answer": "两模型的noise都主要表现为轨迹形状随prompt改变，而不只是整条轨迹平移；Gemma的总noise比例和interaction绝对份额都更高。当前真正可称为feature解释量的是prompt-identity main effect：Qwen 40.0%、Gemma 37.1%的within-count noise。",
+            "boundary": "Interaction是未被prompt-wide offset解释的cell-level形变，不是可对新prompt预测的具体feature。Seed把词汇、位置、顺序与段落内容捆在一起，因此各具体metadata feature的解释率尚未识别，而不是0%；V4.4.0的feature-regression来自native-thinking样本，不能移植到这里。",
+            "where": "§4.3",
+        },
+        {
+            "group": "12.1 · Prompt-side representation 与 noise",
+            "question": "每个 prompt token 都沿 prefix-count curve 排列吗？",
+            "method": "只用 discovery needle endpoints 冻结 PCA-32、count centroids 与 curve，再投影 confirmation 的 endpoints、needle interiors、hard negatives 和 ordinary passage tokens。比较 endpoint-gated、whole-span-gated 与 ungated formulas。",
+            "result": "Qwen L8 的 endpoint nearest-centroid accuracy为0.490，而 interior/hard-negative/ordinary仅0.016/0.008/0.025；endpoint-gated ΔR²=0.551，错误推广到 interior/ordinary 后均为−0.057。Gemma L9 endpoint accuracy=0.280，其他三类为0.116/0.110/0.096；endpoint-gated ΔR²=0.326，span/ordinary为−0.036/−0.041。",
+            "answer": "Running-index geometry 是 endpoint-gated：完成一条 needle 后的 endpoint 最清楚，不能把同一 count curve 泛化为整个 needle span 或全部 prompt tokens 的普遍属性。",
+            "boundary": "Interior 在 Gemma 有少量可解码性，但预注册的 endpoint curve formula 并未对其提供增量解释。",
+            "where": "§4.4",
+        },
+        {
+            "group": "12.1 · Prompt-side representation 与 noise",
+            "question": "开头 instruction cue 创建了 running counter，还是只调节已有表征？",
+            "method": "保持模型 mode 与 passage 完全相同，只删除开头 city-score 定义；用冻结 basis 比较 cue-present 与 cue-absent 的 centroid CKA、count η²与 full-space count×cue interaction。",
+            "result": "各代表/探针层的 centroid CKA 为0.981–0.997，说明有序 topology 基本保留；同时 count×cue q 值约0.0010–0.0012，表明 cue 对 full-space state 的影响依赖 count。",
+            "answer": "Cue 不是 running-counter topology 的唯一来源，但会显著调制该表征在 full residual space 中的具体位置与强度。",
+            "boundary": "后续主机制因果链只在 cue-present 条件确认，不能据此声称 cue-absent 使用完全相同的 circuit。",
+            "where": "§4.5",
+        },
+        {
+            "group": "12.2 · State formation 与因果必要性",
+            "question": "较早层是否会在当前 endpoint 回看已经出现的 needle spans？",
+            "method": "用 discovery 按“当前 endpoint query 指向 prior needle full spans”的分数冻结top-10 heads；在10个 confirmation seeds 比较 prior-needle mass 与等长度、等深度 ordinary spans。",
+            "result": f"Qwen top-10 heads 的 prior-needle minus matched-ordinary preference 为{earlier_ranges['Qwen3-8B'][0]:.3f}–{earlier_ranges['Qwen3-8B'][1]:.3f}；Gemma 为{earlier_ranges['Gemma4-E4B'][0]:.3f}–{earlier_ranges['Gemma4-E4B'][1]:.3f}。两模型每个 head 的 exact p=0.001953，模型内 Holm p=0.019531。",
+            "answer": "<strong>Qwen与Gemma：</strong>均有明确的earlier-span aggregation；当前endpoint会特异回看先前needle full spans，而不是只偏好同长度、同深度的普通上下文。",
+            "boundary": "该结果确认的是跨更早目标记录的聚合，不足以命名为包含previous-token matching与复制操作的完整经典induction circuit，也不证明top-10 heads单独完成计数。",
+            "where": "§5.1",
+        },
+        {
+            "group": "12.2 · State formation 与因果必要性",
+            "question": "Outside-needle attention 是不是给 running counter 注入了纯 noise？",
+            "method": "只改 occurrences 2/4/6/8/10 的 endpoint query：比较 clean、needle-only keys 与等 key-budget 的 matched ordinary-only keys。指标统一写成“mask后改善”，再比较 needle-only 与 ordinary-only specificity。",
+            "result": "Needle-only 相对 clean 没有净化：Qwen continuous/accuracy/distance improvements 为−0.261/−0.280/−1.610；Gemma为−3.688/−0.080/−1.568。相对 ordinary-only，Qwen 三项 specificity 为1.174、0.160、2.221，Holm≤0.023438；Gemma只有 normalized distance 3.307 通过Holm p=0.011719。",
+            "answer": "<strong>General：</strong>两模型删除ordinary context后都没有变干净，因此outside context不是纯噪声。<strong>Qwen：</strong>needle keys相对ordinary keys在三项指标上都有特异信息。<strong>Gemma：</strong>只确认normalized-distance specificity，行为误差与accuracy没有对应支持。",
+            "boundary": "Mask 同时改变 attention normalization 与可见 key set，因此它回答“该受限读取条件是否更好”，不是对单个自然通路的纯 removal。",
+            "where": "§5.2",
+        },
+        {
+            "group": "12.2 · State formation 与因果必要性",
+            "question": "如果把输入中的 needle literal spans 真正破坏掉，会怎样？",
+            "method": "把每条 active needle 的完整 token span 替换为同 prompt 中等 token 数 ordinary sequence；matched control 替换位置深度和总 token budget 相同的 ordinary spans。序列长度、后续位置与 answer query 全部保持不变。",
+            "result": f"相对 ordinary control，all-sample absolute-error specificity 为 Qwen {token_value('Qwen3-8B', 'absolute_error_increase')}；Gemma {token_value('Gemma4-E4B', 'absolute_error_increase')}。Accuracy-drop specificity 为 Qwen +0.450、Gemma +0.360，二者 Holm p=0.046875；clean-correct-only accuracy-drop specificity 为+0.950/+1.000。",
+            "answer": "<strong>Qwen与Gemma：</strong>真实needle内容都是必要输入证据；替换等量ordinary tokens几乎没有相同损伤，因此结果不是一般文本扰动造成。",
+            "boundary": "干预发生在输入层，所以会连带改变所有下游states。它能证明“模型需要needle信息”，但不能定位信息究竟由哪个endpoint、subspace或head set传递。",
+            "where": "§5.3",
+        },
+        {
+            "group": "12.2 · State formation 与因果必要性",
+            "question": "是否存在一个固定的、跨 prompt endpoints 共用的 rank-3 count plane？",
+            "method": "在 Qwen L8/Gemma L9 同时从全部 active endpoints 删除 discovery-frozen actual rank-3 plane 或 centroid-curve plane，并与等删除范数的正交 rank-3 control 比较。",
+            "result": f"All-sample 的16个主 endpoints 中，正且通过 population-wise Holm 的结果为{len(positive_subspace)}/{len(all_subspace)}。例如 Qwen actual-plane removal 的 absolute-error specificity仅+0.056 [−0.011,0.133]，Gemma为−0.022 [−0.089,0.033]；二者Holm p=1。",
+            "answer": "<strong>Qwen与Gemma：</strong>都没有证据表明代表性prompt层中的固定rank-3 PCA plane是模型无法绕开的必要瓶颈。删除该平面并不比等范数正交删除造成更大损伤。",
+            "boundary": "Null只作用于“固定、三维、prompt-endpoint、必要性”这一组合。冗余存储、从literal spans重算、方向随层旋转或高于三维都能使该removal接近零；下一题改测晚层旋转通道的局部充分性。",
+            "where": "§5.4A",
+        },
+        {
+            "group": "12.2 · State formation 与因果必要性",
+            "question": "如果允许 count direction 随层旋转，是否能直接证明 residual subspace 搬运 count？",
+            "method": "只在 discovery centroids 上学习 source→target 的 rank-3 transport basis。Confirmation 中向 source state 注入 receiver→donor 的 aligned 1×或2×分量，并与等范数、位于 transport basis 正交补的方向比较。",
+            "result": "Qwen L28→L29：aligned1−orthogonal=0.942 [0.913,0.967]，dose2−dose1=0.861 [0.842,0.879]；Gemma L36→L37为0.974 [0.962,0.986]与0.825 [0.818,0.833]。四个 exact p 均为0.001953。",
+            "answer": "<strong>Qwen：</strong>L28→L29存在局部count-transport subspace。<strong>Gemma：</strong>L36→L37存在同类通道。两者都满足方向特异性和剂量响应。",
+            "boundary": "实验A问“删掉固定早层plane是否必要”，实验B问“沿学习到的旋转晚层方向注入是否足以搬运”；因果问题、位置和basis都不同，所以A为null与B为positive不矛盾。B也不证明该局部通道是唯一通道。",
+            "where": "§5.4B",
+        },
+        {
+            "group": "12.2 · State formation 与因果必要性",
+            "question": "按 full-span attention 排名的 broad-retrieval heads 是否真的影响 counting？",
+            "method": "在 fresh seeds 1316–1335、counts 1–5 上，只在 final Total: query 将冻结 top-K heads 的 pre-O output slices 置零；每个K与三个 layer-matched random banks比较。主 effect 是 ranked ablation damage 减去 random damage。",
+            "result": "Qwen all-sample 在K=4/16/32过Holm，effects分别0.0833/0.5200/1.6233；correct-only在K=16/32过Holm。Gemma all-sample K=1/2/4/8/16/32全部过Holm，correct-only在K=8/16过Holm；例如K=8 all effect=0.7667 [0.6067,0.9501]，Holm p=2.29e-05。",
+            "answer": "两模型都使用分布式 full-span retrieval bank；影响超过删除同层随机 heads，因而 attention ranking 具有功能意义。",
+            "boundary": "K-sweep 非单调，说明 heads 有冗余、协同或反向成员；不能把 K 当成同质 heads 的线性剂量，也不证明这是唯一 retrieval circuit。",
+            "where": "§8.1–§8.3",
+        },
+        {
+            "group": "12.2 · State formation 与因果必要性",
+            "question": "读到 needle 之后，count 如何经过 OV/residual channel 写回？",
+            "method": "在真实 pre-O head-space <code>z</code> 边界检验 natural carrier、count-step injection、centered removal 与 donor-path mediation；所有方向由 discovery 冻结，并与同层 matched sets 或同一W<sub>O</sub> span内等范数正交方向比较。Global IUT 取全部必要 families 中最大的p。",
+            "result": f"Qwen L28 H16/H19：natural carrier 0.2174、pre-O injection 0.0640、centered-removal error 0.0732、path mediation 0.0136，global IUT p={q_ov_p}。Gemma K2 source→L37→L41：source transport 0.0889、exact L37 mediation 0.0864、count-axis mediation 0.0458、L41 adoption 0.2256，global IUT p={g_ov_p}。",
+            "answer": "Qwen 的证据定位到局部两头OV write；Gemma 的证据定位到 full-attention K2 bank 写入L37 residual、再传播到L41。二者都支持“retrieval 后进行坐标转换并写入 answer residual”。",
+            "boundary": "Qwen 与 Gemma 的定位粒度不同：不能把 Gemma 的 distributed residual write 强行写成和 Qwen 相同的单一 head-level transporter。",
+            "where": "§9",
+        },
+        {
+            "group": "12.3 · Answer execution、transport 与 consolidation",
+            "question": "Answer-query residual 是否也有稳定的 count geometry？",
+            "method": "在第一个答案 token 生成前保存 final Total: query residual；对全部层做 discovery-fit/held-out regression、rank、固定分类器与聚类分析。",
+            "result": "Qwen L29/Gemma L37 的 ridge R²为0.891/0.885，centroid rank-3 capture为0.947/0.981；all-state rank-3 capture为0.729/0.799。",
+            "answer": "Answer query 含有稳定、低维中心轨迹上的 count coordinate，但完整 answer states 仍然是高维的。",
+            "boundary": "相关几何只说明可读出；下一题用 state patching 判断它是否可执行。",
+            "where": "§4.1–§4.2、§6",
+        },
+        {
+            "group": "12.3 · Answer execution、transport 与 consolidation",
+            "question": "Answer state 能否因果驱动最终数字，而不只是和 gold count 相关？",
+            "method": "把 donor count 的完整 answer-query residual patch 到 receiver count；all-sample 测 control-adjusted normalized transport，correct-only 只保留 donor/receiver clean 都正确的 pairs，测 receiver 是否改为 donor gold。",
+            "result": f"All-sample mean transport 为 Qwen {q_patch['mean_effect']:.3f}、Gemma {g_patch['mean_effect']:.3f}，正CI条件分别149/149与177/177。Correct-only donor adoption 为96.6%/96.0%；fresh low-count source gain为Qwen +0.6776 [0.4564,0.8978], p=1.43e-05，Gemma +12.1734 [11.3239,12.9635], p=9.54e-07。",
+            "answer": "Answer residual 是可执行的 count state：替换它会系统把输出改向 donor count，而不仅是读取到一个相关标签。",
+            "boundary": "Full-state patch 同时搬运 count 与其他 donor-specific components；方向特异性由前一题的 low-rank transport/OV controls补充。",
+            "where": "§8.4",
+        },
+        {
+            "group": "12.3 · Answer execution、transport 与 consolidation",
+            "question": "更深层是否在把 count state consolidation 成最终可输出数字？",
+            "method": "联合查看逐层 centroid rank-3 capture、held-out decoding，以及已经冻结的跨层 transport与OV/residual causal trace；consolidation 定义为可解码性增强、相对 dispersion下降和终层可执行性收敛。",
+            "result": "Answer centroids 在中后层保持0.947–0.981的代表层 rank-3 capture，Qwen 的已确认 write/transport 落在L28→L29并沿后层保留，Gemma 的K2 write在L37形成后由L41显著采用（effect 0.2256，p=9.54e-07）。",
+            "answer": "数据支持中后层把检索后的 count state 转换并巩固为可供LM head执行的 answer coordinate；Qwen路径更局部，Gemma因sliding window表现为full-attention写入后由局部层传播。",
+            "boundary": "“Consolidation”是多项预先定义指标的机制性综合，不是一项单独的 omnibus p-value，也不表示3D点云必须视觉上越来越紧。",
+            "where": "§4、§5.4B、§9",
+        },
+    ]
+
+    rendered: list[str] = []
+    current_group = ""
+    for index, item in enumerate(questions, start=1):
+        if item["group"] != current_group:
+            current_group = item["group"]
+            rendered.append(f'<h3 class="audit-group-title">{current_group}</h3>')
+        rendered.append(
+            f"""
+<details class="audit-question">
+  <summary class="audit-question-summary"><span class="audit-index">Q{index:02d}</span><span class="audit-question-title">{item['question']}</span><span class="audit-location">正文 {item['where']}</span></summary>
+  <div class="audit-question-body">
+  <div class="audit-answer-grid">
+    <div><strong>怎么测</strong><p>{item['method']}</p></div>
+    <div><strong>具体结果</strong><p>{item['result']}</p></div>
+    <div><strong>直接回答</strong><p>{item['answer']}</p></div>
+  </div>
+  <p class="audit-boundary"><strong>证据边界。</strong>{item['boundary']}</p>
+  </div>
+</details>
+"""
+        )
+
+    return f"""
+<section id="question-audit">
+<h2>12 · Extension memo 逐题回答</h2>
+<p>本节逐题对应 <code>reports/non-thinking extension.md</code>。每题固定分成“怎么测—具体结果—直接回答—证据边界”：正结果、负结果和范围受限的结果都保留，避免用一个显著实验替代另一个不同问题。</p>
+{''.join(rendered)}
+<div class="conclusion"><strong>逐题审计结论。</strong>目前最完整、同时有 representation 与 causal support 的共同机制是：needle endpoint 形成可读出的 running state；full-span retrieval bank 在 answer query 取回证据；模型把读出的内容转换到新的 answer-count coordinates；该 state 在相邻 answer layers 的方向特异 subspace 中传播，最后成为可执行数字。固定 prompt rank-3 plane 的全局必要性没有得到支持，但允许跨层旋转的局部 transport subspace 得到两模型的剂量响应因果支持。</div>
+</section>
+"""
+
+
 def relay_gate_svg(metrics: list[dict[str, Any]]) -> str:
     width, height = 1040, 300
     box_w, gap, y = 185, 22, 70
@@ -454,7 +2129,7 @@ def ablation_topk_svg_legacy() -> str:
     plot_w, plot_h = width - left - right, height - top - bottom
     series = {
         "Qwen3-8B": {"color": "#6750E8", "values": [(4, 0.425), (8, 0.025)]},
-        "Gemma4-E4B": {"color": "#00A88F", "values": [(4, 2.025), (8, 2.625)]},
+        "Gemma4-E4B": {"color": "#00D4B4", "values": [(4, 2.025), (8, 2.625)]},
     }
     ymax = 3.0
 
@@ -541,7 +2216,7 @@ def ablation_topk_svg(seed_confirmation: dict[str, Any]) -> str:
             "ylabel": "ranked - random failure rate",
         },
     ]
-    colors = {"Qwen3-8B": "#6750E8", "Gemma4-E4B": "#00A88F"}
+    colors = {"Qwen3-8B": "#6750E8", "Gemma4-E4B": "#00D4B4"}
     top, bottom = 82, 96
     plot_h = height - top - bottom
     parts = [
@@ -631,7 +2306,7 @@ def ablation_topk_svg(seed_confirmation: dict[str, Any]) -> str:
                 '<text class="legend-label" x="150" y="61" style="fill:#6750E8">● Qwen3-8B</text>'
             )
             parts.append(
-                '<text class="legend-label" x="285" y="61" style="fill:#00A88F">● Gemma4-E4B</text>'
+                '<text class="legend-label" x="285" y="61" style="fill:#00D4B4">● Gemma4-E4B</text>'
             )
     parts.append("</svg>")
     return "".join(parts)
@@ -642,7 +2317,7 @@ def ablation_topk_svg_fullspan(seed_confirmation: dict[str, Any]) -> str:
 
     width, height = 1180, 540
     models = ("Qwen3-8B", "Gemma4-E4B")
-    colors = {"Qwen3-8B": "#27685F", "Gemma4-E4B": "#A66A45"}
+    colors = {"Qwen3-8B": "#6750E8", "Gemma4-E4B": "#00D4B4"}
     ks = sorted(
         {
             int(k)
@@ -766,10 +2441,10 @@ def ablation_topk_svg_fullspan(seed_confirmation: dict[str, Any]) -> str:
                     )
         if panel_index == 0:
             parts.append(
-                '<text class="legend-label" x="146" y="61" style="fill:#27685F">● Qwen3-8B</text>'
+                '<text class="legend-label" x="146" y="61" style="fill:#6750E8">● Qwen3-8B</text>'
             )
             parts.append(
-                '<text class="legend-label" x="288" y="61" style="fill:#A66A45">■ Gemma4-E4B</text>'
+                '<text class="legend-label" x="288" y="61" style="fill:#00D4B4">■ Gemma4-E4B</text>'
             )
             parts.append(
                 '<text class="legend-label" x="442" y="61">filled = 12-way Holm p≤.05</text>'
@@ -980,6 +2655,256 @@ def _centroid_distance_correlation(
     left_ss = sum((value - left_mean) ** 2 for value in left)
     right_ss = sum((value - right_mean) ** 2 for value in right)
     return numerator / math.sqrt(left_ss * right_ss)
+
+
+def _answer_error_rows(answer_data: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Recover one copy of the embedded V4.4 discovery behavior labels.
+
+    The self-contained base HTML repeats identical behavior metadata at every
+    saved layer.  Its compact row schema is
+    ``seed, split, outcome, parsed_count, count_error, gold_count, PCs...``.
+    Selecting the lowest all-fit layer avoids double counting while retaining
+    the exact per-prompt predictions used by the geometry viewer.
+    """
+
+    result: dict[str, list[dict[str, Any]]] = {}
+    for model in ("Qwen3-8B", "Gemma4-E4B"):
+        candidates = sorted(
+            (
+                item
+                for item in answer_data.values()
+                if str(item.get("model")) == model
+                and str(item.get("fit_cohort")) == "all"
+            ),
+            key=lambda item: int(item["layer"]),
+        )
+        if not candidates:
+            raise RuntimeError(f"No all-fit answer dataset for {model}")
+        rows: list[dict[str, Any]] = []
+        seen: set[tuple[int, int]] = set()
+        for raw in candidates[0]["rows"]:
+            if len(raw) < 6:
+                raise RuntimeError("Embedded answer row has fewer than six fields")
+            seed = int(raw[0])
+            prediction = None if raw[3] is None else int(raw[3])
+            error = None if raw[4] is None else int(raw[4])
+            gold = int(raw[5])
+            key = (seed, gold)
+            if key in seen:
+                raise RuntimeError(f"Duplicate embedded behavior row: {model}/{key}")
+            seen.add(key)
+            if prediction is None or error is None:
+                if str(raw[2]) != "invalid":
+                    raise RuntimeError("Only invalid rows may lack a parsed count")
+            elif prediction - gold != error:
+                raise RuntimeError(
+                    f"Embedded count error mismatch: {model}/seed{seed}/N{gold}"
+                )
+            rows.append(
+                {
+                    "seed": seed,
+                    "outcome": str(raw[2]),
+                    "prediction": prediction,
+                    "error": error,
+                    "gold": gold,
+                }
+            )
+        if len(rows) != 200 or len({row["seed"] for row in rows}) != 20:
+            raise RuntimeError(
+                f"Expected 20 discovery seeds x 10 counts for {model}; got {len(rows)}"
+            )
+        result[model] = rows
+    return result
+
+
+def _cluster_bootstrap_error_ci(
+    rows: list[dict[str, Any]], *, repetitions: int = 5000, seed: int = 20260806
+) -> dict[str, tuple[float, float]]:
+    rng = random.Random(seed)
+    by_seed: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_seed.setdefault(int(row["seed"]), []).append(row)
+    seeds = sorted(by_seed)
+    estimates: dict[str, list[float]] = {
+        "overall_mae": [],
+        "wrong_mae": [],
+        "signed_error": [],
+        "wrong_signed_error": [],
+    }
+    for _ in range(int(repetitions)):
+        sampled = [rng.choice(seeds) for _ in seeds]
+        sample = [row for sampled_seed in sampled for row in by_seed[sampled_seed]]
+        valid_errors = [float(row["error"]) for row in sample if row["error"] is not None]
+        wrong_errors = [value for value in valid_errors if value != 0]
+        estimates["overall_mae"].append(
+            sum(abs(value) for value in valid_errors) / len(valid_errors)
+        )
+        estimates["wrong_mae"].append(
+            sum(abs(value) for value in wrong_errors) / len(wrong_errors)
+        )
+        estimates["signed_error"].append(sum(valid_errors) / len(valid_errors))
+        estimates["wrong_signed_error"].append(
+            sum(wrong_errors) / len(wrong_errors)
+        )
+
+    def interval(values: list[float]) -> tuple[float, float]:
+        ordered = sorted(values)
+        low = ordered[int(0.025 * (len(ordered) - 1))]
+        high = ordered[int(0.975 * (len(ordered) - 1))]
+        return float(low), float(high)
+
+    return {name: interval(values) for name, values in estimates.items()}
+
+
+def _absolute_deviation_svg(
+    summaries: dict[str, dict[str, Any]], per_count: dict[str, dict[int, float]]
+) -> str:
+    width, height = 1120, 470
+    left, right, top, bottom = 76, 34, 34, 74
+    gap = 90
+    panel_width = (width - left - right - gap) / 2
+    plot_height = height - top - bottom
+    colors = {"Qwen3-8B": "#6750E8", "Gemma4-E4B": "#00D4B4"}
+    parts = [
+        f'<svg class="stat-svg" viewBox="0 0 {width} {height}" role="img" aria-labelledby="absdev-title absdev-desc">',
+        '<title id="absdev-title">Absolute deviation among V4.4 discovery errors</title>',
+        '<desc id="absdev-desc">Left: number of wrong predictions by absolute deviation. Right: wrong-only mean absolute deviation by gold count. Qwen is purple and Gemma is green.</desc>',
+    ]
+    # Left panel: histogram counts.
+    max_frequency = max(
+        max(summary["absolute_histogram"].values(), default=0)
+        for summary in summaries.values()
+    )
+    panel_left = left
+    for tick in range(0, max_frequency + 1, 10):
+        y = top + plot_height - (tick / max_frequency) * plot_height
+        parts.append(f'<line class="grid" x1="{panel_left}" y1="{y:.1f}" x2="{panel_left + panel_width}" y2="{y:.1f}"/>')
+        parts.append(f'<text class="tick" x="{panel_left - 9}" y="{y + 4:.1f}" text-anchor="end">{tick}</text>')
+    group_width = panel_width / 5
+    bar_width = group_width * 0.30
+    for deviation in range(1, 6):
+        center = panel_left + (deviation - 0.5) * group_width
+        for offset, model in ((-0.55, "Qwen3-8B"), (0.55, "Gemma4-E4B")):
+            value = int(summaries[model]["absolute_histogram"].get(deviation, 0))
+            bar_height = (value / max_frequency) * plot_height
+            x = center + offset * bar_width - bar_width / 2
+            y = top + plot_height - bar_height
+            parts.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_width:.1f}" height="{bar_height:.1f}" fill="{colors[model]}" opacity="0.88"/>')
+        parts.append(f'<text class="tick" x="{center:.1f}" y="{top + plot_height + 24}" text-anchor="middle">{deviation}</text>')
+    parts.append(f'<text class="axis-label" x="{panel_left + panel_width / 2:.1f}" y="{height - 16}" text-anchor="middle">absolute deviation |prediction − gold|</text>')
+    parts.append(f'<text class="axis-label" transform="translate(17 {top + plot_height / 2:.1f}) rotate(-90)" text-anchor="middle">number of wrong prompts</text>')
+
+    # Right panel: conditional mean deviation by count.
+    panel_left = left + panel_width + gap
+    ymax = 3.25
+    for tick in (0, 1, 2, 3):
+        y = top + plot_height - (tick / ymax) * plot_height
+        parts.append(f'<line class="grid" x1="{panel_left}" y1="{y:.1f}" x2="{panel_left + panel_width}" y2="{y:.1f}"/>')
+        parts.append(f'<text class="tick" x="{panel_left - 9}" y="{y + 4:.1f}" text-anchor="end">{tick}</text>')
+    for model in ("Qwen3-8B", "Gemma4-E4B"):
+        points: list[tuple[float, float]] = []
+        for count, value in sorted(per_count[model].items()):
+            x = panel_left + (count - 1) / 9 * panel_width
+            y = top + plot_height - (value / ymax) * plot_height
+            points.append((x, y))
+        for (x1, y1), (x2, y2) in zip(points, points[1:]):
+            parts.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="{colors[model]}" stroke-width="2.5"/>')
+        for x, y in points:
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="{colors[model]}"/>')
+    for count in range(1, 11):
+        x = panel_left + (count - 1) / 9 * panel_width
+        parts.append(f'<text class="tick" x="{x:.1f}" y="{top + plot_height + 24}" text-anchor="middle">{count}</text>')
+    parts.append(f'<text class="axis-label" x="{panel_left + panel_width / 2:.1f}" y="{height - 16}" text-anchor="middle">gold count</text>')
+    parts.append(f'<text class="axis-label" transform="translate({panel_left - 54:.1f} {top + plot_height / 2:.1f}) rotate(-90)" text-anchor="middle">wrong-only mean absolute deviation</text>')
+    parts.append(f'<circle cx="{panel_left + 15}" cy="18" r="5" fill="{colors["Qwen3-8B"]}"/><text class="tick" x="{panel_left + 26}" y="22">Qwen3-8B</text>')
+    parts.append(f'<circle cx="{panel_left + 130}" cy="18" r="5" fill="{colors["Gemma4-E4B"]}"/><text class="tick" x="{panel_left + 141}" y="22">Gemma4-E4B</text>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def build_absolute_deviation_section(answer_data: dict[str, Any]) -> str:
+    behavior = _answer_error_rows(answer_data)
+    summaries: dict[str, dict[str, Any]] = {}
+    per_count: dict[str, dict[int, float]] = {}
+    for model, rows in behavior.items():
+        valid = [row for row in rows if row["error"] is not None]
+        wrong = [row for row in valid if int(row["error"]) != 0]
+        errors = [int(row["error"]) for row in valid]
+        wrong_errors = [int(row["error"]) for row in wrong]
+        intervals = _cluster_bootstrap_error_ci(rows)
+        histogram = {
+            deviation: sum(abs(value) == deviation for value in wrong_errors)
+            for deviation in range(1, max(map(abs, wrong_errors)) + 1)
+        }
+        summaries[model] = {
+            "rows": len(rows),
+            "valid": len(valid),
+            "invalid": len(rows) - len(valid),
+            "correct": len(valid) - len(wrong),
+            "wrong": len(wrong),
+            "accuracy": (len(valid) - len(wrong)) / len(rows),
+            "overall_mae": sum(map(abs, errors)) / len(errors),
+            "overall_signed_error": sum(errors) / len(errors),
+            "total_signed_error": sum(errors),
+            "wrong_mae": sum(map(abs, wrong_errors)) / len(wrong_errors),
+            "wrong_median": sorted(map(abs, wrong_errors))[len(wrong_errors) // 2],
+            "wrong_signed_error": sum(wrong_errors) / len(wrong_errors),
+            "under": sum(value < 0 for value in wrong_errors),
+            "over": sum(value > 0 for value in wrong_errors),
+            "absolute_histogram": histogram,
+            "ci": intervals,
+        }
+        per_count[model] = {}
+        for count in range(1, 11):
+            count_errors = [
+                int(row["error"])
+                for row in wrong
+                if int(row["gold"]) == count
+            ]
+            if count_errors:
+                per_count[model][count] = sum(map(abs, count_errors)) / len(count_errors)
+
+    summary_rows: list[list[str]] = []
+    for model in ("Qwen3-8B", "Gemma4-E4B"):
+        row = summaries[model]
+        overall_ci = row["ci"]["overall_mae"]
+        wrong_ci = row["ci"]["wrong_mae"]
+        signed_ci = row["ci"]["signed_error"]
+        wrong_signed_ci = row["ci"]["wrong_signed_error"]
+        summary_rows.append(
+            [
+                model,
+                f"{row['correct']} / {row['rows']} ({100 * row['accuracy']:.1f}%)",
+                f"{fmt(row['overall_mae'], 3)} [{fmt(overall_ci[0], 3)}, {fmt(overall_ci[1], 3)}]",
+                f"{fmt(row['overall_signed_error'], 3, signed=True)} [{fmt(signed_ci[0], 3)}, {fmt(signed_ci[1], 3)}]",
+                f"{fmt(row['wrong_mae'], 3)} [{fmt(wrong_ci[0], 3)}, {fmt(wrong_ci[1], 3)}]",
+                f"{fmt(row['wrong_signed_error'], 3, signed=True)} [{fmt(wrong_signed_ci[0], 3)}, {fmt(wrong_signed_ci[1], 3)}]",
+                f"{row['under']} / {row['correct']} / {row['over']} / {row['invalid']}",
+                f"{100 * row['absolute_histogram'].get(1, 0) / row['wrong']:.1f}% / {100 * sum(value for deviation, value in row['absolute_histogram'].items() if deviation >= 2) / row['wrong']:.1f}%",
+            ]
+        )
+    count_rows: list[list[str]] = []
+    for count in range(1, 11):
+        count_rows.append(
+            [
+                str(count),
+                "NA" if count not in per_count["Qwen3-8B"] else fmt(per_count["Qwen3-8B"][count], 3),
+                "NA" if count not in per_count["Gemma4-E4B"] else fmt(per_count["Gemma4-E4B"][count], 3),
+            ]
+        )
+    figure = _absolute_deviation_svg(summaries, per_count)
+    return f"""
+<div class="absolute-deviation-block" id="absolute-deviation-block">
+<h3>4.1 错误答案偏离正确 count 多远？</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>Accuracy 只把所有错误都记为 0，无法区分少算 1 个与少算 4–5 个。若 absolute deviation 随 gold count 增大，就支持累积遗漏、饱和或 geometry compression，而不是均匀的随机读出错误。</span><strong>定义与评估。</strong><span>对可解析输出定义 signed error <code>e=prediction−gold</code> 和 absolute deviation <code>|e|</code>。主表同时报告全样本 MAE 与只在错误样本中的 conditional MAE；invalid 输出必须单列，不能被任意赋予数值误差。区间按 20 个 discovery seeds 做 5,000 次 cluster bootstrap。</span><strong>样本。</strong><span>这里使用 base HTML 内嵌的逐样本 V4.4 non-thinking discovery labels：每模型 20 seeds×10 counts=200 条。相同标签在所有 layer viewer 中重复，因此构建器只读取最低 all-fit layer 并按 seed×gold 去重。</span></div>
+{table(["model", "correct / 200", "all-sample MAE [95% CI]", "all-sample signed error [95% CI]", "wrong-only MAE [95% CI]", "wrong-only signed error [95% CI]", "under / correct / over / invalid", "|e|=1 / |e|≥2"], summary_rows)}
+<figure>{figure}<figcaption><strong>Figure · V4.4 error magnitude.</strong> 左图横轴是错误输出的 absolute deviation，纵轴是相应错误 prompt 数；右图横轴是真实 count，纵轴是该 count 下只在错误样本中计算的平均 absolute deviation。紫色为 Qwen3-8B，绿色为 Gemma4-E4B。某个 count 没有错误时不画点；折线只连接相邻的已有条件均值，不是拟合曲线。</figcaption></figure>
+{details_table("Wrong-only deviation by gold count", ["gold count", "Qwen3-8B", "Gemma4-E4B"], count_rows)}
+<p><strong>如果不取 absolute value。</strong>Signed error 保留方向，但高估与低估会互相抵消，因此它回答“模型整体偏高还是偏低”，MAE 才回答“平均偏离多远”。Qwen 的全样本 mean signed error 为 −0.815 [−0.995, −0.620]，即200条样本合计少算163；其中89条低估、100条正确、11条高估、0条不可解析。在100个错误中，89.0%是低估，wrong-only signed error 为−1.630 [−1.888, −1.353]。Gemma 的全样本 mean signed error 为−1.320 [−1.525, −1.110]，合计少算264；其中125条低估、73条正确、2条高估、0条不可解析。在127个错误中，98.4%是低估，wrong-only signed error 为−2.079 [−2.303, −1.853]。因此负偏差并不是少量极端样本造成，而是错误方向高度一致。</p>
+<p><strong>Absolute magnitude。</strong>Qwen 的 wrong-only MAE 为1.850，且52.0%的错误至少偏离2；Gemma 为2.110，67.7%的错误至少偏离2。两模型在N=8–10的 conditional deviation 接近2–3，说明高-count failure不是单纯的偶发 off-by-one。</p>
+<div class="conclusion"><strong>本段结论</strong>V4.4 counting error 具有明显的负向、count-dependent absolute deviation：随着 gold count 增大，输出被压缩在更低的 count 范围。该结果把后续 noise 分析的目标从“解释 accuracy 波动”细化为“解释何时 counter state 沿负方向偏移以及偏移幅度为何增大”。</div>
+</div>
+"""
 
 
 def build_answer_fit_sensitivity(answer_data: dict[str, Any]) -> str:
@@ -4255,12 +6180,28 @@ CLEAR_CSS = r"""
 
 
 REPORT_REFINEMENT_CSS = r"""
+.token-role-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;align-items:start;margin:22px 0}.token-role-comparison figure{min-width:0;margin:0}.token-role-comparison .stat-svg{display:block;width:100%;height:auto}
 .study-preface{display:grid;grid-template-columns:150px 1fr;gap:10px 18px;margin:16px 0 22px;padding:16px 0;border-top:2px solid #7C8F88;border-bottom:1px solid #D1D2CC}.study-preface strong{color:#24302D}.study-preface span{line-height:1.65}
+.noise-decomposition-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:18px 0}.noise-decomposition-grid>div{display:flex;flex-direction:column;gap:8px;padding:16px;border:1px solid #D7DEE8;border-top:4px solid #6750E8;border-radius:9px;background:#FFF;box-shadow:0 8px 22px rgba(35,22,92,.035)}.noise-decomposition-grid>div:nth-child(2){border-top-color:#00C2FF}.noise-decomposition-grid>div:nth-child(3){border-top-color:#FF5FA2}.noise-decomposition-grid strong{color:#23165C}.noise-decomposition-grid code{align-self:flex-start}.noise-decomposition-grid span{color:#566477;line-height:1.55}
+.subspace-logic-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin:20px 0 28px}.subspace-logic-grid article{padding:20px;border:1px solid #D7DEE8;border-top:5px solid #FF5FA2;border-radius:10px;background:#FFF}.subspace-logic-grid article+article{border-top-color:#00D4B4}.subspace-logic-grid span{display:block;color:#7D204D;font-size:12px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}.subspace-logic-grid article+article span{color:#087A67}.subspace-logic-grid strong{display:block;margin:7px 0 11px;color:#23165C;font-size:18px}.subspace-logic-grid p{max-width:none;margin:8px 0}.subspace-logic-grid b{color:#23165C}
+.audit-group-title{margin-top:44px;padding-bottom:9px;border-bottom:2px solid #6750E8}.audit-question{margin:14px 0;border:1px solid #D7DEE8;border-left:5px solid #6750E8;border-radius:10px;background:#FFF;box-shadow:0 10px 28px rgba(35,22,92,.04);overflow:hidden}.audit-question:nth-of-type(3n+1){border-left-color:#00D4B4}.audit-question:nth-of-type(3n+2){border-left-color:#00C2FF}.audit-question-summary{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;padding:17px 20px;cursor:pointer;list-style:none}.audit-question-summary::-webkit-details-marker{display:none}.audit-question-summary::after{content:"＋";grid-column:4;color:#6750E8;font-size:19px;font-weight:800}.audit-question[open] .audit-question-summary::after{content:"−"}.audit-question[open] .audit-question-summary{background:#F8FBFF;border-bottom:1px solid #D7DEE8}.audit-question-title{font-family:Georgia,"Times New Roman",serif;color:#161923;font-size:18px;font-weight:700;line-height:1.35}.audit-question-body{padding:20px 22px 22px}.audit-index{display:inline-flex;align-items:center;justify-content:center;min-width:46px;padding:4px 9px;border-radius:999px;background:#23165C;color:#FFF;font-size:12px;font-weight:800;letter-spacing:.06em}.audit-location{color:#64748B;font-size:13px;white-space:nowrap}.audit-answer-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}.audit-answer-grid>div{padding:14px;background:#F8FBFF;border:1px solid #E3E8F0;border-radius:7px}.audit-answer-grid>div:nth-child(2){background:#F3F0FF}.audit-answer-grid>div:nth-child(3){background:#EEFCF8}.audit-answer-grid strong{display:block;margin-bottom:6px;color:#23165C;font-size:13px;text-transform:uppercase;letter-spacing:.035em}.audit-answer-grid p{margin:0;max-width:none;line-height:1.58}.audit-boundary{max-width:none;margin:14px 2px 0;padding-top:12px;border-top:1px dashed #CBD5E1;color:#566477}.audit-boundary strong{color:#7D204D}
+details.secondary-analysis,details.secondary-section{margin:14px 0 24px;border:1px solid #D7DEE8;border-radius:9px;background:#FFF;overflow:hidden}details.secondary-analysis>summary,details.secondary-section>summary{cursor:pointer;list-style:none;padding:13px 16px;color:#23165C;font-weight:750;background:#F6F4FF}details.secondary-analysis>summary::-webkit-details-marker,details.secondary-section>summary::-webkit-details-marker{display:none}details.secondary-analysis>summary::before,details.secondary-section>summary::before{content:"＋";display:inline-block;width:1.45em;color:#6750E8}details.secondary-analysis[open]>summary::before,details.secondary-section[open]>summary::before{content:"−"}.secondary-analysis-body,.secondary-section-body{padding:2px 18px 18px}
+details.data-table{margin:16px 0;border:1px solid #D7DEE8;border-radius:8px;background:#FFF;overflow:hidden}details.data-table summary{cursor:pointer;list-style:none;padding:12px 15px;font-weight:700;color:#23165C;background:#F6F4FF}details.data-table summary::-webkit-details-marker{display:none}details.data-table summary::before{content:"＋";display:inline-block;width:1.4em;color:#6750E8}details.data-table[open] summary::before{content:"−"}details.data-table[open] summary{border-bottom:1px solid #D7DEE8}details.data-table .table-scroll{margin:0}
 .mechanism-actor-table{margin:18px 0 24px}.mechanism-actor-table td:nth-child(1){font-weight:700;color:#24302D}.mechanism-actor-table td{line-height:1.55}
 .causal-ledger{width:100%;min-width:1120px;table-layout:fixed}.causal-ledger th,.causal-ledger td{overflow-wrap:anywhere}.causal-ledger td{vertical-align:top;line-height:1.52}.causal-ledger td:nth-child(1){font-weight:700;color:#24302D}.causal-ledger code{white-space:normal}
 .ov-short-flow{display:grid;grid-template-columns:1.15fr 34px 1.1fr 34px 1fr 34px 1.15fr;align-items:stretch;margin:20px 0 24px}.ov-short-flow .ov-box{padding:14px 15px;border-top:3px solid #27685F;border-bottom:1px solid #BFC5C0;background:#F4F5F1}.ov-short-flow .ov-box strong{display:block;margin-bottom:6px}.ov-short-flow .ov-box span{font-size:13px;line-height:1.5;color:#515A55}.ov-short-flow .ov-arrow{display:flex;align-items:center;justify-content:center;color:#27685F;font-size:24px;font-weight:700}.ov-operation-table td:nth-child(1){font-weight:700;white-space:nowrap}.ov-operation-table td{vertical-align:top;line-height:1.55}.ov-data-strip{margin:14px 0 20px;padding:12px 15px;border-left:4px solid #27685F;background:#F4F5F1;line-height:1.62}.ov-data-strip.gemma{border-left-color:#A66A45}
 @media(max-width:980px){.ov-short-flow{grid-template-columns:1fr}.ov-short-flow .ov-arrow{height:30px;transform:rotate(90deg)}}
-@media(max-width:820px){.study-preface{grid-template-columns:1fr}.mechanism-actor-table{min-width:980px}.causal-ledger{min-width:1120px}}
+@media(max-width:820px){.token-role-comparison{grid-template-columns:1fr}}
+@media(max-width:980px){.audit-answer-grid{grid-template-columns:1fr}.noise-decomposition-grid,.subspace-logic-grid{grid-template-columns:1fr}}
+@media(max-width:820px){.study-preface{grid-template-columns:1fr}.mechanism-actor-table{min-width:980px}.causal-ledger{min-width:1120px}.audit-question-summary{grid-template-columns:auto 1fr}.audit-location{grid-column:2;white-space:normal}.audit-question-summary::after{grid-column:3;grid-row:1 / span 2}.audit-question-body{padding:16px}}
+"""
+
+
+AURORA_CSS = r"""
+:root{--paper:#F8FBFF;--surface:#FFFFFF;--ink:#161923;--muted:#64748B;--line:#D7DEE8;--indigo:#23165C;--violet:#6750E8;--cyan:#00C2FF;--yellow:#F6E36A;--teal:#00D4B4;--green:#39E58C;--magenta:#C04DFF;--pink:#FF5FA2;--gray:#8190A5;--brown:#765347}
+html{scroll-padding-top:64px}body{background:var(--paper);color:var(--ink);font-family:"Aptos","Segoe UI",Arial,sans-serif;font-size:16px;line-height:1.68}main{max-width:1240px;padding:44px 34px 110px}nav{background:rgba(248,251,255,.96);border-bottom:1px solid #D7DEE8;box-shadow:0 6px 20px rgba(35,22,92,.045)}nav a{color:#23165C;font-size:13px;letter-spacing:.01em}nav a:hover{color:#6750E8}header{max-width:1030px;padding:48px 0 34px;border-bottom:4px solid #23165C}h1,h2,h3,h4{font-family:Georgia,"Times New Roman",serif;color:#161923;letter-spacing:-.018em}h1{font-size:43px;line-height:1.1;max-width:940px}h2{font-size:31px;line-height:1.22;max-width:1020px}h3{font-size:22px;line-height:1.3;margin-top:36px}.eyebrow{color:#6750E8}.lead{color:#3F4A5A;max-width:82ch}.meta{color:#8190A5}section{padding:58px 0;border-bottom:1px solid #D7DEE8}p{max-width:92ch}.small,figcaption{color:#64748B}figure,.figure-block{background:#FFFFFF;border-color:#D7DEE8;border-radius:10px}figure{box-shadow:0 12px 32px rgba(35,22,92,.045)}figcaption{padding-top:4px;line-height:1.6}.callout,.conclusion{background:#FFFFFF;border-left-color:#00D4B4;box-shadow:0 8px 24px rgba(35,22,92,.035)}.conclusion strong:first-child{color:#23165C}.warning{border-left-color:#F6E36A}.equation,.formula-line{background:#F0F6FF;border-color:#C9D7E8;color:#23165C}.study-preface{border-top-color:#6750E8;border-bottom-color:#D7DEE8}.study-preface strong{color:#23165C}.paper-table td:first-child,.paper-wording strong,.test-card h4,.plain-protocol h4{color:#23165C}details.data-table,.test-card,.plain-protocol,.paper-wording{background:#FFFFFF;border-color:#D7DEE8;border-radius:8px}details.data-table summary{color:#23165C}th{background:#EEF1FF;color:#23165C}th,td{border-bottom-color:#E3E8F0}tbody tr:hover{background:#F1FAFF}code{background:#EEF1FF;color:#23165C}.baseline-strip>div{background:#FFFFFF;border-color:#D7DEE8}.baseline-strip strong{color:#6750E8}.evidence.descriptive{background:#EEEAFE;color:#23165C}.evidence.functional{background:#E4F9FF;color:#07546E}.evidence.confirmed,.sig-yes{background:#DFFAF1;color:#075A48}.evidence.supported{background:#FFF9D6;color:#765A00}.evidence.rejected,.sig-no{background:#FFE7F1;color:#7D204D}.plot-shell,.mechanism-canvas-wrap{background:#23165C;border-color:#3D2E7A}.prompt-block{background:#23165C;border-color:#6750E8;color:#F8FBFF}.controls select,.controls button,.switcher button,.mechanism-paper-controls button,.mechanism-controls button,.running-controls button,.step-dots button{background:#FFFFFF;border-color:#B7C2D3;color:#23165C}.controls button:hover,.switcher button:hover,.mechanism-paper-controls button:hover,.mechanism-controls button:hover,.running-controls button:hover{background:#EEF1FF}.switcher button[aria-pressed="true"],.mechanism-paper-dots button[aria-current="step"],.step-dots button[aria-current="step"]{background:#6750E8;border-color:#6750E8;color:#FFFFFF}.mechanism-main,.mechanism-clear{background:#FFFFFF;border:1px solid #D7DEE8;border-top:5px solid #23165C;border-radius:12px;box-shadow:0 18px 44px rgba(35,22,92,.06)}.main-figure-kicker,.mechanism-clear .main-figure-kicker{color:#6750E8}.model-mechanism,.positive-mechanism-model{border-top-color:#6750E8}.model-mechanism.gemma,.positive-mechanism-model.gemma{border-top-color:#00D4B4}.mechanism-step-number,.scope-line .status{color:#6750E8}.gemma .mechanism-step-number{color:#00A98F}.mechanism-step-evidence{color:#087A67}.mechanism-paper-svg{background:#F8FBFF;border-color:#D7DEE8}.mechanism-paper-svg .paper-node rect{fill:#F3F0FF;stroke:#6750E8}.mechanism-paper-svg .paper-node.is-complete rect{fill:#E3FBF5;stroke:#00D4B4}.mechanism-paper-svg .paper-edge.is-complete{stroke:#00D4B4}.mechanism-paper-svg .paper-node.is-active rect{fill:#EAE5FF;stroke:#6750E8;filter:none}.mechanism-paper-svg .gemma-node.is-active rect{fill:#E1FCF6;stroke:#00D4B4;filter:none}.mechanism-paper-svg .paper-edge.is-active{stroke:#6750E8}.mechanism-paper-svg .gemma-edge.is-active{stroke:#00D4B4}.mechanism-live-grid{border-color:#D7DEE8}.mechanism-live-grid>div+div{border-color:#D7DEE8}.ov-short-flow .ov-box{border-top-color:#6750E8;background:#F8FBFF;border-bottom-color:#D7DEE8}.ov-short-flow .ov-arrow{color:#6750E8}.ov-data-strip{border-left-color:#6750E8;background:#F6F4FF}.ov-data-strip.gemma{border-left-color:#00D4B4;background:#EEFCF8}.step-result{border-left-color:#6750E8;background:#F3F0FF}.running-controls,.running-status{background:#F8FBFF;border-color:#D7DEE8}.paper-wording{background:#F6F4FF}.integrated-forest .grid,.write-trace .grid,.layer-curve-svg .grid{stroke:#E0E6EF}.integrated-forest .zero{stroke:#161923}.integrated-forest .dot{stroke:#FFFFFF}.integrated-forest .tick,.write-trace .tick,.layer-curve-svg .tick{fill:#64748B}.integrated-forest .row-label,.integrated-forest .axis-label,.write-trace .axis-label,.layer-curve-svg .axis-label,.layer-curve-svg .panel-title{fill:#161923}.write-trace .trace-line,.write-trace .trace-ci{stroke:#6750E8}.write-trace .trace-dot{fill:#6750E8;stroke:#FFFFFF}.gate-svg .gate-box{fill:#F8FBFF;stroke:#B9C5D5}.gate-svg .gate-heading{fill:#23165C}.gate-svg .gate-check{fill:#00D4B4}.relay-svg .relay-pass{fill:#E3FBF5;stroke:#00D4B4}.relay-svg .relay-fail{fill:#FFE7F1;stroke:#FF5FA2}.all-token-scatter rect{fill:#23165C}.provenance-note{color:#8190A5}
+.gemma .mechanism-step-number{color:#00D4B4}.mechanism-step-evidence{color:#23165C}.plot-shell,.mechanism-canvas-wrap{border-color:#6750E8}.controls select,.controls button,.switcher button,.mechanism-paper-controls button,.mechanism-controls button,.running-controls button,.step-dots button{border-color:#8190A5}.evidence.functional,.evidence.confirmed,.evidence.supported,.evidence.rejected,.sig-yes,.sig-no{color:#23165C}.mechanism-paper-svg #mechanism-arrow-q path{fill:#6750E8}.mechanism-paper-svg #mechanism-arrow-g path{fill:#00D4B4}.mechanism-paper-svg .qwen-edge{stroke:#6750E8}.mechanism-paper-svg .gemma-edge{stroke:#00D4B4}.mechanism-paper-svg .window-s{fill:#F8FBFF;stroke:#8190A5}.mechanism-paper-svg .window-f{fill:#00D4B4;stroke:#23165C}.mechanism-paper-svg .window-label{fill:#161923}
+@media(max-width:760px){main{padding:28px 16px 72px}header{padding-top:30px}h1{font-size:34px}h2{font-size:27px}section{padding:44px 0}}
 """
 
 
@@ -4303,7 +6244,7 @@ def _head_labels(candidates: Sequence[Sequence[Any]], k: int) -> list[str]:
 
 def answer_patch_comparison_svg(causal_v2: dict[str, Any]) -> str:
     models = ["Qwen3-8B", "Gemma4-E4B"]
-    colors = {"Qwen3-8B": "#27685F", "Gemma4-E4B": "#A66A45"}
+    colors = {"Qwen3-8B": "#6750E8", "Gemma4-E4B": "#00D4B4"}
     all_values = {
         model: float(
             causal_v2["primary_confirmation_family_summary"][
@@ -4494,7 +6435,7 @@ def build_mechanism_overview_detailed(
 <svg class="mechanism-paper-svg" viewBox="0 0 1220 610" role="img" aria-labelledby="mechanism-svg-title mechanism-svg-desc">
 <title id="mechanism-svg-title">Qwen and Gemma non-thinking counting mechanisms</title>
 <desc id="mechanism-svg-desc">Two aligned lanes show prompt running-index extraction, source-head retrieval, answer-query pre-output states, residual writing and propagation, and numerical output. Gemma additionally shows periodic full-attention layers separated by 512-token sliding-attention layers.</desc>
-<defs><marker id="mechanism-arrow-q" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="#6A958A"/></marker><marker id="mechanism-arrow-g" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="#B78767"/></marker></defs>
+<defs><marker id="mechanism-arrow-q" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="#6750E8"/></marker><marker id="mechanism-arrow-g" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="#00D4B4"/></marker></defs>
 <text class="lane-label" x="22" y="48">Qwen3-8B</text><text class="lane-sub" x="22" y="68">all layers can address the full causal prefix</text>
 <g class="paper-node qwen-node" data-mechanism-stage="0"><rect x="22" y="92" width="190" height="112" rx="8"/><text class="node-title" x="117" y="122" text-anchor="middle">Prompt running index</text><text class="node-sub" x="117" y="148" text-anchor="middle">needle-end hᴾ(s,n,ℓ)</text><text class="node-sub" x="117" y="169" text-anchor="middle">n = 1 … 10</text></g>
 <path class="paper-edge qwen-edge" data-mechanism-edge="1" d="M216 148 L260 148" marker-end="url(#mechanism-arrow-q)"/>
@@ -4542,7 +6483,7 @@ def build_mechanism_overview_detailed(
 <div class="model-mechanism-header"><h3>Qwen3-8B：从 full-span early retrieval 到局部 OV 写入</h3><p><strong>完整路径：</strong>needle-end running state → L&lt;28 full-span early top-4 → L28 H16/H19 的 α/V mixed read → H16/H19 自身 W<sub>O</sub> 写回 → L29–L35 answer-query count state → <code>Total:N</code>。</p></div>
 {table(["执行者/位置", "读取对象", "具体计算", "写入或输出", "支持证据"], q_actor_rows, classes="paper-table compact-result-table mechanism-actor-table")}
 <ol class="mechanism-step-list">
-<li><span class="mechanism-step-number">01</span><span class="mechanism-step-title">在 needle endpoint 提取 running state</span><span class="mechanism-step-action">按上面的 <code>h<sup>P</sup><sub>s,n,ℓ</sub></code> 定义，在同一 N=10 prompt 中依次读取十个 endpoint。对 discovery seeds 拟合 <code>b<sup>P</sup><sub>ℓ</sub></code>；V4.4 states 只投影进冻结的 V4.1 basis。它检验的是“读到第 n 个 occurrence 后 residual 是否有序变化”，不假设神经元里存在字面整数 n。<span class="formula-line">hᴾ(s,1,ℓ) → hᴾ(s,2,ℓ) → … → hᴾ(s,10,ℓ)</span></span><span class="mechanism-step-evidence">prompt full-space CV R²：L1 0.989；display L8 0.982</span></li>
+<li><span class="mechanism-step-number">01</span><span class="mechanism-step-title">在 needle endpoint 提取 running state</span><span class="mechanism-step-action">按上面的 <code>h<sup>P</sup><sub>s,n,ℓ</sub></code> 定义，在同一 N=10 prompt 中依次读取十个 endpoint。3D 图把 V4.4 states 投影进冻结的 V4.1 display basis；下列 R² 则来自 V4.4 内按 seed 分组的 held-out full-space ridge，两者不是同一个拟合。它们共同检验“读到第 n 个 occurrence 后 residual 是否有序变化”，不假设神经元里存在字面整数 n。<span class="formula-line">hᴾ(s,1,ℓ) → hᴾ(s,2,ℓ) → … → hᴾ(s,10,ℓ)</span></span><span class="mechanism-step-evidence">L8 ridge R²=0.945 · centroid rank-3=0.988 · needle-token specific Δ|error|=8.930, Holm p=0.046875</span></li>
 <li><span class="mechanism-step-number">02</span><span class="mechanism-step-title">full-span early bank 改写 slot states</span><span class="mechanism-step-action">在 discovery 中按 full-span literal mass × occurrence coverage 排序，并冻结 nested K=1/2/4/8/16/32。top-4 是 {q_fs_top4_text}。对10个 evaluation seeds、count 1–10、6个双向 donor pairs，只在注册 slot-state positions 把这四个 heads 的 donor pre-O <code>z</code> 写入 receiver，再测 donor-vs-receiver log-odds gain。随后在 L28 H16/H19 的真实 pre-O slices 精确删除 early patch 诱发的 natural-OV component，并与同输出 span、等范数正交 block 比较。</span><span class="mechanism-step-evidence">top-4 slot-state source={q_fs_top4['early_donor_log_odds_gain_mean']:.3f} [{q_fs_top4['early_donor_log_odds_gain_ci_low']:.3f}, {q_fs_top4['early_donor_log_odds_gain_ci_high']:.3f}] · mediation={q_fs_top4['donor_log_odds_mediation_specificity_mean']:.3f} [{q_fs_top4['donor_log_odds_mediation_specificity_ci_low']:.3f}, {q_fs_top4['donor_log_odds_mediation_specificity_ci_high']:.3f}] · both Holm p={fmt_p(q_fs_top4_p)}</span></li>
 <li><span class="mechanism-step-number">03</span><span class="mechanism-step-title">L28 H16/H19 同时用 routing 与 value 读取</span><span class="mechanism-step-action">在 answer query q 保存 receiver/donor 的全部 α 与 V，并构造四个 pre-O endpoint：RR、RD、DR、DD；第一个字母表示 α 来源，第二个表示 V 来源。Shapley 分解把同一个 donor movement 精确分账：<span class="formula-line">Δz<sub>value</sub>=½[(z<sub>RD</sub>−z<sub>RR</sub>)+(z<sub>DD</sub>−z<sub>DR</sub>)]</span><span class="formula-line">Δz<sub>route</sub>=½[(z<sub>DR</sub>−z<sub>RR</sub>)+(z<sub>DD</sub>−z<sub>RD</sub>)]</span>两个分量都必须既推动 donor count，又通过冻结 natural-OV axis 才算自然读取。</span><span class="mechanism-step-evidence">routing family p={fmt_p(read_write['primary_decision']['read_mode']['routing_family_p'])} · value family p={fmt_p(read_write['primary_decision']['read_mode']['value_family_p'])}</span></li>
 <li><span class="mechanism-step-number">04</span><span class="mechanism-step-title">真实 pre-O OV 写入并改变坐标</span><span class="mechanism-step-action">先在 value-source layer 的实际 RMSNorm 后输入上拟合单位 count slope <code>s<sup>x</sup></code>，并按 GQA 映射到每个 query head：标准线性 value path 用 <code>d<sub>z,h</sub>=W<sub>V</sub><sup>g(h)</sup>s<sup>x</sup></code>；共享/非线性 value path 则直接拟合实际 value states 的经验 slope。再定义 set 的自然写入方向 <code>m<sub>S</sub>=Σ<sub>h∈S</sub>W<sub>O</sub><sup>h</sup>d<sub>z,h</sub></code>。真实 injection 在 W<sub>O</sub> 之前做 <code>z<sub>h</sub>←z<sub>h</sub>+βd<sub>z,h</sub></code>；centered removal 从 <code>z−z₀</code> 中删除沿 <code>m<sub>S</sub></code> 的自然分量，并与同一 W<sub>O</sub> span、等 post-O 范数的正交控制比较。所有 residual 变化都必须经过 heads 自己的 W<sub>O</sub>。</span><span class="mechanism-step-evidence">natural OV global IUT p={fmt_p(ov['primary_decision']['global_intersection_union_p'])}</span></li>
@@ -4555,7 +6496,7 @@ def build_mechanism_overview_detailed(
 {table(["执行者/位置", "读取对象", "具体计算", "写入或输出", "支持证据"], g_actor_rows, classes="paper-table compact-result-table mechanism-actor-table")}
 <div class="window-explainer"><h4>512-token window 实际改变了什么？</h4><div class="window-explainer-grid"><div><strong>Sliding layer S</strong><p>query q 只能访问 <code>j∈[max(0,q−511),q]</code>。在约 10k-token prompt 的末端，S layer 无法直接重新读取大部分远端 needles。</p></div><div><strong>Full layer F</strong><p>每六层出现一次 full attention；zero-based 为 L5、11、17、23、29、35、41。确认的 L29H4/L35H2 正好都在 F layers，因此能够在 answer query 直接汇集全 prompt。</p></div><div><strong>机制后果</strong><p>L35 先把全局信息写进 answer-query residual；之后 L36–L40 的 S layers 即使看不到远端 needles，residual skip 仍携带这个 state，并可结合近端 query context 局部变换；L41 再进行一次全局层更新。</p></div></div><p class="mechanism-index-note">这不是说 window 内的单个 token 必须保存完整整数；它说明已确认的因果路径具有“F layer 全局刷新 → S layer 在同一 query residual 上保持/变换 → terminal readout”的架构节奏。Gemma4 配置中的 <a href="https://huggingface.co/google/gemma-4-E4B-it/blob/ee0ef6023621cff504d758262d4e04895a5af4a2/config.json">layer_types 与 sliding_window</a>固定为本实验所用 revision。</p></div>
 <ol class="mechanism-step-list">
-<li><span class="mechanism-step-number">01</span><span class="mechanism-step-title">用同一定义提取 prompt running state</span><span class="mechanism-step-action">仍然保存每个 active needle 最后 token 的 post-block residual <code>h<sup>P</sup><sub>s,n,ℓ</sub></code>，并在独立 discovery seeds 上拟合完整空间 count step。因为 S layer 的感受野有限，某层 endpoint state 可能是局部累计、前面 full layer 的全局刷新以及 residual/MLP 变换的合成；ordered geometry 本身不把三者强行拆开。</span><span class="mechanism-step-evidence">prompt full-space CV R²：display L9 0.913；probe L22 0.932</span></li>
+<li><span class="mechanism-step-number">01</span><span class="mechanism-step-title">用同一定义提取 prompt running state</span><span class="mechanism-step-action">仍然保存每个 active needle 最后 token 的 post-block residual <code>h<sup>P</sup><sub>s,n,ℓ</sub></code>，并在独立 discovery seeds 上拟合完整空间 count step。因为 S layer 的感受野有限，某层 endpoint state 可能是局部累计、前面 full layer 的全局刷新以及 residual/MLP 变换的合成；ordered geometry 本身不把三者强行拆开。</span><span class="mechanism-step-evidence">L9 ridge R²=0.719 · centroid rank-3=0.979 · needle-token specific Δ|error|=8.780, Holm p=0.046875</span></li>
 <li><span class="mechanism-step-number">02</span><span class="mechanism-step-title">冻结 full-attention K2 source bank</span><span class="mechanism-step-action">从 full-span broad-retrieval 排序冻结 L29H4 与 L35H2，并准备三个 layer-matched K2 controls。对 donor/receiver count pair，只在 receiver 的 answer-query pre-O slice 替换这两个 heads 的 <code>z<sub>h</sub></code>；其余 heads、tokens 与 receiver context 不变。因为 replacement 位于 W<sub>O</sub> 输入端，任何 downstream effect 都由 Gemma 自己的 output projections 写入。</span><span class="mechanism-step-evidence">fresh full-span ablation：K1/K2 all-sample Holm-significant；K2 residual-path IUT significant</span></li>
 <li><span class="mechanism-step-number">03</span><span class="mechanism-step-title">从候选 layers 中冻结 L37 residual mediator</span><span class="mechanism-step-action">在 discovery seeds 上先对自然 answer-query residual 拟合 <code>h<sub>ℓ</sub>(c)=a<sub>ℓ</sub>+c·b<sub>ℓ</sub></code>；再对 L36–L40 计算 K2 donor patch 引起的 <code>Δh<sub>ℓ</sub></code> 沿单位 count step 的平均投影。按 <code>mean&lt;Δh<sub>ℓ</sub>,u<sub>ℓ</sub>&gt;</code> 最大且 layer index 打破并列的预注册规则选择 L37，之后不再用 confirmation outcome 重选。</span><span class="mechanism-step-evidence">discovery seeds 1456–1465 · fit counts 1/3/5/7/9 · selected L37</span></li>
 <li><span class="mechanism-step-number">04</span><span class="mechanism-step-title">用 exact block 与 count-axis block 验证传播</span><span class="mechanism-step-action">在 confirmation trial 中先测 source patch 在 L37 诱发的精确变化 <code>δ=h<sub>37</sub><sup>patch</sup>−h<sub>37</sub><sup>receiver</sup></code>。随后分别加入 <code>−δ</code>（exact block）或 <code>−proj<sub>b37</sub>(δ)</code>（count-axis block）；对照向量与被删分量等范数且正交。若 block 比对照更强地消除 donor log-odds gain，并同时降低 L41 沿 frozen count step 的 adoption，才认为 L37 中介 source-bank effect。</span><span class="mechanism-step-evidence">source + exact/count-axis mediation · global IUT p={fmt_p(gemma_residual['primary_decision']['global_intersection_union_p'])}</span></li>
@@ -4564,7 +6505,7 @@ def build_mechanism_overview_detailed(
 </article>
 
 <div class="mechanism-principle"><strong>为什么 prompt counter 与 answer counter 可以方向不同？</strong><div class="equation">h<sup>P</sup> → s<sup>x</sup>=OLS[Norm(h<sup>P</sup>)∼c] → d<sub>z,h</sub>=VPath<sub>g(h)</sub>(s<sup>x</sup>) → m<sub>S</sub>=ΣW<sub>O</sub>d<sub>z</sub> → u<sub>A</sub>∝J<sub>write→answer</sub>m<sub>S</sub></div><p>模型需要保持的是 count ordering、可解码性和 donor-directed causal transport，而不是让两个 token role 在欧氏空间共用一条直线。RMSNorm/value path、W<sub>O</sub> 与后续 attention/MLP Jacobian 都会旋转、缩放或压缩表示；所以判断“同一个 counter”应看 frozen-axis transport 与干预特异性，而不是要求两张 PCA 图视觉平行。</p></div>
-<div class="conclusion"><strong>机制总览结论</strong>两模型都实现“prompt 累计 state → attention-head read → pre-O head state → W<sub>O</sub>/residual write → executable answer state”。Qwen 的已确认写入粒度是 L28 H16/H19 set；Gemma 的已确认粒度是 L29H4/L35H2 source bank 及其 L37 residual mediator。表中未被单头干预区分的步骤只作 set-level 陈述，不据 attention 排名臆造逐头专职。</div>
+<div class="conclusion"><strong>机制总览结论</strong>两模型都实现“prompt 累计 state → attention-head read → pre-O head state → W<sub>O</sub>/residual write → executable answer state”。这里的“prompt 累计 state”指 needle spans 中可读、可被后续 heads 汇集的分布式信息，不预先等同于 PCA 图中的前三个轴，也不声称最后一个 endpoint 是唯一 source。Qwen 的已确认写入粒度是 L28 H16/H19 set；Gemma 的已确认粒度是 L29H4/L35H2 source bank 及其 L37 residual mediator。表中未被单头干预区分的步骤只作 set-level 陈述，不据 attention 排名臆造逐头专职。</div>
 </section>
 """
 
@@ -4587,12 +6528,13 @@ def build_scope_clear(
 <h2>1 · 结论先行</h2>
 <div class="scope-lines">
 <div class="scope-line"><strong>Prompt representation</strong><span>Qwen 与 Gemma 都形成随 occurrence index 有序变化的 running-counter geometry。</span><span class="status">REPRESENTATION</span></div>
+<div class="scope-line"><strong>Prompt-subspace boundary</strong><span>同时删除所有 active endpoints 的冻结 rank-3 PCA / centroid component，相对等范数正交删除没有造成显著的行为或下游几何特异损伤。</span><span class="status">32/32 Holm null</span></div>
 <div class="scope-line"><strong>Broad retrieval</strong><span>冻结 top-k bank 的 ablation 相对 layer-matched random heads 造成更大的计数行为变化。</span><span class="status">FUNCTIONAL</span></div>
 <div class="scope-line"><strong>Qwen causal path</strong><span>full-span early top-4 → L28 H16/H19 mixed α/V read → natural OV write → L35 answer state。</span><span class="status">serial Holm p={fmt_p(q_fs_top4_p)} · OV IUT p={fmt_p(ov['primary_decision']['global_intersection_union_p'])}</span></div>
 <div class="scope-line"><strong>Gemma causal path</strong><span>L29H4/L35H2 bank → L37 count-aligned residual → L41 answer state。</span><span class="status">IUT p={fmt_p(gemma_residual['primary_decision']['global_intersection_union_p'])}</span></div>
 <div class="scope-line"><strong>Answer readout</strong><span>all-sample 与 correct-only answer-query patching 都显示 donor state 能推动 receiver 采用 donor count。</span><span class="status">CAUSAL PATCH</span></div>
 </div>
-<div class="conclusion"><strong>当前机制</strong>两模型都执行“prompt running state → distributed retrieval → coordinate-changing write → executable answer state”。Qwen 的写入已定位到具体 OV set；Gemma 的写入定位在 L37 residual-level。</div>
+<div class="conclusion"><strong>当前机制</strong>两模型都执行“prompt 中的分布式累计信息 → distributed retrieval → coordinate-changing write → executable answer state”。Qwen 的写入已定位到具体 OV set；Gemma 的写入定位在 L37 residual-level。第一步的 rank-3 geometry 是稳定、可解码的描述坐标，但本轮 set-wide removal 不支持把这三个轴本身写成唯一必要 carrier。</div>
 </section>
 """
 
@@ -4780,6 +6722,24 @@ def build_methods_clear(
 <section id="methods">
 <h2>2 · 实验设定与统计口径</h2>
 <p>每个 stimulus 是约 10,000-token realistic haystack，包含十个可控 slots；gold count 由 active needles 的数量决定。non-thinking 条件关闭原生 thinking，并在 assistant 侧预填 <code>Total:</code>，随后对第一个数字 token 做 greedy generation。V4.4 随 seed 随机化 needle 的位置、内容与排列，从而避免把固定位置或固定文本误认为 count。Qwen3-8B 与 Gemma4-E4B 分开拟合 axes、冻结 heads 与计算显著性；layer/head 编号均为 zero-based。</p>
+<h3>2.1 给 Transformer 读者的对象与操作词典</h3>
+<p>本报告分析的是 decoder-only Transformer 的一次普通 forward。模型读完 prompt 后，在最后的 <code>Total:</code> token 位置产生一个 residual vector；LM head 再根据这个 vector 选择第一个答案数字。我们不假定 residual 的某个坐标天然叫作“count”，而是用独立数据找出随 gold count 有序变化的方向，再用干预验证模型是否真正使用它。</p>
+{table(
+    ["术语", "在计算图中的精确定义", "本报告怎样观测或改动"],
+    [
+        ["Token position", "序列中的一个位置。prompt endpoint 是一条 needle 最后一个 token；answer query 是生成第一个答案 token 前的 <code>Total:</code> 位置。", "同一层在不同 position 的 residual 不能直接当成同一种 state；所有图和干预都标明 position。"],
+        ["Residual state <code>h<sub>ℓ,t</sub></code>", "第 ℓ 个 decoder block 后、位置 t 的 d-dimensional 向量；attention 与 MLP 的输出都加回这条 stream。", "PCA、回归和 state patching 都作用于或读取这个向量。"],
+        ["Attention read", "head h 在 query q 计算 <code>z<sub>h</sub>(q)=Σ<sub>j</sub>α<sub>h</sub>(q,j)V<sub>h</sub>h(j)</code>；α 决定读哪里，V 决定把被读 state 映射成什么 head-space content。", "attention map 测 α；α/V decomposition 分别交换 routing 与 value content。"],
+        ["OV write", "head-space 输出 z 还不是 residual；它必须经该 head 的输出投影 <code>W<sub>O</sub><sup>h</sup>z<sub>h</sub></code> 才写回 full residual。", "真正 OV intervention 在 pre-O z 上改动，再让模型自己的 W<sub>O</sub> 完成写回。"],
+        ["Count axis / subspace", "由 discovery samples 拟合、能预测一单位 count 变化的方向，或由多个方向张成的低维空间；它是数据定义的坐标，不是模型参数中预先命名的 neuron。", "confirmation states 只投影到冻结 axis/basis；不会用同一数据先找方向再报告效果。"],
+        ["Donor → receiver patch", "从同 seed、不同 gold count 的 donor forward 取 state，替换 receiver forward 的同一 layer/query/site。", "若 receiver 输出向 donor count 移动，说明被搬运的 state 含有可执行信息。"],
+        ["Ablation", "把候选 head outputs 或指定 subspace component 置零/删除。", "必须与 layer-matched heads 或同空间等范数正交方向比较，避免把一般扰动误认为 count-specific necessity。"],
+        ["Steering", "沿 discovery-frozen count direction 加入不同正负剂量，而不是复制某个 donor sample。", "符号正确且近似剂量响应支持方向的充分性。"],
+        ["Mediation", "先由上游 patch 产生 donor-directed effect，再在下游候选通道阻断该 patch 诱发的 component。", "只有阻断候选方向比等范数正交阻断更能消除 effect，才支持这条具体路径被使用。"],
+    ],
+    classes="paper-table mechanism-actor-table",
+)}
+<div class="conclusion"><strong>本小节结论。</strong>Representation 回答“哪里含有 count 信息”；ablation/patching/steering 回答“这些信息能否影响输出”；mediation 回答“上游 effect 是否经过指定下游通道”。三类问题不能仅靠同一张 PCA 或 attention 图回答。</div>
 <div class="causal-roadmap">
 <div><strong>Representation</strong><span>在冻结 PCA / full-space axis 上检验 prompt running state 与 answer state 是否携带 count。</span></div>
 <div><strong>Ablation</strong><span>置零 ranked top-k head outputs，并减去三个 layer-matched random sets 的平均影响。</span></div>
@@ -4790,6 +6750,8 @@ def build_methods_clear(
     ["实验", "独立单位", "样本/seed 设计", "主判定"],
     [
         ["V4.4 representation", "seed", "30 V4.4 seeds；count 1–10", "冻结 basis 投影；full-space statistics"],
+        ["Needle token corruption", "seed", "10 fresh seeds（1254–1263）；count 1–10；clean / all-needle replacement / equal-token ordinary replacement", "seed-level specificity；50,000次 bootstrap；exact sign flip；population-wise Holm"],
+        ["Set-wide prompt subspace ablation", "seed", "10 fresh seeds（1254–1263）；count 2–10；Qwen L8 / Gemma L9 全部 active endpoints", "rank-3或centroid-curve removal减等范数正交 removal；behavior + frozen answer geometry；population-wise Holm"],
         ["Full-span frozen top-k ablation", "seed", "20 fresh seeds；count 1–5；100 examples/model；K=1/2/4/8/16/32", "equal-seed mean；seed bootstrap CI；exact sign flip；每个 endpoint 12-way Holm"],
         ["Answer-query patching", "seed / directed pair", "all-sample held-out confirmation + clean-correct supplement", "control-adjusted donor transport / donor-target adoption"],
         ["Qwen natural OV", "seed", "20 confirmation seeds；matched W<sub>O</sub>-span controls", f"four-family IUT p={fmt_p(ov['primary_decision']['global_intersection_union_p'])}"],
@@ -4798,9 +6760,10 @@ def build_methods_clear(
         ["Gemma residual path", "seed", "20 confirmation seeds；candidate vs 3 matched banks", f"four-endpoint IUT p={fmt_p(gemma_residual['primary_decision']['global_intersection_union_p'])}"],
     ],
 )}
-<p><strong>统一统计单位：</strong>同一 seed 内的 counts、layers 与 donor pairs 先聚合，再让20个或30个 seed 等权进入跨-seed推断。图中的 point 是 equal-seed macro mean，error bar 是对 seed means 做10,000次 bootstrap 的95% CI；exact sign-flip 也以 seed effect 为输入。correct-only 条件下，不同 seed 的 eligible 样本数不同，因此另报 pooled eligible-example mean 作为敏感性量，但不把它与等权 seed mean 混为同一 estimand。多个必要条件组成一条机制时使用 intersection–union test（IUT）：family 或 global p 取全部必要检验中最大的 p，只有每一项都达到阈值时整条机制才通过。</p>
+<p><strong>统一统计单位：</strong>同一 seed 内的 counts、layers 与 donor pairs 先聚合，再让每个已注册实验中的10、20或30个 seed 等权进入跨-seed推断；具体数量逐行列在上表。主机制实验的图中 point 是 equal-seed macro mean，error bar 是对 seed means 做 bootstrap 的95% CI（既有实验10,000次；新 token/subspace 实验50,000次）；exact sign-flip 也以 seed effect 为输入。correct-only 条件下，不同 seed 的 eligible 样本数不同，因此另报 pooled eligible-example mean 作为敏感性量，但不把它与等权 seed mean 混为同一 estimand。多个必要条件组成一条机制时使用 intersection–union test（IUT）：family 或 global p 取全部必要检验中最大的 p，只有每一项都达到阈值时整条机制才通过。</p>
 <p><strong>控制与多重比较：</strong>head-set ablation 的主效应均写成 ranked set 减去三个 layer-matched random sets 的平均效应，以控制“删除任意 K 个同层 heads”造成的一般扰动。对每个 endpoint，2 models × 6 K 形成12个冻结比较，并用 Holm 方法控制 family-wise error rate。OV/path 实验按问题使用两类控制：natural-signal 与 pre-O steering/injection 将候选 set 和四个 outcome-blind matched K=2 sets 比较；centered removal 与 mediation 则使用同一 <em>W</em><sub>O</sub> span、等 post-O 范数且与 natural count direction 正交的向量控制。这样分别排除“候选 heads 只是普通同层 heads”和“任意大向量都能推动输出”两种解释。</p>
-<h3>2.1 Causal experiment ledger：每个 effect 到底改了什么</h3>
+<div class="plain-protocol"><h4>显著性数字怎样计算、怎样读</h4><ol><li>先对每个 seed 求配对效应 <code>e<sub>s</sub>=metric(intervention)−metric(control)</code>，并在 seed 内平均所有注册 counts / donor pairs；因此同一模板家族不会因产生更多行而得到更大权重。</li><li>报告效应是 <code>ē=(1/S)Σ<sub>s</sub>e<sub>s</sub></code>。95% bootstrap CI 通过有放回重采样这 <em>S</em> 个 seed means 得到，表示跨新 seed 的不确定性，而非 token-level 方差。</li><li>双侧 exact sign-flip 在“零假设下每个配对效应的正负号可交换”这一条件下枚举全部 <code>2<sup>S</sup></code> 个符号组合；<code>p</code> 是其绝对均值至少和观测值一样大的组合比例。10 seeds 时最小双侧 p 为 <code>2/2¹⁰=0.001953</code>。</li><li>若同一分析 family 同时查看多个模型、K、condition 或 endpoint，Holm 校正把最小原始 p 乘以 family 中尚未排除的检验数，并强制调整后 p 单调不减。正文把 <code>Holm p≤0.05</code> 作为 familywise 显著。</li><li>一个机制若要求多个必要 gate 同时成立，使用 IUT：取这些 gate p-values 的最大值。这样不会因为其中一个很强，就掩盖另一必要步骤没有通过。</li></ol></div>
+<h3>2.2 Causal experiment ledger：每个 effect 到底改了什么</h3>
 <p>下表使用统一记号 <code>R←D</code>，表示“把 donor count D 的 state 搬到 receiver count R 的 forward 中”。没有 donor 的 steering/removal 会明确写成“无 donor”。同一实验即使共享 seeds，也不会把不同量纲的 effect 相加。</p>
 {build_causal_experiment_ledger(causal_v2, ov, read_write, upstream, fullspan_upstream, gemma_residual)}
 <div class="conclusion"><strong>本节结论</strong>不同实验量纲不相加；机制由 representation、functional perturbation 与 causal mediation 在同一方向上收敛而建立。</div>
@@ -4811,17 +6774,13 @@ def build_methods_clear(
 def build_attention_estimand_note() -> str:
     return r"""
 <div class="plain-protocol attention-estimand-note">
-<h3>5.1 两种 key mass 回答的是不同问题</h3>
-<div class="study-preface"><strong>为什么做。</strong><span>running state 存在并不等于 answer query 会读取它；attention atlas 用来定位哪些 heads 在最终 query 把概率质量分配给 needle evidence，并据此冻结后续 ablation 的 retrieval bank。</span><strong>如何定义与评估。</strong><span>query 固定为 prompt-final <code>Total:</code> token；主 discovery score 对每个 active needle 的完整 literal span 求 attention mass，再乘 occurrence coverage。endpoint-key 只作为“是否读取预定义 endpoint carrier”的位置特异诊断。heads 只用 discovery data 排序，K 与 confirmation outcomes 无关。</span><strong>可视化。</strong><span>atlas 的行是 layer、列是 head，单元格颜色编码该 score 的 seed-aggregated magnitude；默认显示 full-span literal score。颜色用于发现候选，功能性必须由 matched-control ablation 验证。</span></div>
-<p>两种图的 query 都固定为最终 <code>Total:</code> token；变化的只是 key pool。设第 <em>i</em> 条 active needle 的 token span 为 <code>S<sub>i</sub></code>、最后一个 token 为 <code>e<sub>i</sub></code>，head <em>h</em> 的 attention row 为 <code>α<sub>h</sub>(q,j)</code>：</p>
-<div class="equation">endpoint-key mass: m<sub>i,h</sub><sup>end</sup>=α<sub>h</sub>(q,e<sub>i</sub>); &nbsp;&nbsp; full-span literal mass: m<sub>i,h</sub><sup>span</sup>=Σ<sub>j∈S<sub>i</sub></sub>α<sub>h</sub>(q,j).</div>
-<p>对单个样本和任一 pooling，令 <code>M<sub>h</sub>=Σ<sub>i</sub>m<sub>i,h</sub></code>、<code>p<sub>i,h</sub>=m<sub>i,h</sub>/M<sub>h</sub></code>、<code>C<sub>h</sub>=exp(−Σ<sub>i</sub>p<sub>i,h</sub>log p<sub>i,h</sub>)/N</code>；样本级 broad score 是 <code>S<sub>h</sub>=M<sub>h</sub>C<sub>h</sub></code>。其中 <code>M</code> 是分给所有 active needles 的总 mass，<code>C∈[1/N,1]</code> 是 entropy effective-number coverage 除以 N；discovery ranking 再对注册 queries/counts 先在 seed 内平均、随后对 discovery seeds 等权平均。因此高分要求既有较大总 mass，又覆盖多个 occurrences，而不是只盯一个 needle。</p>
-<div class="causal-roadmap">
-<div><strong>Endpoint-key</strong><span>检验 answer query 是否直接读取我们预先定义的 needle-end running-state carrier。它是<strong>位置特异的 carrier-localization 指标</strong>，不是无意义，但会漏掉落在 needle 内其他 tokens 的读取。</span></div>
-<div><strong>Full-span literal</strong><span>不预设 carrier 在 span 中的哪个 token；检验 head 是否从整条 needle 文本获得 attention evidence。它更适合作为<strong>通用 retrieval-head discovery</strong> 的主排序。</span></div>
-</div>
+<h3>8.1 Full-span literal attention：retrieval bank 的唯一主排序</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>running state 存在并不等于 answer query 会读取它；attention atlas 用来定位哪些 heads 在最终 query 从完整 needle 文本取回 evidence，并据此冻结后续 ablation 的 retrieval bank。</span><strong>如何定义与评估。</strong><span>query 固定为 prompt-final <code>Total:</code> token。对每条 active needle 的完整 literal token span 求 attention mass，再乘 occurrence coverage；heads 只用 discovery data 排序，K 与 confirmation outcomes 无关。</span><strong>可视化。</strong><span>下方只保留 full-span atlas：横轴是 layer，纵轴是 head，颜色编码 seed-aggregated broad score。颜色只用于发现候选，功能性必须由第9节的 layer-matched ablation 验证。</span></div>
+<p>设第 <em>i</em> 条 active needle 的完整 token span 为 <code>S<sub>i</sub></code>，head <em>h</em> 在最终 query <code>q</code> 的 attention row 为 <code>α<sub>h</sub>(q,j)</code>：</p>
+<div class="equation">full-span mass: m<sub>i,h</sub>=Σ<sub>j∈S<sub>i</sub></sub>α<sub>h</sub>(q,j); &nbsp; total mass M<sub>h</sub>=Σ<sub>i</sub>m<sub>i,h</sub>; &nbsp; broad score S<sub>h</sub>=M<sub>h</sub>C<sub>h</sub>.</div>
+<p>其中 <code>p<sub>i,h</sub>=m<sub>i,h</sub>/M<sub>h</sub></code>，coverage <code>C<sub>h</sub>=exp(−Σ<sub>i</sub>p<sub>i,h</sub>log p<sub>i,h</sub>)/N</code>。<code>M</code> 衡量分给全部 needles 的总概率质量，<code>C∈[1/N,1]</code> 衡量它是否覆盖多个 occurrences。高分因此要求“读得多”且“读得广”，不会因为只盯某一条 needle 而成为 broad-retrieval head。</p>
 <p><strong>长度敏感性。</strong>literal sum 会随 span token 数增加而机械变大；当前 needle 使用同一固定模板，因此它比 span mean 更贴近“分给整条 needle 的总注意力概率”，但正式重排仍应同时报告 token-length-adjusted sensitivity（例如按 span length 分层，或把 mass 对 token length 回归后使用残差）。这样可以确认 top heads 来自检索强度，而不是某些 city/score 文本恰好分词更长。</p>
-<div class="conclusion"><strong>本报告的判定规则</strong>full-span literal score 是 retrieval-bank discovery 与 nested-K 排序的主定义；endpoint 图只保留为“是否集中读取 endpoint carrier”的二级定位诊断。我们已经按 full-span score 重新冻结 Qwen/Gemma 的 K=1/2/4/8/16/32 排序，并在 20 个 fresh seeds 上完成 layer-matched ablation。行为 ablation 使用全 layer 排序；Qwen upstream path 为避免把 mediator 自己混入“上游”，使用同一 score 但先限制到 L&lt;28，再冻结 early K。两者都是 full-span 排序，但候选域不同，不能把两个 top-4 成员表混用。Gemma top-2 仍为 L29H4/L35H2。</div>
+<div class="conclusion"><strong>本报告的判定规则</strong>只用 full-span literal score 发现 retrieval heads。我们已据此冻结 Qwen/Gemma 的 K=1/2/4/8/16/32 并在20个 fresh seeds 上做 matched ablation；Qwen upstream path 使用同一 score、但先限制到 L&lt;28，以免把 L28 writer 自己算进上游。Gemma的冻结 top-2 为 L29H4/L35H2。</div>
 </div>
 """
 
@@ -4895,8 +6854,8 @@ def build_causal_section_clear(
 
     return f"""
 <section id="causal">
-<h2>6 · 因果实验：先定位功能 bank，再验证可执行 answer state</h2>
-<h3>6.1 这部分只回答两个问题</h3>
+<h2>9 · 因果实验：先定位功能 bank，再验证可执行 answer state</h2>
+<h3>9.1 这部分只回答两个问题</h3>
 <div class="causal-roadmap">
 <div><strong>问题 A</strong><span>排序得到的 top-k heads 是否比同层随机 heads 更影响 counting？</span></div>
 <div><strong>实验 A</strong><span>Ablate ranked set，并减去三个 layer-matched random sets 的平均影响。</span></div>
@@ -4904,7 +6863,7 @@ def build_causal_section_clear(
 <div><strong>实验 B</strong><span>把 donor answer state patch 到 receiver，测 receiver 是否采用 donor count。</span></div>
 </div>
 
-<h3>6.2 Effect 的逐样本定义与跨 seed 聚合</h3>
+<h3>9.2 Effect 的逐样本定义与跨 seed 聚合</h3>
 <div class="test-card"><h4>Ablation：ranked bank 必须超过同层随机删除</h4><dl>
 <dt>记号</dt><dd>对样本 <em>i</em>，<code>y<sub>0i</sub></code> 是 clean greedy count，<code>y<sub>Ki</sub></code> 是删除 ranked top-K 后的 count，<code>y<sub>Kir</sub><sup>rand</sup></code> 是第 <em>r</em> 个 layer-matched random set 的输出；本实验每个样本有 <code>R=3</code> 个随机 set。</dd>
 <dt>All-sample absolute-shift effect</dt><dd><span class="formula-line">d<sub>i</sub><sup>abs</sup>=|y<sub>Ki</sub>−y<sub>0i</sub>|−R<sup>−1</sup>Σ<sub>r</sub>|y<sub>Kir</sub><sup>rand</sup>−y<sub>0i</sub>|</span>正值表示 ranked bank 的删除比删除同层随机 heads 更能改变模型实际生成的 count；它只度量变化大小，不把 over-count 与 under-count 抵消。</dd>
@@ -4918,7 +6877,7 @@ def build_causal_section_clear(
 </dl></div>
 <p>所有逐样本值先在 seed 内平均，再把 seed 当作独立 cluster 求总体均值；95% CI 用 10,000 次 seed-cluster bootstrap。注册的 p 值来自 seed-level exact sign-flip；每个 endpoint 的12个冻结 model×K 比较使用 Holm 校正。图中的点不是把 token、head 或 donor pair 当独立样本得到的。</p>
 
-<h3>6.3 Full-span Top-K ablation：检索 bank 是否具有因果功能？</h3>
+<h3>9.3 Full-span Top-K ablation：检索 bank 是否具有因果功能？</h3>
 <div class="study-preface"><strong>为什么做。</strong><span>attention score 只能说明某些 heads 把概率质量分配给 needle spans；它不能证明这些 heads 对生成 count 有用。我们因此删除按 full-span literal score 冻结的 nested head sets，并要求其影响超过删除同层随机 heads。</span><strong>如何定义与评估。</strong><span>排序分数对每个 head 先求全部 active needle spans 的 attention mass，再乘 entropy-based occurrence coverage；K 在任何 outcome 之前冻结为 1/2/4/8/16/32。实验使用 fresh seeds 1316–1335、count 1–5，共100条/model。只在 final <code>Total:</code> query 把 selected heads 的 pre-<em>O</em> output slices 置零；其他 prompt/query positions 不变。每个 ranked K 配3个层分配完全相同的 layer-matched random banks。主 estimands 是上节定义的 <code>d<sup>abs</sup></code> 与 <code>d<sup>fail</sup></code>；exact sign-flip 以20个 seed effects 为输入，并在每个 endpoint 的12个 model×K tests 内做 Holm 校正。</span></div>
 <figure>{ablation_topk_svg_fullspan(seed_confirmation)}<figcaption><strong>Figure · Full-span-ranked nested-K ablation.</strong> 横轴是冻结的 K=1/2/4/8/16/32，等距展示对应 log<sub>2</sub> 剂量。左图纵轴为 all-sample ranked-minus-random absolute generated-count shift；右图为 baseline-correct 样本的 correct-to-wrong probability excess。圆形为 Qwen，方形为 Gemma；实心表示该 model×K 在本 endpoint 的12比较 Holm p≤.05，空心表示未通过。竖线是对等权 seed means 做10,000次 bootstrap 的95% CI。</figcaption></figure>
 {table(["model", "K", "full-span-ranked heads（前4名）", "all-sample effect [95% CI]", "all exact/Holm p", "correct-only effect [95% CI]", "correct exact/Holm p"], topk_rows, classes="paper-table compact-result-table")}
@@ -4926,7 +6885,7 @@ def build_causal_section_clear(
 <p>剂量曲线明显非单调：Qwen K=8 小于 K=4，而 K=16/32 急剧增大；Gemma K=4 小于 K=1/2，而 K=8 达到峰值。这说明 K 不是“同一种独立 head 功能”的线性剂量。较大 set 同时删除协同、冗余和可能互相补偿的 heads；因此本实验定位的是功能 bank 的范围，而不是从曲线反推出唯一最小 circuit。</p>
 <div class="conclusion"><strong>本小节结论</strong>full-span-ranked heads 对两模型的 counting 都有可重复、matched-control-specific 的因果贡献；核心机制 heads 位于该排序前部。结果支持分布式 retrieval bank，但不支持 effect 随 K 单调增加或存在唯一最佳 K。</div>
 
-<h3>6.4 Answer-query patching：all samples 与 correct-only</h3>
+<h3>9.4 Answer-query patching：all samples 与 correct-only</h3>
 <div class="study-preface"><strong>为什么做。</strong><span>Ablation 只表明 retrieval bank 对行为重要，尚不能证明最终 answer-query residual 已经携带可执行的 count state。若把 donor 的 answer state 搬给 receiver 能系统推动 donor count，才说明该 representation 位于输出因果链上。</span><strong>如何定义与评估。</strong><span>all-sample 使用 counts 0–10、18个有向 anchor pairs；seeds 1254–1258 只做 screen，1259–1263 才做 held-out confirmation。每个条件把 donor 在 final <code>Total:</code> query 的完整 residual patch 给 receiver：single-layer 只替换 layer L，cumulative protocol 从 L 到 final layer 持续 clamp；控制为 self-patch 与 same-count different-seed state。correct-only 完全复用冻结条件，只筛选 donor/receiver clean 都正确的 pairs，测 donor gold adoption。</span><strong>可视化。</strong><span>左 panel 的纵轴是 control-adjusted normalized transport，右 panel 是 donor adoption probability；两者是不同 estimands，不能直接比较柱高。表中同时给出 held-out CI coverage、fresh continuous effect 的95% CI 与 p 值。</span></div>
 <div class="ov-data-strip"><strong>具体配对。</strong><code>k=1</code>: 0↔1、4↔5、9↔10；<code>k=3</code>: 0↔3、3↔6、7↔10；<code>k=5</code>: 0↔5、2↔7、5↔10（每个↔都执行两个方向）。all-sample screen 后冻结 Qwen 149、Gemma 177 个 answer layer×protocol×k 条件。correct-only 要求每个 model×k×direction 至少5个 eligible seed clusters；Qwen 追加 1274/1275/1276/1278，Gemma 追加 1275/1277/1281/1295，追加规则只看 clean correctness，不看 patch outcome。</div>
 <figure>{answer_patch_comparison_svg(causal_v2)}<figcaption><strong>Figure · Answer-query state transport.</strong> 左图纵轴是 all-sample held-out confirmation 中，answer-query patch 相对 control 的平均 donor transport；右图纵轴是 donor 与 receiver 都 clean-correct 时，patch 后 receiver 生成 donor gold count 的比例。两个 panel 的统计量不同，因此只在各自 panel 内比较模型。</figcaption></figure>
@@ -5104,10 +7063,12 @@ def build_positive_mechanism_section(
     )
     return f"""
 <section id="natural-ov">
-<h2>7 · 已确认的写入与传播机制</h2>
+<h2>10 · 已确认的写入与传播机制</h2>
 
-<h3>7.1 OV 到底是什么：head 先读成 z，再由 W<sub>O</sub> 写进 residual</h3>
-<p>对 answer query <code>q</code>，attention head 的计算可以拆成两步。第一步，attention 权重 <code>α</code> 从可访问的 key positions 加权读取 value，得到 head-space 向量 <code>z<sub>h</sub></code>；第二步，该 head 对应的输出投影 <code>W<sub>O</sub><sup>h</sup></code> 把 <code>z<sub>h</sub></code> 变换成与 residual stream 同维度的写入向量 <code>w<sub>h</sub></code>：</p>
+<h3>10.1 OV 到底是什么：head 先读成 z，再由 W<sub>O</sub> 写进 residual</h3>
+<div class="study-preface"><strong>为什么做。</strong><span>Attention mass 只说明 head 看向哪里，不能说明读到的内容如何改变答案。OV 分析把一个 head 拆成“读出 head-space 内容”与“把内容写回 residual”两步，检验 count 是否真的经过这条计算边界。</span><strong>具体例子。</strong><span>receiver 当前倾向输出3。我们只在某个 head 的 pre-O <code>z</code> 中加入一个 discovery-frozen 的+1 count step；若这一步经过该 head 自己的 <code>W<sub>O</sub></code> 后使答案期望值向4移动，而等范数正交 step 不会，就说明这条 OV path 能写 count。</span><strong>读图顺序。</strong><span>先看本节四格流程理解变量，再看 Qwen/Gemma 各自的“source→write→mediator→answer”。折叠表保留完整公式和统计，正文只追踪每个干预到底改了哪里。</span></div>
+<p><strong>先区分四个对象。</strong><code>α</code> 是“地址权重”（从哪些 token 读、各读多少）；<code>v(j)</code> 是每个 source token 可提供的内容；<code>z</code> 是一个 head 在把这些内容加权汇总后、尚未写回模型主干的向量；<code>W<sub>O</sub></code> 把 <code>z</code> 旋转/缩放成 residual stream 中的写入 <code>w</code>。OV 不是另一类 head，而是 <code>value aggregation → output projection</code> 这条真实计算路径。</p>
+<p>对 answer query <code>q</code>，计算为：</p>
 <div class="equation">z<sub>h</sub>(q)=Σ<sub>j</sub>α<sub>h</sub>(q,j)v<sub>h</sub>(j); &nbsp;&nbsp; w<sub>h</sub>(q)=W<sub>O</sub><sup>h</sup>z<sub>h</sub>(q); &nbsp;&nbsp; h′(q)=h(q)+Σ<sub>h</sub>w<sub>h</sub>(q).</div>
 <div class="ov-short-flow" role="img" aria-label="OV computation from source count state to answer output">
 <div class="ov-box"><strong>1 · 提取 count step</strong><span>从独立 discovery data 拟合一单位 count 变化；Qwen 再让它经过真实 value path，得到每个 head 的 <code>d<sub>z,h</sub></code>。</span></div><div class="ov-arrow" aria-hidden="true">→</div>
@@ -5115,7 +7076,7 @@ def build_positive_mechanism_section(
 <div class="ov-box"><strong>3 · W<sub>O</sub> 写回</strong><span>模型自己的 <code>W<sub>O</sub></code> 把改动映射成 full residual direction；这一步可以旋转和缩放 count direction。</span></div><div class="ov-arrow" aria-hidden="true">→</div>
 <div class="ov-box"><strong>4 · 下游形成答案</strong><span>后续 attention、MLP 与 residual skip 继续传播该变化，最后改变候选数字的概率与生成 count。</span></div>
 </div>
-<p>因此，prompt counter direction 与 answer counter direction 不需要平行：语义上的“一单位 count”先经过 <code>V</code>、<code>W<sub>O</sub></code>，再经过后续 blocks 的局部变换。我们测量行为时，用候选数字序列概率计算 <code>E[C]=Σ<sub>c</sub>c·p(c)/Σ<sub>c</sub>p(c)</code>；有 donor/receiver 时再用 <code>T=(E[C]<sub>I</sub>−E[C]<sub>R</sub>)/(D−R)</code> 归一化。</p>
+<p><strong>为什么 prompt 与 answer counter 可以不平行。</strong>prompt state 中的“一单位 count”先被 <code>V</code> 投影到 head space，再被 <code>W<sub>O</sub></code> 写到 residual，后续 attention/MLP 还可继续旋转。因此“语义相同”不要求两个原始向量的欧氏夹角接近0。行为端先由数字候选概率算 <code>E[C]=Σ<sub>c</sub>c·p(c)/Σ<sub>c</sub>p(c)</code>；donor/receiver 实验再用 <code>T=(E[C]<sub>I</sub>−E[C]<sub>R</sub>)/(D−R)</code>。例如 R=3、D=8，干预使期望值从3到5.5，则 <code>T=0.5</code>：走完了 donor gap 的一半。</p>
 {table(
     ["操作", "向量从哪里来", "加到/替换哪里", "它单独验证什么"],
     [
@@ -5126,10 +7087,10 @@ def build_positive_mechanism_section(
     ],
     classes="paper-table ov-operation-table",
 )}
-<div class="conclusion"><strong>最短判读</strong>steering 回答“能不能写”，removal 回答“自然运行是否需要”，mediation 回答“上游 effect 是否走这条路”。只有把改动放在 pre-O <code>z</code>，并让变化通过指定 heads 自己的 <code>W<sub>O</sub></code>，才是本报告所说的 OV intervention。</div>
+<div class="conclusion"><strong>最短判读</strong>natural carrier 问“clean forward 里有没有这份 count”；steering 问“加进去能不能推动答案”；removal 问“自然运行是否需要”；mediation 问“上游 donor effect 是否经过这里”。本报告的 OV 干预都发生在 pre-O <code>z</code>，随后必须通过候选 heads 自己的 <code>W<sub>O</sub></code>；没有直接把 answer axis 加到 residual。</div>
 
 <article class="positive-mechanism-model qwen">
-<h3>7.2 Qwen：L28 H16/H19 的 localized natural-OV write</h3>
+<h3>10.2 Qwen：L28 H16/H19 的 localized natural-OV write</h3>
 <div class="study-preface"><strong>为什么做。</strong><span>Top-K ablation 只说明某个 bank 对 counting 有功能贡献；我们还要证明自然运行的 count component 确实进入 L28 H16/H19 的 <code>z</code>，经这两个 heads 自己的 <code>W<sub>O</sub></code> 写回，并继续影响答案。</span><strong>如何评估。</strong><span>候选 H16/H19、方向、center、matched controls 和20个 confirmation seeds 都在因果 outcome 前冻结。四个必要 families 是 natural carrier、pre-O steering、centered removal 与 donor-path mediation；global IUT p 取四个 family p 中最大者。</span></div>
 <div class="ov-data-strip"><strong>冻结数据。</strong>one-count direction：seeds 1234–1253，odd counts 1/3/5/7/9 拟合、even counts 2/4/6/8/10 验证；count-zero center：1264–1273；因果确认：1274–1293。steering/removal 用 counts 2/5/8、β=−2/−1/0/1/2；donor mediation 用 <code>R←D: 1←6, 3←8, 5←10</code>。query 始终是第一个答案 token 前的 <code>Total:</code> position。</div>
 <div class="test-card"><h4>Qwen 四步验证</h4><dl>
@@ -5138,7 +7099,7 @@ def build_positive_mechanism_section(
 <dt>③ Steering 与 removal</dt><dd><strong>Steering：</strong>在 receiver 自己的 H16/H19 pre-O slices 加 <code>βd<sub>S</sub></code>，β 从−2到+2；不使用 donor，也不直接加 answer axis。主效应是 <code>ΔE[C]</code> 对 β 的 slope。<strong>Removal：</strong>从 receiver 当前 centered <code>z</code> 中删除沿 <code>m<sub>S</sub></code> 的可实现分量；与同 <code>W<sub>O</sub></code> span、等 post-O norm 的正交删除比较。前者检验充分性，后者检验自然必要性。</dd>
 <dt>④ Donor mediation 与下游 trace</dt><dd>把 donor 的完整 H16/H19 <code>z</code> patch 给 receiver 后，计算 patch output 沿 <code>m<sub>S</sub></code> 的分量，并只删除该分量；中介效应 <code>M=T<sub>orth</sub>−T<sub>axis-block</sub></code>。随后将 ±steering 在 L28–L35 造成的 residual 中心差分投影到每层冻结 answer-count step；natural−orthogonal specificity 检验写入是否继续传播。L35 specificity={rw['write_propagation']['final_residual_specificity_mean']:.4f}，Holm p={fmt_p(rw['write_propagation']['final_residual_specificity_holm_p'])}。</dd>
 </dl></div>
-<p><strong>H16/H19 如何“读”。</strong>对同一个 receiver/donor pair 构造 RR=<code>α<sub>R</sub>V<sub>R</sub></code>、RD=<code>α<sub>R</sub>V<sub>D</sub></code>、DR=<code>α<sub>D</sub>V<sub>R</sub></code>、DD=<code>α<sub>D</sub>V<sub>D</sub></code>。Shapley 分账把 RR→DD 的完整变化拆成 routing 贡献（换 <code>α</code>）与 value-content 贡献（换 <code>V</code>）。routing family p={fmt_p(rw['read_mode']['routing_family_p'])}，value family p={fmt_p(rw['read_mode']['value_family_p'])}；所以两个 heads 既改变“读哪里”，也利用“读到什么”。</p>
+<p><strong>H16/H19 到底是靠“地址”还是“内容”读取。</strong>对同一 R←D pair，我们重放四种 head 计算：RR=receiver 的地址权重+receiver 的 value 内容；RD=receiver 地址+donor 内容；DR=donor 地址+receiver 内容；DD=donor 地址+donor 内容。这样只换 <code>α</code> 就是在问“读哪里”是否贡献 donor shift，只换 <code>V</code> 就是在问“同一位置读到的内容”是否贡献。Shapley average 对两种更换顺序取平均，避免把交互项全归给先换的变量。routing family p={fmt_p(rw['read_mode']['routing_family_p'])}，value family p={fmt_p(rw['read_mode']['value_family_p'])}；因此 H16/H19 的读取既依赖路由，也依赖内容。</p>
 <p><strong>上游接入。</strong>使用同一 full-span score 在 L&lt;28 候选域冻结 nested K 后，top-4=L27H18/L23H29/L23H13/L23H28 的 slot-state patch 产生 donor log-odds gain={q_fs_top4['early_donor_log_odds_gain_mean']:.4f} [{q_fs_top4['early_donor_log_odds_gain_ci_low']:.4f}, {q_fs_top4['early_donor_log_odds_gain_ci_high']:.4f}]；在 L28 H16/H19 阻断 induced natural component 的 mediation specificity={q_fs_top4['donor_log_odds_mediation_specificity_mean']:.4f} [{q_fs_top4['donor_log_odds_mediation_specificity_ci_low']:.4f}, {q_fs_top4['donor_log_odds_mediation_specificity_ci_high']:.4f}]，两项在6个K×3 routes内 Holm p={fmt_p(q_fs_top4_p)}。这直接把 full-span early bank 接到 H16/H19 writer。另一个旧 endpoint-ranked top-4（与新 set 共享3/4成员）在20个独立 fresh seeds 上也得到 source+mediation IUT p={fmt_p(up['intersection_union_p'])}；它只作为 route-family 的独立 replication，不冒充新 top-4 的 exact-set replication。</p>
 {table(["full-span early set", "source intervention", "source gain [95% CI]", "source Holm p", "L28 mediation [95% CI]", "mediation Holm p"], q_fs_supported_rows, classes="paper-table compact-result-table")}
 <p>上表只列同时通过 source 与 L28 mediation 的组合。K=4/8/16/32 的 slot-state route 通过，K=16 的 slot-edge α/V route 也通过；K=1/2 没有通过串联 conjunction。因为所有 K 与 routes 在 outcome 前冻结且 p 已在18个组合内 Holm 校正，我们采用较小且已通过的 top-4 slot-state route 作为主图，而不以最大 effect 的 K 事后选路。</p>
@@ -5150,9 +7111,10 @@ def build_positive_mechanism_section(
 </article>
 
 <article class="positive-mechanism-model gemma">
-<h3>7.3 Gemma：K2 bank 写入 L37 distributed residual</h3>
+<h3>10.3 Gemma：K2 bank 写入 L37 distributed residual</h3>
 <div class="study-preface"><strong>为什么做。</strong><span>Gemma 的 sliding layers 只能直接查看512-token窗口，所以后层不必重新注意全部远端 needles。更合适的命题是：周期性 full-attention heads 先把全局信息写入 answer-query residual；中间局部 blocks 再传播这个已经写入的 state。</span><strong>如何评估。</strong><span>full-span ranking 冻结 K2=L29H4/L35H2；discovery 只选 mediator 与 count axes，confirmation 不再换 heads 或 layer。source transport、exact L37 mediation、count-axis mediation、L41 adoption 四项都必须通过 candidate 与 matched-control 两道门。</span></div>
 <div class="ov-data-strip gemma"><strong>冻结数据。</strong>discovery seeds 1456–1465，confirmation 1466–1485；counts 1–10，odd counts 1/3/5/7/9 拟合 axes、even counts 2/4/6/8/10 held out；pairs 为 <code>R←D: 1←6, 3←8, 5←10</code>。mediator 只在 L36–L40 中用 discovery 选择，最终冻结 L37；terminal layer 固定 L41。三个 K2 controls 为 (L29H1,L35H3)、(L29H6,L35H2)、(L29H7,L35H6)。</div>
+<p><strong>这条路径只问三件事：</strong>（1）L29H4/L35H2 的 head outputs 能否把 donor count 写进 receiver；（2）这次写入在 L37 留下的 residual change 是否是必经中介；（3）该 change 是否继续到 L41 的 terminal count state。下列四个统计 gate 是这三个问题的可检验拆分，其中第2项把 L37 mediator 又分成“完整向量”和“其中的 count-aligned 投影”。</p>
 <div class="test-card"><h4>Gemma 四步验证</h4><dl>
 <dt>① K2 pre-O source patch</dt><dd>在 receiver 的 <code>Total:</code> query，先于 output projection 把 <code>z<sub>29,4</sub></code> 和 <code>z<sub>35,2</sub></code> 替换成同 seed donor 的值；其他 heads 与 receiver residual 不改。被替换的两个 <code>z</code> 分别通过各自的 <code>W<sub>O</sub></code> 写入。因此它不是直接把 donor answer direction 加到 residual，而是真实的 head-output-path patch。source effect 是 <code>T<sub>source</sub></code>。</dd>
 <dt>② 在 L37 定义实际写入结果</dt><dd>同一 K2 patch 到达 L37 时产生 <span class="formula-line">δ<sub>37</sub>=h<sub>37</sub><sup>K2 patch</sup>−h<sub>37</sub><sup>clean R</sup></span><code>δ<sub>37</sub></code> 包含 L29/L35 两次 <code>W<sub>O</sub></code> 写回及其间 blocks 的合成结果；它是在 residual space 中观察到的实际 mediator。</dd>
@@ -5184,7 +7146,7 @@ def build_synthesis_clear(
     )
     return f"""
 <section id="synthesis">
-<h2>8 · 最终机制对照</h2>
+<h2>11 · 最终机制对照</h2>
 {table(
     ["阶段", "Qwen3-8B", "Gemma4-E4B"],
     [
@@ -5212,8 +7174,13 @@ def build_limits_clear(
     fullspan_upstream: dict[str, Any],
     gemma_residual: dict[str, Any],
     correct_state: dict[str, Any],
+    token_audit: dict[str, Any],
+    subspace_audit: dict[str, Any],
 ) -> str:
     rows = [
+        ["Question specification", "reports/non-thinking extension.md", "one-row-per-question audit in §12"],
+        ["Deterministic report builder", "scripts/build_realistic_niah_v4_4_integrated_report.py", "self-contained HTML; no runtime network dependency"],
+        ["Extension code map", "scripts/v4_4_extension/README_v4_4_extension.md", "GPU runners, CPU analyzers, launch commands, split definitions"],
         ["Macro representation / patching", "reports/v4_non-thinking_causal/v4_4_causal_v2/report_summary.json", causal_v2["schema_version"]],
         ["Full-span frozen top-k extrapolation", "reports/v4_non-thinking_causal/v4_4_causal_v2/full_span_topk/seed_extrapolation_summary_v2.json", f"audit {seed_confirmation['audit']['passed']}/{seed_confirmation['audit']['checks']} PASS"],
         ["Full-span top-k primary statistics", "reports/v4_non-thinking_causal/v4_4_causal_v2/full_span_topk/full_span_topk_primary_statistics.csv", "equal-seed estimand + pooled sensitivity"],
@@ -5223,10 +7190,18 @@ def build_limits_clear(
         ["Qwen fresh serial path", "reports/v4_non-thinking_causal/v4_4_4/upstream_confirmation/realistic_niah_v4_4_4_upstream_confirmation_analysis.json", upstream["schema_version"]],
         ["Gemma K2 residual path", "reports/v4_non-thinking_causal/v4_4_4/gemma/residual/k2/realistic_niah_v4_4_4_residual_analysis.json", gemma_residual["schema_version"]],
         ["Fresh correct-only answer routes", "reports/v4_non-thinking_causal/v4_4_4/correct_state_routes/correct_state_route_analysis.json", correct_state["schema_version"]],
+        ["Extension rank / regression / clustering", "reports/v4_non-thinking_causal/v4_4_extension/geometry/", "discovery-frozen geometry audit PASS"],
+        ["All-token endpoint-gate controls", "reports/v4_non-thinking_causal/v4_4_extension/all_token/", "all-token audit PASS"],
+        ["Fixed answer classifiers", "reports/v4_non-thinking_causal/v4_4_extension/classification/", "six fixed algorithms; grouped seed CV"],
+        ["Qwen/Gemma earlier-span heads + endpoint attention mask", "reports/v4_non-thinking_causal/v4_4_extension/endpoint_attention_mask/", "Qwen/Gemma 10-head confirmation complete；Gemma 500/500 rows，audit PASS"],
+        ["Gemma selected-row attention runner", "scripts/v4_4_extension/run_gemma_earlier_span_selected_rows.py", "same estimand as Qwen；reconstruct frozen single-query rows inside SDPA"],
+        ["Needle token corruption", "reports/v4_non-thinking_causal/v4_4_extension/token_corruption/", html.escape(str(token_audit["status"]))],
+        ["Set-wide prompt subspace ablation", "reports/v4_non-thinking_causal/v4_4_extension/prompt_subspace_ablation/", html.escape(str(subspace_audit["status"]))],
+        ["Adjacent-layer transport-aligned confirmation", "work/v445_transport_aligned_confirmation/analysis/", "frozen rank-3 basis; exact seed tests"],
     ]
     return f"""
 <section id="limits">
-<h2>9 · 复现信息</h2>
+<h2>13 · 复现信息</h2>
 <p>报告中的显著性均来自保存的 seed-level 聚合与审计文件；HTML 不复制 raw hidden states、full value tensors 或 raw attention rows。原始捕获继续保留在 FileStream。</p>
 {details_table("Source ledger", ["component", "relative path", "schema/audit"], rows, opened=True)}
 <div class="conclusion"><strong>复现结论</strong>所有进入正文的因果结果都对应 audit PASS 的机器可读 analysis；图形只负责展示 effect 与结构，不替代统计文件。</div>
@@ -5278,6 +7253,54 @@ def validate_inputs(repo_root: Path) -> dict[str, Path]:
         / "reports/v4_non-thinking_causal/v4_4_4/correct_state_routes/correct_state_route_analysis.json",
         "correct_state_geometry": repo_root
         / "reports/v4_non-thinking_causal/v4_4_4/correct_state_routes/geometry_summary.csv",
+        "transport_conditions": repo_root
+        / "work/v445_transport_aligned_confirmation/analysis/condition_summary.csv",
+        "transport_contrasts": repo_root
+        / "work/v445_transport_aligned_confirmation/analysis/seed_contrasts.csv",
+        "extension_rank": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/geometry/rank_and_compression_by_layer.csv",
+        "extension_regression": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/geometry/count_regression_summary.csv",
+        "extension_clustering": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/geometry/clustering_summary.csv",
+        "extension_noise": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/geometry/prompt_noise_two_way_decomposition.csv",
+        "extension_all_token_metrics": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/all_token/all_token_category_metrics.csv",
+        "extension_formula": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/all_token/gated_curve_formula_tests.csv",
+        "extension_projection": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/all_token/all_token_frozen_pca_projections.csv.gz",
+        "extension_classifier_prompt_qwen": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/classification/classification_prompt_qwen/answer_classifier_metrics.csv",
+        "extension_classifier_prompt_gemma": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/classification/classification_prompt_gemma/answer_classifier_metrics.csv",
+        "extension_classifier_answer_qwen": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/classification/classification_all_qwen/answer_classifier_metrics.csv",
+        "extension_classifier_answer_gemma": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/classification/classification_all_gemma/answer_classifier_metrics.csv",
+        "extension_classifier_correct_qwen": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/classification/classification_correct_qwen/answer_classifier_metrics.csv",
+        "extension_classifier_correct_gemma": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/classification/classification_correct_gemma/answer_classifier_metrics.csv",
+        "extension_attention_stats": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/endpoint_attention_mask/attention_mask_statistics.csv",
+        "extension_earlier_heads": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/endpoint_attention_mask/earlier_span_head_confirmation.csv",
+        "extension_gemma_earlier_heads": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/endpoint_attention_mask/gemma_earlier_span_head_confirmation.csv",
+        "extension_gemma_earlier_audit": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/endpoint_attention_mask/gemma_earlier_span_audit.json",
+        "extension_attention_audit": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/endpoint_attention_mask/endpoint_attention_mask_analysis_audit.json",
+        "extension_token_stats": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/token_corruption/token_corruption_statistics.csv",
+        "extension_token_audit": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/token_corruption/token_corruption_analysis_audit.json",
+        "extension_subspace_stats": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/prompt_subspace_ablation/subspace_ablation_statistics.csv",
+        "extension_subspace_audit": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/prompt_subspace_ablation/analysis_audit.json",
     }
     required = {
         "base",
@@ -5294,6 +7317,30 @@ def validate_inputs(repo_root: Path) -> dict[str, Path]:
         "gemma_l37_ov",
         "correct_state",
         "correct_state_geometry",
+        "transport_conditions",
+        "transport_contrasts",
+        "extension_rank",
+        "extension_regression",
+        "extension_clustering",
+        "extension_noise",
+        "extension_all_token_metrics",
+        "extension_formula",
+        "extension_projection",
+        "extension_classifier_prompt_qwen",
+        "extension_classifier_prompt_gemma",
+        "extension_classifier_answer_qwen",
+        "extension_classifier_answer_gemma",
+        "extension_classifier_correct_qwen",
+        "extension_classifier_correct_gemma",
+        "extension_attention_stats",
+        "extension_earlier_heads",
+        "extension_gemma_earlier_heads",
+        "extension_gemma_earlier_audit",
+        "extension_attention_audit",
+        "extension_token_stats",
+        "extension_token_audit",
+        "extension_subspace_stats",
+        "extension_subspace_audit",
     }
     missing = [
         str(paths[name]) for name in sorted(required) if not paths[name].is_file()
@@ -5354,6 +7401,47 @@ def build_report(repo_root: Path, output: Path) -> None:
         if paths[path_key].is_file()
     }
     correct_state = read_json(paths["correct_state"])
+    transport_conditions = read_csv_rows(paths["transport_conditions"])
+    transport_contrasts = read_csv_rows(paths["transport_contrasts"])
+    extension_rank = read_csv_rows(paths["extension_rank"])
+    extension_regression = read_csv_rows(paths["extension_regression"])
+    extension_clustering = read_csv_rows(paths["extension_clustering"])
+    extension_noise = read_csv_rows(paths["extension_noise"])
+    extension_all_token_metrics = read_csv_rows(paths["extension_all_token_metrics"])
+    extension_formula = read_csv_rows(paths["extension_formula"])
+    extension_projection = read_csv_rows_gzip(paths["extension_projection"])
+    extension_classifier: list[dict[str, str]] = []
+    for key in (
+        "extension_classifier_prompt_qwen",
+        "extension_classifier_prompt_gemma",
+        "extension_classifier_answer_qwen",
+        "extension_classifier_answer_gemma",
+    ):
+        extension_classifier.extend(read_csv_rows(paths[key]))
+    extension_classifier_correct: list[dict[str, str]] = []
+    for key in (
+        "extension_classifier_correct_qwen",
+        "extension_classifier_correct_gemma",
+    ):
+        extension_classifier_correct.extend(read_csv_rows(paths[key]))
+    extension_attention_stats = read_csv_rows(paths["extension_attention_stats"])
+    extension_earlier_heads = read_csv_rows(paths["extension_earlier_heads"])
+    extension_earlier_heads.extend(
+        read_csv_rows(paths["extension_gemma_earlier_heads"])
+    )
+    extension_gemma_earlier_audit = read_json(
+        paths["extension_gemma_earlier_audit"]
+    )
+    extension_attention_audit = read_json(paths["extension_attention_audit"])
+    if extension_gemma_earlier_audit.get("status") != "PASS":
+        raise RuntimeError("Gemma earlier-span confirmation audit did not pass")
+    if int(extension_gemma_earlier_audit.get("observed_raw_rows", -1)) != 500:
+        raise RuntimeError("Gemma earlier-span confirmation is incomplete")
+    extension_token_stats = read_csv_rows(paths["extension_token_stats"])
+    extension_token_audit = read_json(paths["extension_token_audit"])
+    extension_subspace_stats = read_csv_rows(paths["extension_subspace_stats"])
+    extension_subspace_audit = read_json(paths["extension_subspace_audit"])
+    cue_doc = paths["cue"].read_text(encoding="utf-8")
     correct_state_geometry = read_csv_rows(paths["correct_state_geometry"])
     gemma_story = resolve_gemma_story(
         l37=gemma_l37_ov,
@@ -5445,6 +7533,7 @@ def build_report(repo_root: Path, output: Path) -> None:
         base,
         count=1,
     )
+    base = ensure_viewport_meta(base)
     if "</style>" not in base:
         raise RuntimeError("Base report has no style terminator")
     base = base.replace("</style>", EXTRA_CSS + "\n</style>", 1)
@@ -5452,6 +7541,11 @@ def build_report(repo_root: Path, output: Path) -> None:
     base, nav_count = re.subn(r"<nav>.*?</nav>", nav, base, count=1, flags=re.S)
     if nav_count != 1:
         raise RuntimeError("Could not replace report navigation")
+    base = base.replace(
+        "</nav>",
+        '<a href="#representation-extension">Representation tests</a></nav>',
+        1,
+    )
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     header = f"""<header>
 <div class="eyebrow">Realistic NIAH · V4.4 · non-thinking · integrated evidence</div>
@@ -5726,6 +7820,23 @@ def build_report(repo_root: Path, output: Path) -> None:
         raise RuntimeError("Could not locate visualization bootstrap")
     base = base.replace(old_boot, new_boot, 1)
 
+    # Normalize the legacy report's model accents to the user-specified Aurora
+    # palette.  The final CSS already controls surface tints and typography;
+    # these replacements also cover colors embedded directly in older SVGs.
+    aurora_legacy_map = {
+        "#27685F": "#6750E8",  # legacy Qwen green -> Polar Violet
+        "#A66A45": "#00D4B4",  # legacy Gemma brown -> Aurora Teal
+        "#6A958A": "#6750E8",
+        "#B78767": "#00D4B4",
+        "#588BD2": "#00C2FF",
+    }
+    for old_color, new_color in aurora_legacy_map.items():
+        base = re.sub(re.escape(old_color), new_color, base, flags=re.I)
+
+    base = insert_concrete_examples(base)
+    base = make_all_tables_collapsible(base)
+    base = merge_transport_into_section_5_4(base)
+
     required_sections = [
         "mechanism-overview",
         "scope",
@@ -5843,6 +7954,47 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     fullspan_upstream = read_json(paths["fullspan_upstream"])
     gemma_residual = read_json(paths["gemma_residual_k2"])
     correct_state = read_json(paths["correct_state"])
+    transport_conditions = read_csv_rows(paths["transport_conditions"])
+    transport_contrasts = read_csv_rows(paths["transport_contrasts"])
+    extension_rank = read_csv_rows(paths["extension_rank"])
+    extension_regression = read_csv_rows(paths["extension_regression"])
+    extension_clustering = read_csv_rows(paths["extension_clustering"])
+    extension_noise = read_csv_rows(paths["extension_noise"])
+    extension_all_token_metrics = read_csv_rows(paths["extension_all_token_metrics"])
+    extension_formula = read_csv_rows(paths["extension_formula"])
+    extension_projection = read_csv_rows_gzip(paths["extension_projection"])
+    extension_classifier: list[dict[str, str]] = []
+    for key in (
+        "extension_classifier_prompt_qwen",
+        "extension_classifier_prompt_gemma",
+        "extension_classifier_answer_qwen",
+        "extension_classifier_answer_gemma",
+    ):
+        extension_classifier.extend(read_csv_rows(paths[key]))
+    extension_classifier_correct: list[dict[str, str]] = []
+    for key in (
+        "extension_classifier_correct_qwen",
+        "extension_classifier_correct_gemma",
+    ):
+        extension_classifier_correct.extend(read_csv_rows(paths[key]))
+    extension_attention_stats = read_csv_rows(paths["extension_attention_stats"])
+    extension_earlier_heads = read_csv_rows(paths["extension_earlier_heads"])
+    extension_earlier_heads.extend(
+        read_csv_rows(paths["extension_gemma_earlier_heads"])
+    )
+    extension_gemma_earlier_audit = read_json(
+        paths["extension_gemma_earlier_audit"]
+    )
+    extension_attention_audit = read_json(paths["extension_attention_audit"])
+    if extension_gemma_earlier_audit.get("status") != "PASS":
+        raise RuntimeError("Gemma earlier-span confirmation audit did not pass")
+    if int(extension_gemma_earlier_audit.get("observed_raw_rows", -1)) != 500:
+        raise RuntimeError("Gemma earlier-span confirmation is incomplete")
+    extension_token_stats = read_csv_rows(paths["extension_token_stats"])
+    extension_token_audit = read_json(paths["extension_token_audit"])
+    extension_subspace_stats = read_csv_rows(paths["extension_subspace_stats"])
+    extension_subspace_audit = read_json(paths["extension_subspace_audit"])
+    cue_doc = paths["cue"].read_text(encoding="utf-8")
 
     if any(
         causal_v2["audits"][model]["status"] != "PASS"
@@ -5869,23 +8021,32 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
         base,
         count=1,
     )
+    base = ensure_viewport_meta(base)
     if "</style>" not in base:
         raise RuntimeError("Base report has no style terminator")
     base = base.replace(
         "</style>",
-        EXTRA_CSS + CLEAR_CSS + REPORT_REFINEMENT_CSS + "\n</style>",
+        EXTRA_CSS + CLEAR_CSS + REPORT_REFINEMENT_CSS + AURORA_CSS + "\n</style>",
         1,
     )
-    nav = """<nav><a href="#mechanism-overview">Mechanism</a><a href="#scope">结论</a><a href="#methods">设定</a><a href="#prompt">Prompt geometry</a><a href="#answer">Answer geometry</a><a href="#attention">Attention</a><a href="#causal">Ablation / patching</a><a href="#natural-ov">Write / propagation</a><a href="#synthesis">对照</a><a href="#limits">复现</a></nav>"""
+    base, count_palette_replacements = re.subn(
+        r"const COUNT_COLORS=\[[^;]+\];",
+        "const COUNT_COLORS=['#23165C','#6750E8','#00C2FF','#00D4B4','#39E58C','#C04DFF','#FF5FA2','#F6E36A','#765347','#8190A5'];",
+        base,
+        count=1,
+    )
+    if count_palette_replacements != 1:
+        raise RuntimeError("Could not apply Aurora count palette")
+    nav = """<nav><a href="#mechanism-overview">Mechanism</a><a href="#scope">结论</a><a href="#methods">设定</a><a href="#prompt">Prompt geometry</a><a href="#representation-extension">Representation tests</a><a href="#formation-tests">State formation</a><a href="#answer">Answer geometry</a><a href="#transport-subspace">Transport</a><a href="#attention">Attention</a><a href="#causal">Ablation / patching</a><a href="#natural-ov">Write / propagation</a><a href="#synthesis">对照</a><a href="#question-audit">逐题审计</a><a href="#limits">复现</a></nav>"""
     base, nav_count = re.subn(r"<nav>.*?</nav>", nav, base, count=1, flags=re.S)
     if nav_count != 1:
         raise RuntimeError("Could not replace report navigation")
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     header = f"""<header>
 <div class="eyebrow">Realistic NIAH · V4.4 · non-thinking</div>
-<h1>从 prompt running counter 到 answer count：representation 与 causal mechanism</h1>
-<p class="lead">Qwen3-8B 与 Gemma4-E4B 分开描述：先看各自如何形成和读取 count state，再看 top-k ablation、answer-query patching，以及得到显著支持的写入/传播通路。</p>
-<p class="meta">generated {generated} · self-contained HTML · raw tensors remain in FileStream</p>
+<h1>从 prompt running counter 到 answer count：一条可检验的 non-thinking counting mechanism</h1>
+<p class="lead">这份报告从 decoder-only Transformer 的 residual stream 出发，逐步解释 Qwen3-8B 与 Gemma4-E4B 如何在长 prompt 中形成累计状态、用 attention heads 汇集它、经 OV/residual 路径改写成 answer-query state，并最终生成数字。每一步都把表示相关性、功能扰动和路径因果证据分开报告。</p>
+<p class="meta">generated {generated} · self-contained HTML · raw tensors remain in FileStream · Aurora palette · editorial reference: <a href="https://transformer-circuits.pub/2025/linebreaks/index.html">Transformer Circuits · Line Breaks</a></p>
 </header>"""
     base, header_count = re.subn(
         r"<header>.*?</header>", header, base, count=1, flags=re.S
@@ -5904,6 +8065,14 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
         causal_v2,
         correct_state,
     )
+    overview, overview_transport_count = re.subn(
+        r"</section>\s*$",
+        """<div class="conclusion"><strong>新增的跨层 transport 证据。</strong>除图中的 read/write 路径外，我们在 discovery count centroids 上冻结 source→target rank-3 transport basis，并只在 confirmation seeds 注入 aligned 1×/2× dose。Qwen L28→L29 与 Gemma L36→L37 都表现出方向特异的正向 transport，且2× dose显著超过1×；aligned−orthogonal 与 dose2−dose1 均为 exact p=0.001953。该“剂量响应”描述干预effect随dose增加，不表示PCA centroid trajectory是一条直线。结论只覆盖测试的相邻层和同一 answer-query position，不把最后一个 prompt endpoint 写成直接 source；完整定义见第 5 节。</div>\n</section>""",
+        overview,
+        count=1,
+    )
+    if overview_transport_count != 1:
+        raise RuntimeError("Could not append transport summary to mechanism overview")
     base = base.replace('<section id="scope">', overview + '\n\n<section id="scope">', 1)
     methods = build_methods_clear(
         causal_v2,
@@ -5932,35 +8101,88 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
 
     base = base.replace(
         "<h2>2 · Answer-query counter representation</h2>",
-        "<h2>4 · Answer-query counter representation</h2>",
+        "<h2>6 · Answer-query counter representation</h2>",
         1,
     )
     base = base.replace(
         "<h3>2.1 Interactive V4.4 answer-query counter</h3>",
-        "<h3>4.2 Interactive V4.4 answer-query counter</h3>",
+        "<h3>6.3 Interactive V4.4 answer-query counter</h3>",
         1,
     )
     base = base.replace(
         "<h3>2.2 Prompt 与 answer counter 的共同坐标</h3>",
-        "<h3>4.3 Prompt 与 answer counter 的共同坐标</h3>",
+        "<h3>6.4 Prompt 与 answer counter 的共同坐标</h3>",
         1,
     )
-    answer_marker = '<div class="figure-block"><h3>4.2 Interactive V4.4 answer-query counter</h3>'
+    extension_section = build_extension_representation_section(
+        extension_rank,
+        extension_regression,
+        extension_clustering,
+        extension_noise,
+        extension_all_token_metrics,
+        extension_formula,
+        extension_projection,
+        extension_classifier,
+        extension_classifier_correct,
+        cue_doc,
+    )
+    formation_section = build_endpoint_formation_section(
+        extension_attention_stats,
+        extension_earlier_heads,
+        extension_attention_audit,
+    )
+    formation_section, direct_causal_count = re.subn(
+        r"</section>\s*$",
+        build_prompt_direct_causal_subsections(
+            extension_token_stats,
+            extension_token_audit,
+            extension_subspace_stats,
+            extension_subspace_audit,
+        )
+        + "\n</section>",
+        formation_section,
+        count=1,
+    )
+    if direct_causal_count != 1:
+        raise RuntimeError("Could not append direct prompt causal experiments")
+    base = base.replace(
+        '<section id="answer">',
+        extension_section
+        + '\n\n'
+        + formation_section
+        + '\n\n<section id="answer">',
+        1,
+    )
+
+    answer_marker = '<div class="figure-block"><h3>6.3 Interactive V4.4 answer-query counter</h3>'
     if answer_marker not in base:
         raise RuntimeError("Could not locate answer counter figure")
-    fit_block = build_answer_geometry_preface() + build_answer_fit_sensitivity(answer_data).replace(
-        "<h3>5.1 ", "<h3>4.1 ", 1
+    fit_block = (
+        build_absolute_deviation_section(answer_data)
+        + build_answer_geometry_preface()
+        + build_answer_fit_sensitivity(answer_data).replace(
+            "<h3>5.1 ", "<h3>6.2 ", 1
+        )
     )
+    fit_block = fit_block.replace("<h3>4.1 ", "<h3>6.1 ", 1)
     base = base.replace(answer_marker, fit_block + "\n\n" + answer_marker, 1)
 
     base = base.replace(
         "<h2>3 · V4.4 attention-head representation</h2>",
-        "<h2>5 · Attention-head retrieval representation</h2>",
+        "<h2>8 · Attention-head retrieval representation</h2>",
         1,
     )
-    attention_heading = "<h2>5 · Attention-head retrieval representation</h2>"
+    attention_heading = "<h2>8 · Attention-head retrieval representation</h2>"
     if attention_heading not in base:
         raise RuntimeError("Could not locate attention section heading")
+    transport_placeholder = "<!--TRANSPORT_ALIGNED_FULL-->"
+    if base.count(transport_placeholder) != 1:
+        raise RuntimeError("Could not locate the 5.4B transport placeholder")
+    base = base.replace(
+        transport_placeholder,
+        build_transport_aligned_section(transport_conditions, transport_contrasts),
+        1,
+    )
     base = base.replace(
         attention_heading,
         attention_heading + "\n" + build_attention_estimand_note(),
@@ -5968,31 +8190,47 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     )
     base = base.replace(
         "<h3>3.1 All-head V4.4 atlas</h3>",
-        "<h3>5.2 All-head V4.4 atlas</h3>",
+        "<h3>8.2 Full-span all-head atlas</h3>",
         1,
     )
-    atlas_default_swaps = (
-        (
-            '<button type="button" data-atlas="span_end" aria-pressed="true">endpoint-key mass</button>',
-            '<button type="button" data-atlas="span_end" aria-pressed="false">endpoint-key mass</button>',
-        ),
-        (
-            '<button type="button" data-atlas="span_sum" aria-pressed="false">full-span literal mass</button>',
-            '<button type="button" data-atlas="span_sum" aria-pressed="true">full-span literal mass</button>',
-        ),
-        (
-            '<div class="atlas-panel" data-atlas-panel="span_end">',
-            '<div class="atlas-panel" data-atlas-panel="span_end" hidden>',
-        ),
-        (
-            '<div class="atlas-panel" data-atlas-panel="span_sum" hidden>',
-            '<div class="atlas-panel" data-atlas-panel="span_sum">',
-        ),
+    base = base.replace(
+        "用按钮切换 endpoint-key 与 full-span-key pooling。横轴是 post-block decoder layer，纵轴是 head index；只有 full-attention layers 才存在完整行。",
+        "这里只显示 full-span literal score。横轴是 post-block decoder layer，纵轴是 head index；只有 full-attention layers 才存在完整行。",
+        1,
     )
-    for old, new in atlas_default_swaps:
-        if old not in base:
-            raise RuntimeError(f"Could not set full-span atlas default: {old}")
-        base = base.replace(old, new, 1)
+    base, switcher_count = re.subn(
+        r'<div class="switcher"><button type="button" data-atlas="span_end".*?</div>',
+        "",
+        base,
+        count=1,
+        flags=re.S,
+    )
+    base, endpoint_panel_count = re.subn(
+        r'<div class="atlas-panel" data-atlas-panel="span_end"(?: hidden)?>.*?</svg></div>',
+        "",
+        base,
+        count=1,
+        flags=re.S,
+    )
+    base = base.replace(
+        '<div class="atlas-panel" data-atlas-panel="span_sum" hidden>',
+        '<div class="atlas-panel" data-atlas-panel="span_sum">',
+        1,
+    )
+    base = base.replace(
+        "Atlas 的每一个格子是一个实际保存 full-attention row 的 layer/head。Query 固定为最终 <code>Total:</code> token；key pooling 可切换为 needle endpoint 或完整 needle span 的 literal sum。颜色是 discovery primary score 的对数尺度，只用于同一视图内排序。它不是单个 needle 的概率，也不能跨两种 pooling 直接比较颜色深浅。",
+        "Atlas 的每一个格子是一个实际保存 full-attention row 的 layer/head。Query 固定为最终 <code>Total:</code> token；key pooling 固定为完整 needle span 的 literal sum。颜色是 discovery primary score 的对数尺度，只用于同一模型内排序；它不是单个 needle 的概率，也不能跨模型直接比较颜色深浅。",
+        1,
+    )
+    base = base.replace(
+        "Endpoint phenotype symbols are shown only in the span-end view.",
+        "Only the full-span literal pooling view is included in this report.",
+        1,
+    )
+    if switcher_count != 1 or endpoint_panel_count != 1:
+        raise RuntimeError(
+            "Could not reduce the attention atlas to the full-span panel"
+        )
 
     base = replace_section(
         base,
@@ -6003,9 +8241,29 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
         ov, read_write, upstream, fullspan_upstream, gemma_residual
     )
     synthesis_section = build_synthesis_clear(ov, fullspan_upstream, gemma_residual)
+    synthesis_section, coverage_count = re.subn(
+        r"</section>\s*$",
+        model_coverage_matrix() + "\n</section>",
+        synthesis_section,
+        count=1,
+    )
+    if coverage_count != 1:
+        raise RuntimeError("Could not append the two-model coverage audit")
     base = base.replace(
         '<section id="limits">',
-        positive_section + "\n\n" + synthesis_section + '\n\n<section id="limits">',
+        positive_section
+        + "\n\n"
+        + synthesis_section
+        + "\n\n"
+        + build_extension_question_audit(
+            extension_token_stats,
+            extension_subspace_stats,
+            causal_v2,
+            ov,
+            gemma_residual,
+            extension_earlier_heads,
+        )
+        + '\n\n<section id="limits">',
         1,
     )
     base = replace_section(
@@ -6020,6 +8278,8 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
             fullspan_upstream,
             gemma_residual,
             correct_state,
+            extension_token_audit,
+            extension_subspace_audit,
         ),
     )
 
@@ -6038,21 +8298,44 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
         raise RuntimeError("Could not locate visualization bootstrap")
     base = base.replace(old_boot, new_boot, 1)
 
+    # Normalize colors embedded in legacy SVG/CSS fragments as well as the new
+    # Aurora theme.  This keeps Qwen/Gemma visual identities consistent across
+    # every figure, including diagrams inherited from the earlier report.
+    aurora_legacy_map = {
+        "#27685F": "#6750E8",
+        "#A66A45": "#00D4B4",
+        "#6A958A": "#6750E8",
+        "#B78767": "#00D4B4",
+        "#588BD2": "#00C2FF",
+    }
+    for old_color, new_color in aurora_legacy_map.items():
+        base = re.sub(re.escape(old_color), new_color, base, flags=re.I)
+
+    base = insert_concrete_examples(base)
+    base = make_all_tables_collapsible(base)
+    base = merge_transport_into_section_5_4(base)
+    base = make_secondary_content_collapsible(base)
+
     required_sections = [
         "mechanism-overview",
         "scope",
         "methods",
         "prompt",
+        "representation-extension",
+        "formation-tests",
         "answer",
         "attention",
         "causal",
         "natural-ov",
         "synthesis",
+        "question-audit",
         "limits",
     ]
     for section_id in required_sections:
         if base.count(f'id="{section_id}"') != 1:
             raise RuntimeError(f"Section id count is not one: {section_id}")
+    if base.count('id="transport-subspace"') != 1 or '<section id="transport-subspace">' in base:
+        raise RuntimeError("Transport results were not merged into section 5.4B")
     for removed_section in ("cue-robustness", "read-write", "upstream"):
         if f'id="{removed_section}"' in base:
             raise RuntimeError(f"Removed section unexpectedly present: {removed_section}")
@@ -6068,9 +8351,6 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
         raise RuntimeError("Unbalanced figure captions")
     if base.count("<section") != base.count("</section>"):
         raise RuntimeError("Unbalanced sections")
-    if "cue-present/absent" in base or "Cue robustness" in base:
-        raise RuntimeError("Cue-sensitivity content was not fully removed")
-
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(base, encoding="utf-8", newline="\n")
     print(
