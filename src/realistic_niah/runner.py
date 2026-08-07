@@ -55,6 +55,22 @@ class RunProtocol:
     run_manifest_schema_version: str = "realistic_niah_run_manifest_v2"
     request_schema_version: str = "realistic_niah_request_v2"
     request_id_namespace: str | None = None
+    store_prompt_payload: bool = True
+
+
+@dataclass
+class LoadedVLLMRuntime:
+    """One loaded tokenizer/model pair reusable across logical prompt shards."""
+
+    model_label: str
+    model_id: str
+    model_revision: str
+    engine_config: EngineConfig
+    engine_overrides: dict[str, Any]
+    tokenizer: Any
+    generated_text_decoder: Any | None
+    llm: Any
+    sampling_params_class: Any
 
 
 V2_RUN_PROTOCOL = RunProtocol()
@@ -233,6 +249,35 @@ def _load_completed(path: Path) -> dict[str, dict[str, Any]]:
     return completed
 
 
+def _load_completed_checkpoints(
+    results_path: Path,
+    parts_dir: Path,
+) -> dict[str, dict[str, Any]]:
+    paths = ([results_path] if results_path.exists() else []) + sorted(
+        parts_dir.glob("*.jsonl") if parts_dir.exists() else ()
+    )
+    completed: dict[str, dict[str, Any]] = {}
+    for path in paths:
+        for identifier, row in _load_completed(path).items():
+            if identifier in completed and completed[identifier] != row:
+                raise ValueError(
+                    f"Conflicting checkpoint rows for request {identifier}"
+                )
+            completed[identifier] = row
+    return completed
+
+
+def _cleanup_checkpoint_parts(parts_dir: Path) -> None:
+    if not parts_dir.exists():
+        return
+    for path in parts_dir.glob("*.jsonl"):
+        path.unlink()
+    try:
+        parts_dir.rmdir()
+    except OSError:
+        pass
+
+
 def _load_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
@@ -244,6 +289,16 @@ def _load_json(path: Path) -> dict[str, Any] | None:
 
 def _ordered_id_digest(values: Iterable[str]) -> str:
     payload = "".join(f"{value}\n" for value in values).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _json_sha256(value: Any) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -426,6 +481,60 @@ def model_engine_overrides(model_spec: ModelSpec) -> dict[str, Any]:
     )
 
 
+def load_vllm_runtime(
+    *,
+    model_spec: ModelSpec,
+    revision: str,
+    engine_config: EngineConfig,
+    cache_dir: str | Path | None = None,
+) -> LoadedVLLMRuntime:
+    """Load a registered model once for reuse across its logical shards."""
+
+    from transformers import AutoTokenizer
+    from vllm import LLM, SamplingParams
+
+    immutable_revision = resolve_model_revision(model_spec.model_id, revision)
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_spec.model_id,
+        revision=immutable_revision,
+        trust_remote_code=engine_config.trust_remote_code,
+        cache_dir=str(cache_dir) if cache_dir is not None else None,
+    )
+    generated_text_decoder = _load_generated_text_decoder(
+        model_spec,
+        revision=immutable_revision,
+        cache_dir=cache_dir,
+    )
+    engine_overrides = model_engine_overrides(model_spec)
+    llm_kwargs: dict[str, Any] = {
+        "model": model_spec.model_id,
+        "revision": immutable_revision,
+        "tokenizer_revision": immutable_revision,
+        "dtype": engine_config.dtype,
+        "tensor_parallel_size": engine_config.tensor_parallel_size,
+        "max_model_len": engine_config.max_model_len,
+        "gpu_memory_utilization": engine_config.gpu_memory_utilization,
+        "trust_remote_code": engine_config.trust_remote_code,
+        "enable_prefix_caching": engine_config.enable_prefix_caching,
+    }
+    if engine_config.max_num_seqs is not None:
+        llm_kwargs["max_num_seqs"] = engine_config.max_num_seqs
+    if cache_dir is not None:
+        llm_kwargs["download_dir"] = str(cache_dir)
+    llm_kwargs.update(engine_overrides)
+    return LoadedVLLMRuntime(
+        model_label=model_spec.label,
+        model_id=model_spec.model_id,
+        model_revision=immutable_revision,
+        engine_config=engine_config,
+        engine_overrides=engine_overrides,
+        tokenizer=tokenizer,
+        generated_text_decoder=generated_text_decoder,
+        llm=LLM(**llm_kwargs),
+        sampling_params_class=SamplingParams,
+    )
+
+
 def _batched(
     values: list[dict[str, Any]],
     size: int,
@@ -453,10 +562,8 @@ def run_vllm_experiment(
     require_clean_git: bool = False,
     registered_model_spec: ModelSpec | None = None,
     protocol: RunProtocol | None = None,
+    loaded_runtime: LoadedVLLMRuntime | None = None,
 ) -> dict[str, Any]:
-    from transformers import AutoTokenizer
-    from vllm import LLM, SamplingParams
-
     resolved_protocol = protocol or V2_RUN_PROTOCOL
     model_spec = registered_model_spec or resolve_model_spec(model)
     if model not in {model_spec.label, model_spec.model_id}:
@@ -482,8 +589,9 @@ def run_vllm_experiment(
     )
     output = Path(output_dir)
     results_path = output / "requests.jsonl"
+    parts_dir = output / "request_parts"
     manifest_path = output / "run_manifest.json"
-    completed = _load_completed(results_path)
+    completed = _load_completed_checkpoints(results_path, parts_dir)
     request_ids = [str(request["request_id"]) for request in requests]
     request_id_set = set(request_ids)
     unexpected_completed = sorted(set(completed) - request_id_set)
@@ -501,6 +609,13 @@ def run_vllm_experiment(
         raise RuntimeError("Formal run requires a clean Git worktree")
     engine = engine_config or EngineConfig()
     engine_overrides = model_engine_overrides(model_spec)
+    if loaded_runtime is not None and (
+        loaded_runtime.model_label != model_spec.label
+        or loaded_runtime.model_id != model_spec.model_id
+        or loaded_runtime.engine_config != engine
+        or loaded_runtime.engine_overrides != engine_overrides
+    ):
+        raise RuntimeError("Loaded vLLM runtime does not match the logical shard")
     if engine.request_batch_size <= 0:
         raise ValueError("request_batch_size must be positive")
     stimuli_file = Path(stimuli_path).resolve()
@@ -508,7 +623,11 @@ def run_vllm_experiment(
     request_ids_sha256 = _ordered_id_digest(request_ids)
     existing_manifest = _load_json(manifest_path)
     if existing_manifest is None:
-        immutable_revision = resolve_model_revision(model_spec.model_id, revision)
+        immutable_revision = (
+            loaded_runtime.model_revision
+            if loaded_runtime is not None
+            else resolve_model_revision(model_spec.model_id, revision)
+        )
         created_at_utc = datetime.now(timezone.utc).isoformat()
         elapsed_before_seconds = 0.0
     else:
@@ -524,6 +643,14 @@ def run_vllm_experiment(
                 "model_engine_overrides",
                 {},
             ),
+            "prompt_payload_storage": existing_manifest.get(
+                "prompt_payload_storage",
+                "full",
+            ),
+            "checkpoint_strategy": existing_manifest.get(
+                "checkpoint_strategy",
+                "legacy_full_file_rewrite",
+            ),
             "git_commit": existing_manifest.get("git", {}).get("commit"),
         }
         current = {
@@ -535,6 +662,12 @@ def run_vllm_experiment(
             "request_ids_sha256": request_ids_sha256,
             "engine": asdict(engine),
             "model_engine_overrides": engine_overrides,
+            "prompt_payload_storage": (
+                "full" if resolved_protocol.store_prompt_payload else "sha256_only"
+            ),
+            "checkpoint_strategy": (
+                "atomic_batch_parts_then_single_canonical_merge"
+            ),
             "git_commit": provenance["commit"],
         }
         if expected_existing != current:
@@ -544,9 +677,10 @@ def run_vllm_experiment(
             )
         immutable_revision = str(existing_manifest["model_revision"])
         if revision is not None:
-            requested_revision = resolve_model_revision(
-                model_spec.model_id,
-                revision,
+            requested_revision = (
+                loaded_runtime.model_revision
+                if loaded_runtime is not None
+                else resolve_model_revision(model_spec.model_id, revision)
             )
             if requested_revision != immutable_revision:
                 raise RuntimeError(
@@ -577,6 +711,10 @@ def run_vllm_experiment(
         "prompt_modes": list(dict.fromkeys(
             str(request["prompt_mode"]) for request in requests
         )),
+        "prompt_payload_storage": (
+            "full" if resolved_protocol.store_prompt_payload else "sha256_only"
+        ),
+        "checkpoint_strategy": "atomic_batch_parts_then_single_canonical_merge",
         "engine": asdict(engine),
         "model_engine_overrides": engine_overrides,
         "stimuli_path": str(stimuli_file),
@@ -601,6 +739,12 @@ def run_vllm_experiment(
         ),
     }
     if not pending:
+        if not results_path.exists():
+            _atomic_jsonl(
+                results_path,
+                (completed[key] for key in sorted(completed)),
+            )
+        _cleanup_checkpoint_parts(parts_dir)
         manifest |= {
             "completed_at_utc": datetime.now(timezone.utc).isoformat(),
             **_evaluation_summary(completed),
@@ -609,17 +753,22 @@ def run_vllm_experiment(
         return manifest
     _atomic_json(manifest_path, manifest)
 
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_spec.model_id,
+    runtime = loaded_runtime or load_vllm_runtime(
+        model_spec=model_spec,
         revision=immutable_revision,
-        trust_remote_code=engine.trust_remote_code,
-        cache_dir=str(cache_dir) if cache_dir is not None else None,
-    )
-    generated_text_decoder = _load_generated_text_decoder(
-        model_spec,
-        revision=immutable_revision,
+        engine_config=engine,
         cache_dir=cache_dir,
     )
+    if (
+        runtime.model_label != model_spec.label
+        or runtime.model_id != model_spec.model_id
+        or runtime.model_revision != immutable_revision
+        or runtime.engine_config != engine
+        or runtime.engine_overrides != engine_overrides
+    ):
+        raise RuntimeError("Loaded vLLM runtime does not match the logical shard")
+    tokenizer = runtime.tokenizer
+    generated_text_decoder = runtime.generated_text_decoder
     for request in pending:
         rendered = render_generation_prompt(
             tokenizer,
@@ -646,23 +795,7 @@ def run_vllm_experiment(
                 f"but max_model_len={engine.max_model_len}"
             )
 
-    llm_kwargs: dict[str, Any] = {
-        "model": model_spec.model_id,
-        "revision": immutable_revision,
-        "tokenizer_revision": immutable_revision,
-        "dtype": engine.dtype,
-        "tensor_parallel_size": engine.tensor_parallel_size,
-        "max_model_len": engine.max_model_len,
-        "gpu_memory_utilization": engine.gpu_memory_utilization,
-        "trust_remote_code": engine.trust_remote_code,
-        "enable_prefix_caching": engine.enable_prefix_caching,
-    }
-    if engine.max_num_seqs is not None:
-        llm_kwargs["max_num_seqs"] = engine.max_num_seqs
-    if cache_dir is not None:
-        llm_kwargs["download_dir"] = str(cache_dir)
-    llm_kwargs.update(engine_overrides)
-    llm = LLM(**llm_kwargs)
+    llm = runtime.llm
 
     groups: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
     for request in pending:
@@ -671,7 +804,7 @@ def run_vllm_experiment(
     started = time.perf_counter()
     for (prompt_mode, generation_seed), group in sorted(groups.items()):
         decode = decoding_config(model_spec, prompt_mode)
-        sampling = SamplingParams(
+        sampling = runtime.sampling_params_class(
             **_sampling_params_kwargs(decode, seed=generation_seed)
         )
         for batch_index, batch in enumerate(
@@ -687,6 +820,7 @@ def run_vllm_experiment(
             batch_elapsed = time.perf_counter() - batch_started
             if len(outputs) != len(batch):
                 raise RuntimeError("vLLM output count does not match request count")
+            batch_request_ids: list[str] = []
             for request, generated in zip(batch, outputs):
                 candidate = generated.outputs[0]
                 stimulus = request["stimulus"]
@@ -710,6 +844,23 @@ def run_vllm_experiment(
                     finish_reason=candidate.finish_reason,
                     output_tokens=len(candidate.token_ids),
                     max_output_tokens=decode.max_tokens,
+                )
+                prompt_payload = (
+                    {
+                        "messages": request["messages"],
+                        "rendered_prompt": request["rendered_prompt"],
+                        "input_ids": request["input_ids"],
+                    }
+                    if resolved_protocol.store_prompt_payload
+                    else {
+                        "prompt_payload_hashes": {
+                            "messages_sha256": _json_sha256(request["messages"]),
+                            "rendered_prompt_sha256": hashlib.sha256(
+                                request["rendered_prompt"].encode("utf-8")
+                            ).hexdigest(),
+                            "input_ids_sha256": _json_sha256(request["input_ids"]),
+                        }
+                    }
                 )
                 completed[request["request_id"]] = {
                     "schema_version": resolved_protocol.request_schema_version,
@@ -753,9 +904,7 @@ def run_vllm_experiment(
                     "query_layout": request["query_layout"],
                     "reasoning_policy": model_spec.reasoning_policy,
                     "reasoning_expected": expects_reasoning,
-                    "messages": request["messages"],
-                    "rendered_prompt": request["rendered_prompt"],
-                    "input_ids": request["input_ids"],
+                    **prompt_payload,
                     "model_passage_tokens": request["model_passage_tokens"],
                     "model_input_tokens": len(request["input_ids"]),
                     "model_density_per_1k": stimulus["num_needles"]
@@ -778,9 +927,11 @@ def run_vllm_experiment(
                     "seed_mode_group_size": len(group),
                     "evaluation": evaluation,
                 }
+                batch_request_ids.append(str(request["request_id"]))
+            part_digest = _ordered_id_digest(sorted(batch_request_ids))
             _atomic_jsonl(
-                results_path,
-                (completed[key] for key in sorted(completed)),
+                parts_dir / f"batch_{part_digest}.jsonl",
+                (completed[key] for key in sorted(batch_request_ids)),
             )
             manifest |= {
                 "last_updated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -791,6 +942,13 @@ def run_vllm_experiment(
             _atomic_json(manifest_path, manifest)
 
     elapsed = time.perf_counter() - started
+    _atomic_jsonl(
+        results_path,
+        (completed[key] for key in sorted(completed)),
+    )
+    if len(_load_completed(results_path)) != len(completed):
+        raise RuntimeError("Canonical request checkpoint merge failed readback")
+    _cleanup_checkpoint_parts(parts_dir)
     manifest |= {
         "completed_at_utc": datetime.now(timezone.utc).isoformat(),
         "completed_requests": len(completed),
