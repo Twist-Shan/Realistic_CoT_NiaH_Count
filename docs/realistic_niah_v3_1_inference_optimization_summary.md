@@ -7,13 +7,21 @@
 - 先在 H100 上做小规模性能测试，再冻结配置并启动全量推理。
 - Empirical law 与 mechanism 实验相互独立，可以并行推进。
 
-## 已完成的优化
+## 目前已经使用的优化
 
-1. **每个模型只加载一次**：14 次模型加载即可完成 48 个 model-mode shards，避免重复加载。
-2. **断点续跑**：每个 batch 原子写入；中断后从已完成部分继续。
-3. **减少磁盘写入**：结果中保存 prompt hash 和必要输出，不重复保存完整 prompt。
-4. **优先运行慢模型**：31B/32B 和 native-thinking 任务优先调度，减少多 GPU 尾部等待。
-5. **启用 prefix caching**：复用相同前缀，降低重复 prefill 成本。
+| 优化 | 当前做法 | 作用 |
+|---|---|---|
+| vLLM 推理 | 使用 continuous batching 和 PagedAttention | 提高吞吐并降低 KV-cache 浪费 |
+| 模型只加载一次 | 同一模型的所有 prompt modes 连续运行 | 14 次加载完成 48 个 shards，少加载 34 次 |
+| Prefix caching | `enable_prefix_caching=true` | 复用共同前缀，减少重复 prefill |
+| 分模型并发 | 大模型 batch 小，小模型 batch 大 | 降低 20K 上下文 OOM 风险 |
+| 单卡并行 | 每张 GPU 一个 worker，当前 TP=1 | 让多张卡同时运行不同模型 |
+| 慢任务优先 | 31B/32B 和 native-thinking 优先 | 减少多 GPU 最后的等待时间 |
+| 断点续跑 | 每个 batch 原子写入 checkpoint part | 中断后不必重新运行已完成请求 |
+| 单次合并 | 完成后才生成 canonical `requests.jsonl` | 避免反复重写大文件 |
+| 精简输出 | 保存 prompt hash，不重复保存完整 prompt | 减少磁盘写入和同步量 |
+
+目前**尚未启用**：按长度动态调整 batch、TP=2、FP8/INT8 量化、FP8 KV cache。这些必须先经过 H100 pilot。
 
 ## 当前模型配置
 
