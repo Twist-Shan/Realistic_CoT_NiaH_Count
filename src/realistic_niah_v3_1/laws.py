@@ -65,6 +65,31 @@ CANDIDATES = (
 )
 CANDIDATE_BY_NAME = {candidate.name: candidate for candidate in CANDIDATES}
 OUTCOME_MODELS = ("bernoulli", "binomial", "beta_binomial", "bias")
+_FIT_BACKEND = "scipy"
+_FIT_DEVICE = "cpu"
+
+
+def configure_fit_backend(*, backend: str = "scipy", device: str = "cpu") -> None:
+    """Configure the process-wide law-fitting backend used by nested analyses."""
+
+    if backend not in {"scipy", "torch"}:
+        raise ValueError("fit backend must be scipy or torch")
+    if device not in {"cpu", "cuda"}:
+        raise ValueError("analysis device must be cpu or cuda")
+    if backend == "scipy" and device != "cpu":
+        raise ValueError("The scipy backend is CPU-only")
+    if backend == "torch":
+        import torch
+
+        if device == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError("CUDA analysis requested but torch.cuda is unavailable")
+    global _FIT_BACKEND, _FIT_DEVICE
+    _FIT_BACKEND = backend
+    _FIT_DEVICE = device
+
+
+def fit_backend_metadata() -> dict[str, str]:
+    return {"backend": _FIT_BACKEND, "device": _FIT_DEVICE}
 
 
 def _minimum_successful_bootstraps(replicates: int) -> int:
@@ -268,7 +293,25 @@ def fit_law(
     outcome_model: str,
     *,
     levels: tuple[str, ...] | None = None,
+    backend: str | None = None,
+    device: str | None = None,
 ) -> FittedLaw:
+    resolved_backend = backend or _FIT_BACKEND
+    resolved_device = device or _FIT_DEVICE
+    if resolved_backend == "torch":
+        from .torch_laws import fit_law_torch
+
+        return fit_law_torch(
+            frame,
+            candidate,
+            outcome_model,
+            levels=levels,
+            device=resolved_device,
+        )
+    if resolved_backend != "scipy" or resolved_device != "cpu":
+        raise ValueError(
+            f"Unsupported fit backend/device: {resolved_backend}/{resolved_device}"
+        )
     if outcome_model not in OUTCOME_MODELS:
         raise ValueError(f"Unknown outcome model: {outcome_model}")
     if frame.empty:

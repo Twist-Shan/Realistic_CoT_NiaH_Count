@@ -6,8 +6,11 @@ from pathlib import Path
 from realistic_niah.drive_sync import build_run_archive
 from realistic_niah.runner import (
     EngineConfig,
+    _atomic_jsonl,
     _batched,
+    _cleanup_checkpoint_parts,
     _decode_generated_text,
+    _load_completed_checkpoints,
     _sampling_params_kwargs,
     build_requests,
     decoding_config,
@@ -35,6 +38,19 @@ def _stimulus(index: int) -> dict:
         "passage": f"passage {index}",
         "seed": index,
     }
+
+
+def test_atomic_batch_parts_resume_and_cleanup(tmp_path: Path) -> None:
+    results = tmp_path / "requests.jsonl"
+    parts = tmp_path / "request_parts"
+    _atomic_jsonl(parts / "batch_a.jsonl", [{"request_id": "a", "value": 1}])
+    _atomic_jsonl(parts / "batch_b.jsonl", [{"request_id": "b", "value": 2}])
+    completed = _load_completed_checkpoints(results, parts)
+    assert sorted(completed) == ["a", "b"]
+    _atomic_jsonl(results, (completed[key] for key in sorted(completed)))
+    assert sorted(_load_completed_checkpoints(results, parts)) == ["a", "b"]
+    _cleanup_checkpoint_parts(parts)
+    assert not parts.exists()
 
 
 def test_qwen_builds_four_formal_requests_per_stimulus() -> None:

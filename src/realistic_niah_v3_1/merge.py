@@ -15,7 +15,7 @@ from realistic_niah_v3.merge import (
     _sha256,
 )
 
-from .sharding import expected_request_ids, formal_shard_plan
+from .sharding import expected_request_ids, formal_bundle_plan, formal_shard_plan
 from .spec import (
     CANONICAL_TOKENIZER,
     CANONICAL_TOKENIZER_REVISION,
@@ -59,6 +59,9 @@ def audit_and_merge(run_root: Path, *, audit_only: bool = False) -> dict[str, An
     saved_plan = _load_json(orchestration / "formal_shards.json")
     if saved_plan != plan:
         raise RuntimeError("Saved V3.1 shard plan differs from the registry")
+    bundle_plan = formal_bundle_plan()
+    if _load_json(orchestration / "formal_bundles.json") != bundle_plan:
+        raise RuntimeError("Saved V3.1 bundle plan differs from the registry")
 
     dataset_manifest = _load_json(dataset / "manifest.json")
     dataset_audit = _load_json(dataset / "audit_report.json")
@@ -113,6 +116,8 @@ def audit_and_merge(run_root: Path, *, audit_only: bool = False) -> dict[str, An
         or prepare_audit.get("protocol_version") != PROTOCOL_VERSION
         or prepare_audit.get("git", {}).get("dirty") is not False
         or prepare_audit.get("plan", {}).get("tasks_sha256") != plan["tasks_sha256"]
+        or prepare_audit.get("physical_bundle_plan", {}).get("bundles_sha256")
+        != bundle_plan["bundles_sha256"]
         or prepare_audit.get("dataset", {}).get("stimuli_sha256")
         != _sha256(stimuli_path)
     ):
@@ -205,6 +210,8 @@ def audit_and_merge(run_root: Path, *, audit_only: bool = False) -> dict[str, An
         "audit_only": audit_only,
         "run_root": str(run_root),
         "plan_tasks_sha256": plan["tasks_sha256"],
+        "bundle_plan_sha256": bundle_plan["bundles_sha256"],
+        "physical_model_loads": bundle_plan["physical_model_loads"],
         "git_commit": prepared_commit,
         "stimuli_sha256": _sha256(stimuli_path),
         "stimuli": len(stimuli),

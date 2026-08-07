@@ -12,7 +12,7 @@ repo="${REALISTIC_NIAH_REPO_ROOT:-/lambda/nfs/Twist-CoT-Count-Multi-Model-v3/cod
 cache="${REALISTIC_NIAH_HF_CACHE:-/lambda/nfs/Twist-CoT-Count-Multi-Model-v3/hf-cache}"
 python_bin="${REALISTIC_NIAH_PYTHON:-/home/ubuntu/venvs/realistic-niah-vllm/bin/python}"
 stimuli="${run_root}/dataset/stimuli.jsonl"
-plan_tsv="${run_root}/orchestration/formal_shards.tsv"
+plan_tsv="${run_root}/orchestration/formal_bundles.tsv"
 state_root="${run_root}/orchestration/shard_state"
 
 case "${run_root}" in
@@ -29,6 +29,7 @@ test -x "${python_bin}"
 test -z "$(git -C "${repo}" status --short)"
 mkdir -p "${run_root}/shards" "${state_root}/claims" \
   "${state_root}/completed" "${state_root}/failed" \
+  "${state_root}/completed_bundles" "${state_root}/failed_bundles" \
   "${state_root}/failed_attempts" "${state_root}/workers" \
   "${run_root}/orchestration/logs"
 
@@ -46,10 +47,10 @@ engine_settings_for() {
 }
 
 archive_previous_attempt_if_safe() {
-  local task_id="$1"
-  local claim_dir="${state_root}/claims/${task_id}"
-  local failed_file="${state_root}/failed/${task_id}.tsv"
-  local archive_root="${state_root}/failed_attempts/${task_id}"
+  local bundle_id="$1"
+  local claim_dir="${state_root}/claims/${bundle_id}"
+  local failed_file="${state_root}/failed_bundles/${bundle_id}.tsv"
+  local archive_root="${state_root}/failed_attempts/${bundle_id}"
   local prior_host=""
   local prior_pid=""
   local stamp
@@ -91,55 +92,67 @@ printf "%s\t%s\t%s\t%s\trunning\n" "${gpu_id}" "$$" "$(hostname)" \
 sleep "$((gpu_id * 5))"
 
 while IFS=$'\t' read -r \
-  task_id priority model prompt_mode output_collection expected_requests revision
+  bundle_id priority model expected_logical_shards expected_requests revision \
+  prompt_modes logical_task_ids
 do
-  [[ "${task_id}" == "task_id" ]] && continue
-  completed_file="${state_root}/completed/${task_id}.tsv"
-  failed_file="${state_root}/failed/${task_id}.tsv"
-  claim_dir="${state_root}/claims/${task_id}"
-  [[ -s "${completed_file}" ]] && continue
-  archive_previous_attempt_if_safe "${task_id}" || continue
+  [[ "${bundle_id}" == "bundle_id" ]] && continue
+  bundle_completed_file="${state_root}/completed_bundles/${bundle_id}.tsv"
+  failed_file="${state_root}/failed_bundles/${bundle_id}.tsv"
+  claim_dir="${state_root}/claims/${bundle_id}"
+  [[ -s "${bundle_completed_file}" ]] && continue
+  archive_previous_attempt_if_safe "${bundle_id}" || continue
   mkdir "${claim_dir}" 2>/dev/null || continue
   attempt_id="$(date -u +%Y%m%dT%H%M%SZ).gpu${gpu_id}.$RANDOM"
-  printf "task_id\tgpu_id\tpid\thostname\tclaimed_at_utc\tattempt_id\n" \
+  printf "bundle_id\tgpu_id\tpid\thostname\tclaimed_at_utc\tattempt_id\n" \
     > "${claim_dir}/claim.tsv"
-  printf "%s\t%s\t%s\t%s\t%s\t%s\n" "${task_id}" "${gpu_id}" "$$" \
+  printf "%s\t%s\t%s\t%s\t%s\t%s\n" "${bundle_id}" "${gpu_id}" "$$" \
     "$(hostname)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${attempt_id}" \
     >> "${claim_dir}/claim.tsv"
   read -r request_batch_size max_num_seqs gpu_utilization \
     < <(engine_settings_for "${model}")
-  output_dir="${run_root}/shards/${task_id}/main"
-  log_file="${run_root}/orchestration/logs/${task_id}.${attempt_id}.log"
-  mkdir -p "${output_dir}"
+  log_file="${run_root}/orchestration/logs/${bundle_id}.${attempt_id}.log"
   if (
     cd "${repo}"
     env CUDA_VISIBLE_DEVICES="${gpu_id}" \
       PATH="$(dirname "${python_bin}"):${PATH}" PYTHONPATH=src \
       TOKENIZERS_PARALLELISM=false \
-      "${python_bin}" scripts/run_realistic_niah_v3_1.py \
-        --stimuli "${stimuli}" --output-dir "${output_dir}" \
+      "${python_bin}" scripts/run_realistic_niah_v3_1_model_bundle.py \
+        --stimuli "${stimuli}" --run-root "${run_root}" \
         --model "${model}" --revision "${revision}" \
-        --prompt-modes "${prompt_mode}" --query-layout cue_before_query_after \
+        --query-layout cue_before_query_after \
         --cache-dir "${cache}" --repo-root "${repo}" \
         --tensor-parallel-size 1 --max-model-len 32768 \
         --gpu-memory-utilization "${gpu_utilization}" \
         --max-num-seqs "${max_num_seqs}" \
         --request-batch-size "${request_batch_size}" --require-clean-git
   ) > "${log_file}" 2>&1; then
-    "${python_bin}" -c \
-      'import json,sys; p=json.load(open(sys.argv[1])); e=int(sys.argv[2]); assert p["protocol_version"]=="realistic_niah_v3_1"; assert p["completed_requests"]==e==p["expected_requests"]' \
-      "${output_dir}/run_manifest.json" "${expected_requests}"
-    printf "task_id\tmodel\tprompt_mode\tgpu_id\tattempt_id\tcompleted_at_utc\n" \
-      > "${completed_file}"
-    printf "%s\t%s\t%s\t%s\t%s\t%s\n" "${task_id}" "${model}" \
-      "${prompt_mode}" "${gpu_id}" "${attempt_id}" \
-      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${completed_file}"
+    IFS=',' read -r -a task_ids <<< "${logical_task_ids}"
+    [[ "${#task_ids[@]}" -eq "${expected_logical_shards}" ]]
+    for task_id in "${task_ids[@]}"; do
+      output_dir="${run_root}/shards/${task_id}/main"
+      "${python_bin}" -c \
+        'import json,sys; p=json.load(open(sys.argv[1])); e=int(sys.argv[2]); assert p["protocol_version"]=="realistic_niah_v3_1"; assert p["completed_requests"]==e==p["expected_requests"]; assert p["prompt_payload_storage"]=="sha256_only"' \
+        "${output_dir}/run_manifest.json" 3360
+      prompt_mode="${task_id##*__}"
+      completed_file="${state_root}/completed/${task_id}.tsv"
+      printf "task_id\tmodel\tprompt_mode\tgpu_id\tattempt_id\tcompleted_at_utc\n" \
+        > "${completed_file}"
+      printf "%s\t%s\t%s\t%s\t%s\t%s\n" "${task_id}" "${model}" \
+        "${prompt_mode}" "${gpu_id}" "${attempt_id}" \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${completed_file}"
+    done
+    printf "bundle_id\tmodel\tlogical_shards\trequests\tgpu_id\tattempt_id\tcompleted_at_utc\n" \
+      > "${bundle_completed_file}"
+    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "${bundle_id}" "${model}" \
+      "${expected_logical_shards}" "${expected_requests}" "${gpu_id}" \
+      "${attempt_id}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      >> "${bundle_completed_file}"
   else
     exit_code=$?
-    printf "task_id\tmodel\tprompt_mode\tgpu_id\tattempt_id\texit_code\tlog\n" \
+    printf "bundle_id\tmodel\tprompt_modes\tgpu_id\tattempt_id\texit_code\tlog\n" \
       > "${failed_file}"
-    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "${task_id}" "${model}" \
-      "${prompt_mode}" "${gpu_id}" "${attempt_id}" "${exit_code}" \
+    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "${bundle_id}" "${model}" \
+      "${prompt_modes}" "${gpu_id}" "${attempt_id}" "${exit_code}" \
       "${log_file}" >> "${failed_file}"
     exit "${exit_code}"
   fi

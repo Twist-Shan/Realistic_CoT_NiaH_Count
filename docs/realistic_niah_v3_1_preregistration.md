@@ -473,3 +473,31 @@ No claim of extrapolation beyond `N=1..20` or `L=1000..20000` is confirmatory.
 No interaction is described as present unless it passes the registered joint
 and multiplicity-corrected test. Missing, weak, negative, or unstable results
 are retained in the report.
+
+## 10. Prospective execution amendment: 2026-08-07
+
+This amendment was recorded before any V3.1 model response was generated. It
+does not alter the stimulus grid, prompts, checkpoint revisions, outcomes,
+hypotheses, candidate laws, validation splits, or multiplicity rules.
+
+To reduce paid accelerator time, the 48 registered model-mode shards remain
+the immutable logical audit units but are executed as 14 physical model
+bundles. Each checkpoint is loaded exactly once per uninterrupted worker
+attempt and its registered modes are run sequentially against the same loaded
+vLLM engine. Every mode still receives its own requests file, run manifest,
+completion marker, expected request-ID set, and final structural audit.
+
+V3.1 response rows store SHA256 hashes of messages, rendered prompts, and
+model input IDs instead of duplicating those large reconstructible payloads.
+The frozen stimulus, prompt mode, immutable tokenizer/checkpoint revision, and
+prompt builder reconstruct the payload; model input/output token counts and
+generated output token IDs remain stored. This is an execution/storage change
+only.
+
+The SciPy CPU optimizer remains the reference implementation for confirmatory
+law fitting. A float64 Torch backend may execute the same registered
+likelihoods on CPU or CUDA. Any CUDA result used confirmatorily must retain the
+backend/device in the manifest and pass the frozen SciPy-versus-Torch
+prediction and coefficient parity tests. Backend failures or material numeric
+disagreement require the SciPy reference result; they may not be resolved by
+choosing the more favorable fit.

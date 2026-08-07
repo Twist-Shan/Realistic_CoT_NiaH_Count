@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from realistic_niah_v3_1.analysis import (
@@ -22,9 +23,12 @@ from realistic_niah_v3_1.cot_style import (
 )
 from realistic_niah_v3_1.laws import (
     CANDIDATE_BY_NAME,
+    _analysis_frame,
     bootstrap_reselection_stability,
     bootstrap_selected_coefficients,
+    configure_fit_backend,
     fit_candidate_grid,
+    fit_backend_metadata,
     fit_law,
     leave_one_model_out_structure,
     nested_held_axis_validation,
@@ -109,6 +113,66 @@ def _distribution_outputs(
     )
 
 
+def _backend_parity_audit(
+    requests: pd.DataFrame,
+    selected: pd.DataFrame,
+    *,
+    torch_device: str,
+) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for selection in selected.itertuples(index=False):
+        mode = str(selection.prompt_mode)
+        outcome_model = str(selection.outcome_model)
+        candidate = CANDIDATE_BY_NAME[str(selection.candidate)]
+        mode_rows = requests.loc[requests["prompt_mode"] == mode]
+        frame = _analysis_frame(mode_rows, outcome_model, full=True)
+        scipy_fit = fit_law(
+            frame,
+            candidate,
+            outcome_model,
+            backend="scipy",
+            device="cpu",
+        )
+        torch_fit = fit_law(
+            frame,
+            candidate,
+            outcome_model,
+            levels=scipy_fit.levels,
+            backend="torch",
+            device=torch_device,
+        )
+        if outcome_model == "bias":
+            scipy_prediction = scipy_fit.predict_bias(frame)
+            torch_prediction = torch_fit.predict_bias(frame)
+        else:
+            scipy_prediction = scipy_fit.predict_probability(frame)
+            torch_prediction = torch_fit.predict_probability(frame)
+        prediction_difference = float(
+            np.max(np.abs(torch_prediction - scipy_prediction))
+        )
+        coefficient_difference = float(
+            np.max(np.abs(scipy_fit.beta - torch_fit.beta))
+        )
+        rows.append(
+            {
+                "prompt_mode": mode,
+                "outcome_model": outcome_model,
+                "candidate": candidate.name,
+                "scipy_converged": bool(scipy_fit.converged),
+                "torch_converged": bool(torch_fit.converged),
+                "max_absolute_prediction_difference": prediction_difference,
+                "max_absolute_coefficient_difference": coefficient_difference,
+                "passed": bool(
+                    scipy_fit.converged
+                    and torch_fit.converged
+                    and prediction_difference <= 5e-4
+                    and coefficient_difference <= 5e-3
+                ),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run the preregistered V3.1 behavior and empirical-law analysis."
@@ -124,7 +188,11 @@ def main() -> None:
     parser.add_argument("--reselection-bootstrap-replicates", type=int, default=2000)
     parser.add_argument("--annotation-random-size", type=int, default=600)
     parser.add_argument("--annotation-challenge-size", type=int, default=200)
+    parser.add_argument("--fit-backend", choices=("scipy", "torch"), default="scipy")
+    parser.add_argument("--analysis-device", choices=("cpu", "cuda"), default="cpu")
     args = parser.parse_args()
+
+    configure_fit_backend(backend=args.fit_backend, device=args.analysis_device)
 
     run_root = Path(args.run_root).resolve()
     output = (
@@ -136,7 +204,7 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     tables.mkdir(parents=True, exist_ok=True)
     state_path = output / "analysis_state.json"
-    _write_state(state_path, "loading")
+    _write_state(state_path, "loading", fit_backend=fit_backend_metadata())
 
     requests, sources = load_request_table(run_root)
     if len(requests) != EXPECTED_REQUESTS:
@@ -195,6 +263,17 @@ def main() -> None:
     _write_csv(tables / "selected_laws.csv", selected)
     _write_csv(tables / "coefficients.csv", coefficients)
     _write_csv(tables / "interaction_tests.csv", interactions)
+    if args.fit_backend == "torch":
+        backend_parity = _backend_parity_audit(
+            requests,
+            selected,
+            torch_device=args.analysis_device,
+        )
+        _write_csv(tables / "fit_backend_parity.csv", backend_parity)
+        if not backend_parity["passed"].all():
+            raise RuntimeError(
+                "Torch fit backend failed the preregistered SciPy parity gate"
+            )
     _write_state(
         state_path,
         "candidate_selection_complete",
@@ -284,6 +363,7 @@ def main() -> None:
         "request_rows": len(requests),
         "sources": sources,
         "settings": vars(args),
+        "fit_backend": fit_backend_metadata(),
         "lomo_run": bool(args.run_lomo),
         "bootstrap_reselection_run": bool(args.run_bootstrap_reselection),
         "files": [

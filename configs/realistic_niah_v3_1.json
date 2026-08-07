@@ -352,5 +352,16 @@
     "macro_f1_zero_support_rule": "omit a label only when both human-positive and automated-positive support are zero",
     "conditional_outcome_analysis_is_associational": true
   },
+  "execution": {
+    "prospective_amendment_date": "2026-08-07",
+    "logical_shards": 48,
+    "physical_model_bundles": 14,
+    "one_model_load_per_bundle_attempt": true,
+    "prompt_payload_storage": "sha256_only_reconstructible_from_frozen_inputs",
+    "output_token_ids_retained": true,
+    "confirmatory_reference_fit_backend": "scipy_float64_cpu",
+    "optional_acceleration_fit_backend": "torch_float64_cpu_or_cuda",
+    "gpu_backend_requires_scipy_parity": true
+  },
   "amendment_policy": "date, rationale, affected hypotheses, and confirmatory/exploratory status must be recorded before the affected analysis"
 }

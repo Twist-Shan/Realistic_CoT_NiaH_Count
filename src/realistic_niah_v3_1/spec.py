@@ -47,6 +47,7 @@ V31_RUN_PROTOCOL = RunProtocol(
     run_manifest_schema_version="realistic_niah_run_manifest_v3_1",
     request_schema_version="realistic_niah_request_v3_1",
     request_id_namespace="v3.1",
+    store_prompt_payload=False,
 )
 V31_FREEZE_PROTOCOL = FreezeProtocol(
     protocol_version=PROTOCOL_VERSION,

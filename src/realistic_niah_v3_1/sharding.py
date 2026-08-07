@@ -27,6 +27,7 @@ from .spec import (
 )
 
 FORMAL_SHARD_PLAN_SCHEMA = "realistic_niah_formal_shard_plan_v3_1"
+FORMAL_BUNDLE_PLAN_SCHEMA = "realistic_niah_physical_bundle_plan_v3_1"
 
 
 def _task_id(model_label: str, prompt_mode: str) -> str:
@@ -94,6 +95,63 @@ def formal_shard_plan() -> dict[str, Any]:
         ),
         "tasks_sha256": hashlib.sha256(canonical).hexdigest(),
         "tasks": tasks,
+    }
+
+
+def formal_bundle_tasks() -> list[dict[str, Any]]:
+    """Group logical model-mode shards into one physical load per model."""
+
+    logical = formal_shard_tasks()
+    bundles: list[dict[str, Any]] = []
+    for model_label in MODEL_LABELS:
+        tasks = [task for task in logical if task["model_label"] == model_label]
+        bundles.append(
+            {
+                "bundle_id": re.sub(r"[^A-Za-z0-9_.-]+", "-", model_label).strip("-"),
+                "priority": max(int(task["priority"]) for task in tasks),
+                "model_label": model_label,
+                "model_id": tasks[0]["model_id"],
+                "model_revision": tasks[0]["model_revision"],
+                "prompt_modes": [str(task["prompt_mode"]) for task in tasks],
+                "logical_task_ids": [str(task["task_id"]) for task in tasks],
+                "expected_logical_shards": len(tasks),
+                "expected_requests": sum(
+                    int(task["expected_requests"]) for task in tasks
+                ),
+            }
+        )
+    bundles.sort(key=lambda task: (-int(task["priority"]), str(task["bundle_id"])))
+    if len(bundles) != len(MODEL_LABELS):
+        raise RuntimeError("V3.1 bundle plan must contain one bundle per model")
+    logical_ids = [
+        task_id for bundle in bundles for task_id in bundle["logical_task_ids"]
+    ]
+    if len(logical_ids) != EXPECTED_SHARDS or len(set(logical_ids)) != EXPECTED_SHARDS:
+        raise RuntimeError("V3.1 bundle plan must cover 48 logical shards once")
+    if sum(int(bundle["expected_requests"]) for bundle in bundles) != EXPECTED_REQUESTS:
+        raise RuntimeError("V3.1 bundle plan request accounting is invalid")
+    return bundles
+
+
+def formal_bundle_plan() -> dict[str, Any]:
+    bundles = formal_bundle_tasks()
+    canonical = json.dumps(
+        bundles,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return {
+        "schema_version": FORMAL_BUNDLE_PLAN_SCHEMA,
+        "protocol_version": PROTOCOL_VERSION,
+        "physical_bundles": len(bundles),
+        "logical_shards": EXPECTED_SHARDS,
+        "expected_requests": EXPECTED_REQUESTS,
+        "physical_model_loads": len(bundles),
+        "legacy_model_mode_loads": EXPECTED_SHARDS,
+        "loads_avoided": EXPECTED_SHARDS - len(bundles),
+        "bundles_sha256": hashlib.sha256(canonical).hexdigest(),
+        "bundles": bundles,
     }
 
 

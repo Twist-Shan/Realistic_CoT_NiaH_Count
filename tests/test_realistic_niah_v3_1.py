@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+import pytest
 
 from realistic_niah_v3_1.analysis import (
     accuracy_condition_table,
@@ -28,7 +30,7 @@ from realistic_niah_v3_1.laws import (
     nested_seed_validation,
     probability_distribution_diagnostics,
 )
-from realistic_niah_v3_1.sharding import formal_shard_plan
+from realistic_niah_v3_1.sharding import formal_bundle_plan, formal_shard_plan
 from realistic_niah_v3_1.spec import (
     EXPECTED_REQUESTS,
     EXPECTED_SHARDS,
@@ -93,6 +95,7 @@ def test_registered_grid_and_request_accounting() -> None:
     assert EXPECTED_SHARDS == 48
     assert EXPECTED_REQUESTS == 161_280
     assert V31_RUN_PROTOCOL.request_id_namespace == "v3.1"
+    assert not V31_RUN_PROTOCOL.store_prompt_payload
     assert V31_FREEZE_PROTOCOL.stimulus_id_prefix == "V31_"
     freeze = default_freeze_spec()
     assert freeze.passage_lengths == PASSAGE_LENGTHS
@@ -131,6 +134,57 @@ def test_shard_plan_is_complete_and_namespaced() -> None:
         "enumeration_bullet",
         "native_thinking",
     }
+
+
+def test_physical_bundle_plan_loads_each_model_once() -> None:
+    plan = formal_bundle_plan()
+    assert plan["physical_bundles"] == 14
+    assert plan["logical_shards"] == 48
+    assert plan["expected_requests"] == EXPECTED_REQUESTS
+    assert plan["physical_model_loads"] == 14
+    assert plan["legacy_model_mode_loads"] == 48
+    assert plan["loads_avoided"] == 34
+    logical_ids = [
+        task_id for bundle in plan["bundles"] for task_id in bundle["logical_task_ids"]
+    ]
+    assert len(logical_ids) == len(set(logical_ids)) == EXPECTED_SHARDS
+
+
+def test_model_bundle_reuses_one_loaded_runtime(monkeypatch, tmp_path: Path) -> None:
+    import realistic_niah_v3_1.runner as bundle_runner
+
+    loaded = object()
+    load_calls: list[dict] = []
+    shard_calls: list[dict] = []
+
+    def fake_load(**kwargs):
+        load_calls.append(kwargs)
+        return loaded
+
+    def fake_run(**kwargs):
+        shard_calls.append(kwargs)
+        return {"completed_requests": EXPECTED_STIMULI}
+
+    monkeypatch.setattr(bundle_runner, "load_vllm_runtime", fake_load)
+    monkeypatch.setattr(bundle_runner, "run_v31_experiment", fake_run)
+    summary = bundle_runner.run_v31_model_bundle(
+        stimuli_path=tmp_path / "stimuli.jsonl",
+        run_root=tmp_path,
+        model="Qwen3-4B",
+        repo_root=tmp_path,
+    )
+    assert len(load_calls) == 1
+    assert len(shard_calls) == 4
+    assert all(call["loaded_runtime"] is loaded for call in shard_calls)
+    assert {call["prompt_modes"] for call in shard_calls} == {
+        ("direct",),
+        ("enumeration_index",),
+        ("enumeration_bullet",),
+        ("native_thinking",),
+    }
+    assert summary["physical_model_loads"] == 1
+    assert summary["logical_shards"] == 4
+    assert summary["completed_requests"] == 4 * EXPECTED_STIMULI
 
 
 def test_symmetric_trim_removes_exactly_three_each_tail_at_30() -> None:
@@ -203,6 +257,69 @@ def test_model_specific_slopes_and_all_observation_models_fit() -> None:
         assert result["cv_primary_loss_mean"] >= 0
         assert not coefficients.empty
         assert fitted.levels == ("model-a", "model-b")
+
+
+def test_torch_backend_matches_scipy_probabilities() -> None:
+    requests = _synthetic_requests()
+    cells = accuracy_condition_table(requests)
+    candidate = CANDIDATE_BY_NAME["log_additive"]
+    scipy_fit = fit_law(cells, candidate, "binomial")
+    torch_fit = fit_law(cells, candidate, "binomial", backend="torch", device="cpu")
+    assert torch_fit.converged
+    np.testing.assert_allclose(
+        torch_fit.predict_probability(cells),
+        scipy_fit.predict_probability(cells),
+        atol=5e-5,
+        rtol=5e-5,
+    )
+    scipy_beta_binomial = fit_law(cells, candidate, "beta_binomial")
+    torch_beta_binomial = fit_law(
+        cells,
+        candidate,
+        "beta_binomial",
+        backend="torch",
+        device="cpu",
+    )
+    assert torch_beta_binomial.converged
+    np.testing.assert_allclose(
+        torch_beta_binomial.predict_probability(cells),
+        scipy_beta_binomial.predict_probability(cells),
+        atol=5e-4,
+        rtol=5e-4,
+    )
+
+    bias_cells = bias_condition_table(requests)
+    scipy_bias = fit_law(bias_cells, candidate, "bias")
+    torch_bias = fit_law(
+        bias_cells,
+        candidate,
+        "bias",
+        backend="torch",
+        device="cpu",
+    )
+    np.testing.assert_allclose(
+        torch_bias.predict_bias(bias_cells),
+        scipy_bias.predict_bias(bias_cells),
+        atol=1e-8,
+        rtol=1e-8,
+    )
+
+
+def test_torch_cuda_backend_smoke() -> None:
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    requests = _synthetic_requests()
+    cells = accuracy_condition_table(requests)
+    fit = fit_law(
+        cells,
+        CANDIDATE_BY_NAME["log_additive"],
+        "binomial",
+        backend="torch",
+        device="cuda",
+    )
+    assert fit.converged
+    assert np.isfinite(fit.beta).all()
 
 
 def test_probability_distribution_diagnostics_cover_all_cells() -> None:

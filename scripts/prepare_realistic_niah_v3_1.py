@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from realistic_niah_v3_1.sharding import formal_shard_plan
+from realistic_niah_v3_1.sharding import formal_bundle_plan, formal_shard_plan
 from realistic_niah_v3_1.spec import EXPECTED_STIMULI, PROTOCOL_VERSION
 
 
@@ -90,6 +90,30 @@ def prepare(run_root: Path, repo_root: Path) -> dict[str, Any]:
         "\t".join(str(task[field]) for field in fields) for task in plan["tasks"]
     )
     _atomic_text(tsv_path, "\n".join(lines) + "\n")
+    bundle_plan = formal_bundle_plan()
+    bundle_json_path = orchestration / "formal_bundles.json"
+    bundle_tsv_path = orchestration / "formal_bundles.tsv"
+    _atomic_text(
+        bundle_json_path,
+        json.dumps(bundle_plan, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+    )
+    bundle_fields = (
+        "bundle_id",
+        "priority",
+        "model_label",
+        "expected_logical_shards",
+        "expected_requests",
+        "model_revision",
+        "prompt_modes",
+        "logical_task_ids",
+    )
+    bundle_lines = ["\t".join(bundle_fields)]
+    for bundle in bundle_plan["bundles"]:
+        values = dict(bundle)
+        values["prompt_modes"] = ",".join(bundle["prompt_modes"])
+        values["logical_task_ids"] = ",".join(bundle["logical_task_ids"])
+        bundle_lines.append("\t".join(str(values[field]) for field in bundle_fields))
+    _atomic_text(bundle_tsv_path, "\n".join(bundle_lines) + "\n")
     audit = {
         "schema_version": "realistic_niah_v3_1_prepare_audit_v1",
         "protocol_version": PROTOCOL_VERSION,
@@ -115,6 +139,13 @@ def prepare(run_root: Path, repo_root: Path) -> dict[str, Any]:
             "tasks_sha256": plan["tasks_sha256"],
             "shards": plan["expected_shards"],
             "requests": plan["expected_requests"],
+        },
+        "physical_bundle_plan": {
+            "path": str(bundle_json_path),
+            "sha256": _sha256(bundle_json_path),
+            "bundles_sha256": bundle_plan["bundles_sha256"],
+            "physical_bundles": bundle_plan["physical_bundles"],
+            "loads_avoided": bundle_plan["loads_avoided"],
         },
     }
     _atomic_text(

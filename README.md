@@ -14,6 +14,22 @@ python -m pip install -r requirements.txt
 
 Remote: `https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git`
 
+## Preregistered Realistic NIAH V3.1
+
+V3.1 expands the registered grid to eight lengths (`1K` through `20K`),
+fourteen counts, and 30 paired seeds: 3,360 stimuli and 161,280 requests. The
+48 logical model-mode shards execute as 14 physical model bundles so every
+checkpoint is loaded once per worker attempt. Batch outputs use atomic part
+checkpoints and one final canonical merge, and reconstructible prompt payloads
+are represented by SHA256 rather than repeated in every response row.
+
+The confirmatory SciPy law fitter now has a float64 Torch implementation for
+CPU or CUDA. GPU runs record their backend/device and must pass the frozen
+SciPy parity gate. See
+[`docs/realistic_niah_v3_1_preregistration.md`](docs/realistic_niah_v3_1_preregistration.md)
+and
+[`docs/realistic_niah_v3_1_implementation.md`](docs/realistic_niah_v3_1_implementation.md).
+
 ## Registered Realistic NIAH V3
 
 V3 implements the behavior-comparison and empirical-law portions of the new

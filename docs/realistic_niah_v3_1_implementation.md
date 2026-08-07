@@ -10,7 +10,7 @@ and generic inference engine are reused.
 The implementation provides:
 
 - frozen-grid generation and independent audit;
-- an immutable 48-shard plan and resumable GPU workers;
+- an immutable 48-logical-shard plan executed in 14 resumable model bundles;
 - final provenance audit and lossless canonical merge;
 - parsed-accuracy/format decomposition;
 - 10% symmetric trimmed cell bias with the 20-of-30 coverage rule;
@@ -46,15 +46,18 @@ bash scripts/launch_realistic_niah_v3_1.sh \
   /path/to/runs/realistic_niah_v3_1/RUN_NAME 8
 ```
 
-It writes an immutable shard plan, launches one worker per requested GPU, and
-starts a finalizer. The finalizer merges only after all 48 shards complete and
-requires exactly 161,280 unique request IDs.
+It writes immutable logical-shard and physical-bundle plans, launches one
+worker per requested GPU, and starts a finalizer. Each checkpoint is loaded
+once and all of its registered modes run against that loaded engine. The
+finalizer still merges only after all 48 logical shards complete and requires
+exactly 161,280 unique request IDs.
 
 Individual stages can also be run with:
 
 ```bash
 python scripts/prepare_realistic_niah_v3_1.py --run-root RUN_ROOT
 python scripts/run_realistic_niah_v3_1.py --help
+python scripts/run_realistic_niah_v3_1_model_bundle.py --help
 python scripts/merge_realistic_niah_v3_1_shards.py --run-root RUN_ROOT
 ```
 
@@ -69,6 +72,43 @@ python scripts/analyze_realistic_niah_v3_1.py \
   --run-lomo \
   --run-bootstrap-reselection
 ```
+
+The SciPy CPU backend is the confirmatory reference. A CUDA-enabled Torch
+environment can run the same float64 likelihoods with:
+
+```bash
+python scripts/analyze_realistic_niah_v3_1.py \
+  --run-root RUN_ROOT \
+  --fit-backend torch \
+  --analysis-device cuda \
+  --run-lomo \
+  --run-bootstrap-reselection
+```
+
+The output manifest records the backend and device. CUDA is an acceleration
+backend, not a different statistical specification; SciPy/Torch parity checks
+must pass before confirmatory use.
+
+### Recommended compute split
+
+- Freeze the 3,360 shared stimuli on the local CPU. This stage does not run an
+  LLM and does not benefit materially from renting an accelerator.
+- Use H100-class GPUs only for vLLM inference. The scheduler retains 48 logical
+  model-mode shards for auditing but executes 14 physical model bundles, which
+  avoids 34 redundant checkpoint loads. Atomic per-batch parts provide safe
+  resume without repeatedly rewriting the growing canonical JSONL file.
+- Run parsing, aggregation, table construction, plotting, and ordinary
+  confirmatory SciPy fits on a local CPU or an inexpensive CPU machine.
+- Use Torch/CUDA selectively when request-level Bernoulli fits and repeated
+  likelihood optimization dominate analysis time. Small aggregated bias and
+  Beta-Binomial problems may be faster on CPU because GPU launch and transfer
+  overhead can exceed their arithmetic cost. An H100 should not be kept rented
+  solely for post-processing without a timing pilot.
+
+The CUDA path requires a CUDA-enabled PyTorch build; the Windows development
+environment used to freeze the data has a CPU-only build. Therefore every new
+GPU image must first pass the included SciPy/Torch parity test and a short
+timing pilot before the 2,000-replicate confirmatory analysis is launched.
 
 Important outputs include:
 
