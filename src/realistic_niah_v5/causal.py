@@ -1,0 +1,1478 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any, Iterable, Mapping, Sequence
+
+import numpy as np
+import pandas as pd
+import torch
+
+from realistic_niah.parsing import parse_total
+from realistic_niah_v4.counter_channel_interventions import removal_transform
+from realistic_niah_v4.counter_channel_interventions import (
+    run_counter_subspace_conditions,
+)
+from realistic_niah_v4.modeling import (
+    DecoderAdapter,
+    _accepts_keyword,
+    _bounded_logits_kwargs,
+    _encoding_tensors,
+    _tensor_from_output,
+    capture_post_block_states,
+    generate_answer_completion,
+    generate_with_residual_interventions,
+    generate_with_residual_transforms,
+)
+from realistic_niah_v3.city_list_termination import (
+    find_first_terminated_gold_city_list,
+)
+
+from .encoding import NativeTraceEncoding, build_native_trace_encoding
+from .parsing import (
+    align_trace_sites,
+    gold_records,
+    infer_model_family,
+    output_token_ids,
+    prompt_token_ids,
+    raw_output_text,
+    trace_char_sites,
+)
+from .spec import V5Config
+
+
+CAUSAL_SCHEMA_VERSION = "realistic_niah_v5_causal_v2"
+
+
+@dataclass(frozen=True)
+class CausalExperiment:
+    experiment_id: str
+    report_role: str
+    intervention: str
+    primary_endpoint: str
+    required_controls: tuple[str, ...]
+    implementation: str
+
+
+V5_CAUSAL_LEDGER: tuple[CausalExperiment, ...] = (
+    CausalExperiment(
+        "earlier_span_attention",
+        "Step 1: evidence for accumulation across earlier trace items",
+        "restrict item-end query context to prior accepted-item spans",
+        "downstream residual displacement and attention mass",
+        ("clean", "length/depth-matched generated-text context"),
+        "native query-context mask runner",
+    ),
+    CausalExperiment(
+        "trace_token_corruption",
+        "Step 1: token-level necessity of enumerated trace items",
+        "replace trace-item tokens with equal-length non-trace tokens",
+        "count accuracy, signed error, answer-query displacement",
+        ("clean", "equal-token-count non-trace corruption"),
+        "corrupt_trace_tokens",
+    ),
+    CausalExperiment(
+        "trace_subspace_ablation",
+        "Step 1/3: necessity of the discovery-frozen running-index subspace",
+        "remove count-subspace component at trace endpoints",
+        "count accuracy and answer-query count-axis coefficient",
+        ("clean", "equal-norm orthogonal residual removal"),
+        "run_subspace_ablation",
+    ),
+    CausalExperiment(
+        "targeted_retrieval_head_ablation",
+        "Step 2a: necessity of k-to-record targeted retrieval heads",
+        "zero discovery-ranked head outputs at parser marker-end queries",
+        "matching city continuation likelihood and exact next-token accuracy",
+        ("clean", "layer-matched random heads", "K dose response"),
+        "run_mechanism_head_ablation_trials",
+    ),
+    CausalExperiment(
+        "progress_transition_head_ablation",
+        "Step 2b: necessity of progress-transition heads",
+        "zero discovery-ranked head outputs at accepted item-end queries",
+        "next-item/stop continuation likelihood and exact next-token accuracy",
+        ("clean", "layer-matched random heads", "K dose response"),
+        "run_mechanism_head_ablation_trials",
+    ),
+    CausalExperiment(
+        "answer_query_patch",
+        "Step 3: sufficiency of answer-query count state",
+        "patch matched donor state into receiver answer-query residual",
+        "transport toward donor count",
+        ("self patch", "mismatched donor", "orthogonal norm-matched delta"),
+        "run_residual_patch_trial",
+    ),
+    CausalExperiment(
+        "trace_endpoint_patch",
+        "Step 1 -> Step 3 causal transport",
+        "patch discovery-frozen trace endpoint state/subspace",
+        "answer-query representation and count transport",
+        ("self patch", "orthogonal norm-matched delta"),
+        "run_residual_patch_trial/run_counter_subspace_conditions",
+    ),
+    CausalExperiment(
+        "qwen_natural_ov_write",
+        "Step 2 optional delayed OV rewriting (Qwen)",
+        "trace natural attention-weighted OV contribution",
+        "count-axis write and candidate-score change",
+        ("selected heads", "layer-matched controls", "read/write partition"),
+        "capture_natural_head_writes",
+    ),
+    CausalExperiment(
+        "gemma_distributed_residual_write",
+        "Step 2 optional distributed residual write (Gemma)",
+        "trace/patch the registered cross-layer residual contribution",
+        "count-axis write and candidate-score change",
+        ("equal-norm orthogonal delta", "site-set specificity"),
+        "capture_natural_head_writes with cross-layer aggregation",
+    ),
+)
+
+
+def causal_ledger_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                **experiment.__dict__,
+                "required_controls": ";".join(experiment.required_controls),
+            }
+            for experiment in V5_CAUSAL_LEDGER
+        ]
+    )
+
+
+def _stable_seed(text: str) -> int:
+    return int.from_bytes(hashlib.sha256(text.encode("utf-8")).digest()[:8], "big")
+
+
+def rank_mechanism_heads(
+    attention: pd.DataFrame,
+    *,
+    mechanism: str,
+    split: str = "discovery",
+) -> pd.DataFrame:
+    """Freeze heads by query-weighted semantic target mass on discovery."""
+
+    needed = {
+        "model_label",
+        "split",
+        "mechanism",
+        "gold_count",
+        "trace_one_to_one",
+        "layer",
+        "head",
+        "target_prompt_record_mass",
+        "target_within_records_fraction",
+        "target_record_top1",
+    }
+    missing = sorted(needed - set(attention.columns))
+    if missing:
+        raise ValueError(f"Attention table is missing {missing}")
+    if mechanism not in {"targeted_retrieval", "progress_transition"}:
+        raise ValueError(f"Unknown head mechanism: {mechanism}")
+    mask = attention["split"].astype(str).str.lower().eq(split.lower())
+    mask &= attention["mechanism"].astype(str).eq(mechanism)
+    one_to_one = attention["trace_one_to_one"]
+    if one_to_one.dtype == bool:
+        mask &= one_to_one
+    else:
+        mask &= one_to_one.astype(str).str.lower().isin({"true", "1"})
+    selected = attention.loc[mask].copy()
+    if selected.empty:
+        raise ValueError(
+            f"No attention rows matched {split}/{mechanism}"
+        )
+    grouped = (
+        selected.groupby(["model_label", "layer", "head"], as_index=False)
+        .agg(
+            discovery_target_mass=("target_prompt_record_mass", "mean"),
+            discovery_target_fraction=("target_within_records_fraction", "mean"),
+            discovery_target_top1=("target_record_top1", "mean"),
+            n_queries=("target_prompt_record_mass", "size"),
+        )
+        .sort_values(
+            ["model_label", "discovery_target_mass", "layer", "head"],
+            ascending=[True, False, True, True],
+        )
+    )
+    grouped["discovery_rank"] = (
+        grouped.groupby("model_label").cumcount() + 1
+    )
+    grouped["mechanism"] = mechanism
+    grouped["query_site_kind"] = (
+        "marker_end" if mechanism == "targeted_retrieval" else "item_end"
+    )
+    grouped["selection_metric"] = "query_weighted_mean_target_prompt_record_mass"
+    grouped["selection_split"] = split
+    grouped["selection_cohort"] = "one_to_one"
+    grouped["selection_counts"] = "1-10"
+    return grouped.reset_index(drop=True)
+
+
+def rank_retrieval_heads(
+    attention: pd.DataFrame, *, split: str = "discovery"
+) -> pd.DataFrame:
+    """Compatibility name for the registered targeted-retrieval ranking."""
+
+    return rank_mechanism_heads(
+        attention, mechanism="targeted_retrieval", split=split
+    )
+
+
+def layer_matched_random_controls(
+    head_ranking: pd.DataFrame,
+    selected_heads: Sequence[tuple[int, int]],
+    *,
+    repeats: int,
+    seed_text: str,
+) -> list[list[tuple[int, int]]]:
+    if repeats < 1:
+        raise ValueError("repeats must be positive")
+    available = {
+        (int(row.layer), int(row.head))
+        for row in head_ranking.itertuples(index=False)
+    }
+    selected = [(int(layer), int(head)) for layer, head in selected_heads]
+    by_layer: dict[int, list[int]] = {}
+    for layer, head in available - set(selected):
+        by_layer.setdefault(layer, []).append(head)
+    target_counts: dict[int, int] = {}
+    for layer, _head in selected:
+        target_counts[layer] = target_counts.get(layer, 0) + 1
+    rng = np.random.default_rng(_stable_seed(seed_text))
+    controls: list[list[tuple[int, int]]] = []
+    for _repeat in range(repeats):
+        bank: list[tuple[int, int]] = []
+        for layer, count in sorted(target_counts.items()):
+            candidates = np.asarray(sorted(by_layer.get(layer, [])), dtype=int)
+            if len(candidates) < count:
+                raise ValueError(
+                    f"Not enough non-selected heads for layer-matched L{layer} control"
+                )
+            chosen = rng.choice(candidates, size=count, replace=False)
+            bank.extend((layer, int(head)) for head in chosen)
+        controls.append(sorted(bank))
+    return controls
+
+
+def build_causal_plan(
+    attention_csv: str | Path,
+    output_dir: str | Path,
+    *,
+    config: V5Config,
+) -> dict[str, Path]:
+    config.validate()
+    attention = pd.read_csv(attention_csv)
+    ranking = pd.concat(
+        [
+            rank_mechanism_heads(attention, mechanism=mechanism)
+            for mechanism in config.causal_head_mechanisms
+        ],
+        ignore_index=True,
+    )
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    plan_rows: list[dict[str, Any]] = []
+    skipped_banks: list[dict[str, Any]] = []
+    for (model_label, mechanism), model_frame in ranking.groupby(
+        ["model_label", "mechanism"], sort=True
+    ):
+        ordered = [
+            (int(row.layer), int(row.head))
+            for row in model_frame.sort_values("discovery_rank").itertuples()
+        ]
+        for bank_size in config.causal_head_bank_sizes:
+            if bank_size > len(ordered):
+                continue
+            chosen = ordered[:bank_size]
+            try:
+                controls = layer_matched_random_controls(
+                    model_frame,
+                    chosen,
+                    repeats=config.causal_random_controls,
+                    seed_text=f"v5:{model_label}:{mechanism}:K{bank_size}",
+                )
+            except ValueError as error:
+                skipped_banks.append(
+                    {
+                        "model_label": str(model_label),
+                        "mechanism": str(mechanism),
+                        "bank_size": int(bank_size),
+                        "reason": str(error),
+                    }
+                )
+                continue
+            plan_rows.append(
+                {
+                    "model_label": model_label,
+                    "mechanism": mechanism,
+                    "query_site_kind": str(
+                        model_frame["query_site_kind"].iloc[0]
+                    ),
+                    "experiment_id": f"{mechanism}_head_ablation",
+                    "condition": f"{mechanism}_ranked",
+                    "bank_size": bank_size,
+                    "repeat": 0,
+                    "heads": json.dumps(chosen),
+                }
+            )
+            for repeat, control in enumerate(controls, start=1):
+                plan_rows.append(
+                    {
+                        "model_label": model_label,
+                        "mechanism": mechanism,
+                        "query_site_kind": str(
+                            model_frame["query_site_kind"].iloc[0]
+                        ),
+                        "experiment_id": f"{mechanism}_head_ablation",
+                        "condition": "layer_matched_random",
+                        "bank_size": bank_size,
+                        "repeat": repeat,
+                        "heads": json.dumps(control),
+                    }
+                )
+    paths = {
+        "ranking": output / "discovery_head_ranking.csv",
+        "plan": output / "causal_plan.csv",
+        "ledger": output / "causal_ledger.csv",
+        "audit": output / "causal_plan_audit.json",
+    }
+    ranking.to_csv(paths["ranking"], index=False)
+    pd.DataFrame(
+        plan_rows,
+        columns=[
+            "model_label",
+            "mechanism",
+            "query_site_kind",
+            "experiment_id",
+            "condition",
+            "bank_size",
+            "repeat",
+            "heads",
+        ],
+    ).to_csv(paths["plan"], index=False)
+    causal_ledger_frame().to_csv(paths["ledger"], index=False)
+    paths["audit"].write_text(
+        json.dumps(
+            {
+                "schema_version": CAUSAL_SCHEMA_VERSION,
+                "selection_split": "discovery",
+                "selection_cohort": "one_to_one",
+                "selection_counts": list(config.counts),
+                "confirmation_used_for_selection": False,
+                "selection_metric": (
+                    "query-weighted mean raw attention mass to the semantic "
+                    "target prompt-record span"
+                ),
+                "mechanisms": {
+                    "targeted_retrieval": {
+                        "query": "marker_end:k",
+                        "target": "prompt record matching accepted city k",
+                    },
+                    "progress_transition": {
+                        "query": "item_end:k",
+                        "target": "prompt record matching accepted city k+1",
+                    },
+                },
+                "primary_ablation_scope": "mechanism query position only",
+                "random_control": "same selected-head count in every layer",
+                "skipped_banks": skipped_banks,
+                "attention_source": str(Path(attention_csv).resolve()),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return paths
+
+
+def completion_metrics(result: Mapping[str, Any], *, gold_count: int) -> dict[str, Any]:
+    full = str(result.get("full_answer_text", ""))
+    prediction = parse_total(full)
+    return {
+        "prediction": prediction,
+        "exact_count": prediction == int(gold_count),
+        "signed_error": prediction - int(gold_count) if prediction is not None else None,
+        "absolute_error": (
+            abs(prediction - int(gold_count)) if prediction is not None else None
+        ),
+        "completion_text_raw": result.get("completion_text_raw"),
+        "generated_token_count": result.get("generated_token_count"),
+        "generation_truncated": result.get("generation_truncated"),
+    }
+
+
+@torch.inference_mode()
+def capture_natural_head_writes(
+    model: Any,
+    adapter: DecoderAdapter,
+    encoding: NativeTraceEncoding,
+    *,
+    layers: Iterable[int] | None = None,
+    count_direction: (
+        np.ndarray
+        | torch.Tensor
+        | Mapping[int, np.ndarray | torch.Tensor]
+        | None
+    ) = None,
+) -> tuple[pd.DataFrame, dict[tuple[int, int], torch.Tensor]]:
+    """Decompose the natural attention output at one registered query.
+
+    The input to each layer's output projection is the concatenated,
+    attention-weighted head output. For a linear output projection, evaluating
+    one head slice at a time and subtracting the zero-input output gives its
+    exact natural residual write, including GQA/global-layer differences
+    already resolved by ``DecoderAdapter``. This implementation is native to
+    V5 and has no V4.4.2+ experiment dependency.
+    """
+
+    active_layers = (
+        tuple(range(int(adapter.num_layers)))
+        if layers is None
+        else tuple(sorted({int(layer) for layer in layers}))
+    )
+    if not active_layers or any(
+        layer < 0 or layer >= int(adapter.num_layers) for layer in active_layers
+    ):
+        raise ValueError("Invalid natural-write layers")
+    captured: dict[int, torch.Tensor] = {}
+    handles = []
+    for layer in active_layers:
+
+        def hook(
+            _module: Any,
+            args: tuple[Any, ...],
+            *,
+            layer: int = layer,
+        ) -> None:
+            if not args or not isinstance(args[0], torch.Tensor):
+                raise RuntimeError("Attention output projection received no tensor")
+            value = args[0]
+            if value.ndim != 3:
+                raise RuntimeError("Expected [batch,time,heads*head_dim] before o_proj")
+            captured[layer] = value[0, int(encoding.query_position)].detach()
+
+        handles.append(
+            adapter.output_projections[layer].register_forward_pre_hook(hook)
+        )
+    try:
+        input_ids, attention_mask = _encoding_tensors(model, encoding)
+        model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            use_cache=False,
+            **_bounded_logits_kwargs(model),
+        )
+    finally:
+        for handle in handles:
+            handle.remove()
+    missing = sorted(set(active_layers) - set(captured))
+    if missing:
+        raise RuntimeError(f"Natural-write capture missed layers {missing}")
+    def normalized_direction(
+        value: np.ndarray | torch.Tensor,
+    ) -> torch.Tensor:
+        direction = torch.as_tensor(value, dtype=torch.float32)
+        if direction.ndim != 1:
+            raise ValueError("count_direction must be one residual vector")
+        norm = torch.linalg.vector_norm(direction)
+        if not torch.isfinite(norm) or float(norm) <= 0:
+            raise ValueError("count_direction must be finite and nonzero")
+        return direction / norm
+
+    directions: dict[int, torch.Tensor] = {}
+    if isinstance(count_direction, Mapping):
+        directions = {
+            int(layer): normalized_direction(value)
+            for layer, value in count_direction.items()
+        }
+        missing_directions = sorted(set(active_layers) - set(directions))
+        if missing_directions:
+            raise ValueError(
+                f"count_direction mapping is missing layers {missing_directions}"
+            )
+    elif count_direction is not None:
+        shared_direction = normalized_direction(count_direction)
+        directions = {layer: shared_direction for layer in active_layers}
+    rows: list[dict[str, Any]] = []
+    writes: dict[tuple[int, int], torch.Tensor] = {}
+    for layer in active_layers:
+        direction = directions.get(layer)
+        projection = adapter.output_projections[layer]
+        aggregate = captured[layer]
+        heads = int(adapter.num_heads[layer])
+        head_dim = int(adapter.head_dims[layer])
+        if aggregate.numel() != heads * head_dim:
+            raise RuntimeError(
+                f"L{layer} o_proj input width disagrees with decoder adapter"
+            )
+        zero = torch.zeros_like(aggregate)
+        zero_output = projection(zero.reshape(1, 1, -1))[0, 0]
+        full_delta = projection(aggregate.reshape(1, 1, -1))[0, 0] - zero_output
+        summed = torch.zeros_like(full_delta)
+        layer_writes: list[torch.Tensor] = []
+        for head in range(heads):
+            left = head * head_dim
+            right = left + head_dim
+            isolated = zero.clone()
+            isolated[left:right] = aggregate[left:right]
+            write = (
+                projection(isolated.reshape(1, 1, -1))[0, 0] - zero_output
+            ).detach().float().cpu()
+            writes[(int(layer), int(head))] = write
+            layer_writes.append(write)
+            summed = summed + write.to(device=summed.device, dtype=summed.dtype)
+        reconstruction_error = float(
+            torch.linalg.vector_norm(summed - full_delta).detach().float().cpu()
+        )
+        for head, write in enumerate(layer_writes):
+            norm = float(torch.linalg.vector_norm(write))
+            if direction is None:
+                coefficient = np.nan
+                cosine = np.nan
+            else:
+                active_direction = direction.to(write)
+                coefficient = float(torch.dot(write, active_direction))
+                cosine = coefficient / norm if norm > 0 else np.nan
+            rows.append(
+                {
+                    "schema_version": CAUSAL_SCHEMA_VERSION,
+                    "request_id": encoding.request_id,
+                    "model_label": encoding.model_label,
+                    "seed": encoding.seed,
+                    "split": encoding.split,
+                    "gold_count": encoding.count,
+                    "site_id": encoding.selected_site.get("site_id"),
+                    "layer": int(layer),
+                    "head": int(head),
+                    "layer_type": adapter.layer_types[layer],
+                    "write_norm": norm,
+                    "count_direction_coefficient": coefficient,
+                    "count_direction_cosine": cosine,
+                    "layer_reconstruction_error": reconstruction_error,
+                }
+            )
+    return pd.DataFrame(rows), writes
+
+
+def mechanism_continuations(
+    row: Mapping[str, Any], tokenizer: Any, *, mechanism: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    family = infer_model_family(row)
+    parser = find_first_terminated_gold_city_list(
+        raw_output_text(row),
+        model_family=family,
+        gold_records=gold_records(row),
+    )
+    token_sites = align_trace_sites(
+        tokenizer,
+        raw_text=raw_output_text(row),
+        baseline_output_token_ids=output_token_ids(row),
+        sites=trace_char_sites(raw_output_text(row), parser),
+    )
+    by_id = {site.char_site.site_id: site for site in token_sites}
+    cities = [str(value) for value in parser.item_gold_cities]
+    specifications: list[tuple[str, str, int, str, str | None]] = []
+    if mechanism == "targeted_retrieval":
+        specifications = [
+            (f"marker_end:{k}", f"city_end:{k}", k, "retrieve", city)
+            for k, city in enumerate(cities, start=1)
+        ]
+    elif mechanism == "progress_transition":
+        specifications = [
+            (
+                f"item_end:{k}",
+                f"marker_end:{k + 1}",
+                k,
+                "continue",
+                cities[k],
+            )
+            for k in range(1, len(cities))
+        ]
+        if cities and "answer_query" in by_id:
+            specifications.append(
+                (
+                    f"item_end:{len(cities)}",
+                    "answer_query",
+                    len(cities),
+                    "stop",
+                    None,
+                )
+            )
+    else:
+        raise ValueError(f"Unknown head mechanism: {mechanism}")
+    eligible: list[dict[str, Any]] = []
+    excluded: list[dict[str, Any]] = []
+    for query_id, target_id, occurrence, phase, target_city in specifications:
+        query = by_id.get(query_id)
+        target = by_id.get(target_id)
+        reason = None
+        if query is None or target is None:
+            reason = "missing_registered_boundary"
+        elif not query.alignment_eligible or not target.alignment_eligible:
+            reason = "ineligible_text_exact_alignment"
+        elif (
+            query.alignment_strategy != "literal_baseline_token_prefix"
+            or target.alignment_strategy != "literal_baseline_token_prefix"
+        ):
+            reason = "local_causal_trial_requires_literal_baseline_alignment"
+        elif (
+            query.prefix_token_count is None
+            or target.prefix_token_count is None
+            or int(target.prefix_token_count) <= int(query.prefix_token_count)
+        ):
+            reason = "empty_or_reversed_target_continuation"
+        payload = {
+            "mechanism": mechanism,
+            "query_site_id": query_id,
+            "target_site_id": target_id,
+            "occurrence": int(occurrence),
+            "transition_phase": phase,
+            "target_city": target_city,
+        }
+        if reason is not None:
+            excluded.append({**payload, "status": reason})
+            continue
+        eligible.append(
+            {
+                **payload,
+                "query_output_token_count": int(query.prefix_token_count),
+                "target_output_token_count": int(target.prefix_token_count),
+            }
+        )
+    return eligible, excluded
+
+
+@torch.inference_mode()
+def _local_head_ablation_logits(
+    model: Any,
+    adapter: DecoderAdapter,
+    encoding: NativeTraceEncoding,
+    heads: Sequence[tuple[int, int]],
+    *,
+    hook_position: int,
+    target_token_count: int,
+) -> torch.Tensor:
+    by_layer: dict[int, list[int]] = {}
+    for raw_layer, raw_head in heads:
+        layer = int(raw_layer)
+        head = int(raw_head)
+        if not 0 <= layer < int(adapter.num_layers):
+            raise ValueError(f"Invalid ablation layer: {layer}")
+        if not 0 <= head < int(adapter.num_heads[layer]):
+            raise ValueError(f"Invalid head L{layer}H{head}")
+        by_layer.setdefault(layer, []).append(head)
+    handles = []
+    for layer, layer_heads in by_layer.items():
+        head_dim = int(adapter.head_dims[layer])
+
+        def hook(
+            _module: Any,
+            args: tuple[Any, ...],
+            *,
+            layer_heads: tuple[int, ...] = tuple(sorted(set(layer_heads))),
+            head_dim: int = head_dim,
+        ) -> tuple[Any, ...]:
+            if not args or not isinstance(args[0], torch.Tensor):
+                raise RuntimeError("Attention projection received no head tensor")
+            value = args[0]
+            if value.ndim != 3 or hook_position >= int(value.shape[1]):
+                raise RuntimeError("Mechanism query is outside the prefill tensor")
+            patched = value.clone()
+            for head in layer_heads:
+                left = head * head_dim
+                patched[:, hook_position, left : left + head_dim] = 0
+            return (patched, *args[1:])
+
+        handles.append(
+            adapter.output_projections[layer].register_forward_pre_hook(hook)
+        )
+    input_ids, attention_mask = _encoding_tensors(model, encoding)
+    kwargs: dict[str, Any] = {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "use_cache": False,
+    }
+    keep = int(target_token_count) + 1
+    if _accepts_keyword(model, "logits_to_keep"):
+        kwargs["logits_to_keep"] = keep
+    try:
+        output = model(**kwargs)
+    finally:
+        for handle in handles:
+            handle.remove()
+    logits = getattr(output, "logits", None)
+    if not isinstance(logits, torch.Tensor) or logits.ndim != 3:
+        raise RuntimeError("Mechanism trial returned no sequence logits")
+    if int(logits.shape[1]) == int(encoding.sequence_length):
+        selected = logits[0, hook_position : hook_position + target_token_count]
+    elif int(logits.shape[1]) == keep:
+        selected = logits[0, :target_token_count]
+    else:
+        raise RuntimeError(
+            f"Unexpected kept-logit length {logits.shape[1]} (expected {keep})"
+        )
+    return selected.detach().float().cpu()
+
+
+def _continuation_metrics(
+    logits: torch.Tensor, target_ids: Sequence[int]
+) -> dict[str, Any]:
+    targets = torch.as_tensor(tuple(target_ids), dtype=torch.long)
+    if logits.ndim != 2 or len(logits) != len(targets) or not len(targets):
+        raise ValueError("Continuation logits/targets disagree")
+    log_probabilities = torch.log_softmax(logits, dim=-1)
+    token_logp = log_probabilities[
+        torch.arange(len(targets), dtype=torch.long), targets
+    ]
+    predictions = logits.argmax(dim=-1)
+    first_rank = int(
+        1
+        + torch.count_nonzero(
+            logits[0] > logits[0, int(targets[0])]
+        ).item()
+    )
+    return {
+        "target_sequence_log_probability": float(token_logp.sum()),
+        "target_mean_token_log_probability": float(token_logp.mean()),
+        "target_sequence_teacher_forced_exact": bool(
+            torch.equal(predictions, targets)
+        ),
+        "target_first_token_exact": bool(predictions[0] == targets[0]),
+        "target_first_token_rank": first_rank,
+    }
+
+
+@torch.inference_mode()
+def run_mechanism_head_ablation_trials(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    row: Mapping[str, Any],
+    *,
+    mechanism: str,
+    heads: Sequence[tuple[int, int]],
+    condition: str,
+) -> list[dict[str, Any]]:
+    """Run position-local targeted/progress teacher-forced necessity tests."""
+
+    specifications, excluded = mechanism_continuations(
+        row, tokenizer, mechanism=mechanism
+    )
+    output: list[dict[str, Any]] = []
+    for exclusion in excluded:
+        output.append(
+            {
+                "schema_version": CAUSAL_SCHEMA_VERSION,
+                "experiment_id": f"{mechanism}_head_ablation",
+                "condition": condition,
+                "request_id": row.get("request_id", row.get("stimulus_id")),
+                "model_label": row.get("model_label"),
+                "seed": row.get("seed"),
+                "split": row.get("split"),
+                "gold_count": len(gold_records(row)),
+                "heads": [[int(layer), int(head)] for layer, head in heads],
+                **exclusion,
+            }
+        )
+    baseline_ids = output_token_ids(row)
+    prompt_count = len(prompt_token_ids(row))
+    for specification in specifications:
+        target_encoding = build_native_trace_encoding(
+            row,
+            tokenizer,
+            site_id=str(specification["target_site_id"]),
+            candidate_counts=(),
+        )
+        query_output_count = int(specification["query_output_token_count"])
+        target_output_count = int(specification["target_output_token_count"])
+        target_ids = baseline_ids[query_output_count:target_output_count]
+        hook_position = prompt_count + query_output_count - 1
+        logits = _local_head_ablation_logits(
+            model,
+            adapter,
+            target_encoding,
+            heads,
+            hook_position=hook_position,
+            target_token_count=len(target_ids),
+        )
+        output.append(
+            {
+                "schema_version": CAUSAL_SCHEMA_VERSION,
+                "experiment_id": f"{mechanism}_head_ablation",
+                "condition": condition,
+                "request_id": target_encoding.request_id,
+                "model_label": target_encoding.model_label,
+                "seed": target_encoding.seed,
+                "split": target_encoding.split,
+                "gold_count": target_encoding.count,
+                "heads": [[int(layer), int(head)] for layer, head in heads],
+                "bank_size": len(heads),
+                "status": "ok",
+                "target_token_count": len(target_ids),
+                "target_text": tokenizer.decode(
+                    list(target_ids),
+                    skip_special_tokens=False,
+                    clean_up_tokenization_spaces=False,
+                ),
+                **specification,
+                **_continuation_metrics(logits, target_ids),
+            }
+        )
+    return output
+
+
+@torch.inference_mode()
+def run_projected_patch_trials(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    receiver_row: Mapping[str, Any],
+    donor_row: Mapping[str, Any],
+    *,
+    receiver_site_id: str,
+    donor_site_id: str,
+    layer: int,
+    basis: np.ndarray | torch.Tensor,
+    max_new_tokens: int = 16,
+) -> list[dict[str, Any]]:
+    """Run a subspace donor patch with preregistered matched controls."""
+
+    receiver, receiver_state = capture_site_state(
+        model,
+        adapter,
+        tokenizer,
+        receiver_row,
+        site_id=receiver_site_id,
+        layer=layer,
+    )
+    donor, donor_state = capture_site_state(
+        model,
+        adapter,
+        tokenizer,
+        donor_row,
+        site_id=donor_site_id,
+        layer=layer,
+    )
+    if receiver.model_label != donor.model_label:
+        raise ValueError("Receiver and donor must use the same registered model")
+    if receiver.count == donor.count:
+        raise ValueError(
+            "Projected donor trials require different receiver/donor counts; "
+            "self patch is run internally as a control"
+        )
+    basis_tensor = torch.as_tensor(basis, dtype=torch.float32)
+    if basis_tensor.ndim != 2 or basis_tensor.shape[0] != receiver_state.numel():
+        raise ValueError("Patch basis must have shape [hidden, rank]")
+    clean = generate_with_residual_interventions(
+        model,
+        tokenizer,
+        adapter,
+        receiver,
+        {int(layer): ([receiver.query_position], receiver_state)},
+        max_new_tokens=max_new_tokens,
+    )
+    conditions = run_counter_subspace_conditions(
+        model,
+        tokenizer,
+        adapter,
+        receiver,
+        source_layer=int(layer),
+        source_positions=[receiver.query_position],
+        receiver_source_state=receiver_state,
+        donor_source_state=donor_state,
+        source_basis=basis_tensor,
+        random_seed=_stable_seed(
+            f"v5-patch:{receiver.request_id}:{donor.request_id}:L{layer}"
+        )
+        % (2**31 - 1),
+        max_new_tokens=max_new_tokens,
+    )
+    audit = dict(conditions.pop("_audit"))
+    result_rows: list[dict[str, Any]] = []
+    for condition, result in (
+        ("self_patch", clean),
+        ("projected_donor_patch", conditions["projected_patch"]),
+        ("orthogonal_norm_matched", conditions["orthogonal_norm_matched"]),
+    ):
+        result_rows.append(
+            {
+                "schema_version": CAUSAL_SCHEMA_VERSION,
+                "experiment_id": "answer_query_patch",
+                "condition": condition,
+                "request_id": receiver.request_id,
+                "donor_request_id": donor.request_id,
+                "model_label": receiver.model_label,
+                "seed": receiver.seed,
+                "split": receiver.split,
+                "gold_count": receiver.count,
+                "donor_count": donor.count,
+                "receiver_site_id": receiver_site_id,
+                "donor_site_id": donor_site_id,
+                "layer": int(layer),
+                "rank": int(basis_tensor.shape[1]),
+                **audit,
+                **completion_metrics(result, gold_count=receiver.count),
+            }
+        )
+    return result_rows
+
+
+@torch.inference_mode()
+def capture_site_state(
+    model: Any,
+    adapter: DecoderAdapter,
+    tokenizer: Any,
+    row: Mapping[str, Any],
+    *,
+    site_id: str,
+    layer: int,
+) -> tuple[NativeTraceEncoding, torch.Tensor]:
+    encoding = build_native_trace_encoding(row, tokenizer, site_id=site_id)
+    _logits, captured = capture_post_block_states(
+        model,
+        adapter,
+        encoding,
+        [encoding.query_position],
+        layers=[layer],
+    )
+    return encoding, captured[int(layer)][0]
+
+
+@torch.inference_mode()
+def run_residual_patch_trial(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    receiver_row: Mapping[str, Any],
+    donor_row: Mapping[str, Any],
+    *,
+    receiver_site_id: str,
+    donor_site_id: str,
+    layer: int,
+    max_new_tokens: int = 16,
+) -> dict[str, Any]:
+    receiver = build_native_trace_encoding(
+        receiver_row, tokenizer, site_id=receiver_site_id
+    )
+    donor, donor_state = capture_site_state(
+        model,
+        adapter,
+        tokenizer,
+        donor_row,
+        site_id=donor_site_id,
+        layer=layer,
+    )
+    result = generate_with_residual_interventions(
+        model,
+        tokenizer,
+        adapter,
+        receiver,
+        {int(layer): ([receiver.query_position], donor_state)},
+        max_new_tokens=max_new_tokens,
+    )
+    return {
+        "schema_version": CAUSAL_SCHEMA_VERSION,
+        "experiment_id": "answer_query_patch",
+        "condition": "donor_patch",
+        "request_id": receiver.request_id,
+        "donor_request_id": donor.request_id,
+        "model_label": receiver.model_label,
+        "seed": receiver.seed,
+        "split": receiver.split,
+        "gold_count": receiver.count,
+        "donor_count": donor.count,
+        "receiver_site_id": receiver_site_id,
+        "donor_site_id": donor_site_id,
+        "layer": int(layer),
+        **completion_metrics(result, gold_count=receiver.count),
+    }
+
+
+def fit_centroid_subspace(
+    states: np.ndarray,
+    labels: np.ndarray,
+    *,
+    rank: int = 3,
+) -> tuple[np.ndarray, np.ndarray]:
+    if states.ndim != 2 or len(states) != len(labels):
+        raise ValueError("states/labels must be [observations, hidden]/[observations]")
+    if int(rank) < 1:
+        raise ValueError("rank must be positive")
+    values = np.unique(labels)
+    if len(values) < 2:
+        raise ValueError("At least two labels are needed to fit a count subspace")
+    centroids = np.stack([states[labels == value].mean(axis=0) for value in values])
+    center = centroids.mean(axis=0)
+    _u, _s, vh = np.linalg.svd(centroids - center, full_matrices=False)
+    effective_rank = min(int(rank), len(values) - 1, states.shape[1])
+    basis = vh[:effective_rank].T
+    centered_values = values.astype(float) - float(np.mean(values))
+    scores = (centroids - center) @ basis
+    for component in range(effective_rank):
+        orientation = float(np.dot(centered_values, scores[:, component]))
+        if orientation < 0:
+            basis[:, component] *= -1
+        elif abs(orientation) <= 1e-12:
+            anchor = int(np.argmax(np.abs(basis[:, component])))
+            if basis[anchor, component] < 0:
+                basis[:, component] *= -1
+    return center.astype(np.float32), basis.astype(np.float32)
+
+
+@torch.inference_mode()
+def run_subspace_ablation(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    row: Mapping[str, Any],
+    *,
+    site_id: str,
+    layer: int,
+    center: np.ndarray | torch.Tensor,
+    basis: np.ndarray | torch.Tensor,
+    dose: float = 1.0,
+    max_new_tokens: int = 16,
+) -> dict[str, Any]:
+    encoding = build_native_trace_encoding(row, tokenizer, site_id=site_id)
+    center_tensor = torch.as_tensor(center, dtype=torch.float32)
+    basis_tensor = torch.as_tensor(basis, dtype=torch.float32)
+    result = generate_with_residual_transforms(
+        model,
+        tokenizer,
+        adapter,
+        encoding,
+        {
+            int(layer): (
+                [encoding.query_position],
+                removal_transform(center_tensor, basis_tensor, dose=dose),
+            )
+        },
+        max_new_tokens=max_new_tokens,
+    )
+    return {
+        "schema_version": CAUSAL_SCHEMA_VERSION,
+        "experiment_id": "trace_subspace_ablation",
+        "condition": "count_subspace_removal",
+        "request_id": encoding.request_id,
+        "model_label": encoding.model_label,
+        "seed": encoding.seed,
+        "split": encoding.split,
+        "gold_count": encoding.count,
+        "site_id": site_id,
+        "layer": int(layer),
+        "rank": int(basis_tensor.shape[1]),
+        "dose": float(dose),
+        **completion_metrics(result, gold_count=encoding.count),
+    }
+
+
+def _ordinary_segments(
+    encoding: NativeTraceEncoding,
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]], list[tuple[int, int]]]:
+    spans = sorted(encoding.needle_spans, key=lambda span: span.start)
+    if not spans:
+        raise ValueError("Token corruption needs visible trace-item spans")
+    lengths = [int(span.end) - int(span.start) for span in spans]
+    forbidden = {
+        position
+        for span in spans
+        for position in range(int(span.start), int(span.end))
+    }
+    used = set(forbidden)
+    start = 1
+    end = int(encoding.prompt_token_count)
+
+    def allocate(length: int) -> tuple[int, int]:
+        for candidate in range(start, end - length + 1):
+            positions = set(range(candidate, candidate + length))
+            if not positions.intersection(used):
+                used.update(positions)
+                return candidate, candidate + length
+        raise RuntimeError("Could not allocate equal-length prompt control segment")
+
+    sources = [allocate(length) for length in lengths]
+    controls = [allocate(length) for length in lengths]
+    control_sources = [allocate(length) for length in lengths]
+    return sources, controls, control_sources
+
+
+def corrupt_trace_tokens(
+    encoding: NativeTraceEncoding,
+) -> tuple[NativeTraceEncoding, NativeTraceEncoding, dict[str, Any]]:
+    """Return trace corruption and equal-budget ordinary-token control."""
+
+    sources, controls, control_sources = _ordinary_segments(encoding)
+    clean = list(encoding.input_ids)
+    trace_ids = clean.copy()
+    control_ids = clean.copy()
+    trace_changed = 0
+    control_changed = 0
+    for span, source in zip(encoding.needle_spans, sources):
+        target = (int(span.start), int(span.end))
+        replacement = clean[source[0] : source[1]]
+        before = trace_ids[target[0] : target[1]]
+        trace_ids[target[0] : target[1]] = replacement
+        trace_changed += sum(left != right for left, right in zip(before, replacement))
+    for target, source in zip(controls, control_sources):
+        replacement = clean[source[0] : source[1]]
+        before = control_ids[target[0] : target[1]]
+        control_ids[target[0] : target[1]] = replacement
+        control_changed += sum(left != right for left, right in zip(before, replacement))
+    return (
+        replace(encoding, input_ids=tuple(trace_ids)),
+        replace(encoding, input_ids=tuple(control_ids)),
+        {
+            "token_budget": sum(
+                int(span.end) - int(span.start) for span in encoding.needle_spans
+            ),
+            "trace_changed_tokens": trace_changed,
+            "control_changed_tokens": control_changed,
+            "trace_sources": sources,
+            "control_targets": controls,
+            "control_sources": control_sources,
+        },
+    )
+
+
+def _matched_nontrace_positions(
+    encoding: NativeTraceEncoding,
+    *,
+    token_budget: int,
+) -> list[int]:
+    forbidden = {
+        position
+        for span in encoding.needle_spans
+        for position in range(int(span.start), int(span.end))
+    }
+    candidates = [
+        position
+        for position in range(1, int(encoding.query_position))
+        if position not in forbidden
+    ]
+    if len(candidates) < token_budget:
+        raise RuntimeError("Not enough non-trace keys for a matched context mask")
+    # Evenly cover the prompt/trace depth instead of taking one local window.
+    indices = np.linspace(0, len(candidates) - 1, token_budget, dtype=int)
+    return [candidates[index] for index in indices]
+
+
+def query_context_mask(
+    encoding: NativeTraceEncoding,
+    *,
+    condition: str,
+) -> torch.Tensor:
+    query = int(encoding.query_position)
+    mask = torch.zeros((1, query + 1), dtype=torch.long)
+    if condition == "clean":
+        mask[:] = 1
+    elif condition == "trace_only":
+        for span in encoding.needle_spans:
+            mask[:, int(span.start) : min(int(span.end), query + 1)] = 1
+        mask[:, query] = 1
+    elif condition == "matched_nontrace_only":
+        trace_positions = {
+            position
+            for span in encoding.needle_spans
+            for position in range(
+                int(span.start), min(int(span.end), query + 1)
+            )
+        }
+        trace_positions.add(query)
+        # The query itself is always available in both sparse conditions.
+        # Match the number of *other* visible keys exactly.
+        budget = len(trace_positions - {query})
+        if budget < 1:
+            raise RuntimeError("No earlier trace keys exist for a matched mask")
+        positions = _matched_nontrace_positions(encoding, token_budget=budget)
+        mask[:, positions] = 1
+        mask[:, query] = 1
+    else:
+        raise ValueError(f"Unknown query context condition: {condition}")
+    if int(mask.sum()) < 1:
+        raise RuntimeError("Query context mask is empty")
+    return mask
+
+
+@torch.inference_mode()
+def run_query_context_mask_trial(
+    model: Any,
+    adapter: DecoderAdapter,
+    tokenizer: Any,
+    row: Mapping[str, Any],
+    *,
+    site_id: str,
+    condition: str,
+    layers: Iterable[int] | None = None,
+) -> dict[str, Any]:
+    """Capture item-end/answer-query states under a key-context intervention."""
+
+    encoding = build_native_trace_encoding(row, tokenizer, site_id=site_id)
+    query = int(encoding.query_position)
+    if query < 1:
+        raise ValueError("A context-mask trial needs a non-initial query")
+    input_ids, attention_mask = _encoding_tensors(model, encoding)
+    prefix_output = model(
+        input_ids=input_ids[:, :query],
+        attention_mask=attention_mask[:, :query],
+        use_cache=True,
+        output_attentions=False,
+        **_bounded_logits_kwargs(model),
+    )
+    past = getattr(prefix_output, "past_key_values", None)
+    if past is None:
+        raise RuntimeError("Context-mask prefix forward returned no KV cache")
+    active_layers = (
+        tuple(range(int(adapter.num_layers)))
+        if layers is None
+        else tuple(sorted({int(layer) for layer in layers}))
+    )
+    if not active_layers or any(
+        layer < 0 or layer >= int(adapter.num_layers) for layer in active_layers
+    ):
+        raise ValueError("Invalid context-mask capture layers")
+    captured: dict[int, torch.Tensor] = {}
+    handles = []
+    for layer in active_layers:
+
+        def hook(_module: Any, _args: tuple[Any, ...], output: Any, *, layer: int = layer):
+            hidden = _tensor_from_output(output)
+            captured[layer] = hidden[0, -1].detach().float().cpu()
+
+        handles.append(adapter.layers[layer].register_forward_hook(hook))
+    kwargs: dict[str, Any] = {
+        "input_ids": input_ids[:, query : query + 1],
+        "attention_mask": query_context_mask(
+            encoding, condition=condition
+        ).to(input_ids.device),
+        "past_key_values": past,
+        "use_cache": False,
+        "output_attentions": False,
+        **_bounded_logits_kwargs(model),
+    }
+    if _accepts_keyword(model, "position_ids"):
+        kwargs["position_ids"] = torch.tensor(
+            [[query]], dtype=torch.long, device=input_ids.device
+        )
+    if _accepts_keyword(model, "cache_position"):
+        kwargs["cache_position"] = torch.tensor(
+            [query], dtype=torch.long, device=input_ids.device
+        )
+    shared = getattr(prefix_output, "shared_kv_states", None)
+    if shared is not None and _accepts_keyword(model, "shared_kv_states"):
+        kwargs["shared_kv_states"] = shared
+    try:
+        model(**kwargs)
+    finally:
+        for handle in handles:
+            handle.remove()
+    missing = sorted(set(active_layers) - set(captured))
+    if missing:
+        raise RuntimeError(f"Context-mask trial missed layers {missing}")
+    states = np.stack([captured[layer].numpy() for layer in active_layers])
+    return {
+        "schema_version": CAUSAL_SCHEMA_VERSION,
+        "experiment_id": "earlier_span_attention",
+        "condition": condition,
+        "request_id": encoding.request_id,
+        "model_label": encoding.model_label,
+        "seed": encoding.seed,
+        "split": encoding.split,
+        "gold_count": encoding.count,
+        "site_id": site_id,
+        "occurrence": encoding.selected_site.get("occurrence"),
+        "layers": list(active_layers),
+        "states": states,
+        "allowed_key_count": int(
+            query_context_mask(encoding, condition=condition).sum().item()
+        ),
+    }
+
+
+@torch.inference_mode()
+def run_token_corruption_trial(
+    model: Any,
+    tokenizer: Any,
+    row: Mapping[str, Any],
+    *,
+    config: V5Config,
+    max_new_tokens: int = 16,
+) -> list[dict[str, Any]]:
+    encoding = build_native_trace_encoding(
+        row,
+        tokenizer,
+        site_id="answer_query",
+        candidate_counts=config.candidate_counts,
+    )
+    corrupted, control, audit = corrupt_trace_tokens(encoding)
+    rows: list[dict[str, Any]] = []
+    for condition, active in (
+        ("clean", encoding),
+        ("trace_corrupt", corrupted),
+        ("ordinary_control", control),
+    ):
+        result = generate_answer_completion(
+            model, tokenizer, active, max_new_tokens=max_new_tokens
+        )
+        rows.append(
+            {
+                "schema_version": CAUSAL_SCHEMA_VERSION,
+                "experiment_id": "trace_token_corruption",
+                "condition": condition,
+                "request_id": encoding.request_id,
+                "model_label": encoding.model_label,
+                "seed": encoding.seed,
+                "split": encoding.split,
+                "gold_count": encoding.count,
+                **audit,
+                **completion_metrics(result, gold_count=encoding.count),
+            }
+        )
+    return rows
+
+
+def paired_seed_effects(
+    trials: pd.DataFrame,
+    *,
+    treatment: str,
+    control: str,
+    outcome: str,
+) -> pd.DataFrame:
+    required = {"model_label", "seed", "condition", outcome}
+    missing = sorted(required - set(trials.columns))
+    if missing:
+        raise ValueError(f"Causal trials are missing {missing}")
+    selected = trials.loc[trials["condition"].isin([treatment, control])].copy()
+    selected[outcome] = pd.to_numeric(selected[outcome], errors="coerce")
+    # Query-level effects are averaged within seed and condition first. This
+    # preserves the registered query weighting while preventing thousands of
+    # within-seed trace rows from masquerading as independent samples.
+    seed_conditions = (
+        selected.groupby(["model_label", "seed", "condition"], as_index=False)
+        .agg(outcome_mean=(outcome, "mean"), n_query_rows=(outcome, "count"))
+    )
+    pivot = seed_conditions.pivot_table(
+        index=["model_label", "seed"],
+        columns="condition",
+        values="outcome_mean",
+        aggfunc="first",
+    )
+    if treatment not in pivot or control not in pivot:
+        raise ValueError("Treatment/control pairing is incomplete")
+    pivot = pivot.dropna(subset=[treatment, control]).reset_index()
+    pivot["effect"] = pivot[treatment] - pivot[control]
+    return pivot[["model_label", "seed", "effect"]].rename(
+        columns={"effect": "mean_effect"}
+    )
+
+
+def bootstrap_seed_mean_ci(
+    seed_effects: Sequence[float],
+    *,
+    samples: int,
+    seed: int = 5,
+) -> dict[str, float]:
+    values = np.asarray(seed_effects, dtype=float)
+    values = values[np.isfinite(values)]
+    if not len(values):
+        raise ValueError("Bootstrap needs finite seed effects")
+    rng = np.random.default_rng(seed)
+    draws = rng.choice(values, size=(int(samples), len(values)), replace=True).mean(axis=1)
+    return {
+        "mean_effect": float(values.mean()),
+        "ci_low": float(np.quantile(draws, 0.025)),
+        "ci_high": float(np.quantile(draws, 0.975)),
+        "n_seeds": int(len(values)),
+    }
+
+
+def sign_flip_pvalue(seed_effects: Sequence[float]) -> float:
+    values = np.asarray(seed_effects, dtype=float)
+    values = values[np.isfinite(values)]
+    n = len(values)
+    if n == 0:
+        raise ValueError("Sign-flip test needs finite seed effects")
+    observed = abs(float(values.mean()))
+    if n <= 20:
+        signs = 1 - 2 * ((np.arange(2**n)[:, None] >> np.arange(n)) & 1)
+        permuted = np.abs((signs * values).mean(axis=1))
+    else:
+        rng = np.random.default_rng(544)
+        signs = rng.choice((-1, 1), size=(200_000, n))
+        permuted = np.abs((signs * values).mean(axis=1))
+    return float((np.count_nonzero(permuted >= observed) + 1) / (len(permuted) + 1))
+
+
+def analyze_paired_causal_results(
+    trials_csv: str | Path,
+    output_csv: str | Path,
+    *,
+    treatment: str,
+    control: str,
+    outcome: str,
+    config: V5Config,
+    mechanism: str | None = None,
+    bank_size: int | None = None,
+    transition_phase: str | None = None,
+) -> pd.DataFrame:
+    source = Path(trials_csv)
+    if source.suffix.lower() in {".jsonl", ".ndjson"}:
+        with source.open("r", encoding="utf-8") as handle:
+            trials = pd.DataFrame(
+                json.loads(line) for line in handle if line.strip()
+            )
+    else:
+        trials = pd.read_csv(source)
+    if "status" in trials:
+        trials = trials.loc[trials["status"].astype(str).eq("ok")]
+    filters = {
+        "mechanism": mechanism,
+        "bank_size": bank_size,
+        "transition_phase": transition_phase,
+    }
+    for column, value in filters.items():
+        if value is None:
+            if column in trials and trials[column].dropna().astype(str).nunique() > 1:
+                raise ValueError(
+                    f"Causal analysis must select one {column}; found multiple"
+                )
+            continue
+        if column not in trials:
+            raise ValueError(f"Causal trials have no filter column {column}")
+        trials = trials.loc[trials[column].astype(str).eq(str(value))]
+    if trials.empty:
+        raise ValueError("No causal trial rows remain after registered filters")
+    seed_frame = paired_seed_effects(
+        trials,
+        treatment=treatment,
+        control=control,
+        outcome=outcome,
+    )
+    rows: list[dict[str, Any]] = []
+    for model_label, frame in seed_frame.groupby("model_label"):
+        statistics = bootstrap_seed_mean_ci(
+            frame["mean_effect"], samples=config.bootstrap_samples
+        )
+        rows.append(
+            {
+                "schema_version": CAUSAL_SCHEMA_VERSION,
+                "model_label": model_label,
+                "treatment": treatment,
+                "control": control,
+                "outcome": outcome,
+                **{key: value for key, value in filters.items() if value is not None},
+                **statistics,
+                "sign_flip_pvalue": sign_flip_pvalue(frame["mean_effect"]),
+                "unit_of_inference": "seed",
+            }
+        )
+    result = pd.DataFrame(rows)
+    target = Path(output_csv)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    result.to_csv(target, index=False)
+    return result

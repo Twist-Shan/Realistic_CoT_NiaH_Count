@@ -1,0 +1,28 @@
+{
+  "schema_version": "realistic_niah_v5_config_v1",
+  "design_variant": "v4.4",
+  "prompt_mode": "native_thinking",
+  "model_labels": ["Qwen3-8B", "Gemma4-E4B"],
+  "counts": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "discovery_seeds": [1234, 1235, 1236, 1237, 1238, 1239, 1240, 1241, 1242, 1243, 1244, 1245, 1246, 1247, 1248, 1249, 1250, 1251, 1252, 1253],
+  "confirmation_seeds": [1254, 1255, 1256, 1257, 1258, 1259, 1260, 1261, 1262, 1263],
+  "primary_trace_site": "item_end",
+  "sensitivity_trace_sites": ["marker_end", "city_end", "post_boundary", "list_cut", "answer_query"],
+  "primary_parser_cohort": "one_to_one",
+  "representation_n10_only": true,
+  "hidden_save_dtype": "float16",
+  "ridge_alphas": [0.01, 0.1, 1.0, 10.0, 100.0],
+  "bootstrap_samples": 5000,
+  "causal_head_mechanisms": ["targeted_retrieval", "progress_transition"],
+  "causal_head_selection_metric": "query_weighted_mean_target_prompt_record_mass",
+  "causal_head_bank_sizes": [1, 2, 4, 8, 16, 32],
+  "causal_random_controls": 3,
+  "candidate_counts": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "decoding": {
+    "max_new_tokens": 4096,
+    "do_sample": false,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 0
+  }
+}
