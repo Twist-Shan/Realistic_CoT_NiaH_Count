@@ -1,0 +1,71 @@
+{
+  "schema_version": "realistic_niah_v4_4_5_transport_aligned_patch_v1",
+  "models": [
+    "Qwen3-8B",
+    "Gemma4-E4B"
+  ],
+  "seeds": [
+    1254,
+    1255,
+    1256,
+    1257,
+    1258,
+    1259,
+    1260,
+    1261,
+    1262,
+    1263
+  ],
+  "pairs": [
+    [
+      1,
+      2
+    ],
+    [
+      2,
+      1
+    ],
+    [
+      5,
+      6
+    ],
+    [
+      6,
+      5
+    ]
+  ],
+  "rank": 3,
+  "basis_fit": "discovery count centroids; ridge prediction of downstream rank-3 count coordinates",
+  "supports": [
+    "legacy_endpoint",
+    "answer_query_relay"
+  ],
+  "geometry": {
+    "Qwen3-8B": {
+      "legacy_endpoint": {
+        "paired_discovery_rows": 200,
+        "ridge": 5.279451320836324,
+        "discovery_centroid_r2": 0.9999962729500338
+      },
+      "answer_query_relay": {
+        "paired_discovery_rows": 200,
+        "ridge": 5.617525481870121,
+        "discovery_centroid_r2": 0.9999684440865428
+      }
+    },
+    "Gemma4-E4B": {
+      "legacy_endpoint": {
+        "paired_discovery_rows": 200,
+        "ridge": 0.28196851279903595,
+        "discovery_centroid_r2": 0.9999834355312552
+      },
+      "answer_query_relay": {
+        "paired_discovery_rows": 200,
+        "ridge": 0.4942938750404358,
+        "discovery_centroid_r2": 0.9999959608202945
+      }
+    }
+  },
+  "rows": 480,
+  "status": "PASS"
+}

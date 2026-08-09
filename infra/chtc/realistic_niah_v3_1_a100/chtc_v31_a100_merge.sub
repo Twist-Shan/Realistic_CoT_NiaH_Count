@@ -1,0 +1,19 @@
+universe = container
+container_image = docker://vllm/vllm-openai:v0.25.1
+
+executable = chtc_v31_a100_merge.sh
+log = logs/a100_merge_$(Cluster).log
+output = logs/a100_merge_$(Cluster).out
+error = logs/a100_merge_$(Cluster).err
+
+transfer_input_files = realistic_v31.bundle, realistic_v31_dataset.tar.gz, chtc_v31_part_a100_80_0.tar.gz, chtc_v31_part_a100_80_1.tar.gz, chtc_v31_part_a100_40_0.tar.gz, chtc_v31_part_a100_40_1.tar.gz, chtc_v31_part_a100_40_2.tar.gz, chtc_v31_part_a100_40_3.tar.gz
+transfer_output_files = chtc_v31_a100_merged_result.tar.gz
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+
+request_cpus = 8
+request_memory = 64GB
+request_disk = 100GB
+requirements = (TARGET.HasDocker == true)
+
+queue 1

@@ -8,7 +8,9 @@ but scientifically distinct, research tracks:
    enumeration, and native reasoning across registered model checkpoints.
 2. **Realistic NIAH V4 mechanisms** test non-thinking representations,
    answer-query attention, head ablation, and activation patching.
-3. **Dynamic NIAH mechanism experiments** generate tokenizer-aware controlled
+3. **Realistic NIAH V5** translates the completed V4.4 non-thinking mechanism
+   battery to parser-aligned native-thinking trace positions.
+4. **Dynamic NIAH mechanism experiments** generate tokenizer-aware controlled
    examples for hidden-state, Q/K attention, probing, steering, ablation, and
    activation-restoration analyses.
 
@@ -58,6 +60,8 @@ Remote: <https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git>
 
 | Goal | Primary entry point | Detailed specification |
 | --- | --- | --- |
+| Run the V5 native-thinking representation + causal replication | `scripts/run_realistic_niah_v5.py`, `configs/realistic_niah_v5.json` | [`docs/realistic_niah_v5.md`](docs/realistic_niah_v5.md) |
+| Rebuild the paired V4.4 non-thinking/native-thinking input dataset | `scripts/build_realistic_niah_mechanism_dataset.py` | [Hugging Face dataset](https://huggingface.co/datasets/stwistzz/realistic-niah-count-mechanism-analysis) |
 | Run the Realistic NIAH V4 mechanism study | `scripts/freeze_realistic_niah_v4.py`, `scripts/run_realistic_niah_v4.py` | [`docs/realistic_niah_v4.md`](docs/realistic_niah_v4.md) |
 | Inspect the completed V4 numeric non-thinking run | `run_20260731_v4_numeric_presentation_v3` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md) |
 | Open or rebuild the V4 representation + causal report | [`reports/realistic_niah_v4_representation_report.html`](reports/realistic_niah_v4_representation_report.html), `scripts/build_realistic_niah_v4_representation_report.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md`](docs/realistic_niah_v4_causal_screen_20260801.md) |
@@ -67,6 +71,8 @@ Remote: <https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git>
 | Audit the completed V4 causal screen | `scripts/audit_realistic_niah_v4_causal.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md#screen-design-and-completion-audit`](docs/realistic_niah_v4_causal_screen_20260801.md#screen-design-and-completion-audit) |
 | Audit and analyze exact answer-query transport | `scripts/analyze_realistic_niah_v4_answer_query_patching.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md#3-late-answer-query-state-transports-the-computed-prediction`](docs/realistic_niah_v4_causal_screen_20260801.md#3-late-answer-query-state-transports-the-computed-prediction) |
 | Analyze all Qwen span-end candidates and multi-head coverage | `scripts/analyze_realistic_niah_v4_partitioning.py` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md#qwen-span-end-full-candidate-bank-and-positional-partitioning) |
+| Run or audit Realistic NIAH V3.1 empirical law | `scripts/freeze_realistic_niah_v3_1.py`, `scripts/launch_realistic_niah_v3_1.sh` | [`docs/realistic_niah_v3_1_preregistration.md`](docs/realistic_niah_v3_1_preregistration.md), [`docs/realistic_niah_v3_1_implementation.md`](docs/realistic_niah_v3_1_implementation.md) |
+| Submit the frozen V3.1 A100 backend on CHTC | `infra/chtc/realistic_niah_v3_1_a100/` | [`infra/chtc/realistic_niah_v3_1_a100/README.md`](infra/chtc/realistic_niah_v3_1_a100/README.md) |
 | Run or audit Realistic NIAH V3 | `scripts/freeze_realistic_niah_v3.py`, `scripts/launch_realistic_niah_v3.sh` | [`docs/realistic_niah_v3.md`](docs/realistic_niah_v3.md) |
 | Inspect the executable V3 registry | `src/realistic_niah_v3/spec.py`, `configs/realistic_niah_v3.json` | `tests/test_realistic_niah_v3.py` |
 | Reproduce the completed V2 protocol | `src/realistic_niah/spec.py`, `src/realistic_niah/sharding.py` | [`docs/realistic_niah_v2.md`](docs/realistic_niah_v2.md) |
@@ -458,6 +464,28 @@ V4 and later plots use the registered **Aurora** visual system: Midnight Indigo
 `#C04DFF`, Sunset Pink `#FF5FA2`, Night Black `#161923`, Snow White
 `#F8FBFF`, Frost Gray `#8190A5`, and Warm Brown `#765347`. The report builder
 is the source of truth for semantic color mappings and ordered count blends.
+
+## Preregistered Realistic NIAH V3.1 empirical law
+
+V3.1 expands the behavior-only empirical-law grid to eight lengths from 1K
+through 20K, fourteen counts, and 30 paired seeds: 3,360 shared stimuli and
+161,280 registered model requests. The 48 logical model-mode shards execute as
+14 physical model bundles so that each checkpoint is loaded once per worker
+attempt. Atomic batch-part checkpoints support safe resume, and reconstructible
+prompt payloads are stored by SHA256 instead of being repeated in every row.
+
+The confirmatory law fitter uses SciPy float64 on CPU. An optional Torch
+float64 CPU/CUDA backend is available only with a required SciPy parity audit.
+The experiment estimates parsed accuracy, format compliance, 10% symmetric
+trimmed signed-count bias, model-specific slopes, and registered N/L/log and
+interaction candidates. It does not include hidden-state or causal mechanism
+experiments. See the
+[preregistration](docs/realistic_niah_v3_1_preregistration.md),
+[implementation guide](docs/realistic_niah_v3_1_implementation.md), and
+[inference optimization summary](docs/realistic_niah_v3_1_inference_optimization_summary.md).
+
+The audited frozen stimulus bank is public at
+<https://huggingface.co/datasets/stwistzz/realistic-niah-count-empirical-law>.
 
 ## Registered Realistic NIAH V3
 

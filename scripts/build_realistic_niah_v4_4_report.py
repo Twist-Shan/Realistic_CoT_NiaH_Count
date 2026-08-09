@@ -17,6 +17,45 @@ import build_realistic_niah_v4_representation_report as full
 FOCUS_VARIANT = "v4.4"
 MODELS = full.MODELS
 
+FIRST_SPAN_PROFILES = {
+    "Qwen3-8B": {
+        "head": "L9H19",
+        "color": "#6750E8",
+        "m1": 0.272003,
+        "m10": 0.495591,
+        "masses": [
+            0.272003,
+            0.080269,
+            0.047466,
+            0.033059,
+            0.020520,
+            0.014325,
+            0.013559,
+            0.005590,
+            0.005224,
+            0.003576,
+        ],
+    },
+    "Gemma4-E4B": {
+        "head": "L11H6",
+        "color": "#00A9D8",
+        "m1": 0.040711,
+        "m10": 0.057652,
+        "masses": [
+            0.040711,
+            0.007719,
+            0.002388,
+            0.001577,
+            0.001311,
+            0.000905,
+            0.000955,
+            0.000718,
+            0.000694,
+            0.000673,
+        ],
+    },
+}
+
 
 def _pct(value: Any, digits: int = 1) -> str:
     if value is None or not np.isfinite(float(value)):
@@ -300,6 +339,91 @@ def _phenotype_rows(phenotypes: list[dict[str, Any]]) -> list[list[str]]:
                 ]
             )
     return rows
+
+
+def _first_span_profile_svg() -> str:
+    plot_left, plot_right = 82.0, 930.0
+    plot_top, plot_bottom = 50.0, 330.0
+    x_step = (plot_right - plot_left) / 9
+    y_scale = (plot_bottom - plot_top) / 0.8
+
+    series: list[str] = []
+    legend: list[str] = []
+    legend_x = {"Qwen3-8B": 210, "Gemma4-E4B": 570}
+    for model, profile in FIRST_SPAN_PROFILES.items():
+        masses = [float(value) for value in profile["masses"]]
+        m10 = float(profile["m10"])
+        shares = [value / m10 for value in masses]
+        points = [
+            (plot_left + index * x_step, plot_bottom - share * y_scale)
+            for index, share in enumerate(shares)
+        ]
+        point_text = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+        circles = "".join(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5"/>' for x, y in points
+        )
+        color = str(profile["color"])
+        series.append(
+            f'<polyline points="{point_text}" fill="none" stroke="{color}" '
+            'stroke-width="4"/>'
+            f'<g fill="{color}">{circles}</g>'
+        )
+        x = legend_x[model]
+        share1 = float(profile["m1"]) / m10
+        short_model = "Qwen" if model == "Qwen3-8B" else "Gemma"
+        legend.append(
+            f'<line x1="{x}" y1="395" x2="{x + 35}" y2="395" '
+            f'stroke="{color}" stroke-width="4"/>'
+            f'<text x="{x + 45}" y="399" font-size="13">{short_model} '
+            f'{profile["head"]} · m₁={float(profile["m1"]):.4f} · '
+            f'M₁₀={m10:.4f} · share₁={100 * share1:.1f}%</text>'
+        )
+
+    horizontal_grid = "".join(
+        f'<line x1="82" y1="{y}" x2="930" y2="{y}"/>'
+        for y in (260, 190, 120, 50)
+    )
+    y_labels = "".join(
+        f'<text x="70" y="{y + 4}" text-anchor="end">{pct}%</text>'
+        for y, pct in ((330, 0), (260, 20), (190, 40), (120, 60), (50, 80))
+    )
+    x_labels = "".join(
+        f'<text x="{plot_left + index * x_step:.1f}" y="351" '
+        f'text-anchor="middle">{index + 1}</text>'
+        for index in range(10)
+    )
+    return f"""
+<svg class="stat-svg" viewBox="0 0 980 410" role="img" aria-labelledby="first-span-title first-span-desc">
+<title id="first-span-title">Complete-first-span attention profiles</title>
+<desc id="first-span-desc">Qwen L9H19 and Gemma L11H6 attention mass across the ten complete needle spans, shown as each span's share of total ten-span mass.</desc>
+<rect width="980" height="410" fill="#FFFDF8"/>
+<g font-family="Segoe UI,Arial,sans-serif" fill="#20242D">
+<text x="490" y="24" text-anchor="middle" font-size="16" font-weight="700">Top complete-first-span heads</text>
+<line x1="82" y1="330" x2="930" y2="330" stroke="#718096"/>
+<line x1="82" y1="50" x2="82" y2="330" stroke="#718096"/>
+<g stroke="#DED8CE">{horizontal_grid}</g>
+<g font-size="12" fill="#5E6672">{y_labels}
+<text transform="translate(20 190) rotate(-90)" text-anchor="middle">share of total ten-span mass</text>
+</g>
+{''.join(series)}
+<g font-size="12" fill="#5E6672">{x_labels}
+<text x="506" y="376" text-anchor="middle">needle span index</text>
+</g>
+{''.join(legend)}
+</g>
+</svg>"""
+
+
+def _first_span_section() -> str:
+    return f"""
+<div class="figure-block first-span-profile">
+<h3>3.2 Complete-first-span attention phenotype</h3>
+<p class="figure-intro"><strong>为什么要做。</strong>旧的 first-locator 定义只看第一条 needle 的 endpoint token，可能把“注意一个 token”误写成“定位整条 needle”。新实验在最终 <code>Total:</code> query 上，对第 <em>i</em> 条 needle 的全部 literal tokens 求和：<code>mᵢ,ₕ = Σⱼ∈Sᵢ αₕ(q,j)</code>。主排序严格使用 discovery 样本上的 <code>mean(m₁)</code>；同时记录十条 needle 的总质量 <code>M₁₀=Σᵢmᵢ</code> 与 <code>share₁=m₁/M₁₀</code>。</p>
+<figure>{_first_span_profile_svg()}<figcaption>完整 span 的 absolute-attention profile。横轴是十条 needle 的顺序；纵轴是每条 span mass 占该 head 的 <code>M₁₀</code> 的比例，因此可比较 span 内的集中形状，但不能用线高直接比较两模型的绝对 mass。两模型的 top head 都明显偏向第一条完整 needle span。</figcaption></figure>
+<p><strong>因果检验。</strong>在独立 confirmation seeds 1336–1355、gold count 1–5（每模型 100 个 prompts）上，按 discovery <code>mean(m₁)</code> 冻结 top-k（k=1,2,4,8,16,32），并在最终 <code>Total:</code> query 将这些 heads 的 pre-O slices 置零。对照为三组 layer-matched random sets 与三组 layer+M₁₀-nearest sets。终点是 all-sample absolute-error increase 和 clean-correct correct-to-wrong rate；95% CI 与双侧 sign-flip 均以 20 个 seed clusters 为单位，并在每个 model×endpoint 的六个 k 内做 Holm 校正。</p>
+<p><strong>结果。</strong>两套控制下，Qwen 没有任何 k 显示正向显著的额外损害。Gemma 的显著结果只在相反方向：first-span-ranked bank 比控制更不具破坏性（layer-matched k=32：absolute-error Δ=−0.203，Holm p=0.0042；M₁₀-nearest k=16/32：Δ=−0.147/−0.233，Holm p=0.0053/0.00135；k=32 correct-to-wrong Δ=−0.171，Holm p=0.0074）。Qwen L9H19 的 M₁₀ 是极端值，严格 M₁₀ 匹配不可实现；这限制精确的条件效应估计，但不会把“未观察到正向特异效应”改写成支持结果。</p>
+<div class="conclusion"><strong>First-span 实验结论</strong>两个模型都存在可重复的 complete-first-span attention phenotype，但按 m₁ 排序的 heads 被消融后并不比匹配 retrieval heads 更有害。因此它是表征现象，不支持“first-span locator 是独特必要 circuit”，也不作为本文 non-thinking counting mechanism 的核心环节。</div>
+</div>"""
 
 
 def _outcome_rows(outcomes: list[dict[str, Any]]) -> list[list[str]]:
@@ -762,10 +886,10 @@ REPORT_TEMPLATE = r"""<!doctype html>
 <h2>3 · V4.4 attention-head representation</h2>
 <p>Atlas 的每一个格子是一个实际保存 full-attention row 的 layer/head。Query 固定为最终 <code>Total:</code> token；key pooling 可切换为 needle endpoint 或完整 needle span 的 literal sum。颜色是 discovery primary score 的对数尺度，只用于同一视图内排序。它不是单个 needle 的概率，也不能跨两种 pooling 直接比较颜色深浅。</p>
 @@ATTENTION_ATLAS@@
-@@PHENOTYPE_TABLE@@
+@@FIRST_SPAN_SECTION@@
 @@OUTCOME_TABLE@@
 @@OMISSION_TABLE@@
-<div class="conclusion"><strong>本节结论</strong>V4.4 中 broad retrieval 由多个 heads 分担；first-needle locator 比稳定的任意单一 targeted-occurrence head 更清楚。Correct/wrong 的 aggregate mass 差异稀疏，Qwen 的 endpoint omission alignment 更明显，但 attention association 本身不证明因果。对应的 causal test 是 discovery-ranked mixed-bank ablation，而不是宣称某个单 head 必要。</div>
+<div class="conclusion"><strong>本节结论</strong>V4.4 中 broad retrieval 由多个 heads 分担。完整第一条 needle span 的集中表型在 Qwen 与 Gemma 中都可见，但两套匹配控制下均没有正向的特异必要性证据；因此它保留为简短的 representation/negative-causal 结果，而不进入 counting mechanism 主链。Correct/wrong 的 aggregate mass 差异稀疏，attention association 本身不能替代因果检验。</div>
 </section>
 
 <section id="causal">
@@ -937,13 +1061,13 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
     ].copy()
 
     atlas_html = (
-        '<div class="switcher"><button type="button" data-atlas="span_end" aria-pressed="true">endpoint-key mass</button>'
-        '<button type="button" data-atlas="span_sum" aria-pressed="false">full-span literal mass</button></div>'
-        '<div class="atlas-panel" data-atlas-panel="span_end">'
+        '<div class="switcher"><button type="button" data-atlas="span_end" aria-pressed="false">endpoint-key mass</button>'
+        '<button type="button" data-atlas="span_sum" aria-pressed="true">full-span literal mass</button></div>'
+        '<div class="atlas-panel" data-atlas-panel="span_end" hidden>'
         + full._attention_head_atlas_svg(
             atlas, phenotypes, variant=FOCUS_VARIANT, pooling="span_end"
         )
-        + '</div><div class="atlas-panel" data-atlas-panel="span_sum" hidden>'
+        + '</div><div class="atlas-panel" data-atlas-panel="span_sum">'
         + full._attention_head_atlas_svg(
             atlas, phenotypes, variant=FOCUS_VARIANT, pooling="span_sum"
         )
@@ -995,11 +1119,7 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
             atlas_html,
             "V4.4 answer-query attention atlas. 每格对应一个 layer/head，hover title 给出 primary score。颜色按当前 pooling 的 discovery log primary score 独立缩放；因此 endpoint 与 span-sum 的颜色不可当成相同绝对 mass。候选/phenotype symbol 只帮助定位，不能替代 causal test。",
         ),
-        "@@PHENOTYPE_TABLE@@": _details_table(
-            title="V4.4 endpoint phenotype counts and representatives",
-            columns=["model", "phenotype", "heads", "representative", "endpoint N_eff", "dominant share"],
-            rows=_phenotype_rows(phenotypes),
-        ),
+        "@@FIRST_SPAN_SECTION@@": _first_span_section(),
         "@@OUTCOME_TABLE@@": _details_table(
             title="V4.4 count-adjusted wrong−correct attention effects",
             columns=["model", "pooling", "rank/head", "metric", "wrong−correct [95% CI]", "CI excludes 0"],

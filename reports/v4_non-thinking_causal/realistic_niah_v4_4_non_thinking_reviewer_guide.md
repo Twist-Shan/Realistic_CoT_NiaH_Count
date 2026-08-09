@@ -74,13 +74,14 @@ The final renderer does not recompute PCA, attention or causal statistics. It va
 |---|---|---|
 | Shared representation analysis | `scripts/build_realistic_niah_v4_representation_report.py` | Loads the original V4 run; fits/loads frozen PCA projections; aggregates attention and the original causal tables. |
 | V4.4 base renderer | `scripts/build_realistic_niah_v4_4_report.py` | Restricts the shared analysis to `variant == v4.4`; emits prompt/answer geometry and the two attention atlases. |
-| Final renderer | `scripts/build_realistic_niah_v4_4_integrated_report.py` | Keeps geometry/attention from the base HTML; replaces the causal story with the newer full-span, patching and V4.4.4 mechanism results. |
+| Final renderer | `scripts/build_realistic_niah_v4_4_integrated_report.py` | Keeps geometry/attention from the base HTML; reconstructs the V4.4 per-prompt error table to compute absolute deviation; replaces the causal story with the newer full-span, patching and V4.4.4 mechanism results. |
 
 ### 2.2 Inputs actually consumed by `build_report_clear`
 
 | Evidence family | Local input |
 |---|---|
 | Prompt/answer geometry and attention | `reports/v4_non-thinking_causal/v4_4_3/realistic_niah_v4_4_mechanism_report.html` |
+| Absolute deviation | The same base HTML's embedded V4.4 answer rows; the builder selects one all-fit layer per model, deduplicates by `seed × gold_count`, validates `prediction − gold = count_error`, and performs 5,000 seed-cluster bootstrap draws. |
 | All-sample patching and steering | `reports/v4_non-thinking_causal/v4_4_causal_v2/report_summary.json` |
 | Fresh full-span top-k ablation | `reports/v4_non-thinking_causal/v4_4_causal_v2/full_span_topk/seed_extrapolation_summary_v2.json` and `full_span_topk_primary_statistics.csv` |
 | Qwen natural OV | `reports/v4_non-thinking_causal/v4_4_4/realistic_niah_v4_4_4_analysis.json` |

@@ -1,0 +1,13 @@
+model_label,support,condition,rows,seeds,mean_target_donor_fraction,mean_donor_log_odds_gain,argmax_change_rate,mean_replacement_delta_norm
+Gemma4-E4B,answer_query_relay,aligned_dose_1,40,10,0.9762666583061218,10.728125,0.675,23.498134624958038
+Gemma4-E4B,answer_query_relay,aligned_dose_2,40,10,1.8009474247694015,13.428125,0.775,46.99627015590668
+Gemma4-E4B,answer_query_relay,matched_orthogonal,40,10,0.0023768338753143324,1.3796875,0.025,23.49813747406006
+Gemma4-E4B,legacy_endpoint,aligned_dose_1,40,10,0.0,0.0,0.0,22.595920690894125
+Gemma4-E4B,legacy_endpoint,aligned_dose_2,40,10,0.0,0.0,0.0,45.1918420791626
+Gemma4-E4B,legacy_endpoint,matched_orthogonal,40,10,0.0,0.0,0.0,22.595920845866203
+Qwen3-8B,answer_query_relay,aligned_dose_1,40,10,0.948876541852951,15.2625,0.825,79.8362491607666
+Qwen3-8B,answer_query_relay,aligned_dose_2,40,10,1.8097950667142868,17.20625,0.925,159.67249870300293
+Qwen3-8B,answer_query_relay,matched_orthogonal,40,10,0.0070223893970251085,3.30625,0.25,79.83624844551086
+Qwen3-8B,legacy_endpoint,aligned_dose_1,40,10,0.0002085530087697407,-0.0125,0.0,95.54895431995392
+Qwen3-8B,legacy_endpoint,aligned_dose_2,40,10,0.0005066223159701621,-0.025,0.0,191.0979088306427
+Qwen3-8B,legacy_endpoint,matched_orthogonal,40,10,0.00011689595803545671,-0.0125,0.0,95.54896278381348

@@ -1,0 +1,33 @@
+{
+  "schema_version": "realistic_niah_v4_4_gemma_earlier_span_selected_rows_v1",
+  "model_label": "Gemma4-E4B",
+  "measurement_equivalence": "Same discovery-ranked top-10, confirmation seeds, occurrences, full-span mass, and equal-length same-depth ordinary contrast as Qwen. Only frozen candidate query rows are reconstructed inside SDPA to avoid quadratic all-layer attention materialization.",
+  "discovery_base_run": "/lambda/nfs/CoT-Non-thinking-v4/runs/run_20260731_v4_numeric_presentation_v3",
+  "seeds": [
+    1254,
+    1255,
+    1256,
+    1257,
+    1258,
+    1259,
+    1260,
+    1261,
+    1262,
+    1263
+  ],
+  "occurrences": [
+    2,
+    4,
+    6,
+    8,
+    10
+  ],
+  "top_heads": 10,
+  "expected_raw_rows": 500,
+  "observed_raw_rows": 500,
+  "candidate_count": 10,
+  "all_finite": true,
+  "max_attention_row_sum_error": 5.581790185615887e-07,
+  "inference": "Per head, average occurrences within each seed; two-sided exact sign-flip over ten seed effects; Holm correction over ten frozen Gemma heads; 50000 seed bootstrap CI.",
+  "status": "PASS"
+}

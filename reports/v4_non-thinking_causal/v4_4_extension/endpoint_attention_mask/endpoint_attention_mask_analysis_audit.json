@@ -1,0 +1,16 @@
+{
+  "schema_version": "realistic_niah_v4_4_endpoint_attention_mask_analysis_v1",
+  "state_basis_fit": "discovery prompt endpoint states",
+  "state_evaluation": "confirmation seeds, occurrences 2/4/6/8/10",
+  "primary_layers": {
+    "Qwen3-8B": 8,
+    "Gemma4-E4B": 9
+  },
+  "primary_inference": "two-sided exact sign flip over ten seed effects; Holm over two models by three specificity endpoints",
+  "head_selection": "top 10 heads/model by discovery earlier full-span mass",
+  "head_confirmation": "prior needle full-span mass minus equal-length same-depth non-needle mass on confirmation seeds, for models with materialized clean attention rows",
+  "head_confirmation_models": [
+    "Qwen3-8B"
+  ],
+  "status": "PASS"
+}

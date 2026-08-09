@@ -1,0 +1,25 @@
+{
+  "schema_version": "realistic_niah_v4_4_native_prompt_noise_factors_v1",
+  "inputs": [
+    "/lambda/nfs/virginia-parsing/runs/v28_v44_native_noise_yiqiao/analysis/prompt/Qwen3-8B/prompt_noise_rows.csv.gz",
+    "/lambda/nfs/virginia-parsing/runs/v28_v44_native_noise_yiqiao/analysis/prompt/Gemma4-E4B/prompt_noise_rows.csv.gz"
+  ],
+  "split": "confirmation",
+  "correct_only": true,
+  "rows": 4200,
+  "seed_groups": 20,
+  "algorithms": [
+    "elastic_net",
+    "random_forest",
+    "extra_trees",
+    "hist_gradient_boosting"
+  ],
+  "targets": [
+    "noise_total_rms",
+    "noise_orthogonal_rms",
+    "count_axis_deviation_abs"
+  ],
+  "post_outcome_features_are_diagnostic_only": true,
+  "elapsed_seconds": 190.3720018790009,
+  "status": "PASS"
+}
