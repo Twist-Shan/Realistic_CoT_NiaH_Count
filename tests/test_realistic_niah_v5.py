@@ -285,11 +285,11 @@ def test_discovery_head_ranking_and_layer_matched_controls() -> None:
                         "trace_one_to_one": True,
                         "layer": layer,
                         "head": head,
-                        "target_prompt_record_mass": (
+                        "target_needle_raw_mass": (
                             1.0 - 0.1 * layer - 0.01 * head
                         ),
-                        "target_within_records_fraction": 0.8,
-                        "target_record_top1": True,
+                        "target_needle_relative_mass": 0.8,
+                        "target_needle_top1": True,
                         "seed": seed,
                     }
                 )
@@ -302,9 +302,9 @@ def test_discovery_head_ranking_and_layer_matched_controls() -> None:
             "trace_one_to_one": False,
             "layer": 0,
             "head": 3,
-            "target_prompt_record_mass": 100.0,
-            "target_within_records_fraction": 1.0,
-            "target_record_top1": True,
+            "target_needle_raw_mass": 100.0,
+            "target_needle_relative_mass": 1.0,
+            "target_needle_top1": True,
             "seed": 98,
         }
     )
@@ -317,9 +317,9 @@ def test_discovery_head_ranking_and_layer_matched_controls() -> None:
             "trace_one_to_one": True,
             "layer": 0,
             "head": 3,
-            "target_prompt_record_mass": 100.0,
-            "target_within_records_fraction": 1.0,
-            "target_record_top1": True,
+            "target_needle_raw_mass": 100.0,
+            "target_needle_relative_mass": 1.0,
+            "target_needle_top1": True,
             "seed": 99,
         }
     )
@@ -352,9 +352,9 @@ def test_causal_plan_audits_unmatched_banks_instead_of_scheduling_them(
                 "trace_one_to_one": True,
                 "layer": 0,
                 "head": head,
-                "target_prompt_record_mass": 1.0 - head / 10,
-                "target_within_records_fraction": 0.8,
-                "target_record_top1": True,
+                "target_needle_raw_mass": 1.0 - head / 10,
+                "target_needle_relative_mass": 0.8,
+                "target_needle_top1": True,
             }
             for mechanism in ("targeted_retrieval", "progress_transition")
             for head in range(4)

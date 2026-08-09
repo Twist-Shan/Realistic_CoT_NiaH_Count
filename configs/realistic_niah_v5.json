@@ -14,7 +14,7 @@
   "ridge_alphas": [0.01, 0.1, 1.0, 10.0, 100.0],
   "bootstrap_samples": 5000,
   "causal_head_mechanisms": ["targeted_retrieval", "progress_transition"],
-  "causal_head_selection_metric": "query_weighted_mean_target_prompt_record_mass",
+  "causal_head_selection_metric": "query_weighted_mean_target_needle_raw_mass",
   "causal_head_bank_sizes": [1, 2, 4, 8, 16, 32],
   "causal_random_controls": 3,
   "candidate_counts": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],

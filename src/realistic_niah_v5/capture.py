@@ -37,7 +37,7 @@ from .spec import V5Config
 
 
 CAPTURE_SCHEMA_VERSION = "realistic_niah_v5_trace_capture_v1"
-ATTENTION_SCHEMA_VERSION = "realistic_niah_v5_mechanism_attention_v2"
+ATTENTION_SCHEMA_VERSION = "realistic_niah_v5_mechanism_attention_v3"
 
 
 @dataclass(frozen=True)
@@ -384,6 +384,17 @@ def capture_trace_attention_metrics(
                 target_mass = _mass(
                     head_row, key_start=key_start, spans=[target_span]
                 )
+                target_relative_mass = (
+                    target_mass / prompt_records_mass
+                    if prompt_records_mass > 0
+                    else float("nan")
+                )
+                target_top1 = bool(
+                    prompt_records_mass > 0
+                    and record_masses
+                    and int(np.argmax(record_masses))
+                    == list(encoding.prompt_record_spans).index(target_span)
+                )
                 trace_mass = _mass(
                     head_row, key_start=key_start, spans=encoding.needle_spans
                 )
@@ -420,19 +431,18 @@ def capture_trace_attention_metrics(
                         "layer": layer,
                         "head": head,
                         "key_start": key_start,
+                        # Canonical V5 result contract.  These are computed on
+                        # the exact semantic needle spans in the frozen V4.4
+                        # prompt, at one registered trace query row.
+                        "target_needle_raw_mass": target_mass,
+                        "all_active_needles_raw_mass": prompt_records_mass,
+                        "target_needle_relative_mass": target_relative_mass,
+                        "target_needle_top1": target_top1,
+                        # Compatibility aliases for pre-freeze V5 consumers.
                         "target_prompt_record_mass": target_mass,
                         "prompt_records_total_mass": prompt_records_mass,
-                        "target_within_records_fraction": (
-                            target_mass / prompt_records_mass
-                            if prompt_records_mass > 0
-                            else 0.0
-                        ),
-                        "target_record_top1": bool(
-                            prompt_records_mass > 0
-                            and record_masses
-                            and int(np.argmax(record_masses))
-                            == list(encoding.prompt_record_spans).index(target_span)
-                        ),
+                        "target_within_records_fraction": target_relative_mass,
+                        "target_record_top1": target_top1,
                         "trace_item_mass": trace_mass,
                         "full_prompt_mass": prompt_mass,
                         "other_generated_mass": max(

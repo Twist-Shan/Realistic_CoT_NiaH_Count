@@ -44,6 +44,41 @@ def ensure_viewport_meta(document: str) -> str:
     return document
 
 
+def ensure_complete_first_span_section(document: str) -> str:
+    """Backfill the canonical first-span section into older base artifacts."""
+
+    heading = "<h3>3.2 Complete-first-span attention phenotype</h3>"
+    if heading in document:
+        return document
+
+    attention_start = document.find('<section id="attention">')
+    causal_start = document.find('<section id="causal">', attention_start)
+    if attention_start < 0 or causal_start < 0:
+        raise RuntimeError("Could not locate the base attention/causal boundary")
+    attention_close = document.rfind("</section>", attention_start, causal_start)
+    if attention_close < 0:
+        raise RuntimeError("Could not locate the end of the base attention section")
+
+    from build_realistic_niah_v4_4_report import _first_span_section
+
+    fragment = _first_span_section().strip()
+    return document[:attention_close] + "\n" + fragment + "\n" + document[attention_close:]
+
+
+def remove_legacy_endpoint_phenotype_table(document: str) -> str:
+    """Drop the endpoint-only locator table superseded by complete-span evidence."""
+
+    pattern = re.compile(
+        r'<details class="data-table"><summary>'
+        r'V4\.4 endpoint phenotype counts and representatives.*?</details>',
+        re.S,
+    )
+    document, count = pattern.subn("", document)
+    if count not in (0, 1):
+        raise RuntimeError("Unexpected legacy endpoint phenotype table count")
+    return document
+
+
 def fmt(value: float | int | None, digits: int = 4, *, signed: bool = False) -> str:
     if value is None or not math.isfinite(float(value)):
         return "NA"
@@ -7945,6 +7980,8 @@ function makeMechanismWalkthrough(){
 def build_report_clear(repo_root: Path, output: Path) -> None:
     paths = validate_inputs(repo_root)
     base = paths["base"].read_text(encoding="utf-8")
+    base = ensure_complete_first_span_section(base)
+    base = remove_legacy_endpoint_phenotype_table(base)
     answer_data = extract_embedded_json(base, "ANSWER_DATA")
     causal_v2 = read_json(paths["causal_v2"])
     seed_confirmation = read_json(paths["full_span_topk"])
@@ -8191,6 +8228,11 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     base = base.replace(
         "<h3>3.1 All-head V4.4 atlas</h3>",
         "<h3>8.2 Full-span all-head atlas</h3>",
+        1,
+    )
+    base = base.replace(
+        "<h3>3.2 Complete-first-span attention phenotype</h3>",
+        "<h3>8.3 Complete-first-span attention phenotype</h3>",
         1,
     )
     base = base.replace(

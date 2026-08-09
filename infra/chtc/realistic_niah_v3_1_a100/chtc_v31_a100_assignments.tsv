@@ -1,0 +1,6 @@
+a100_80_0	80gb	80000	90000	409600	512000	Qwen3-32B|direct+enumeration_index	Gemma4-31B|direct+enumeration_index	Gemma4-26B-A4B|direct+enumeration_index+enumeration_bullet+native_thinking	Gemma4-12B|direct+enumeration_index+enumeration_bullet+native_thinking
+a100_80_1	80gb	80000	90000	409600	512000	Qwen3-32B|enumeration_bullet+native_thinking	Gemma4-31B|enumeration_bullet+native_thinking	Qwen3-14B|direct+enumeration_index+enumeration_bullet+native_thinking	Nemotron-Nano-v2-9B|direct+enumeration_index+enumeration_bullet+native_thinking
+a100_40_0	40gb	40000	50000	196608	307200	Qwen3-4B|direct	Qwen3-8B|direct	Gemma4-E4B|direct+enumeration_index	Nemotron-3-Nano-4B|direct+enumeration_index
+a100_40_1	40gb	40000	50000	196608	307200	Qwen3-4B|enumeration_index	Qwen3-8B|enumeration_index	Gemma4-E4B|enumeration_bullet+native_thinking	Nemotron-3-Nano-4B|enumeration_bullet+native_thinking
+a100_40_2	40gb	40000	50000	196608	307200	Qwen3-4B|enumeration_bullet	Qwen3-8B|enumeration_bullet	GLM-4-9B-0414|direct+enumeration_index+enumeration_bullet	GLM-Z1-9B-0414|native_thinking
+a100_40_3	40gb	40000	50000	196608	307200	Qwen3-4B|native_thinking	Qwen3-8B|native_thinking	Ministral-3-Instruct-8B|direct+enumeration_index+enumeration_bullet	Ministral-3-Reasoning-8B|native_thinking

@@ -1,0 +1,27 @@
+universe = container
+container_image = docker://vllm/vllm-openai:v0.25.1
+
+executable = chtc_v31_a100_job.sh
+arguments = "$(group_id) $(tier) $(gpu_memory_min_mb) $(gpu_memory_max_mb) $(worker0) $(worker1) $(worker2) $(worker3)"
+log = logs/a100_$(group_id)_$(Cluster).log
+output = logs/a100_$(group_id)_$(Cluster).out
+error = logs/a100_$(group_id)_$(Cluster).err
+
+transfer_input_files = realistic_v31.bundle, realistic_v31_dataset.tar.gz, chtc_v31_a100_run_group.py
+transfer_output_files = chtc_v31_part_$(group_id).tar.gz
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+
++WantGPULab = true
++GPUJobLength = "medium"
+
+request_gpus = 4
+request_cpus = 48
+request_memory = $(job_memory_mb)MB
+request_disk = $(job_disk_mb)MB
+
+gpus_minimum_capability = 8.0
+gpus_minimum_memory = $(gpu_memory_min_mb)MB
+requirements = (TARGET.HasDocker == true) && regexp("A100", TARGET.GPUs_DeviceName, "i") && !regexp("MIG", TARGET.GPUs_DeviceName, "i") && (TARGET.GPUs_GlobalMemoryMb >= $(gpu_memory_min_mb)) && (TARGET.GPUs_GlobalMemoryMb < $(gpu_memory_max_mb))
+
+queue group_id,tier,gpu_memory_min_mb,gpu_memory_max_mb,job_memory_mb,job_disk_mb,worker0,worker1,worker2,worker3 from chtc_v31_a100_assignments.tsv

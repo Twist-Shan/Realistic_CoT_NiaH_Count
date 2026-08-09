@@ -164,9 +164,9 @@ def rank_mechanism_heads(
         "trace_one_to_one",
         "layer",
         "head",
-        "target_prompt_record_mass",
-        "target_within_records_fraction",
-        "target_record_top1",
+        "target_needle_raw_mass",
+        "target_needle_relative_mass",
+        "target_needle_top1",
     }
     missing = sorted(needed - set(attention.columns))
     if missing:
@@ -188,13 +188,13 @@ def rank_mechanism_heads(
     grouped = (
         selected.groupby(["model_label", "layer", "head"], as_index=False)
         .agg(
-            discovery_target_mass=("target_prompt_record_mass", "mean"),
-            discovery_target_fraction=("target_within_records_fraction", "mean"),
-            discovery_target_top1=("target_record_top1", "mean"),
-            n_queries=("target_prompt_record_mass", "size"),
+            discovery_target_raw_mass=("target_needle_raw_mass", "mean"),
+            discovery_target_relative_mass=("target_needle_relative_mass", "mean"),
+            discovery_target_top1=("target_needle_top1", "mean"),
+            n_queries=("target_needle_raw_mass", "size"),
         )
         .sort_values(
-            ["model_label", "discovery_target_mass", "layer", "head"],
+            ["model_label", "discovery_target_raw_mass", "layer", "head"],
             ascending=[True, False, True, True],
         )
     )
@@ -205,7 +205,7 @@ def rank_mechanism_heads(
     grouped["query_site_kind"] = (
         "marker_end" if mechanism == "targeted_retrieval" else "item_end"
     )
-    grouped["selection_metric"] = "query_weighted_mean_target_prompt_record_mass"
+    grouped["selection_metric"] = "query_weighted_mean_target_needle_raw_mass"
     grouped["selection_split"] = split
     grouped["selection_cohort"] = "one_to_one"
     grouped["selection_counts"] = "1-10"

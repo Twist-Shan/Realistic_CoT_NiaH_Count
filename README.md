@@ -61,6 +61,7 @@ Remote: <https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git>
 | Goal | Primary entry point | Detailed specification |
 | --- | --- | --- |
 | Run the V5 native-thinking representation + causal replication | `scripts/run_realistic_niah_v5.py`, `configs/realistic_niah_v5.json` | [`docs/realistic_niah_v5.md`](docs/realistic_niah_v5.md) |
+| Rebuild the paired V4.4 non-thinking/native-thinking input dataset | `scripts/build_realistic_niah_mechanism_dataset.py` | [Hugging Face dataset](https://huggingface.co/datasets/stwistzz/realistic-niah-count-mechanism-analysis) |
 | Run the Realistic NIAH V4 mechanism study | `scripts/freeze_realistic_niah_v4.py`, `scripts/run_realistic_niah_v4.py` | [`docs/realistic_niah_v4.md`](docs/realistic_niah_v4.md) |
 | Inspect the completed V4 numeric non-thinking run | `run_20260731_v4_numeric_presentation_v3` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md) |
 | Open or rebuild the V4 representation + causal report | [`reports/realistic_niah_v4_representation_report.html`](reports/realistic_niah_v4_representation_report.html), `scripts/build_realistic_niah_v4_representation_report.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md`](docs/realistic_niah_v4_causal_screen_20260801.md) |
@@ -71,6 +72,7 @@ Remote: <https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git>
 | Audit and analyze exact answer-query transport | `scripts/analyze_realistic_niah_v4_answer_query_patching.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md#3-late-answer-query-state-transports-the-computed-prediction`](docs/realistic_niah_v4_causal_screen_20260801.md#3-late-answer-query-state-transports-the-computed-prediction) |
 | Analyze all Qwen span-end candidates and multi-head coverage | `scripts/analyze_realistic_niah_v4_partitioning.py` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md#qwen-span-end-full-candidate-bank-and-positional-partitioning) |
 | Run or audit Realistic NIAH V3.1 empirical law | `scripts/freeze_realistic_niah_v3_1.py`, `scripts/launch_realistic_niah_v3_1.sh` | [`docs/realistic_niah_v3_1_preregistration.md`](docs/realistic_niah_v3_1_preregistration.md), [`docs/realistic_niah_v3_1_implementation.md`](docs/realistic_niah_v3_1_implementation.md) |
+| Submit the frozen V3.1 A100 backend on CHTC | `infra/chtc/realistic_niah_v3_1_a100/` | [`infra/chtc/realistic_niah_v3_1_a100/README.md`](infra/chtc/realistic_niah_v3_1_a100/README.md) |
 | Run or audit Realistic NIAH V3 | `scripts/freeze_realistic_niah_v3.py`, `scripts/launch_realistic_niah_v3.sh` | [`docs/realistic_niah_v3.md`](docs/realistic_niah_v3.md) |
 | Inspect the executable V3 registry | `src/realistic_niah_v3/spec.py`, `configs/realistic_niah_v3.json` | `tests/test_realistic_niah_v3.py` |
 | Reproduce the completed V2 protocol | `src/realistic_niah/spec.py`, `src/realistic_niah/sharding.py` | [`docs/realistic_niah_v2.md`](docs/realistic_niah_v2.md) |

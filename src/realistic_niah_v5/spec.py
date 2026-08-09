@@ -70,7 +70,7 @@ class V5Config:
     bootstrap_samples: int = 5000
     causal_head_mechanisms: tuple[str, ...] = REGISTERED_CAUSAL_HEAD_MECHANISMS
     causal_head_selection_metric: str = (
-        "query_weighted_mean_target_prompt_record_mass"
+        "query_weighted_mean_target_needle_raw_mass"
     )
     causal_head_bank_sizes: tuple[int, ...] = (1, 2, 4, 8, 16, 32)
     causal_random_controls: int = 3
@@ -123,7 +123,7 @@ class V5Config:
                 "V5 causal heads must be targeted_retrieval and progress_transition"
             )
         if self.causal_head_selection_metric != (
-            "query_weighted_mean_target_prompt_record_mass"
+            "query_weighted_mean_target_needle_raw_mass"
         ):
             raise ValueError("V5 causal head selection cannot use broad aggregation")
         if tuple(sorted(set(self.causal_head_bank_sizes))) != self.causal_head_bank_sizes:
