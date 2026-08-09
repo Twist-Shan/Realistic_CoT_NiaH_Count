@@ -17,44 +17,16 @@ import build_realistic_niah_v4_representation_report as full
 FOCUS_VARIANT = "v4.4"
 MODELS = full.MODELS
 
-FIRST_SPAN_PROFILES = {
-    "Qwen3-8B": {
-        "head": "L9H19",
-        "color": "#6750E8",
-        "m1": 0.272003,
-        "m10": 0.495591,
-        "masses": [
-            0.272003,
-            0.080269,
-            0.047466,
-            0.033059,
-            0.020520,
-            0.014325,
-            0.013559,
-            0.005590,
-            0.005224,
-            0.003576,
-        ],
-    },
-    "Gemma4-E4B": {
-        "head": "L11H6",
-        "color": "#00A9D8",
-        "m1": 0.040711,
-        "m10": 0.057652,
-        "masses": [
-            0.040711,
-            0.007719,
-            0.002388,
-            0.001577,
-            0.001311,
-            0.000905,
-            0.000955,
-            0.000718,
-            0.000694,
-            0.000673,
-        ],
-    },
-}
+FIRST_LOCATOR_RELATIVE_ROOT = Path(
+    "reports/v4_non-thinking_causal/v4_4_extension/first_span_locator"
+)
+FIRST_LOCATOR_MODELS = ("Qwen3-8B", "Gemma4-E4B")
+FIRST_LOCATOR_COLORS = {"Qwen3-8B": "#6750E8", "Gemma4-E4B": "#00A88F"}
+FIRST_LOCATOR_K = (1, 2, 4, 8, 16, 32)
+FIRST_LOCATOR_ENDPOINTS = (
+    "all_absolute_error_increase",
+    "correct_to_wrong_rate",
+)
 
 
 def _pct(value: Any, digits: int = 1) -> str:
@@ -341,89 +313,411 @@ def _phenotype_rows(phenotypes: list[dict[str, Any]]) -> list[list[str]]:
     return rows
 
 
-def _first_span_profile_svg() -> str:
-    plot_left, plot_right = 82.0, 930.0
-    plot_top, plot_bottom = 50.0, 330.0
-    x_step = (plot_right - plot_left) / 9
-    y_scale = (plot_bottom - plot_top) / 0.8
+def _first_locator_paths(repo_root: Path) -> dict[str, Path]:
+    root = repo_root / FIRST_LOCATOR_RELATIVE_ROOT
+    return {
+        "qwen_scores": root / "Qwen3-8B.all_head_first_span_scores.csv",
+        "gemma_scores": root / "Gemma4-E4B.all_head_first_span_scores.csv",
+        "layer_matched": root / "first_span_ablation_statistics.csv",
+        "m10_matched": root / "first_span_M10_matched_statistics.csv",
+        "matching": root / "first_span_M10_matching_summary.csv",
+    }
 
-    series: list[str] = []
-    legend: list[str] = []
-    legend_x = {"Qwen3-8B": 210, "Gemma4-E4B": 570}
-    for model, profile in FIRST_SPAN_PROFILES.items():
-        masses = [float(value) for value in profile["masses"]]
-        m10 = float(profile["m10"])
-        shares = [value / m10 for value in masses]
-        points = [
-            (plot_left + index * x_step, plot_bottom - share * y_scale)
-            for index, share in enumerate(shares)
+
+def _load_first_locator_data(
+    repo_root: Path,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    paths = _first_locator_paths(repo_root)
+    missing = [str(path) for path in paths.values() if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f"Missing first-locator appendix inputs: {missing}")
+    scores = pd.concat(
+        [pd.read_csv(paths["qwen_scores"]), pd.read_csv(paths["gemma_scores"])],
+        ignore_index=True,
+    )
+    layer_matched = pd.read_csv(paths["layer_matched"])
+    m10_matched = pd.read_csv(paths["m10_matched"])
+    matching = pd.read_csv(paths["matching"])
+
+    if set(scores["model"].astype(str)) != set(FIRST_LOCATOR_MODELS):
+        raise RuntimeError("First-locator score table has unexpected models")
+    for model in FIRST_LOCATOR_MODELS:
+        model_scores = scores[scores["model"].astype(str) == model]
+        if int((model_scores["first_span_absolute_mass_rank"] == 1).sum()) != 1:
+            raise RuntimeError(f"Expected one rank-1 first-span head for {model}")
+        top = model_scores.loc[
+            model_scores["first_span_absolute_mass_rank"] == 1
+        ].iloc[0]
+        profile = np.array(
+            [float(top[f"span_{index}_mass"]) for index in range(1, 11)]
+        )
+        if not np.isclose(profile.sum(), float(top["ten_span_total_mass_mean"]), atol=1e-10):
+            raise RuntimeError(f"Ten-span mass profile does not sum to M10 for {model}")
+        if not np.isclose(profile[0], float(top["first_span_mass_mean"]), atol=1e-12):
+            raise RuntimeError(f"First-span mass disagrees with profile for {model}")
+
+    expected = {
+        (model, k, endpoint)
+        for model in FIRST_LOCATOR_MODELS
+        for k in FIRST_LOCATOR_K
+        for endpoint in FIRST_LOCATOR_ENDPOINTS
+    }
+    for label, frame in (("layer-matched", layer_matched), ("M10-matched", m10_matched)):
+        observed = {
+            (str(row.model), int(row.top_k), str(row.endpoint))
+            for row in frame.itertuples(index=False)
+        }
+        if observed != expected:
+            raise RuntimeError(f"Incomplete {label} first-locator statistics")
+    return scores, layer_matched, m10_matched, matching
+
+
+def _mix_hex(low: str, high: str, fraction: float) -> str:
+    fraction = min(1.0, max(0.0, float(fraction)))
+    low_rgb = tuple(int(low[index : index + 2], 16) for index in (1, 3, 5))
+    high_rgb = tuple(int(high[index : index + 2], 16) for index in (1, 3, 5))
+    mixed = tuple(
+        round(start + fraction * (end - start))
+        for start, end in zip(low_rgb, high_rgb)
+    )
+    return "#" + "".join(f"{value:02X}" for value in mixed)
+
+
+def _first_locator_heatmap_svg(
+    scores: pd.DataFrame,
+    *,
+    metric: str,
+    title: str,
+    description: str,
+    relative: bool,
+) -> str:
+    width, plot_width = 1080, 900
+    left, top = 105.0, 78.0
+    panel_specs: list[tuple[str, float, float]] = []
+    cursor = top
+    for model in FIRST_LOCATOR_MODELS:
+        head_count = int(scores.loc[scores["model"] == model, "head"].max()) + 1
+        cell_height = 8.5 if head_count > 16 else 14.0
+        panel_height = head_count * cell_height
+        panel_specs.append((model, cursor, cell_height))
+        cursor += panel_height + 82
+    height = int(cursor + 52)
+    maximum = float(scores[metric].max())
+    svg_id = "first-locator-share-map" if relative else "first-locator-mass-map"
+    parts = [
+        f'<svg class="stat-svg first-locator-map" viewBox="0 0 {width} {height}" role="img" aria-labelledby="{svg_id}-title {svg_id}-desc">',
+        f'<title id="{svg_id}-title">{html.escape(title)}</title>',
+        f'<desc id="{svg_id}-desc">{html.escape(description)}</desc>',
+        f'<rect width="{width}" height="{height}" fill="#FFFDF8"/>',
+        '<g font-family="Segoe UI,Arial,sans-serif" fill="#20242D">',
+        f'<text x="{width/2:.1f}" y="27" text-anchor="middle" font-size="17" font-weight="700">{html.escape(title)}</text>',
+    ]
+    low, high = ("#F3EEE4", "#00A88F") if relative else ("#F3EEE4", "#6750E8")
+    legend_x, legend_y, legend_w = 630.0, 43.0, 300.0
+    for index in range(100):
+        parts.append(
+            f'<rect x="{legend_x + index * legend_w / 100:.2f}" y="{legend_y}" '
+            f'width="{legend_w / 100 + 0.2:.2f}" height="12" fill="{_mix_hex(low, high, index / 99)}"/>'
+        )
+    legend_low = "0%" if relative else "0"
+    legend_high = f"{100 * maximum:.1f}%" if relative else f"{maximum:.3f}"
+    scale_note = "linear" if relative else "log1p color scale"
+    parts.extend(
+        [
+            f'<text x="{legend_x - 8}" y="{legend_y + 11}" text-anchor="end" font-size="10" fill="#5E6672">{legend_low}</text>',
+            f'<text x="{legend_x + legend_w + 8}" y="{legend_y + 11}" font-size="10" fill="#5E6672">{legend_high}</text>',
+            f'<text x="{legend_x - 28}" y="{legend_y + 11}" text-anchor="end" font-size="10" fill="#5E6672">{scale_note}</text>',
         ]
-        point_text = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
-        circles = "".join(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5"/>' for x, y in points
+    )
+    for model, y0, cell_height in panel_specs:
+        subset = scores[scores["model"] == model].copy()
+        layer_count = int(subset["layer"].max()) + 1
+        head_count = int(subset["head"].max()) + 1
+        cell_width = plot_width / layer_count
+        top_row = subset.loc[subset["first_span_absolute_mass_rank"] == 1].iloc[0]
+        top_label = f'L{int(top_row["layer"])}H{int(top_row["head"])}'
+        parts.append(
+            f'<text x="{left}" y="{y0 - 14:.1f}" font-size="14" font-weight="700">'
+            f'{html.escape(model)} · rank-1 {top_label}</text>'
         )
-        color = str(profile["color"])
-        series.append(
-            f'<polyline points="{point_text}" fill="none" stroke="{color}" '
-            'stroke-width="4"/>'
-            f'<g fill="{color}">{circles}</g>'
+        parts.append(
+            f'<rect x="{left}" y="{y0:.1f}" width="{plot_width}" height="{head_count * cell_height:.1f}" '
+            'fill="#F3EEE4" stroke="#C9C2B6"/>'
         )
-        x = legend_x[model]
-        share1 = float(profile["m1"]) / m10
-        short_model = "Qwen" if model == "Qwen3-8B" else "Gemma"
-        legend.append(
-            f'<line x1="{x}" y1="395" x2="{x + 35}" y2="395" '
-            f'stroke="{color}" stroke-width="4"/>'
-            f'<text x="{x + 45}" y="399" font-size="13">{short_model} '
-            f'{profile["head"]} · m₁={float(profile["m1"]):.4f} · '
-            f'M₁₀={m10:.4f} · share₁={100 * share1:.1f}%</text>'
+        for row in subset.itertuples(index=False):
+            value = float(getattr(row, metric))
+            if relative:
+                color_fraction = value
+            else:
+                color_fraction = np.log1p(value / 1e-6) / np.log1p(maximum / 1e-6)
+            x = left + int(row.layer) * cell_width
+            y = y0 + int(row.head) * cell_height
+            is_top = int(row.first_span_absolute_mass_rank) == 1
+            stroke = "#D6B52C" if is_top else "#FFFDF8"
+            stroke_width = 2.5 if is_top else 0.25
+            parts.append(
+                f'<rect x="{x:.2f}" y="{y:.2f}" width="{cell_width + 0.15:.2f}" '
+                f'height="{cell_height + 0.15:.2f}" fill="{_mix_hex(low, high, color_fraction)}" '
+                f'stroke="{stroke}" stroke-width="{stroke_width}">'
+                f'<title>{html.escape(model)} L{int(row.layer)}H{int(row.head)}; '
+                f'm1={float(row.first_span_mass_mean):.9f}; M10={float(row.ten_span_total_mass_mean):.9f}; '
+                f'm1/M10={100 * float(row.first_share_ratio_of_means):.3f}%</title></rect>'
+            )
+        layer_ticks = sorted(set([0, layer_count - 1, *range(5, layer_count, 5)]))
+        for layer in layer_ticks:
+            x = left + (layer + 0.5) * cell_width
+            parts.append(
+                f'<text x="{x:.1f}" y="{y0 + head_count * cell_height + 18:.1f}" '
+                f'text-anchor="middle" font-size="9" fill="#5E6672">L{layer}</text>'
+            )
+        head_ticks = sorted(set([0, head_count - 1, *range(4, head_count, 4)]))
+        for head in head_ticks:
+            y = y0 + (head + 0.5) * cell_height + 3
+            parts.append(
+                f'<text x="{left - 9}" y="{y:.1f}" text-anchor="end" font-size="9" fill="#5E6672">H{head}</text>'
+            )
+        parts.append(
+            f'<text x="{left + plot_width / 2:.1f}" y="{y0 + head_count * cell_height + 38:.1f}" '
+            'text-anchor="middle" font-size="11" fill="#5E6672">decoder layer</text>'
         )
+    parts.append('</g></svg>')
+    return "".join(parts)
 
-    horizontal_grid = "".join(
-        f'<line x1="82" y1="{y}" x2="930" y2="{y}"/>'
-        for y in (260, 190, 120, 50)
+
+def _first_span_profile_svg(scores: pd.DataFrame) -> str:
+    width, height = 1040, 640
+    left, right, panel_height = 105.0, 35.0, 235.0
+    plot_width = width - left - right
+    parts = [
+        f'<svg class="stat-svg first-span-profile-svg" viewBox="0 0 {width} {height}" role="img" aria-labelledby="first-span-profile-title first-span-profile-desc">',
+        '<title id="first-span-profile-title">Absolute attention mass across the ten complete needle spans</title>',
+        '<desc id="first-span-profile-desc">Separate model panels show the rank-one first-span head. Bar heights are absolute attention mass; exact absolute and relative values are provided in the following table.</desc>',
+        f'<rect width="{width}" height="{height}" fill="#FFFDF8"/>',
+        '<g font-family="Segoe UI,Arial,sans-serif" fill="#20242D">',
+        f'<text x="{width/2:.1f}" y="27" text-anchor="middle" font-size="17" font-weight="700">Rank-1 complete-first-span heads · absolute mass</text>',
+    ]
+    for panel_index, model in enumerate(FIRST_LOCATOR_MODELS):
+        row = scores[
+            (scores["model"] == model)
+            & (scores["first_span_absolute_mass_rank"] == 1)
+        ].iloc[0]
+        y0 = 72.0 + panel_index * 280.0
+        plot_bottom = y0 + panel_height
+        masses = [float(row[f"span_{index}_mass"]) for index in range(1, 11)]
+        m10 = float(row["ten_span_total_mass_mean"])
+        ymax = max(masses) * 1.16
+        head = f'L{int(row["layer"])}H{int(row["head"])}'
+        color = FIRST_LOCATOR_COLORS[model]
+        parts.append(
+            f'<text x="{left}" y="{y0 - 17:.1f}" font-size="14" font-weight="700">'
+            f'{html.escape(model)} · {head} · M10={m10:.6f} · share1={100 * masses[0] / m10:.2f}%</text>'
+        )
+        for tick in np.linspace(0.0, ymax, 5):
+            y = plot_bottom - tick / ymax * panel_height
+            parts.append(
+                f'<line x1="{left}" y1="{y:.1f}" x2="{width-right}" y2="{y:.1f}" stroke="#DED8CE"/>'
+            )
+            parts.append(
+                f'<text x="{left-10}" y="{y+4:.1f}" text-anchor="end" font-size="10" fill="#5E6672">{tick:.3f}</text>'
+            )
+        step = plot_width / 10
+        for index, mass in enumerate(masses, start=1):
+            x = left + (index - 1) * step + step * 0.18
+            bar_width = step * 0.64
+            bar_height = mass / ymax * panel_height
+            y = plot_bottom - bar_height
+            share = mass / m10
+            parts.append(
+                f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_width:.1f}" height="{bar_height:.1f}" '
+                f'fill="{color}" opacity="{1.0 if index == 1 else 0.78}"><title>span {index}: '
+                f'mass={mass:.9f}; share of M10={100 * share:.3f}%</title></rect>'
+            )
+            label_y = max(y - 7, y0 + 9)
+            parts.append(
+                f'<text x="{x+bar_width/2:.1f}" y="{label_y:.1f}" text-anchor="middle" font-size="9" fill="#38414D">'
+                f'{mass:.4f}</text>'
+            )
+            parts.append(
+                f'<text x="{x+bar_width/2:.1f}" y="{plot_bottom+17:.1f}" text-anchor="middle" font-size="10" fill="#5E6672">S{index}</text>'
+            )
+        parts.append(
+            f'<text transform="translate(20 {y0 + panel_height/2:.1f}) rotate(-90)" text-anchor="middle" font-size="11" fill="#5E6672">absolute attention mass</text>'
+        )
+    parts.append('</g></svg>')
+    return "".join(parts)
+
+
+def _first_locator_ablation_svg(
+    frame: pd.DataFrame,
+    *,
+    control_label: str,
+    svg_id: str,
+) -> str:
+    width, height = 1120, 690
+    left, top, panel_w, panel_h = 88.0, 72.0, 430.0, 225.0
+    col_gap, row_gap = 115.0, 90.0
+    endpoint_titles = {
+        "all_absolute_error_increase": "All-sample absolute-error increase",
+        "correct_to_wrong_rate": "Clean-correct → wrong rate",
+    }
+    ranges: dict[str, tuple[float, float]] = {}
+    for endpoint in FIRST_LOCATOR_ENDPOINTS:
+        subset = frame[frame["endpoint"] == endpoint]
+        low = min(0.0, float(subset["ci95_low"].min()))
+        high = max(0.0, float(subset["ci95_high"].max()))
+        padding = max((high - low) * 0.12, 0.02)
+        ranges[endpoint] = (low - padding, high + padding)
+    parts = [
+        f'<svg class="stat-svg first-locator-ablation-svg" viewBox="0 0 {width} {height}" role="img" aria-labelledby="{svg_id}-title {svg_id}-desc">',
+        f'<title id="{svg_id}-title">First-span top-k ablation versus {html.escape(control_label)}</title>',
+        f'<desc id="{svg_id}-desc">Four panels show ranked-minus-control effects and seed-bootstrap 95 percent confidence intervals over K equals 1, 2, 4, 8, 16 and 32. Positive values mean the first-span-ranked bank is more damaging.</desc>',
+        f'<rect width="{width}" height="{height}" fill="#FFFDF8"/>',
+        '<g font-family="Segoe UI,Arial,sans-serif" fill="#20242D">',
+        f'<text x="{width/2:.1f}" y="28" text-anchor="middle" font-size="17" font-weight="700">Top-k specificity · ranked minus {html.escape(control_label)}</text>',
+    ]
+    for row_index, model in enumerate(FIRST_LOCATOR_MODELS):
+        for col_index, endpoint in enumerate(FIRST_LOCATOR_ENDPOINTS):
+            x0 = left + col_index * (panel_w + col_gap)
+            y0 = top + row_index * (panel_h + row_gap)
+            ymin, ymax = ranges[endpoint]
+            x = lambda index: x0 + index / (len(FIRST_LOCATOR_K) - 1) * panel_w
+            y = lambda value: y0 + (ymax - float(value)) / (ymax - ymin) * panel_h
+            subset = frame[
+                (frame["model"] == model) & (frame["endpoint"] == endpoint)
+            ].sort_values("top_k")
+            parts.append(
+                f'<text x="{x0 + panel_w/2:.1f}" y="{y0 - 15:.1f}" text-anchor="middle" font-size="13" font-weight="700">'
+                f'{html.escape(model)} · {html.escape(endpoint_titles[endpoint])}</text>'
+            )
+            for tick in np.linspace(ymin, ymax, 5):
+                yy = y(tick)
+                parts.append(
+                    f'<line x1="{x0}" y1="{yy:.1f}" x2="{x0+panel_w}" y2="{yy:.1f}" stroke="#DED8CE"/>'
+                )
+                parts.append(
+                    f'<text x="{x0-9}" y="{yy+4:.1f}" text-anchor="end" font-size="9" fill="#5E6672">{tick:.2f}</text>'
+                )
+            zero_y = y(0.0)
+            parts.append(
+                f'<line x1="{x0}" y1="{zero_y:.1f}" x2="{x0+panel_w}" y2="{zero_y:.1f}" stroke="#20242D" stroke-width="1.4" stroke-dasharray="5 4"/>'
+            )
+            points: list[tuple[float, float]] = []
+            color = FIRST_LOCATOR_COLORS[model]
+            for index, row in enumerate(subset.itertuples(index=False)):
+                xx, yy = x(index), y(row.ranked_minus_random)
+                low_y, high_y = y(row.ci95_low), y(row.ci95_high)
+                points.append((xx, yy))
+                parts.extend(
+                    [
+                        f'<line x1="{xx:.1f}" y1="{low_y:.1f}" x2="{xx:.1f}" y2="{high_y:.1f}" stroke="{color}" stroke-width="2"/>',
+                        f'<line x1="{xx-5:.1f}" y1="{low_y:.1f}" x2="{xx+5:.1f}" y2="{low_y:.1f}" stroke="{color}" stroke-width="2"/>',
+                        f'<line x1="{xx-5:.1f}" y1="{high_y:.1f}" x2="{xx+5:.1f}" y2="{high_y:.1f}" stroke="{color}" stroke-width="2"/>',
+                        f'<circle cx="{xx:.1f}" cy="{yy:.1f}" r="5" fill="{color}"><title>K={int(row.top_k)}; ranked={float(row.ranked_mean):.6f}; control={float(row.random_mean):.6f}; contrast={float(row.ranked_minus_random):.6f}; 95% CI [{float(row.ci95_low):.6f}, {float(row.ci95_high):.6f}]; Holm p={float(row.holm_p_within_model_endpoint):.6g}</title></circle>',
+                        f'<text x="{xx:.1f}" y="{y0+panel_h+18:.1f}" text-anchor="middle" font-size="10" fill="#5E6672">{int(row.top_k)}</text>',
+                    ]
+                )
+            parts.append(
+                '<polyline points="'
+                + " ".join(f"{xx:.1f},{yy:.1f}" for xx, yy in points)
+                + f'" fill="none" stroke="{color}" stroke-width="3"/>'
+            )
+            parts.append(
+                f'<text x="{x0 + panel_w/2:.1f}" y="{y0+panel_h+39:.1f}" text-anchor="middle" font-size="10" fill="#5E6672">top-k heads</text>'
+            )
+    parts.append(
+        '<text x="18" y="350" transform="rotate(-90 18 350)" text-anchor="middle" font-size="11" fill="#5E6672">ranked ablation damage − control damage</text>'
     )
-    y_labels = "".join(
-        f'<text x="70" y="{y + 4}" text-anchor="end">{pct}%</text>'
-        for y, pct in ((330, 0), (260, 20), (190, 40), (120, 60), (50, 80))
+    parts.append('</g></svg>')
+    return "".join(parts)
+
+
+def _first_locator_appendix(repo_root: Path) -> str:
+    scores, layer_matched, m10_matched, matching = _load_first_locator_data(
+        repo_root
     )
-    x_labels = "".join(
-        f'<text x="{plot_left + index * x_step:.1f}" y="351" '
-        f'text-anchor="middle">{index + 1}</text>'
-        for index in range(10)
-    )
+    span_rows: list[list[str]] = []
+    top_summaries: list[str] = []
+    for model in FIRST_LOCATOR_MODELS:
+        top = scores[
+            (scores["model"] == model)
+            & (scores["first_span_absolute_mass_rank"] == 1)
+        ].iloc[0]
+        head = f'L{int(top["layer"])}H{int(top["head"])}'
+        m10 = float(top["ten_span_total_mass_mean"])
+        top_summaries.append(
+            f'<strong>{html.escape(model)} {head}</strong>: '
+            f'<code>mean(m1)={float(top["first_span_mass_mean"]):.6f}</code>, '
+            f'<code>mean(M10)={m10:.6f}</code>, '
+            f'<code>mean(m1)/mean(M10)={100 * float(top["first_share_ratio_of_means"]):.2f}%</code>'
+        )
+        for index in range(1, 11):
+            mass = float(top[f"span_{index}_mass"])
+            span_rows.append(
+                [model, head, str(index), f"{mass:.9f}", f"{100 * mass / m10:.3f}%"]
+            )
+
+    ablation_rows: list[list[str]] = []
+    for control, frame in (
+        ("layer-matched", layer_matched),
+        ("layer + M10-nearest", m10_matched),
+    ):
+        for row in frame.sort_values(["model", "endpoint", "top_k"]).itertuples(index=False):
+            ablation_rows.append(
+                [
+                    control,
+                    str(row.model),
+                    str(row.endpoint),
+                    str(int(row.top_k)),
+                    f"{float(row.ranked_mean):.6f}",
+                    f"{float(row.random_mean):.6f}",
+                    f"{float(row.ranked_minus_random):+.6f} "
+                    f"[{float(row.ci95_low):+.6f}, {float(row.ci95_high):+.6f}]",
+                    f"{float(row.holm_p_within_model_endpoint):.6g}",
+                ]
+            )
+    matching_rows = [
+        [
+            str(row.model),
+            str(int(row.top_k)),
+            f"{100 * float(row.mean_overlap_fraction):.1f}%",
+            f"{float(row.ranked_M10_mean):.6f}",
+            f"{float(row.control_M10_mean):.6f}",
+            f"{float(row.mean_absolute_M10_gap):.6f}",
+        ]
+        for row in matching.sort_values(["model", "top_k"]).itertuples(index=False)
+    ]
     return f"""
-<svg class="stat-svg" viewBox="0 0 980 410" role="img" aria-labelledby="first-span-title first-span-desc">
-<title id="first-span-title">Complete-first-span attention profiles</title>
-<desc id="first-span-desc">Qwen L9H19 and Gemma L11H6 attention mass across the ten complete needle spans, shown as each span's share of total ten-span mass.</desc>
-<rect width="980" height="410" fill="#FFFDF8"/>
-<g font-family="Segoe UI,Arial,sans-serif" fill="#20242D">
-<text x="490" y="24" text-anchor="middle" font-size="16" font-weight="700">Top complete-first-span heads</text>
-<line x1="82" y1="330" x2="930" y2="330" stroke="#718096"/>
-<line x1="82" y1="50" x2="82" y2="330" stroke="#718096"/>
-<g stroke="#DED8CE">{horizontal_grid}</g>
-<g font-size="12" fill="#5E6672">{y_labels}
-<text transform="translate(20 190) rotate(-90)" text-anchor="middle">share of total ten-span mass</text>
-</g>
-{''.join(series)}
-<g font-size="12" fill="#5E6672">{x_labels}
-<text x="506" y="376" text-anchor="middle">needle span index</text>
-</g>
-{''.join(legend)}
-</g>
-</svg>"""
+<section id="appendix-first-locator" class="appendix first-locator-appendix">
+<h2>Appendix A · Complete-first-span first-locator</h2>
+<div class="callout warning"><strong>与正文的关系。</strong>本附录独立记录 first-locator 的定义、观测 attention phenotype 与负面 causal specificity 结果；它不进入正文的主机制链，也不改变正文对 distributed broad retrieval 的结论。</div>
 
+<h3>A.1 定义、样本与排序</h3>
+<p>对一个 N=10 discovery prompt，令 <code>q</code> 为最终 <code>Total:</code> answer query，<code>Sᵢ</code> 为第 <em>i</em> 条完整 needle 的全部 literal-token positions。head <code>h</code> 在第 <em>i</em> 条 needle 上的绝对 attention mass 定义为：</p>
+<div class="equation">mᵢ,ₕ(x) = Σⱼ∈Sᵢ(x) αₕ(q,j)；　M₁₀,ₕ(x) = Σᵢ₌₁¹⁰ mᵢ,ₕ(x)</div>
+<p>排序分数是 20 个 discovery seeds（1234–1253）上的 <code>meanₓ[m₁,ₕ(x)]</code>。下文的 span 相对占比定义为 <code>mean(mᵢ)/mean(M₁₀)</code>，所以十个 span 的占比精确加总为 100%；它与“先逐样本取比例再平均”是不同 estimand。因果 confirmation 使用 fresh seeds 1336–1355、gold counts 1–5，共 100 prompts/model。</p>
+<p>{'<br>'.join(top_summaries)}</p>
 
-def _first_span_section() -> str:
-    return f"""
-<div class="figure-block first-span-profile">
-<h3>3.2 Complete-first-span attention phenotype</h3>
-<p class="figure-intro"><strong>为什么要做。</strong>旧的 first-locator 定义只看第一条 needle 的 endpoint token，可能把“注意一个 token”误写成“定位整条 needle”。新实验在最终 <code>Total:</code> query 上，对第 <em>i</em> 条 needle 的全部 literal tokens 求和：<code>mᵢ,ₕ = Σⱼ∈Sᵢ αₕ(q,j)</code>。主排序严格使用 discovery 样本上的 <code>mean(m₁)</code>；同时记录十条 needle 的总质量 <code>M₁₀=Σᵢmᵢ</code> 与 <code>share₁=m₁/M₁₀</code>。</p>
-<figure>{_first_span_profile_svg()}<figcaption>完整 span 的 absolute-attention profile。横轴是十条 needle 的顺序；纵轴是每条 span mass 占该 head 的 <code>M₁₀</code> 的比例，因此可比较 span 内的集中形状，但不能用线高直接比较两模型的绝对 mass。两模型的 top head 都明显偏向第一条完整 needle span。</figcaption></figure>
-<p><strong>因果检验。</strong>在独立 confirmation seeds 1336–1355、gold count 1–5（每模型 100 个 prompts）上，按 discovery <code>mean(m₁)</code> 冻结 top-k（k=1,2,4,8,16,32），并在最终 <code>Total:</code> query 将这些 heads 的 pre-O slices 置零。对照为三组 layer-matched random sets 与三组 layer+M₁₀-nearest sets。终点是 all-sample absolute-error increase 和 clean-correct correct-to-wrong rate；95% CI 与双侧 sign-flip 均以 20 个 seed clusters 为单位，并在每个 model×endpoint 的六个 k 内做 Holm 校正。</p>
-<p><strong>结果。</strong>两套控制下，Qwen 没有任何 k 显示正向显著的额外损害。Gemma 的显著结果只在相反方向：first-span-ranked bank 比控制更不具破坏性（layer-matched k=32：absolute-error Δ=−0.203，Holm p=0.0042；M₁₀-nearest k=16/32：Δ=−0.147/−0.233，Holm p=0.0053/0.00135；k=32 correct-to-wrong Δ=−0.171，Holm p=0.0074）。Qwen L9H19 的 M₁₀ 是极端值，严格 M₁₀ 匹配不可实现；这限制精确的条件效应估计，但不会把“未观察到正向特异效应”改写成支持结果。</p>
-<div class="conclusion"><strong>First-span 实验结论</strong>两个模型都存在可重复的 complete-first-span attention phenotype，但按 m₁ 排序的 heads 被消融后并不比匹配 retrieval heads 更有害。因此它是表征现象，不支持“first-span locator 是独特必要 circuit”，也不作为本文 non-thinking counting mechanism 的核心环节。</div>
-</div>"""
+<h3>A.2 All-head attention maps</h3>
+<figure id="appendix-first-locator-map-absolute">{_first_locator_heatmap_svg(scores, metric="first_span_mass_mean", title="All-head first-span absolute mass", description="Every Qwen and Gemma head is placed by layer and head index. Color encodes mean absolute attention mass on the complete first needle span; the rank-one head has a gold outline.", relative=False)}<figcaption><strong>Figure A1 · 第一条完整 needle 的绝对 mass。</strong>每格是一个真实 layer/head；颜色对应 <code>mean(m₁)</code>，采用 log1p 色阶以同时显示极小值与高-mass outlier。金色边框标出各模型按该量冻结的 rank-1 head。悬停可查看精确 <code>m₁</code>、<code>M₁₀</code> 和相对占比。</figcaption></figure>
+<figure id="appendix-first-locator-map-relative">{_first_locator_heatmap_svg(scores, metric="first_share_ratio_of_means", title="All-head first-span share of ten-span mass", description="Every Qwen and Gemma head is placed by layer and head index. Color encodes mean first-span mass divided by mean total ten-span mass; the rank-one absolute-mass head has a gold outline.", relative=True)}<figcaption><strong>Figure A2 · 第一条 span 在十条 needle mass 中的相对占比。</strong>颜色是 <code>mean(m₁)/mean(M₁₀)</code> 的线性 0–100% 标度。该图回答“已分配给十条 needles 的 mass 中有多少落在第一条”，而 Figure A1 回答绝对分配了多少；高占比不必然意味着高绝对 mass。</figcaption></figure>
+
+<h3>A.3 Rank-1 heads 的十条 span profile</h3>
+<figure id="appendix-first-locator-profile">{_first_span_profile_svg(scores)}<figcaption><strong>Figure A3 · 真实 absolute mass profile。</strong>两面板分别使用模型内独立纵轴；柱高是 discovery 20 seeds 上的真实 <code>mean(mᵢ)</code>，不是归一化分数。精确到 9 位小数的 mass 与其在 <code>M₁₀</code> 中的占比见下表。</figcaption></figure>
+{_details_table(title="Exact rank-1 ten-span masses", columns=["model", "head", "span i", "mean absolute mass mᵢ", "mean(mᵢ) / mean(M₁₀)"], rows=span_rows, open_by_default=True)}
+
+<h3>A.4 First-span-ranked top-k ablation curves</h3>
+<p>按 discovery <code>mean(m₁)</code> 冻结 K∈{{1,2,4,8,16,32}} 的 nested head banks，只在最终 <code>Total:</code> query 将其 pre-O slices 置零。令 <code>gᵢ</code> 为 gold count，<code>y⁽⁰⁾ᵢ</code> 为 clean completion 在最终 <code>Total:</code> 后解析出的数字，<code>y⁽ᶜ⁾ₖᵢ</code> 为 condition <code>c</code> 干预后解析出的数字。左列的单样本 damage 是：</p>
+<div class="equation">dᵃᵇˢᵢ,ᶜ = |y⁽ᶜ⁾ₖᵢ − gᵢ| − |y⁽⁰⁾ᵢ − gᵢ|</div>
+<p>曲线再画 seed-mean 的 <code>dᵃᵇˢ(ranked) − dᵃᵇˢ(control)</code>。因此它来自最终输出数字，但比较的是<strong>相对 gold 的绝对误差增加量之差</strong>，不是原始的 <code>y(ranked) − y(control)</code>。右列先限制到 <code>y⁽⁰⁾ᵢ=gᵢ</code> 的 clean-correct 样本，再计算：</p>
+<div class="equation">dᶠᵃⁱˡᵢ,ᶜ = 1[y⁽ᶜ⁾ₖᵢ ≠ gᵢ]；curve = Eₛₑₑd[dᶠᵃⁱˡ(ranked) − dᶠᵃⁱˡ(control)]</div>
+<p>两列的正值才表示 first-span ranking 比 matched alternative 造成更大的行为损害；误差线为 20 seed clusters 的 bootstrap 95% CI。</p>
+<figure id="appendix-first-locator-ablation-layer">{_first_locator_ablation_svg(layer_matched, control_label="layer-matched random", svg_id="first-locator-layer-matched")}<figcaption><strong>Figure A4 · Layer-matched control。</strong>Qwen 在两个 endpoint 的所有 K 均无正向显著 specificity；Gemma K=32 的显著结果在负方向，表示 ranked bank 反而比 control 更少破坏。</figcaption></figure>
+<figure id="appendix-first-locator-ablation-m10">{_first_locator_ablation_svg(m10_matched, control_label="layer + M10-nearest", svg_id="first-locator-m10-matched")}<figcaption><strong>Figure A5 · Layer + M₁₀-nearest control。</strong>加入总 retrieval mass 的 nearest-neighbor matching 后仍没有正向显著结果。Qwen rank-1 <code>M₁₀</code> 是极端 outlier，因此该模型的 M₁₀ matching 不能完全隔离 concentration 与总 retrieval strength。</figcaption></figure>
+{_details_table(title="Exact first-locator top-k ablation statistics", columns=["control", "model", "endpoint", "K", "ranked mean", "control mean", "ranked − control [95% CI]", "Holm p"], rows=ablation_rows)}
+{_details_table(title="M10 matching and ranked/control overlap audit", columns=["model", "K", "mean overlap", "ranked M10 mean", "control M10 mean", "mean |M10 gap|"], rows=matching_rows)}
+
+<div class="conclusion"><strong>Appendix A 结论</strong>表示结果为正：Qwen L9H19 与 Gemma L11H6 都呈现完整第一条 needle span 的 attention concentration。因果特异性结果为负：两套 control、两个 endpoint 和全部 K 都没有显示 first-span-ranked heads 造成显著更大的正向损害。因此当前证据支持 first-span attention phenotype，不支持“first-span locator 是独特必要 circuit”。</div>
+</section>"""
 
 
 def _outcome_rows(outcomes: list[dict[str, Any]]) -> list[list[str]]:
@@ -848,7 +1142,7 @@ REPORT_TEMPLATE = r"""<!doctype html>
 </style>
 </head>
 <body>
-<nav><a href="#scope">范围</a><a href="#prompt">Prompt hidden state</a><a href="#answer">Answer hidden state</a><a href="#attention">Attention heads</a><a href="#causal">Causal tests</a><a href="#limits">结论与缺口</a></nav>
+<nav><a href="#scope">范围</a><a href="#prompt">Prompt hidden state</a><a href="#answer">Answer hidden state</a><a href="#attention">Attention heads</a><a href="#causal">Causal tests</a><a href="#limits">结论与缺口</a><a href="#appendix-first-locator">Appendix A</a></nav>
 <main>
 <header>
 <div class="eyebrow">Realistic NIAH · V4.4 only · non-thinking</div>
@@ -886,10 +1180,9 @@ REPORT_TEMPLATE = r"""<!doctype html>
 <h2>3 · V4.4 attention-head representation</h2>
 <p>Atlas 的每一个格子是一个实际保存 full-attention row 的 layer/head。Query 固定为最终 <code>Total:</code> token；key pooling 可切换为 needle endpoint 或完整 needle span 的 literal sum。颜色是 discovery primary score 的对数尺度，只用于同一视图内排序。它不是单个 needle 的概率，也不能跨两种 pooling 直接比较颜色深浅。</p>
 @@ATTENTION_ATLAS@@
-@@FIRST_SPAN_SECTION@@
 @@OUTCOME_TABLE@@
 @@OMISSION_TABLE@@
-<div class="conclusion"><strong>本节结论</strong>V4.4 中 broad retrieval 由多个 heads 分担。完整第一条 needle span 的集中表型在 Qwen 与 Gemma 中都可见，但两套匹配控制下均没有正向的特异必要性证据；因此它保留为简短的 representation/negative-causal 结果，而不进入 counting mechanism 主链。Correct/wrong 的 aggregate mass 差异稀疏，attention association 本身不能替代因果检验。</div>
+<div class="conclusion"><strong>本节结论</strong>V4.4 中 broad retrieval 由多个 heads 分担。Correct/wrong 的 aggregate mass 差异稀疏，attention association 本身不能替代因果检验。</div>
 </section>
 
 <section id="causal">
@@ -931,8 +1224,9 @@ REPORT_TEMPLATE = r"""<!doctype html>
 <section id="limits">
 <h2>5 · 当前机制与下一步</h2>
 <p>目前最小机制是：多个 attention heads 对 needles 做分布式 retrieval；prompt-side endpoint 留下可解码但不可单点运输的 count/index information；后层 <code>Total:</code> query 形成可执行的预测状态，LM readout 从该状态产生数字。V4.4 high-count undercount 更像系统性漏增量/饱和，而不是同一 count 下的 seed scatter 随 n 增大。</p>
-<div class="callout warning"><strong>尚未完成。</strong>本轮没有完成 full-needle-span residual patch、逐 token coordinated multi-layer restoration、head-output patching，也没有 top-1→top-k 的完整 phenotype-pure ablation scan。代码中曾注册但 screen 未运行的条件不属于本报告证据。下一步若固定 V4.4，应在 disjoint V4.4 discovery/confirmation seeds 上做：(1) top-1…top-k dose response；(2) full-span active↔inactive patch 加 matched random/content controls；(3) nested N→N+1 的 query-state increment tracing。</div>
+<div class="callout warning"><strong>尚未完成。</strong>本轮没有完成 full-needle-span residual patch、逐 token coordinated multi-layer restoration 与 head-output patching。代码中曾注册但 screen 未运行的条件不属于本报告证据。下一步若固定 V4.4，应在 disjoint V4.4 discovery/confirmation seeds 上做 full-span active↔inactive patch 加 matched random/content controls，以及 nested N→N+1 的 query-state increment tracing。</div>
 </section>
+@@FIRST_LOCATOR_APPENDIX@@
 </main>
 
 <script>
@@ -1119,7 +1413,7 @@ def build_report(run_root: Path, output: Path, repo_root: Path) -> None:
             atlas_html,
             "V4.4 answer-query attention atlas. 每格对应一个 layer/head，hover title 给出 primary score。颜色按当前 pooling 的 discovery log primary score 独立缩放；因此 endpoint 与 span-sum 的颜色不可当成相同绝对 mass。候选/phenotype symbol 只帮助定位，不能替代 causal test。",
         ),
-        "@@FIRST_SPAN_SECTION@@": _first_span_section(),
+        "@@FIRST_LOCATOR_APPENDIX@@": _first_locator_appendix(repo_root),
         "@@OUTCOME_TABLE@@": _details_table(
             title="V4.4 count-adjusted wrong−correct attention effects",
             columns=["model", "pooling", "rank/head", "metric", "wrong−correct [95% CI]", "CI excludes 0"],

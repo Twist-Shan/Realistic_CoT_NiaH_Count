@@ -44,25 +44,39 @@ def ensure_viewport_meta(document: str) -> str:
     return document
 
 
-def ensure_complete_first_span_section(document: str) -> str:
-    """Backfill the canonical first-span section into older base artifacts."""
+def ensure_first_locator_appendix(document: str, repo_root: Path) -> str:
+    """Keep first-locator evidence in one standalone appendix, never in the body."""
 
-    heading = "<h3>3.2 Complete-first-span attention phenotype</h3>"
-    if heading in document:
-        return document
+    legacy_pattern = re.compile(
+        r'<div class="figure-block first-span-profile">.*?'
+        r'<div class="conclusion">.*?</div>\s*</div>',
+        re.S,
+    )
+    document, legacy_count = legacy_pattern.subn("", document)
+    if legacy_count not in (0, 1):
+        raise RuntimeError("Unexpected legacy first-span body-section count")
+    appendix_pattern = re.compile(
+        r'<section id="appendix-first-locator".*?</section>', re.S
+    )
+    document, appendix_count = appendix_pattern.subn("", document)
+    if appendix_count not in (0, 1):
+        raise RuntimeError("Unexpected first-locator appendix count")
+    if "</main>" not in document:
+        raise RuntimeError("Base report has no main terminator for Appendix A")
 
-    attention_start = document.find('<section id="attention">')
-    causal_start = document.find('<section id="causal">', attention_start)
-    if attention_start < 0 or causal_start < 0:
-        raise RuntimeError("Could not locate the base attention/causal boundary")
-    attention_close = document.rfind("</section>", attention_start, causal_start)
-    if attention_close < 0:
-        raise RuntimeError("Could not locate the end of the base attention section")
+    from build_realistic_niah_v4_4_report import _first_locator_appendix
 
-    from build_realistic_niah_v4_4_report import _first_span_section
+    fragment = _first_locator_appendix(repo_root).strip()
+    return document.replace("</main>", fragment + "\n</main>", 1)
 
-    fragment = _first_span_section().strip()
-    return document[:attention_close] + "\n" + fragment + "\n" + document[attention_close:]
+
+def remove_first_locator_body_claims(document: str) -> str:
+    """Remove the legacy endpoint-locator interpretation from the main narrative."""
+
+    return document.replace(
+        "first-needle locator 比稳定的任意单一 targeted-occurrence head 更清楚。",
+        "",
+    )
 
 
 def remove_legacy_endpoint_phenotype_table(document: str) -> str:
@@ -7336,6 +7350,16 @@ def validate_inputs(repo_root: Path) -> dict[str, Path]:
         / "reports/v4_non-thinking_causal/v4_4_extension/prompt_subspace_ablation/subspace_ablation_statistics.csv",
         "extension_subspace_audit": repo_root
         / "reports/v4_non-thinking_causal/v4_4_extension/prompt_subspace_ablation/analysis_audit.json",
+        "first_locator_qwen_scores": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/first_span_locator/Qwen3-8B.all_head_first_span_scores.csv",
+        "first_locator_gemma_scores": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/first_span_locator/Gemma4-E4B.all_head_first_span_scores.csv",
+        "first_locator_layer_matched": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/first_span_locator/first_span_ablation_statistics.csv",
+        "first_locator_m10_matched": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/first_span_locator/first_span_M10_matched_statistics.csv",
+        "first_locator_matching": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/first_span_locator/first_span_M10_matching_summary.csv",
     }
     required = {
         "base",
@@ -7376,6 +7400,11 @@ def validate_inputs(repo_root: Path) -> dict[str, Path]:
         "extension_token_audit",
         "extension_subspace_stats",
         "extension_subspace_audit",
+        "first_locator_qwen_scores",
+        "first_locator_gemma_scores",
+        "first_locator_layer_matched",
+        "first_locator_m10_matched",
+        "first_locator_matching",
     }
     missing = [
         str(paths[name]) for name in sorted(required) if not paths[name].is_file()
@@ -7980,8 +8009,9 @@ function makeMechanismWalkthrough(){
 def build_report_clear(repo_root: Path, output: Path) -> None:
     paths = validate_inputs(repo_root)
     base = paths["base"].read_text(encoding="utf-8")
-    base = ensure_complete_first_span_section(base)
+    base = ensure_first_locator_appendix(base, repo_root)
     base = remove_legacy_endpoint_phenotype_table(base)
+    base = remove_first_locator_body_claims(base)
     answer_data = extract_embedded_json(base, "ANSWER_DATA")
     causal_v2 = read_json(paths["causal_v2"])
     seed_confirmation = read_json(paths["full_span_topk"])
@@ -8074,7 +8104,7 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     )
     if count_palette_replacements != 1:
         raise RuntimeError("Could not apply Aurora count palette")
-    nav = """<nav><a href="#mechanism-overview">Mechanism</a><a href="#scope">结论</a><a href="#methods">设定</a><a href="#prompt">Prompt geometry</a><a href="#representation-extension">Representation tests</a><a href="#formation-tests">State formation</a><a href="#answer">Answer geometry</a><a href="#transport-subspace">Transport</a><a href="#attention">Attention</a><a href="#causal">Ablation / patching</a><a href="#natural-ov">Write / propagation</a><a href="#synthesis">对照</a><a href="#question-audit">逐题审计</a><a href="#limits">复现</a></nav>"""
+    nav = """<nav><a href="#mechanism-overview">Mechanism</a><a href="#scope">结论</a><a href="#methods">设定</a><a href="#prompt">Prompt geometry</a><a href="#representation-extension">Representation tests</a><a href="#formation-tests">State formation</a><a href="#answer">Answer geometry</a><a href="#transport-subspace">Transport</a><a href="#attention">Attention</a><a href="#causal">Ablation / patching</a><a href="#natural-ov">Write / propagation</a><a href="#synthesis">对照</a><a href="#question-audit">逐题审计</a><a href="#limits">复现</a><a href="#appendix-first-locator">Appendix A</a></nav>"""
     base, nav_count = re.subn(r"<nav>.*?</nav>", nav, base, count=1, flags=re.S)
     if nav_count != 1:
         raise RuntimeError("Could not replace report navigation")
@@ -8231,11 +8261,6 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
         1,
     )
     base = base.replace(
-        "<h3>3.2 Complete-first-span attention phenotype</h3>",
-        "<h3>8.3 Complete-first-span attention phenotype</h3>",
-        1,
-    )
-    base = base.replace(
         "用按钮切换 endpoint-key 与 full-span-key pooling。横轴是 post-block decoder layer，纵轴是 head index；只有 full-attention layers 才存在完整行。",
         "这里只显示 full-span literal score。横轴是 post-block decoder layer，纵轴是 head index；只有 full-attention layers 才存在完整行。",
         1,
@@ -8372,6 +8397,7 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
         "synthesis",
         "question-audit",
         "limits",
+        "appendix-first-locator",
     ]
     for section_id in required_sections:
         if base.count(f'id="{section_id}"') != 1:

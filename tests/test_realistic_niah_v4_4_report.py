@@ -63,18 +63,29 @@ def test_v4_4_report_exposes_all_layer_interactions_and_both_attention_poolings(
     assert "correct-only basis" in template
 
 
-def test_v4_4_report_replaces_endpoint_locator_table_with_complete_span_result() -> None:
+def test_v4_4_report_moves_complete_span_locator_evidence_to_appendix() -> None:
     template = _literal_assignment("REPORT_TEMPLATE")
 
-    assert "@@FIRST_SPAN_SECTION@@" in template
+    assert "@@FIRST_LOCATOR_APPENDIX@@" in template
+    assert "@@FIRST_SPAN_SECTION@@" not in template
     assert "@@PHENOTYPE_TABLE@@" not in template
-    assert "Complete-first-span attention phenotype" in SOURCE
-    assert "layer+M₁₀-nearest" in SOURCE
+    assert template.index('<section id="limits">') < template.index(
+        "@@FIRST_LOCATOR_APPENDIX@@"
+    )
+    assert "Appendix A · Complete-first-span first-locator" in SOURCE
+    assert "All-head first-span absolute mass" in SOURCE
+    assert "All-head first-span share of ten-span mass" in SOURCE
+    assert "Exact rank-1 ten-span masses" in SOURCE
+    assert "First-span-ranked top-k ablation curves" in SOURCE
+    assert "Layer + M₁₀-nearest" in SOURCE
+    assert "相对 gold 的绝对误差增加量之差" in SOURCE
+    assert "不是原始的 <code>y(ranked) − y(control)</code>" in SOURCE
     assert "不支持“first-span locator 是独特必要 circuit”" in SOURCE
     assert "V4.4 endpoint phenotype counts and representatives" not in SOURCE
-    assert '<h3>8.3 Complete-first-span attention phenotype</h3>' in INTEGRATED_SOURCE
-    assert "ensure_complete_first_span_section" in INTEGRATED_SOURCE
-    assert "base = ensure_complete_first_span_section(base)" in INTEGRATED_SOURCE
+    assert '<h3>8.3 Complete-first-span attention phenotype</h3>' not in INTEGRATED_SOURCE
+    assert "ensure_first_locator_appendix" in INTEGRATED_SOURCE
+    assert "base = ensure_first_locator_appendix(base, repo_root)" in INTEGRATED_SOURCE
+    assert "remove_first_locator_body_claims" in INTEGRATED_SOURCE
     assert "remove_legacy_endpoint_phenotype_table" in INTEGRATED_SOURCE
     assert "base = remove_legacy_endpoint_phenotype_table(base)" in INTEGRATED_SOURCE
 
