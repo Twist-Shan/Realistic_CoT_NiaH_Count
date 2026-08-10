@@ -86,6 +86,9 @@ def main() -> None:
 
     design = json.loads(args.design_config.read_text(encoding="utf-8"))
     transport = design["answer_transport"]
+    realized_norm_tolerance = float(
+        transport["realized_norm_relative_tolerance"]
+    )
     input_paths = resolve_inputs(args.inputs)
     detail = pd.concat([pd.read_csv(path) for path in input_paths], ignore_index=True)
     if detail.empty:
@@ -155,7 +158,10 @@ def main() -> None:
     max_dose2_norm_ratio_error = float(
         np.max(np.abs(dose2_norm / np.maximum(dose1_norm, 1e-12) - 2.0))
     )
-    if max_control_norm_ratio_error > 5e-4 or max_dose2_norm_ratio_error > 5e-4:
+    if (
+        max_control_norm_ratio_error > realized_norm_tolerance
+        or max_dose2_norm_ratio_error > 2.0 * realized_norm_tolerance
+    ):
         raise RuntimeError("transport dose-norm audit failed")
 
     condition_rows: list[dict[str, float | int | str]] = []
@@ -309,6 +315,7 @@ def main() -> None:
         "multiplicity": design["multiplicity"]["answer_transport"],
         "max_control_norm_ratio_error": max_control_norm_ratio_error,
         "max_dose2_norm_ratio_error": max_dose2_norm_ratio_error,
+        "realized_norm_relative_tolerance": realized_norm_tolerance,
     }
     (args.output / "analysis_audit.json").write_text(
         json.dumps(audit, indent=2) + "\n", encoding="utf-8"

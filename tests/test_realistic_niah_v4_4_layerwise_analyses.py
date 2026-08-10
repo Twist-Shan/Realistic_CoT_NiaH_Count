@@ -6,6 +6,8 @@ from pathlib import Path
 import sys
 
 import pandas as pd
+import pytest
+import torch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +35,7 @@ def _design() -> dict:
             "pairs": [[1, 2], [2, 1]],
             "boundaries": {"Tiny": [[0, 1], [1, 2]]},
             "primary_endpoint": "target_donor_fraction",
+            "realized_norm_relative_tolerance": 0.025,
         },
         "multiplicity": {
             "prompt_removal": "Holm across registered layers",
@@ -132,7 +135,9 @@ def test_transport_analysis_accepts_a_complete_registered_grid(
                             "target_layer": target,
                             "normalized_depth": target / 2,
                             "replacement_delta_norm": dose,
+                            "planned_replacement_delta_norm": dose,
                             "aligned_dose_1_norm": 1.0,
+                            "realized_norm_ratio_to_aligned_dose_1": dose,
                             "clean_donor_log_odds": -1.0,
                             "condition_donor_log_odds": -1.0 + effect,
                             "donor_log_odds_gain": effect,
@@ -170,3 +175,26 @@ def test_transport_analysis_accepts_a_complete_registered_grid(
     assert set(primary["mean_contrast"].round(8)) == {0.4}
     audit = json.loads((output / "analysis_audit.json").read_text())
     assert audit["status"] == "PASS"
+
+
+def test_transport_control_matches_the_realized_bfloat16_norm() -> None:
+    module = _load_script("run_v446_layerwise_transport_patch")
+    generator = torch.Generator().manual_seed(452)
+    base = torch.randn(4096, generator=generator).to(torch.bfloat16).float()
+    aligned_direction = torch.randn(4096, generator=generator)
+    aligned_direction *= 0.8 / torch.linalg.vector_norm(aligned_direction)
+    control_direction = torch.randn(4096, generator=generator)
+
+    _, _, aligned_norm = module.quantized_additive_replacement(
+        base, aligned_direction, dtype=torch.bfloat16
+    )
+    replacement, realized, control_norm = module.closest_quantized_control(
+        base,
+        control_direction,
+        aligned_norm,
+        dtype=torch.bfloat16,
+    )
+
+    assert replacement.dtype == torch.bfloat16
+    assert torch.linalg.vector_norm(realized).item() == control_norm
+    assert control_norm / aligned_norm == pytest.approx(1.0, rel=0.025)

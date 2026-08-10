@@ -74,6 +74,10 @@ endpoint is target-layer donor fraction. Donor-vs-receiver log-odds is
 secondary. The required causal contrasts are aligned-1 minus orthogonal and
 aligned-2 minus aligned-1.
 
+Planned fp32 and realized model-dtype patch norms are both recorded. The
+closest quantized control must be within 2.5% of the realized aligned 1x norm,
+and the realized 2x/1x norm ratio within 2.5% of 2.
+
 Outcome-blind boundaries:
 
 - Qwen3-8B: 0->1, 3->4, 7->8, 11->12, 15->16, 19->20, 23->24,

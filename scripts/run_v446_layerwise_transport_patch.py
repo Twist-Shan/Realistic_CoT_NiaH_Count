@@ -53,7 +53,9 @@ FIELDS = (
     "target_layer",
     "normalized_depth",
     "replacement_delta_norm",
+    "planned_replacement_delta_norm",
     "aligned_dose_1_norm",
+    "realized_norm_ratio_to_aligned_dose_1",
     "clean_donor_log_odds",
     "condition_donor_log_odds",
     "donor_log_odds_gain",
@@ -105,6 +107,55 @@ def parse_boundaries(values: list[str]) -> list[tuple[int, int]]:
     return [(int(source), int(target)) for source, target in boundaries]
 
 
+def quantized_additive_replacement(
+    base: torch.Tensor, delta: torch.Tensor, *, dtype: torch.dtype
+) -> tuple[torch.Tensor, torch.Tensor, float]:
+    """Return the model-dtype replacement and its realized fp32 delta."""
+
+    base_quantized = base.to(dtype=dtype)
+    replacement = (base_quantized.float() + delta.float()).to(dtype=dtype)
+    realized = replacement.float() - base_quantized.float()
+    norm = float(torch.linalg.vector_norm(realized).detach().cpu())
+    return replacement, realized, norm
+
+
+def closest_quantized_control(
+    base: torch.Tensor,
+    direction: torch.Tensor,
+    target_norm: float,
+    *,
+    dtype: torch.dtype,
+) -> tuple[torch.Tensor, torch.Tensor, float]:
+    """Search a scalar and retain the closest realizable model-dtype norm."""
+
+    unit = direction.float() / torch.clamp(
+        torch.linalg.vector_norm(direction.float()), min=1e-12
+    )
+
+    def candidate(scale: float) -> tuple[torch.Tensor, torch.Tensor, float]:
+        return quantized_additive_replacement(base, unit * float(scale), dtype=dtype)
+
+    low = 0.0
+    high = max(float(target_norm), 1e-12)
+    candidates = [candidate(low), candidate(high)]
+    for _ in range(20):
+        if candidates[-1][2] >= target_norm:
+            break
+        high *= 2.0
+        candidates.append(candidate(high))
+    else:
+        raise RuntimeError("could not bracket quantized transport-control norm")
+    for _ in range(40):
+        midpoint = (low + high) / 2.0
+        current = candidate(midpoint)
+        candidates.append(current)
+        if current[2] < target_norm:
+            low = midpoint
+        else:
+            high = midpoint
+    return min(candidates, key=lambda value: abs(value[2] - target_norm))
+
+
 def existing_keys(path: Path) -> set[tuple[str, int, int, int, int, int, str]]:
     if not path.exists():
         return set()
@@ -147,6 +198,9 @@ def main() -> None:
     started = time.perf_counter()
     design = json.loads(args.design_config.read_text(encoding="utf-8"))
     transport = design["answer_transport"]
+    realized_norm_tolerance = float(
+        transport["realized_norm_relative_tolerance"]
+    )
     rank = int(design["rank"])
     seeds = args.seeds or [int(value) for value in design["confirmation_seeds"]]
     pairs = (
@@ -272,14 +326,43 @@ def main() -> None:
                         basis = geometry["source_basis"]
                         aligned_delta = (source_delta @ basis) @ basis.T
                         main_norm = float(torch.linalg.vector_norm(aligned_delta))
-                        if condition == "aligned_dose_1":
-                            replacement = receiver_state + aligned_delta
-                        elif condition == "aligned_dose_2":
-                            replacement = receiver_state + 2.0 * aligned_delta
-                        else:
-                            replacement = (
-                                receiver_state + main_norm * geometry["control_axis"]
+                        residual_dtype = next(
+                            parameter.dtype
+                            for parameter in adapter.layers[source_layer].parameters()
+                            if parameter.is_floating_point()
+                        )
+                        aligned_1_replacement, _, aligned_1_realized_norm = (
+                            quantized_additive_replacement(
+                                receiver_state, aligned_delta, dtype=residual_dtype
                             )
+                        )
+                        aligned_2_replacement, _, aligned_2_realized_norm = (
+                            quantized_additive_replacement(
+                                receiver_state,
+                                2.0 * aligned_delta,
+                                dtype=residual_dtype,
+                            )
+                        )
+                        control_replacement, _, control_realized_norm = (
+                            closest_quantized_control(
+                                receiver_state,
+                                geometry["control_axis"],
+                                aligned_1_realized_norm,
+                                dtype=residual_dtype,
+                            )
+                        )
+                        if condition == "aligned_dose_1":
+                            replacement = aligned_1_replacement
+                            replacement_norm = aligned_1_realized_norm
+                            planned_norm = main_norm
+                        elif condition == "aligned_dose_2":
+                            replacement = aligned_2_replacement
+                            replacement_norm = aligned_2_realized_norm
+                            planned_norm = 2.0 * main_norm
+                        else:
+                            replacement = control_replacement
+                            replacement_norm = control_realized_norm
+                            planned_norm = main_norm
                         condition_started = time.perf_counter()
                         logits, target_state = forward_with_patch_and_target(
                             model,
@@ -299,14 +382,17 @@ def main() -> None:
                             geometry["target_centroids"][receiver_count - 1],
                             geometry["target_centroids"][donor_count - 1],
                         )
-                        replacement_norm = float(
-                            torch.linalg.vector_norm(replacement - receiver_state)
-                        )
-                        expected_norm = main_norm * (
+                        expected_ratio = (
                             2.0 if condition == "aligned_dose_2" else 1.0
                         )
+                        realized_ratio = replacement_norm / max(
+                            aligned_1_realized_norm, 1e-12
+                        )
                         if not np.isclose(
-                            replacement_norm, expected_norm, rtol=5e-5, atol=5e-6
+                            realized_ratio,
+                            expected_ratio,
+                            rtol=realized_norm_tolerance,
+                            atol=1e-6,
                         ):
                             raise RuntimeError("transport replacement norm audit failed")
                         row = {
@@ -322,7 +408,9 @@ def main() -> None:
                                 target_layer / max(adapter.num_layers - 1, 1)
                             ),
                             "replacement_delta_norm": replacement_norm,
-                            "aligned_dose_1_norm": main_norm,
+                            "planned_replacement_delta_norm": planned_norm,
+                            "aligned_dose_1_norm": aligned_1_realized_norm,
+                            "realized_norm_ratio_to_aligned_dose_1": realized_ratio,
                             "clean_donor_log_odds": clean_log_odds,
                             "condition_donor_log_odds": log_odds,
                             "donor_log_odds_gain": log_odds - clean_log_odds,
@@ -379,6 +467,7 @@ def main() -> None:
         "boundaries": boundaries,
         "rank": rank,
         "conditions": list(CONDITIONS),
+        "realized_norm_relative_tolerance": realized_norm_tolerance,
         "basis_fit": "discovery count centroids; ridge prediction of adjacent downstream answer-query rank-3 count coordinates",
         "source_support": "answer query at the source post-block residual",
         "geometry": geometry_audit,

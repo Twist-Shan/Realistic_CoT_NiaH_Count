@@ -17,6 +17,7 @@
   "answer_transport": {
     "pairs": [[1, 2], [2, 1], [5, 6], [6, 5]],
     "conditions": ["aligned_dose_1", "aligned_dose_2", "matched_orthogonal"],
+    "realized_norm_relative_tolerance": 0.025,
     "primary_endpoint": "target_donor_fraction",
     "required_contrasts": ["aligned_dose_1_minus_orthogonal", "dose_2_minus_dose_1"],
     "boundaries": {
