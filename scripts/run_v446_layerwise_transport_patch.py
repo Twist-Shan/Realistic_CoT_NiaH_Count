@@ -156,6 +156,40 @@ def closest_quantized_direction(
     return min(candidates, key=lambda value: abs(value[2] - target_norm))
 
 
+def quantized_aligned_doses(
+    base: torch.Tensor,
+    direction: torch.Tensor,
+    planned_norm: float,
+    *,
+    dtype: torch.dtype,
+    realized_norm_tolerance: float,
+) -> tuple[
+    tuple[torch.Tensor, torch.Tensor, float],
+    tuple[torch.Tensor, torch.Tensor, float],
+    bool,
+]:
+    """Realize dose 1 and prefer a planned-norm dose 2 when ratio-matched."""
+
+    dose_1 = closest_quantized_direction(
+        base, direction, planned_norm, dtype=dtype
+    )
+    dose_2 = closest_quantized_direction(
+        base, direction, 2.0 * planned_norm, dtype=dtype
+    )
+    realized_ratio = dose_2[2] / max(dose_1[2], 1e-12)
+    used_paired_target = not np.isclose(
+        realized_ratio,
+        2.0,
+        rtol=realized_norm_tolerance,
+        atol=1e-6,
+    )
+    if used_paired_target:
+        dose_2 = closest_quantized_direction(
+            base, direction, 2.0 * dose_1[2], dtype=dtype
+        )
+    return dose_1, dose_2, used_paired_target
+
+
 def existing_keys(path: Path) -> set[tuple[str, int, int, int, int, int, str]]:
     if not path.exists():
         return set()
@@ -331,22 +365,15 @@ def main() -> None:
                             for parameter in adapter.layers[source_layer].parameters()
                             if parameter.is_floating_point()
                         )
-                        aligned_1_replacement, _, aligned_1_realized_norm = (
-                            closest_quantized_direction(
-                                receiver_state,
-                                aligned_delta,
-                                main_norm,
-                                dtype=residual_dtype,
-                            )
+                        dose_1, dose_2, _ = quantized_aligned_doses(
+                            receiver_state,
+                            aligned_delta,
+                            main_norm,
+                            dtype=residual_dtype,
+                            realized_norm_tolerance=realized_norm_tolerance,
                         )
-                        aligned_2_replacement, _, aligned_2_realized_norm = (
-                            closest_quantized_direction(
-                                receiver_state,
-                                aligned_delta,
-                                2.0 * main_norm,
-                                dtype=residual_dtype,
-                            )
-                        )
+                        aligned_1_replacement, _, aligned_1_realized_norm = dose_1
+                        aligned_2_replacement, _, aligned_2_realized_norm = dose_2
                         control_replacement, _, control_realized_norm = (
                             closest_quantized_direction(
                                 receiver_state,
@@ -483,6 +510,7 @@ def main() -> None:
         "conditions": list(CONDITIONS),
         "realized_norm_relative_tolerance": realized_norm_tolerance,
         "quantization_protocol": "direction-preserving scalar search to the closest realizable model-dtype norm",
+        "dose2_quantization_policy": "prefer the continuous planned norm; fall back to twice the realized dose-1 norm when required by the frozen paired-dose tolerance",
         "planned_norm_policy": "diagnostic only; causal matching is audited on realized dose-2/dose-1 and control/dose-1 ratios",
         "basis_fit": "discovery count centroids; ridge prediction of adjacent downstream answer-query rank-3 count coordinates",
         "source_support": "answer query at the source post-block residual",

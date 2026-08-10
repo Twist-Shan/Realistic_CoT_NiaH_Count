@@ -222,16 +222,44 @@ def test_transport_aligned_doses_match_small_planned_bfloat16_norms() -> None:
     direction *= 6.6e-4 / torch.linalg.vector_norm(direction)
     planned_norm = float(torch.linalg.vector_norm(direction))
 
-    _, _, dose1_norm = module.closest_quantized_direction(
-        base, direction, planned_norm, dtype=torch.bfloat16
+    dose1, dose2, _ = module.quantized_aligned_doses(
+        base,
+        direction,
+        planned_norm,
+        dtype=torch.bfloat16,
+        realized_norm_tolerance=0.025,
     )
-    _, _, dose2_norm = module.closest_quantized_direction(
-        base, direction, 2.0 * planned_norm, dtype=torch.bfloat16
-    )
+    dose1_norm = dose1[2]
+    dose2_norm = dose2[2]
 
     assert dose1_norm / planned_norm == pytest.approx(1.0, rel=0.025)
     assert dose2_norm / (2.0 * planned_norm) == pytest.approx(1.0, rel=0.025)
     assert dose2_norm / dose1_norm == pytest.approx(2.0, rel=0.025)
+
+
+def test_transport_aligned_doses_prioritize_realized_ratio_when_needed(
+    monkeypatch,
+) -> None:
+    module = _load_script("run_v446_layerwise_transport_patch")
+    realized_norms = iter((1.0, 1.9, 2.0))
+
+    def fake_closest(base, direction, target_norm, *, dtype):
+        del direction, target_norm, dtype
+        return base, base, next(realized_norms)
+
+    monkeypatch.setattr(module, "closest_quantized_direction", fake_closest)
+    base = torch.zeros(4)
+    dose1, dose2, used_paired_target = module.quantized_aligned_doses(
+        base,
+        torch.ones(4),
+        1.0,
+        dtype=torch.bfloat16,
+        realized_norm_tolerance=0.025,
+    )
+
+    assert used_paired_target
+    assert dose1[2] == 1.0
+    assert dose2[2] / dose1[2] == pytest.approx(2.0, rel=0.025)
 
 
 def test_map_causal_link_uses_frozen_stability_regimes(
