@@ -7,6 +7,7 @@ import pytest
 
 from realistic_niah_v4.layerwise_rotation import (
     align_resampled_map_to_reference,
+    consecutive_full_operator_metrics,
     evaluate_layer_map,
     fit_centroid_geometry,
     fit_layer_map,
@@ -128,3 +129,60 @@ def test_geometry_and_procrustes_reject_invalid_inputs() -> None:
         orthogonal_procrustes(np.eye(3), np.eye(2))
     with pytest.raises(ValueError, match="proper rotations"):
         proper_rotation_geodesic_degrees(np.diag([-1.0, 1.0, 1.0]), np.eye(3))
+
+
+def test_full_operator_drift_matches_materialization_and_is_gauge_invariant() -> None:
+    source, target, labels = _paired_synthetic_states()
+    first = fit_layer_map(source, target, labels, rank=3)
+    rng = np.random.default_rng(453)
+    later = target + rng.normal(scale=0.01, size=target.shape)
+    second = fit_layer_map(target, later, labels, rank=3)
+    metrics = consecutive_full_operator_metrics(first, second)
+    first_operator = first.source.basis @ first.matrix @ first.target.basis.T
+    second_operator = second.source.basis @ second.matrix @ second.target.basis.T
+    direct_inner = float(np.sum(first_operator * second_operator))
+    direct_cosine = direct_inner / (
+        np.linalg.norm(first_operator) * np.linalg.norm(second_operator)
+    )
+    direct_drift = np.linalg.norm(first_operator - second_operator) / (
+        (np.linalg.norm(first_operator) + np.linalg.norm(second_operator)) / 2
+    )
+    assert metrics["full_operator_inner_product_to_next"] == pytest.approx(
+        direct_inner, abs=1e-10
+    )
+    assert metrics["full_operator_cosine_to_next"] == pytest.approx(
+        direct_cosine, abs=1e-10
+    )
+    assert metrics["full_operator_relative_drift_to_next"] == pytest.approx(
+        direct_drift, abs=1e-10
+    )
+
+    source_gauge = _orthogonal(rng, 3, 3)
+    target_gauge = _orthogonal(rng, 3, 3)
+    final_gauge = _orthogonal(rng, 3, 3)
+    gauged_first_matrix = source_gauge.T @ first.matrix @ target_gauge
+    gauged_second_matrix = target_gauge.T @ second.matrix @ final_gauge
+    first_o, first_s, first_r, first_det = polar_factors(gauged_first_matrix)
+    second_o, second_s, second_r, second_det = polar_factors(gauged_second_matrix)
+    gauged_first = replace(
+        first,
+        source=replace(first.source, basis=first.source.basis @ source_gauge),
+        target=replace(first.target, basis=first.target.basis @ target_gauge),
+        matrix=gauged_first_matrix,
+        orthogonal_factor=first_o,
+        stretch_factor=first_s,
+        proper_rotation=first_r,
+        orthogonal_determinant=first_det,
+    )
+    gauged_second = replace(
+        second,
+        source=replace(second.source, basis=second.source.basis @ target_gauge),
+        target=replace(second.target, basis=second.target.basis @ final_gauge),
+        matrix=gauged_second_matrix,
+        orthogonal_factor=second_o,
+        stretch_factor=second_s,
+        proper_rotation=second_r,
+        orthogonal_determinant=second_det,
+    )
+    gauged_metrics = consecutive_full_operator_metrics(gauged_first, gauged_second)
+    assert gauged_metrics == pytest.approx(metrics, abs=1e-10)

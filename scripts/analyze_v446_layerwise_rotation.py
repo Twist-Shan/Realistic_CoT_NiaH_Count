@@ -30,6 +30,7 @@ if str(SRC) not in sys.path:
 
 from realistic_niah_v4.layerwise_rotation import (  # noqa: E402
     align_resampled_map_to_reference,
+    consecutive_full_operator_metrics,
     evaluate_layer_map,
     fit_layer_map,
     matrix_r2,
@@ -319,6 +320,7 @@ def main() -> None:
             expected = list(range(layers[0], layers[-1] + 1))
             if layers != expected:
                 raise RuntimeError(f"non-contiguous layer manifest for {model}/{role}")
+            rank3_fits: list[tuple[int, Any]] = []
             for source_layer, target_layer in zip(layers[:-1], layers[1:]):
                 boundary_count += 1
                 source = dataset((model, role, source_layer))
@@ -453,6 +455,7 @@ def main() -> None:
                     rng=rng,
                 )
                 summary_rows[reference_row_index].update(stability)
+                rank3_fits.append((reference_row_index, reference_rank3))
                 for sample in samples:
                     bootstrap_rows.append(
                         {
@@ -468,6 +471,12 @@ def main() -> None:
                     f"cvR2={summary_rows[reference_row_index]['cv_centroid_r2']:+.4f} "
                     f"stability={stability['bootstrap_map_relative_frobenius_median']:.4f}",
                     flush=True,
+                )
+            for (row_index, current), (_, following) in zip(
+                rank3_fits[:-1], rank3_fits[1:]
+            ):
+                summary_rows[row_index].update(
+                    consecutive_full_operator_metrics(current, following)
                 )
 
     args.output.mkdir(parents=True, exist_ok=True)

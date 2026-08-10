@@ -113,6 +113,8 @@ discovery reference basis. Primary stability measures are:
 - bootstrap relative Frobenius dispersion of the gauge-aligned map;
 - bootstrap geodesic dispersion of the proper-rotation factor;
 - stretch singular values and condition number;
+- cosine and normalized drift between consecutive gauge-invariant full-space
+  rank-3 operators `T_l = U_l A_l U_{l+1}^T`;
 - count-pairing permutation control.
 
 This analysis is run for every adjacent layer of `prompt_running` and

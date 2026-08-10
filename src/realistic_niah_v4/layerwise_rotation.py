@@ -274,3 +274,46 @@ def relative_frobenius_error(observed: np.ndarray, reference: np.ndarray) -> flo
         np.linalg.norm(value - target, ord="fro")
         / max(float(np.linalg.norm(target, ord="fro")), 1e-12)
     )
+
+
+def consecutive_full_operator_metrics(
+    first: LayerMapFit, second: LayerMapFit
+) -> dict[str, float]:
+    """Compare consecutive full-space low-rank transport operators.
+
+    A coordinate map reconstructs to ``T = U_source A U_target.T`` in the
+    shared residual-stream feature space.  The operator is invariant to every
+    admissible PCA gauge transformation.  This function evaluates its inner
+    product using only rank-sized cross-Gram matrices and never materializes a
+    hidden-size by hidden-size matrix.
+    """
+
+    if first.matrix.shape != second.matrix.shape:
+        raise ValueError("consecutive maps must have the same rank")
+    if (
+        first.source.basis.shape[0] != first.target.basis.shape[0]
+        or first.source.basis.shape[0] != second.source.basis.shape[0]
+        or first.source.basis.shape[0] != second.target.basis.shape[0]
+    ):
+        raise ValueError("consecutive maps must share an ambient hidden space")
+    source_cross = first.source.basis.T @ second.source.basis
+    target_cross = second.target.basis.T @ first.target.basis
+    inner = float(
+        np.trace(first.matrix.T @ source_cross @ second.matrix @ target_cross)
+    )
+    first_norm = float(np.linalg.norm(first.matrix, ord="fro"))
+    second_norm = float(np.linalg.norm(second.matrix, ord="fro"))
+    cosine = inner / max(first_norm * second_norm, 1e-12)
+    cosine = float(np.clip(cosine, -1.0, 1.0))
+    difference_squared = max(
+        first_norm**2 + second_norm**2 - 2.0 * inner, 0.0
+    )
+    relative_drift = float(
+        np.sqrt(difference_squared)
+        / max((first_norm + second_norm) / 2.0, 1e-12)
+    )
+    return {
+        "full_operator_inner_product_to_next": inner,
+        "full_operator_cosine_to_next": cosine,
+        "full_operator_relative_drift_to_next": relative_drift,
+    }
