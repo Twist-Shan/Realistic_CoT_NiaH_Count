@@ -1,0 +1,70 @@
+{
+  "schema_version": "realistic_niah_v4_4_layerwise_subspace_provenance_v1",
+  "remote_run_root": "/lambda/nfs/CoT-Non-thinking-v4/runs/v4_4_layerwise_subspace_20260809",
+  "local_full_archive": "work/v446_layerwise_subspace_20260809/remote_run",
+  "final_code_commit": "a8ef34a",
+  "row_generation_history": [
+    {
+      "commit": "c7cae2c47b832b6f0f9a1a144cbe169cade6b4c1",
+      "scope": "initial Qwen3-8B prompt-removal run"
+    },
+    {
+      "commit": "fbd44f5",
+      "scope": "realizable-norm search used for Qwen3-8B transport, Gemma4-E4B prompt removal, and initial Gemma4-E4B transport rows"
+    },
+    {
+      "commit": "ae6b245",
+      "scope": "planned norm made diagnostic-only; accepted rows still required the frozen realized paired-dose audit"
+    },
+    {
+      "commit": "a8ef34a",
+      "scope": "final conditional dose-2 protocol; previously accepted rows retain the planned candidate because they already pass the realized paired-dose tolerance, while quantization conflicts double the realized dose-1 vector"
+    }
+  ],
+  "analysis_code_commit": "a8ef34a",
+  "models": [
+    {
+      "label": "Qwen3-8B",
+      "hub_id": "Qwen/Qwen3-8B",
+      "revision": "b968826d9c46dd6066d109eabc6255188de91218"
+    },
+    {
+      "label": "Gemma4-E4B",
+      "hub_id": "google/gemma-4-E4B-it",
+      "revision": "ee0ef6023621cff504d758262d4e04895a5af4a2"
+    }
+  ],
+  "runtime": {
+    "python": "3.10.12",
+    "torch": "2.7.0",
+    "numpy": "1.26.4",
+    "cuda_device": "NVIDIA A10"
+  },
+  "registered_cells": {
+    "Qwen3-8B_prompt_removal": 1800,
+    "Qwen3-8B_transport": 1320,
+    "Gemma4-E4B_prompt_removal": 2340,
+    "Gemma4-E4B_transport": 1680,
+    "total": 7140
+  },
+  "official_raw_sha256": {
+    "prompt_removal/Gemma4-E4B/layerwise_prompt_removal_detail.csv": "b71ac289ae558f5c074f9a5d6f2f836518a5f62d00299a522f33031a4ed09c35",
+    "prompt_removal/Qwen3-8B/layerwise_prompt_removal_detail.csv": "43ae236725aa62f901a0406bf0300348c425ea58df0b2222e735dd1330db2979",
+    "transport/Gemma4-E4B/layerwise_transport_patch.csv": "92b812b24d5d2ab9e006e198ae549ec55b5772fc4459a4f64315bdb69d0ace72",
+    "transport/Qwen3-8B/layerwise_transport_patch.csv": "61dc76f8196eabd13ab8466e9ac70c0352b417d262ea8c2e6b8afc67076f78a8"
+  },
+  "preserved_failure_archive": {
+    "path": "raw/transport/Qwen3-8B/layerwise_transport_patch.pre_norm_fit_failure.csv",
+    "sha256": "fc919e930109237c6b0d43bdfd622b7a77cf7c9ef7c12486cce3d4025221f948"
+  },
+  "formal_audits": {
+    "raw_prompt_removal_Qwen3-8B": "PASS",
+    "raw_prompt_removal_Gemma4-E4B": "PASS",
+    "raw_transport_Qwen3-8B": "PASS",
+    "raw_transport_Gemma4-E4B": "PASS",
+    "layer_maps": "PASS",
+    "prompt_removal_analysis": "PASS",
+    "transport_analysis": "PASS",
+    "map_causal_link": "PASS"
+  }
+}
