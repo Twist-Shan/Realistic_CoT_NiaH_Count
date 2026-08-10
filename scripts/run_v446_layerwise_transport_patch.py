@@ -119,14 +119,14 @@ def quantized_additive_replacement(
     return replacement, realized, norm
 
 
-def closest_quantized_control(
+def closest_quantized_direction(
     base: torch.Tensor,
     direction: torch.Tensor,
     target_norm: float,
     *,
     dtype: torch.dtype,
 ) -> tuple[torch.Tensor, torch.Tensor, float]:
-    """Search a scalar and retain the closest realizable model-dtype norm."""
+    """Search one direction for the closest realizable model-dtype norm."""
 
     unit = direction.float() / torch.clamp(
         torch.linalg.vector_norm(direction.float()), min=1e-12
@@ -144,7 +144,7 @@ def closest_quantized_control(
         high *= 2.0
         candidates.append(candidate(high))
     else:
-        raise RuntimeError("could not bracket quantized transport-control norm")
+        raise RuntimeError("could not bracket quantized transport norm")
     for _ in range(40):
         midpoint = (low + high) / 2.0
         current = candidate(midpoint)
@@ -332,19 +332,23 @@ def main() -> None:
                             if parameter.is_floating_point()
                         )
                         aligned_1_replacement, _, aligned_1_realized_norm = (
-                            quantized_additive_replacement(
-                                receiver_state, aligned_delta, dtype=residual_dtype
+                            closest_quantized_direction(
+                                receiver_state,
+                                aligned_delta,
+                                main_norm,
+                                dtype=residual_dtype,
                             )
                         )
                         aligned_2_replacement, _, aligned_2_realized_norm = (
-                            quantized_additive_replacement(
+                            closest_quantized_direction(
                                 receiver_state,
-                                2.0 * aligned_delta,
+                                aligned_delta,
+                                2.0 * main_norm,
                                 dtype=residual_dtype,
                             )
                         )
                         control_replacement, _, control_realized_norm = (
-                            closest_quantized_control(
+                            closest_quantized_direction(
                                 receiver_state,
                                 geometry["control_axis"],
                                 aligned_1_realized_norm,
@@ -388,13 +392,29 @@ def main() -> None:
                         realized_ratio = replacement_norm / max(
                             aligned_1_realized_norm, 1e-12
                         )
-                        if not np.isclose(
+                        planned_ratio = replacement_norm / max(planned_norm, 1e-12)
+                        ratio_ok = np.isclose(
                             realized_ratio,
                             expected_ratio,
                             rtol=realized_norm_tolerance,
                             atol=1e-6,
-                        ):
-                            raise RuntimeError("transport replacement norm audit failed")
+                        )
+                        planned_ok = np.isclose(
+                            planned_ratio,
+                            1.0,
+                            rtol=realized_norm_tolerance,
+                            atol=1e-6,
+                        )
+                        if not (ratio_ok and planned_ok):
+                            raise RuntimeError(
+                                "transport replacement norm audit failed: "
+                                f"model={model_label} seed={seed} "
+                                f"pair={receiver_count}->{donor_count} "
+                                f"boundary=L{source_layer}->L{target_layer} "
+                                f"condition={condition} "
+                                f"planned_ratio={planned_ratio:.6f} "
+                                f"dose1_ratio={realized_ratio:.6f}"
+                            )
                         row = {
                             "model_label": model_label,
                             "seed": seed,
@@ -468,6 +488,7 @@ def main() -> None:
         "rank": rank,
         "conditions": list(CONDITIONS),
         "realized_norm_relative_tolerance": realized_norm_tolerance,
+        "quantization_protocol": "direction-preserving scalar search to the closest realizable model-dtype norm",
         "basis_fit": "discovery count centroids; ridge prediction of adjacent downstream answer-query rank-3 count coordinates",
         "source_support": "answer query at the source post-block residual",
         "geometry": geometry_audit,

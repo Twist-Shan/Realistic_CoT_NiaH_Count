@@ -198,7 +198,7 @@ def test_transport_control_matches_the_realized_bfloat16_norm() -> None:
     _, _, aligned_norm = module.quantized_additive_replacement(
         base, aligned_direction, dtype=torch.bfloat16
     )
-    replacement, realized, control_norm = module.closest_quantized_control(
+    replacement, realized, control_norm = module.closest_quantized_direction(
         base,
         control_direction,
         aligned_norm,
@@ -208,6 +208,26 @@ def test_transport_control_matches_the_realized_bfloat16_norm() -> None:
     assert replacement.dtype == torch.bfloat16
     assert torch.linalg.vector_norm(realized).item() == control_norm
     assert control_norm / aligned_norm == pytest.approx(1.0, rel=0.025)
+
+
+def test_transport_aligned_doses_match_small_planned_bfloat16_norms() -> None:
+    module = _load_script("run_v446_layerwise_transport_patch")
+    generator = torch.Generator().manual_seed(453)
+    base = torch.randn(4096, generator=generator).to(torch.bfloat16).float()
+    direction = torch.randn(4096, generator=generator)
+    direction *= 6.6e-4 / torch.linalg.vector_norm(direction)
+    planned_norm = float(torch.linalg.vector_norm(direction))
+
+    _, _, dose1_norm = module.closest_quantized_direction(
+        base, direction, planned_norm, dtype=torch.bfloat16
+    )
+    _, _, dose2_norm = module.closest_quantized_direction(
+        base, direction, 2.0 * planned_norm, dtype=torch.bfloat16
+    )
+
+    assert dose1_norm / planned_norm == pytest.approx(1.0, rel=0.025)
+    assert dose2_norm / (2.0 * planned_norm) == pytest.approx(1.0, rel=0.025)
+    assert dose2_norm / dose1_norm == pytest.approx(2.0, rel=0.025)
 
 
 def test_map_causal_link_uses_frozen_stability_regimes(
