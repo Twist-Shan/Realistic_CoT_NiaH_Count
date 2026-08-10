@@ -133,6 +133,9 @@ def test_transport_analysis_accepts_a_complete_registered_grid(
             for source, target in ((0, 1), (1, 2)):
                 for condition, effect in condition_values.items():
                     dose = 2.0 if condition == "aligned_dose_2" else 1.0
+                    planned_dose = (
+                        dose / 1.038 if condition == "aligned_dose_2" else dose
+                    )
                     rows.append(
                         {
                             "model_label": "Tiny",
@@ -145,7 +148,7 @@ def test_transport_analysis_accepts_a_complete_registered_grid(
                             "target_layer": target,
                             "normalized_depth": target / 2,
                             "replacement_delta_norm": dose,
-                            "planned_replacement_delta_norm": dose,
+                            "planned_replacement_delta_norm": planned_dose,
                             "aligned_dose_1_norm": 1.0,
                             "realized_norm_ratio_to_aligned_dose_1": dose,
                             "clean_donor_log_odds": -1.0,
@@ -185,6 +188,7 @@ def test_transport_analysis_accepts_a_complete_registered_grid(
     assert set(primary["mean_contrast"].round(8)) == {0.4}
     audit = json.loads((output / "analysis_audit.json").read_text())
     assert audit["status"] == "PASS"
+    assert audit["max_planned_norm_ratio_error_diagnostic"] > 0.025
 
 
 def test_transport_control_matches_the_realized_bfloat16_norm() -> None:

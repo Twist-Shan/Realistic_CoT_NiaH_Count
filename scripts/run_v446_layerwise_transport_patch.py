@@ -399,13 +399,7 @@ def main() -> None:
                             rtol=realized_norm_tolerance,
                             atol=1e-6,
                         )
-                        planned_ok = np.isclose(
-                            planned_ratio,
-                            1.0,
-                            rtol=realized_norm_tolerance,
-                            atol=1e-6,
-                        )
-                        if not (ratio_ok and planned_ok):
+                        if not ratio_ok:
                             raise RuntimeError(
                                 "transport replacement norm audit failed: "
                                 f"model={model_label} seed={seed} "
@@ -489,6 +483,7 @@ def main() -> None:
         "conditions": list(CONDITIONS),
         "realized_norm_relative_tolerance": realized_norm_tolerance,
         "quantization_protocol": "direction-preserving scalar search to the closest realizable model-dtype norm",
+        "planned_norm_policy": "diagnostic only; causal matching is audited on realized dose-2/dose-1 and control/dose-1 ratios",
         "basis_fit": "discovery count centroids; ridge prediction of adjacent downstream answer-query rank-3 count coordinates",
         "source_support": "answer query at the source post-block residual",
         "geometry": geometry_audit,

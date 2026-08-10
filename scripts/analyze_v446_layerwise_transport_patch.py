@@ -139,6 +139,7 @@ def main() -> None:
     numeric = (
         "normalized_depth",
         "replacement_delta_norm",
+        "planned_replacement_delta_norm",
         "aligned_dose_1_norm",
         "target_donor_fraction",
         "donor_log_odds_gain",
@@ -152,6 +153,11 @@ def main() -> None:
     dose1_norm = pivot["replacement_delta_norm"]["aligned_dose_1"].to_numpy(float)
     dose2_norm = pivot["replacement_delta_norm"]["aligned_dose_2"].to_numpy(float)
     control_norm = pivot["replacement_delta_norm"]["matched_orthogonal"].to_numpy(float)
+    realized_norm = detail["replacement_delta_norm"].to_numpy(float)
+    planned_norm = detail["planned_replacement_delta_norm"].to_numpy(float)
+    max_planned_norm_ratio_error = float(
+        np.max(np.abs(realized_norm / np.maximum(planned_norm, 1e-12) - 1.0))
+    )
     max_control_norm_ratio_error = float(
         np.max(np.abs(control_norm / np.maximum(dose1_norm, 1e-12) - 1.0))
     )
@@ -315,6 +321,8 @@ def main() -> None:
         "multiplicity": design["multiplicity"]["answer_transport"],
         "max_control_norm_ratio_error": max_control_norm_ratio_error,
         "max_dose2_norm_ratio_error": max_dose2_norm_ratio_error,
+        "max_planned_norm_ratio_error_diagnostic": max_planned_norm_ratio_error,
+        "planned_norm_policy": "diagnostic only; realized paired-dose ratios define the causal norm audit",
         "realized_norm_relative_tolerance": realized_norm_tolerance,
     }
     (args.output / "analysis_audit.json").write_text(
