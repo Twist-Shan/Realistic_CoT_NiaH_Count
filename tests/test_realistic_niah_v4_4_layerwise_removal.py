@@ -137,6 +137,7 @@ def test_answer_query_candidate_and_bfloat16_control_match_realized_norm() -> No
     control_delta = selected.float() - control.float()
     assert candidate_measurements["norm_ratio"] == pytest.approx(1.0)
     assert control_measurements["norm_ratio"] == pytest.approx(1.0, rel=5e-4)
+    assert 0 <= control_measurements["control_direction_index"] <= 26
     assert torch.linalg.vector_norm(control_delta).item() == pytest.approx(
         torch.linalg.vector_norm(candidate_delta).item(), rel=5e-4
     )
