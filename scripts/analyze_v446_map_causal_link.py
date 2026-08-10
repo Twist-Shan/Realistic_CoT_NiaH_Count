@@ -18,6 +18,8 @@ MAP_PREDICTORS = (
     "bootstrap_map_relative_frobenius_median",
     "bootstrap_rotation_geodesic_degrees_median",
     "subspace_principal_angle_max_degrees",
+    "full_operator_cosine_to_next",
+    "full_operator_relative_drift_to_next",
 )
 
 
@@ -187,16 +189,21 @@ def main() -> None:
         ["model_label", "contrast", "metric"]
     ):
         for predictor in MAP_PREDICTORS:
+            complete = group[["mean_causal_effect", predictor]].dropna()
+            if len(complete) < 2:
+                raise RuntimeError(
+                    f"too few complete boundaries for {model}/{contrast}/{metric}/{predictor}"
+                )
             correlation_rows.append(
                 {
                     "model_label": model,
                     "contrast": contrast,
                     "metric": metric,
                     "predictor": predictor,
-                    "boundaries": len(group),
+                    "boundaries": len(complete),
                     "spearman_rho_descriptive": float(
-                        group["mean_causal_effect"].corr(
-                            group[predictor], method="spearman"
+                        complete["mean_causal_effect"].corr(
+                            complete[predictor], method="spearman"
                         )
                     ),
                 }

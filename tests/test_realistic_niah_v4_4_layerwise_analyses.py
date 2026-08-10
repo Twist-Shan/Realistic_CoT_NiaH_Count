@@ -237,6 +237,8 @@ def test_map_causal_link_uses_frozen_stability_regimes(
                 "bootstrap_map_relative_frobenius_median": 0.2,
                 "bootstrap_rotation_geodesic_degrees_median": 12.0,
                 "subspace_principal_angle_max_degrees": 70.0,
+                "full_operator_cosine_to_next": 0.1,
+                "full_operator_relative_drift_to_next": 1.4,
             },
             {
                 "model_label": "Tiny",
@@ -248,6 +250,8 @@ def test_map_causal_link_uses_frozen_stability_regimes(
                 "bootstrap_map_relative_frobenius_median": 0.05,
                 "bootstrap_rotation_geodesic_degrees_median": 2.0,
                 "subspace_principal_angle_max_degrees": 30.0,
+                "full_operator_cosine_to_next": 0.8,
+                "full_operator_relative_drift_to_next": 0.5,
             },
         ]
     ).to_csv(map_analysis / "layerwise_linear_map_summary.csv", index=False)
@@ -302,4 +306,13 @@ def test_map_causal_link_uses_frozen_stability_regimes(
     assert len(tests) == 6
     assert set(tests["mean_stable_minus_unstable"]) == {1.0}
     assert set(tests["stable_boundaries"]) == {1}
+    correlations = pd.read_csv(output / "boundary_spearman_descriptive.csv")
+    assert set(correlations["predictor"]) == {
+        "cv_centroid_r2",
+        "bootstrap_map_relative_frobenius_median",
+        "bootstrap_rotation_geodesic_degrees_median",
+        "subspace_principal_angle_max_degrees",
+        "full_operator_cosine_to_next",
+        "full_operator_relative_drift_to_next",
+    }
     assert json.loads((output / "analysis_audit.json").read_text())["status"] == "PASS"

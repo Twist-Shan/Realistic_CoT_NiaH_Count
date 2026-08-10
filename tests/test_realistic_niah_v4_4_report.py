@@ -107,6 +107,20 @@ def test_v4_4_causal_subsections_state_results_and_inference_limits() -> None:
     assert "multi-layer 没有稳定超过 single-layer" in SOURCE
 
 
+def test_integrated_report_defines_layerwise_map_rotation_without_gauge_overclaim() -> None:
+    assert "build_layerwise_subspace_section" in INTEGRATED_SOURCE
+    assert "5.4C · 实验 A 的跨层扫描" in INTEGRATED_SOURCE
+    assert "5.4D · 实验 B 的跨层扫描" in INTEGRATED_SOURCE
+    assert "A<sub>ℓ</sub>=R<sub>ℓ</sub>S<sub>ℓ</sub>" in INTEGRATED_SOURCE
+    assert "PCA basis 可各自右乘任意正交矩阵" in INTEGRATED_SOURCE
+    assert "T<sub>ℓ</sub>=U<sub>ℓ</sub>A<sub>ℓ</sub>U<sub>ℓ+1</sub><sup>T</sup>" in INTEGRATED_SOURCE
+    assert "不是同一个参数化" in INTEGRATED_SOURCE
+    assert "不是把相关性误写成对 rotation matrix 的直接干预" in INTEGRATED_SOURCE
+    assert "outcome-blind stability rule" in INTEGRATED_SOURCE
+    assert "full_operator_cosine_to_next" in INTEGRATED_SOURCE
+    assert "full_operator_relative_drift_to_next" in INTEGRATED_SOURCE
+
+
 def test_variant_filter_rejects_cross_panel_leakage() -> None:
     assert 'frame["design_variant"].astype(str) == FOCUS_VARIANT' in SOURCE
     assert 'raise RuntimeError(f"{model}/{stage}: no {FOCUS_VARIANT} rows")' in SOURCE

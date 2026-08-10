@@ -763,6 +763,710 @@ def layer_curve_svg(
     return "".join(parts)
 
 
+def layerwise_ci_curve_svg(
+    rows: list[dict[str, Any]],
+    *,
+    panels: Sequence[tuple[str, str]],
+    series_key: str,
+    series_order: Sequence[str],
+    series_labels: dict[str, str],
+    x_key: str,
+    layer_label_key: str,
+    value_key: str,
+    low_key: str,
+    high_key: str,
+    significance_key: str | None,
+    y_label: str,
+    title: str,
+    description: str,
+    include_zero: bool = True,
+) -> str:
+    """Draw two model panels with pointwise seed-bootstrap intervals.
+
+    The x coordinate is normally normalized decoder depth, while the displayed
+    ticks retain the actual registered layer or boundary.  A filled outer ring
+    denotes a layer surviving the preregistered Holm family.
+    """
+
+    def finite(row: dict[str, Any], key: str) -> bool:
+        try:
+            return math.isfinite(float(row[key]))
+        except (KeyError, TypeError, ValueError):
+            return False
+
+    def significant(row: dict[str, Any]) -> bool:
+        if significance_key is None:
+            return False
+        return str(row.get(significance_key, "")).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+
+    plotted = [
+        row
+        for row in rows
+        if str(row.get("model_label")) in {panel[0] for panel in panels}
+        and str(row.get(series_key)) in set(series_order)
+        and finite(row, value_key)
+        and finite(row, low_key)
+        and finite(row, high_key)
+        and finite(row, x_key)
+    ]
+    if not plotted:
+        raise RuntimeError(f"No finite rows for layerwise curve: {title}")
+    bounds = [float(row[key]) for row in plotted for key in (low_key, high_key)]
+    if include_zero:
+        bounds.append(0.0)
+    raw_min, raw_max = min(bounds), max(bounds)
+    span = max(raw_max - raw_min, max(abs(raw_min), abs(raw_max), 1.0) * 0.08)
+    y_min = raw_min - 0.09 * span
+    y_max = raw_max + 0.09 * span
+
+    width, panel_h = 1160, 330
+    panel_w, left, gap, top, bottom = 480, 78, 90, 42, 70
+    height = panel_h + 76
+    title_id = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "layerwise-ci"
+    parts = [
+        f'<svg class="stat-svg layer-curve-svg" viewBox="0 0 {width} {height}" role="img" aria-labelledby="{title_id}-title {title_id}-desc">',
+        f'<title id="{title_id}-title">{html.escape(title)}</title>',
+        f'<desc id="{title_id}-desc">{html.escape(description)}</desc>',
+    ]
+    for panel_index, (model, panel_title) in enumerate(panels):
+        x0 = left + panel_index * (panel_w + gap)
+        subset = [row for row in plotted if str(row.get("model_label")) == model]
+        x_values = [float(row[x_key]) for row in subset]
+        x_min, x_max = min(x_values), max(x_values)
+        x = lambda value: x0 + (float(value) - x_min) / max(x_max - x_min, 1e-12) * panel_w
+        y = lambda value: top + (y_max - float(value)) / max(y_max - y_min, 1e-12) * (panel_h - top - bottom)
+        for fraction in (0.0, 0.25, 0.5, 0.75, 1.0):
+            value = y_min + fraction * (y_max - y_min)
+            yy = y(value)
+            parts.append(f'<line class="grid" x1="{x0}" y1="{yy:.1f}" x2="{x0+panel_w}" y2="{yy:.1f}"/>')
+            if panel_index == 0:
+                parts.append(f'<text class="tick" x="{x0-10}" y="{yy+4:.1f}" text-anchor="end">{value:.2f}</text>')
+        if include_zero and y_min <= 0.0 <= y_max:
+            yy = y(0.0)
+            parts.append(f'<line class="axis" x1="{x0}" y1="{yy:.1f}" x2="{x0+panel_w}" y2="{yy:.1f}" stroke-dasharray="5 4"/>')
+        representatives = sorted(
+            subset,
+            key=lambda row: (float(row[x_key]), str(row[layer_label_key])),
+        )
+        tick_rows = [
+            representatives[0],
+            representatives[len(representatives) // 2],
+            representatives[-1],
+        ]
+        seen_ticks: set[tuple[float, str]] = set()
+        for row in tick_rows:
+            tick = (float(row[x_key]), str(row[layer_label_key]))
+            if tick in seen_ticks:
+                continue
+            seen_ticks.add(tick)
+            xx = x(tick[0])
+            parts.append(f'<line class="axis" x1="{xx:.1f}" y1="{panel_h-bottom}" x2="{xx:.1f}" y2="{panel_h-bottom+5}"/>')
+            parts.append(f'<text class="tick" x="{xx:.1f}" y="{panel_h-bottom+23}" text-anchor="middle">{html.escape(tick[1])}</text>')
+        parts.append(f'<text class="panel-title" x="{x0+panel_w/2:.1f}" y="24" text-anchor="middle">{html.escape(panel_title)}</text>')
+        for series_index, series in enumerate(series_order):
+            series_rows = sorted(
+                [row for row in subset if str(row.get(series_key)) == series],
+                key=lambda row: float(row[x_key]),
+            )
+            if not series_rows:
+                continue
+            color = SERIES_COLORS[series_index % len(SERIES_COLORS)]
+            parts.append(
+                '<polyline points="'
+                + " ".join(
+                    f'{x(row[x_key]):.1f},{y(row[value_key]):.1f}'
+                    for row in series_rows
+                )
+                + f'" fill="none" stroke="{color}" stroke-width="2.4"/>'
+            )
+            for row in series_rows:
+                xx = x(row[x_key])
+                yy, y_low, y_high = y(row[value_key]), y(row[low_key]), y(row[high_key])
+                parts.append(f'<line x1="{xx:.1f}" y1="{y_low:.1f}" x2="{xx:.1f}" y2="{y_high:.1f}" stroke="{color}" stroke-width="1.4" opacity="0.82"/>')
+                parts.append(f'<line x1="{xx-3:.1f}" y1="{y_low:.1f}" x2="{xx+3:.1f}" y2="{y_low:.1f}" stroke="{color}"/>')
+                parts.append(f'<line x1="{xx-3:.1f}" y1="{y_high:.1f}" x2="{xx+3:.1f}" y2="{y_high:.1f}" stroke="{color}"/>')
+                if significant(row):
+                    parts.append(f'<circle cx="{xx:.1f}" cy="{yy:.1f}" r="6.2" fill="none" stroke="{color}" stroke-width="2"/>')
+                parts.append(f'<circle cx="{xx:.1f}" cy="{yy:.1f}" r="3.5" fill="{color}"/>')
+        parts.append(f'<text class="axis-label" x="{x0+panel_w/2:.1f}" y="{panel_h+5}" text-anchor="middle">normalized decoder depth (ticks show registered layer)</text>')
+    legend_y = height - 25
+    legend_x = 105
+    spacing = min(360, max(180, 880 // max(len(series_order), 1)))
+    for index, series in enumerate(series_order):
+        xx = legend_x + index * spacing
+        color = SERIES_COLORS[index % len(SERIES_COLORS)]
+        parts.append(f'<line x1="{xx}" y1="{legend_y}" x2="{xx+25}" y2="{legend_y}" stroke="{color}" stroke-width="3"/>')
+        parts.append(f'<text class="tick" x="{xx+32}" y="{legend_y+4}">{html.escape(series_labels.get(series, series))}</text>')
+    if significance_key is not None:
+        parts.append(f'<circle cx="{width-202}" cy="{legend_y}" r="6" fill="none" stroke="#C04DFF" stroke-width="2"/>')
+        parts.append(f'<text class="tick" x="{width-188}" y="{legend_y+4}">Holm p ≤ .05</text>')
+    parts.append(f'<text class="axis-label" transform="translate(18 {top+(panel_h-top-bottom)/2:.1f}) rotate(-90)" text-anchor="middle">{html.escape(y_label)}</text>')
+    parts.append('</svg>')
+    return "".join(parts)
+
+
+def build_layerwise_subspace_section(
+    prompt_statistics: list[dict[str, str]],
+    prompt_trends: list[dict[str, str]],
+    prompt_audit: dict[str, Any],
+    transport_statistics: list[dict[str, str]],
+    transport_trends: list[dict[str, str]],
+    transport_audit: dict[str, Any],
+    map_summary: list[dict[str, str]],
+    map_audit: dict[str, Any],
+    registered_stability: list[dict[str, str]],
+    map_causal_tests: list[dict[str, str]],
+    map_causal_correlations: list[dict[str, str]],
+    map_causal_audit: dict[str, Any],
+) -> str:
+    """Build the outcome-complete layer sweep that extends report section 5.4."""
+
+    models = ("Qwen3-8B", "Gemma4-E4B")
+    panel_titles = (("Qwen3-8B", "Qwen3-8B"), ("Gemma4-E4B", "Gemma4-E4B"))
+
+    def median(values: Iterable[float]) -> float:
+        ordered = sorted(float(value) for value in values if math.isfinite(float(value)))
+        if not ordered:
+            return math.nan
+        middle = len(ordered) // 2
+        if len(ordered) % 2:
+            return ordered[middle]
+        return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+    def ci(row: dict[str, str], mean_key: str = "mean_effect") -> str:
+        return (
+            f'{float(row[mean_key]):.3f} '
+            f'[{float(row["bootstrap_95ci_low"]):.3f}, '
+            f'{float(row["bootstrap_95ci_high"]):.3f}]'
+        )
+
+    def is_holm_positive(row: dict[str, str], p_key: str, effect_key: str) -> bool:
+        return float(row[p_key]) <= 0.05 and float(row[effect_key]) > 0.0
+
+    prompt_primary = [
+        dict(row, layer_tick=f'L{int(row["layer"])}')
+        for row in prompt_statistics
+        if row["population"] == "all"
+        and row["endpoint"] == "absolute_error_specificity"
+    ]
+    prompt_primary_trends = [
+        row
+        for row in prompt_trends
+        if row["population"] == "all"
+        and row["endpoint"] == "absolute_error_specificity"
+    ]
+    prompt_summary_rows: list[list[str]] = []
+    prompt_detail_rows: list[list[str]] = []
+    prompt_sentences: list[str] = []
+    for model in models:
+        model_rows = sorted(
+            [row for row in prompt_primary if row["model_label"] == model],
+            key=lambda row: int(row["layer"]),
+        )
+        trend = next(row for row in prompt_primary_trends if row["model_label"] == model)
+        positive = [
+            row
+            for row in model_rows
+            if is_holm_positive(
+                row,
+                "holm_p_within_model_population_endpoint",
+                "mean_effect",
+            )
+        ]
+        negative = [
+            row
+            for row in model_rows
+            if float(row["holm_p_within_model_population_endpoint"]) <= 0.05
+            and float(row["mean_effect"]) < 0.0
+        ]
+        peak = max(model_rows, key=lambda row: float(row["mean_effect"]))
+        prompt_summary_rows.append(
+            [
+                model,
+                f"{len(positive)}/{len(model_rows)}",
+                f"{len(negative)}/{len(model_rows)}",
+                f'L{int(peak["layer"])}: {ci(peak)}',
+                f'{float(trend["mean_slope_per_unit_depth"]):.3f} '
+                f'[{float(trend["bootstrap_95ci_low"]):.3f}, '
+                f'{float(trend["bootstrap_95ci_high"]):.3f}]',
+                fmt_p(float(trend["exact_seed_signflip_p_two_sided"])),
+            ]
+        )
+        prompt_sentences.append(
+            f'{model} 有 {len(positive)}/{len(model_rows)} 个注册层呈正向且 Holm 显著的方向特异 damage'
+        )
+        for row in model_rows:
+            prompt_detail_rows.append(
+                [
+                    model,
+                    f'L{int(row["layer"])}',
+                    ci(row),
+                    fmt_p(float(row["exact_seed_signflip_p_two_sided"])),
+                    fmt_p(float(row["holm_p_within_model_population_endpoint"])),
+                ]
+            )
+
+    prompt_svg = layerwise_ci_curve_svg(
+        prompt_primary,
+        panels=panel_titles,
+        series_key="endpoint",
+        series_order=("absolute_error_specificity",),
+        series_labels={"absolute_error_specificity": "rank-3 removal − orthogonal control"},
+        x_key="normalized_depth",
+        layer_label_key="layer_tick",
+        value_key="mean_effect",
+        low_key="bootstrap_95ci_low",
+        high_key="bootstrap_95ci_high",
+        significance_key="significant_holm_0_05",
+        y_label="absolute-error specificity (count units)",
+        title="Layerwise rank-three prompt removal",
+        description=(
+            "Mean confirmation-seed difference between rank-three removal damage and "
+            "the realized-norm-matched orthogonal control, with 95 percent seed bootstrap intervals."
+        ),
+    )
+
+    requested_contrasts = (
+        "aligned_dose_1_minus_orthogonal",
+        "dose_2_minus_dose_1",
+    )
+    transport_primary = [
+        dict(
+            row,
+            boundary_tick=f'L{int(row["source_layer"])}→L{int(row["target_layer"])}',
+        )
+        for row in transport_statistics
+        if row["metric"] == "target_donor_fraction"
+        and row["contrast"] in requested_contrasts
+    ]
+    transport_primary_trends = [
+        row
+        for row in transport_trends
+        if row["metric"] == "target_donor_fraction"
+        and row["contrast"] in requested_contrasts
+    ]
+    transport_summary_rows: list[list[str]] = []
+    transport_detail_rows: list[list[str]] = []
+    transport_sentences: list[str] = []
+    for model in models:
+        for contrast_name in requested_contrasts:
+            model_rows = sorted(
+                [
+                    row
+                    for row in transport_primary
+                    if row["model_label"] == model
+                    and row["contrast"] == contrast_name
+                ],
+                key=lambda row: int(row["source_layer"]),
+            )
+            trend = next(
+                row
+                for row in transport_primary_trends
+                if row["model_label"] == model
+                and row["contrast"] == contrast_name
+            )
+            positive = [
+                row
+                for row in model_rows
+                if is_holm_positive(
+                    row,
+                    "holm_p_within_model_metric_contrast",
+                    "mean_contrast",
+                )
+            ]
+            negative = [
+                row
+                for row in model_rows
+                if float(row["holm_p_within_model_metric_contrast"]) <= 0.05
+                and float(row["mean_contrast"]) < 0.0
+            ]
+            peak = max(model_rows, key=lambda row: float(row["mean_contrast"]))
+            short_label = (
+                "aligned 1× − orthogonal"
+                if contrast_name == "aligned_dose_1_minus_orthogonal"
+                else "aligned 2× − aligned 1×"
+            )
+            transport_summary_rows.append(
+                [
+                    model,
+                    short_label,
+                    f"{len(positive)}/{len(model_rows)}",
+                    f"{len(negative)}/{len(model_rows)}",
+                    f'L{int(peak["source_layer"])}→L{int(peak["target_layer"])}: '
+                    f'{ci(peak, "mean_contrast")}',
+                    f'{float(trend["mean_slope_per_unit_depth"]):.3f} '
+                    f'[{float(trend["bootstrap_95ci_low"]):.3f}, '
+                    f'{float(trend["bootstrap_95ci_high"]):.3f}]',
+                    fmt_p(float(trend["exact_seed_signflip_p_two_sided"])),
+                ]
+            )
+            if contrast_name == "aligned_dose_1_minus_orthogonal":
+                transport_sentences.append(
+                    f'{model} 有 {len(positive)}/{len(model_rows)} 个注册边界通过方向特异性的 Holm 检验'
+                )
+            for row in model_rows:
+                transport_detail_rows.append(
+                    [
+                        model,
+                        str(row["boundary_tick"]),
+                        short_label,
+                        ci(row, "mean_contrast"),
+                        fmt_p(float(row["exact_seed_signflip_p_two_sided"])),
+                        fmt_p(float(row["holm_p_within_model_metric_contrast"])),
+                    ]
+                )
+
+    transport_svg = layerwise_ci_curve_svg(
+        transport_primary,
+        panels=panel_titles,
+        series_key="contrast",
+        series_order=requested_contrasts,
+        series_labels={
+            "aligned_dose_1_minus_orthogonal": "aligned 1× − orthogonal",
+            "dose_2_minus_dose_1": "aligned 2× − aligned 1×",
+        },
+        x_key="normalized_depth",
+        layer_label_key="boundary_tick",
+        value_key="mean_contrast",
+        low_key="bootstrap_95ci_low",
+        high_key="bootstrap_95ci_high",
+        significance_key="significant_holm_0_05",
+        y_label="target donor-fraction contrast",
+        title="Layerwise transport-aligned causal contrasts",
+        description=(
+            "Direction-specific aligned transport and dose increment across preregistered adjacent "
+            "decoder boundaries, with 95 percent confirmation-seed bootstrap intervals."
+        ),
+    )
+
+    rank_three_maps: list[dict[str, Any]] = []
+    for source in map_summary:
+        if int(source["rank"]) != 3:
+            continue
+        row: dict[str, Any] = dict(source)
+        row["layer"] = int(source["source_layer"])
+        row["map_role"] = source["role"]
+        row["role"] = "all"
+        row["cv_centroid_r2_clipped"] = max(-1.0, min(1.0, float(source["cv_centroid_r2"])))
+        rank_three_maps.append(row)
+    map_cv_svg = layer_curve_svg(
+        rank_three_maps,
+        panels=(("Qwen3-8B", "all", "Qwen"), ("Gemma4-E4B", "all", "Gemma")),
+        series_key="map_role",
+        value_key="cv_centroid_r2_clipped",
+        series_order=("prompt_running", "answer_query"),
+        y_min=-1.0,
+        y_max=1.0,
+        y_label="grouped-seed centroid CV R² (clipped below −1)",
+        title="Cross-layer linear-map generalization",
+        description=(
+            "Rank-three adjacent-layer centroid cross-validation for prompt-running and answer-query "
+            "states. Values below minus one are displayed at minus one and remain available in the table."
+        ),
+    )
+    operator_rows = [
+        row
+        for row in rank_three_maps
+        if str(row.get("full_operator_cosine_to_next", "")) not in {"", "nan", "NaN"}
+    ]
+    map_operator_svg = layer_curve_svg(
+        operator_rows,
+        panels=(("Qwen3-8B", "all", "Qwen"), ("Gemma4-E4B", "all", "Gemma")),
+        series_key="map_role",
+        value_key="full_operator_cosine_to_next",
+        series_order=("prompt_running", "answer_query"),
+        y_min=-1.0,
+        y_max=1.0,
+        y_label="cosine(Tℓ, Tℓ₊₁)",
+        title="Gauge-invariant full-space operator stability",
+        description=(
+            "Frobenius cosine between consecutive rank-three full-space operators; unlike raw PCA "
+            "coordinate rotations, this quantity is invariant to independent basis rotations."
+        ),
+    )
+    map_detail_rows: list[list[str]] = []
+    for row in sorted(
+        rank_three_maps,
+        key=lambda item: (
+            models.index(str(item["model_label"])),
+            str(item["map_role"]),
+            int(item["source_layer"]),
+        ),
+    ):
+        def optional_metric(key: str, digits: int = 3) -> str:
+            value = str(row.get(key, ""))
+            if value in {"", "nan", "NaN"}:
+                return "—"
+            return f"{float(value):.{digits}f}"
+
+        stable_label = "—"
+        if row["map_role"] == "answer_query":
+            stable_label = (
+                "stable"
+                if float(row["cv_centroid_r2"]) >= 0.9
+                and float(row["bootstrap_map_relative_frobenius_median"]) <= 0.1
+                else "unstable"
+            )
+        map_detail_rows.append(
+            [
+                str(row["model_label"]),
+                "prompt" if row["map_role"] == "prompt_running" else "answer",
+                f'L{int(row["source_layer"])}→L{int(row["target_layer"])}',
+                f'{float(row["cv_centroid_r2"]):.3f}',
+                f'{float(row["bootstrap_map_relative_frobenius_median"]):.3f}',
+                f'{float(row["bootstrap_rotation_geodesic_degrees_median"]):.2f}°',
+                f'{float(row["subspace_principal_angle_max_degrees"]):.2f}°',
+                optional_metric("full_operator_cosine_to_next"),
+                optional_metric("full_operator_relative_drift_to_next"),
+                stable_label,
+            ]
+        )
+
+    map_phase_rows: list[list[str]] = []
+    stretch_rows: list[list[str]] = []
+    for model in models:
+        for role in ("prompt_running", "answer_query"):
+            subset = [
+                row
+                for row in rank_three_maps
+                if row["model_label"] == model and row["map_role"] == role
+            ]
+            early = [row for row in subset if float(row["normalized_depth"]) <= 1.0 / 3.0]
+            late = [row for row in subset if float(row["normalized_depth"]) >= 2.0 / 3.0]
+            map_phase_rows.append(
+                [
+                    model,
+                    "prompt running" if role == "prompt_running" else "answer query",
+                    f'{median(float(row["cv_centroid_r2"]) for row in early):.3f} → '
+                    f'{median(float(row["cv_centroid_r2"]) for row in late):.3f}',
+                    f'{median(float(row["bootstrap_map_relative_frobenius_median"]) for row in early):.3f} → '
+                    f'{median(float(row["bootstrap_map_relative_frobenius_median"]) for row in late):.3f}',
+                    f'{median(float(row["bootstrap_rotation_geodesic_degrees_median"]) for row in early):.2f}° → '
+                    f'{median(float(row["bootstrap_rotation_geodesic_degrees_median"]) for row in late):.2f}°',
+                    f'{median(float(row["subspace_principal_angle_max_degrees"]) for row in early):.2f}° → '
+                    f'{median(float(row["subspace_principal_angle_max_degrees"]) for row in late):.2f}°',
+                    f'{median(float(row["full_operator_cosine_to_next"]) for row in early if str(row.get("full_operator_cosine_to_next", "")) not in {"", "nan", "NaN"}):.3f} → '
+                    f'{median(float(row["full_operator_cosine_to_next"]) for row in late if str(row.get("full_operator_cosine_to_next", "")) not in {"", "nan", "NaN"}):.3f}',
+                    f'{median(float(row["full_operator_relative_drift_to_next"]) for row in early if str(row.get("full_operator_relative_drift_to_next", "")) not in {"", "nan", "NaN"}):.3f} → '
+                    f'{median(float(row["full_operator_relative_drift_to_next"]) for row in late if str(row.get("full_operator_relative_drift_to_next", "")) not in {"", "nan", "NaN"}):.3f}',
+                ]
+            )
+            stretch_rows.append(
+                [
+                    model,
+                    "prompt running" if role == "prompt_running" else "answer query",
+                    f'[{median(float(row["map_singular_last"]) for row in early):.3f}, '
+                    f'{median(float(row["map_singular_1"]) for row in early):.3f}]',
+                    f'[{median(float(row["map_singular_last"]) for row in late):.3f}, '
+                    f'{median(float(row["map_singular_1"]) for row in late):.3f}]',
+                ]
+            )
+
+    stable_rows: list[list[str]] = []
+    for model in models:
+        subset = [row for row in registered_stability if row["model_label"] == model]
+        stable = [
+            row
+            for row in subset
+            if str(row["locally_stable"]).strip().lower() in {"1", "true", "yes"}
+        ]
+        all_answer_boundaries = sorted(
+            [
+                row
+                for row in rank_three_maps
+                if row["model_label"] == model and row["map_role"] == "answer_query"
+            ],
+            key=lambda row: int(row["source_layer"]),
+        )
+        persistent = "none"
+        for index, row in enumerate(all_answer_boundaries):
+            suffix = all_answer_boundaries[index:]
+            if all(
+                float(item["cv_centroid_r2"]) >= 0.9
+                and float(item["bootstrap_map_relative_frobenius_median"]) <= 0.1
+                for item in suffix
+            ):
+                persistent = (
+                    f'L{int(row["source_layer"])}→L{int(row["target_layer"])} onward'
+                )
+                break
+        stable_rows.append(
+            [
+                model,
+                f"{len(stable)}/{len(subset)}",
+                ", ".join(
+                    f'L{int(row["source_layer"])}→L{int(row["target_layer"])}'
+                    for row in stable
+                ),
+                persistent,
+            ]
+        )
+
+    primary_link_rows = [
+        row
+        for row in map_causal_tests
+        if str(row["is_primary"]).strip().lower() in {"1", "true", "yes"}
+    ]
+    link_table_rows: list[list[str]] = []
+    supported_models: list[str] = []
+    inverse_models: list[str] = []
+    for model in models:
+        row = next(item for item in primary_link_rows if item["model_label"] == model)
+        supported = (
+            float(row["bootstrap_95ci_low"]) > 0.0
+            and float(row["holm_p_within_model_six_tests"]) <= 0.05
+        )
+        inverse = (
+            float(row["bootstrap_95ci_high"]) < 0.0
+            and float(row["holm_p_within_model_six_tests"]) <= 0.05
+        )
+        if supported:
+            supported_models.append(model)
+        if inverse:
+            inverse_models.append(model)
+        link_table_rows.append(
+            [
+                model,
+                f'{int(row["stable_boundaries"])}/{int(row["unstable_boundaries"])}',
+                ci(row, "mean_stable_minus_unstable"),
+                fmt_p(float(row["exact_seed_signflip_p_two_sided"])),
+                fmt_p(float(row["holm_p_within_model_six_tests"])),
+                "supports" if supported else ("significant inverse" if inverse else "not established"),
+            ]
+        )
+    if inverse_models:
+        positive_text = ", ".join(supported_models) if supported_models else "none"
+        link_conclusion = (
+            f'正向支持模型：{positive_text}；显著反向模型：{", ".join(inverse_models)}。'
+        )
+    elif len(supported_models) == len(models):
+        link_conclusion = "两模型都支持：局部 map 稳定区的 held-out causal transport 更强。"
+    elif supported_models:
+        link_conclusion = f'只有 {", ".join(supported_models)} 支持稳定区的 held-out causal transport 更强；另一模型未建立该联系。'
+    else:
+        link_conclusion = "两模型都未建立“局部 map 越稳定，held-out causal transport 越强”的注册联系。"
+
+    predictor_labels = {
+        "cv_centroid_r2": "centroid CV R²",
+        "bootstrap_map_relative_frobenius_median": "bootstrap map dispersion",
+        "bootstrap_rotation_geodesic_degrees_median": "rotation dispersion",
+        "subspace_principal_angle_max_degrees": "max principal angle",
+        "full_operator_cosine_to_next": "operator cosine to next",
+        "full_operator_relative_drift_to_next": "operator drift to next",
+    }
+    correlation_rows: list[list[str]] = []
+    for row in map_causal_correlations:
+        if (
+            row["contrast"] != "aligned_dose_1_minus_orthogonal"
+            or row["metric"] != "target_donor_fraction"
+        ):
+            continue
+        raw_rho = str(row.get("spearman_rho_descriptive", ""))
+        rho = "—" if raw_rho in {"", "nan", "NaN"} else f"{float(raw_rho):.3f}"
+        correlation_rows.append(
+            [
+                row["model_label"],
+                predictor_labels.get(row["predictor"], row["predictor"]),
+                str(int(row["boundaries"])),
+                rho,
+            ]
+        )
+
+    rank_sensitivity_rows: list[list[str]] = []
+    for model in models:
+        for role in ("prompt_running", "answer_query"):
+            values = []
+            for rank in (1, 2, 3):
+                subset = [
+                    float(row["cv_centroid_r2"])
+                    for row in map_summary
+                    if row["model_label"] == model
+                    and row["role"] == role
+                    and int(row["rank"]) == rank
+                ]
+                values.append(f"{median(subset):.3f}")
+            rank_sensitivity_rows.append(
+                [
+                    model,
+                    "prompt running" if role == "prompt_running" else "answer query",
+                    *values,
+                ]
+            )
+
+    audit_rows = [
+        [
+            "prompt removal",
+            str(prompt_audit["status"]),
+            f'{int(prompt_audit["rows"]):,} raw rows; '
+            f'max candidate/control target-norm relative difference '
+            f'{float(prompt_audit["max_target_norm_relative_difference"]):.4g}; '
+            f'max realized control-ratio error '
+            f'{float(prompt_audit["max_control_norm_ratio_error"]):.4g}',
+        ],
+        [
+            "transport",
+            str(transport_audit["status"]),
+            f'{int(transport_audit["rows"]):,} raw rows; '
+            f'max realized control-ratio error '
+            f'{float(transport_audit["max_control_norm_ratio_error"]):.4g}; '
+            f'max realized 2×/1× ratio error '
+            f'{float(transport_audit["max_dose2_norm_ratio_error"]):.4g}',
+        ],
+        [
+            "linear maps",
+            str(map_audit["status"]),
+            f'{int(map_audit["boundaries"])} adjacent boundaries; '
+            f'{int(map_audit["summary_rows"]):,} rank-summary rows; '
+            f'{int(map_audit["bootstrap_rows"]):,} bootstrap rows',
+        ],
+        [
+            "map–causal link",
+            str(map_causal_audit["status"]),
+            f'{int(map_causal_audit["bootstrap_draws"]):,} seed bootstraps; '
+            "outcome-blind stability rule; exact seed sign-flip",
+        ],
+    ]
+
+    return f"""
+<div class="transport-subspace-embedded layerwise-subspace-sweep" id="layerwise-subspace-sweep">
+<h4>5.4C · 实验 A 的跨层扫描：三维 removal 在哪些层具有方向特异性？</h4>
+<p><strong>估计量。</strong>每个注册层都在 discovery seeds 上重拟合 rank-3 count plane；confirmation prompt 在该层移除实际 rank-3 分量，并与<strong>经过 bf16 写回后仍等范数</strong>的正交控制配对。纵轴为 <code>candidate absolute error − control absolute error</code>，所以正值才表示 count plane 本身的方向特异 damage，而不是层间 residual 尺度增长。</p>
+<figure>{prompt_svg}<figcaption><strong>Figure · Layerwise prompt rank-3 removal.</strong> 点是 10 个 confirmation seeds 的均值，误差棒为 seed bootstrap 95% CI；外圈表示在“模型 × population × endpoint”预注册 family 内跨层 Holm 后仍显著。所有 count 2–10 先在 seed 内平均。</figcaption></figure>
+{table(["model", "positive Holm layers", "negative Holm layers", "largest observed effect", "linear depth slope [95% CI]", "trend exact p"], prompt_summary_rows, classes="paper-table compact-result-table")}
+{details_table("All registered prompt-removal layers", ["model", "layer", "specificity [95% CI]", "raw exact p", "Holm p"], prompt_detail_rows)}
+<p><strong>读法。</strong>{'；'.join(prompt_sentences)}。线性 depth slope 只是预先指定的全局趋势摘要；曲线中的非单调结构仍以逐层估计为准。</p>
+
+<h4>5.4D · 实验 B 的跨层扫描：transport causal effect 与剂量响应如何随层变化？</h4>
+<p>对每个注册相邻边界，把 source ambient centroids ridge-regress 到 target rank-3 coordinates，并对回归权重做 QR 得到 discovery-frozen transport basis <code>B<sub>ℓ</sub></code>；confirmation 只使用 1→2、2→1、5→6、6→5 四个预注册 donor/receiver 对。紫色曲线检验 aligned 1× 相对等范数正交方向的 specificity；蓝色曲线检验 2× 相对 1× 的 dose increment。</p>
+<figure>{transport_svg}<figcaption><strong>Figure · Layerwise transport and dose response.</strong> 纵轴是 target donor fraction 的 seed-level contrast；误差棒、外圈与 multiplicity 规则同上，但 Holm family 是“模型 × metric × contrast”内跨注册边界。</figcaption></figure>
+{table(["model", "contrast", "positive Holm boundaries", "negative Holm boundaries", "largest observed effect", "linear depth slope [95% CI]", "trend exact p"], transport_summary_rows, classes="paper-table compact-result-table")}
+{details_table("All registered transport boundaries", ["model", "boundary", "contrast", "effect [95% CI]", "raw exact p", "Holm p"], transport_detail_rows)}
+<p><strong>跨层复现。</strong>{'；'.join(transport_sentences)}。这一区分“某个锚点可 transport”与“transport 通道在整个 decoder 中均匀存在”；后者必须由曲线而不是单点结果判断。</p>
+
+<h4>5.4E · 如何定义跨层 linear map、rotation 与稳定性？</h4>
+<p><strong>形式化定义。</strong>令 discovery-fitted source/target bases 为 <code>U<sub>ℓ</sub></code> 与 <code>U<sub>ℓ+1</sub></code>，中心化 rank-3 coordinates 为 <code>z<sub>ℓ</sub></code>。以 seed-grouped ridge 拟合 <code>z<sub>ℓ+1</sub> ≈ z<sub>ℓ</sub>A<sub>ℓ</sub></code>，再做 polar decomposition <code>A<sub>ℓ</sub>=R<sub>ℓ</sub>S<sub>ℓ</sub></code>：<code>R</code> 是 coordinate rotation/reflection，<code>S</code> 是 stretch。PCA basis 可各自右乘任意正交矩阵，因此裸的 <code>R<sub>ℓ</sub></code> 角度依赖 gauge；它只在 bootstrap basis 先向 full-discovery reference 做 Procrustes 对齐后用于<strong>同一边界内</strong>的不确定性。</p>
+<p><strong>与 causal patch 的关系。</strong><code>A<sub>ℓ</sub></code> 是两端都先截断为 rank 3 的坐标 map；5.4D 的 <code>B<sub>ℓ</sub></code> 则是从 source ambient centroid curve 直接预测 target rank-3 coordinates 后取得的三维 row-space。二者共享 discovery centroids 与 target rank，但不是同一个参数化；实验没有把 <code>R<sub>ℓ</sub></code> 矩阵本身写入模型。最后的 map–causal test 问的是“<code>A<sub>ℓ</sub></code> 稳定的边界上，<code>B<sub>ℓ</sub></code> 定义的 held-out causal transport 是否更强”，不是把相关性误写成对 rotation matrix 的直接干预。</p>
+<p><strong>跨边界主稳定量。</strong>把 map 提升回 residual space：<code>T<sub>ℓ</sub>=U<sub>ℓ</sub>A<sub>ℓ</sub>U<sub>ℓ+1</sub><sup>T</sup></code>。若独立换 gauge 为 <code>U′<sub>ℓ</sub>=U<sub>ℓ</sub>Q<sub>ℓ</sub></code>，则 <code>A′<sub>ℓ</sub>=Q<sub>ℓ</sub><sup>T</sup>A<sub>ℓ</sub>Q<sub>ℓ+1</sub></code>，代回即有 <code>T′<sub>ℓ</sub>=T<sub>ℓ</sub></code>。因此可比较 <code>cos(T<sub>ℓ</sub>,T<sub>ℓ+1</sub>)</code> 与相对 Frobenius drift，而不把 PCA 轴的任意换号/旋转当成机制变化。另报告 grouped-seed centroid CV R²（跨 seed 泛化）和 seed bootstrap map relative-Frobenius dispersion（估计稳定性）。</p>
+<figure>{map_cv_svg}<figcaption><strong>Figure · Predictive map stability.</strong> rank-3 grouped-seed centroid CV R²；为保留后层分辨率，小于 −1 的早层失败值画在 −1 下限，未截断数值保留在机器可读 CSV。</figcaption></figure>
+<figure>{map_operator_svg}<figcaption><strong>Figure · Gauge-invariant operator continuity.</strong> 每一点比较连续两个相邻层 map 的 full-space operator。高 cosine 表示相邻边界实施相似的 ambient-space linear transport；它不等于“PCA 轴标签相同”。</figcaption></figure>
+{table(["model", "role", "early→late median CV R²", "early→late map dispersion", "early→late rotation dispersion", "early→late max principal angle", "early→late operator cosine", "early→late operator drift"], map_phase_rows, classes="paper-table compact-result-table")}
+{details_table("All adjacent rank-3 map boundaries (unclipped)", ["model", "role", "boundary", "CV R²", "map dispersion", "rotation dispersion", "max principal angle", "operator cosine", "operator drift", "answer stability rule"], map_detail_rows)}
+{details_table("Polar stretch summary: median [smallest, largest] singular value", ["model", "role", "early third", "late third"], stretch_rows)}
+{details_table("Rank sensitivity: median grouped-seed centroid CV R²", ["model", "role", "rank 1", "rank 2", "rank 3"], rank_sensitivity_rows)}
+<p><strong>Outcome-blind stability rule。</strong>该阈值是在 discovery-only map sweep 已完成之后、任何 layerwise transport confirmation outcome 产生之前冻结：answer-query rank-3 boundary 同时满足 CV R²≥0.9 与 bootstrap relative-Frobenius median≤0.1 才标为 locally stable。因此它不是完全事前注册的 map 阈值，但也没有用 causal outcome 调参。</p>
+{table(["model", "stable / registered", "stable registered boundaries", "first persistently stable full-sweep boundary"], stable_rows, classes="paper-table compact-result-table")}
+{table(["model", "stable/unstable boundaries", "stable − unstable causal effect [95% CI]", "raw exact p", "Holm p (6 tests/model)", "decision"], link_table_rows, classes="paper-table compact-result-table")}
+{details_table("Descriptive boundary-wise map–causal Spearman correlations", ["model", "map predictor", "complete boundaries", "Spearman ρ"], correlation_rows)}
+{details_table("Layerwise experiment machine audits", ["component", "status", "completeness / numerical audit"], audit_rows)}
+<div class="conclusion"><strong>跨层结论</strong>{link_conclusion} 该检验使用 held-out confirmation causal effects，不把 discovery map fit 与 causal outcome 循环定义；boundary-wise Spearman 仅作描述，不把固定层位当成随机总体。由于 locally stable 与 decoder depth 高度共线，这个 regime contrast 仍不能把“map 稳定性本身”与一般性的 late-layer maturation 分离；需要 fresh-seed 的密集过渡区或 depth-matched 边界才能进一步识别。</div>
+</div>
+"""
+
+
 def all_token_scatter_svg(
     rows: list[dict[str, str]], *, model: str, layer: int
 ) -> str:
@@ -1693,13 +2397,13 @@ def build_prompt_direct_causal_subsections(
 <p><strong>这项实验能推出什么、不能推出什么。</strong>干预发生在<strong>输入token层</strong>：Qwen与Gemma只在真实needle内容被替换时出现远大于ordinary-control的损伤，所以两模型都必须使用needle中携带的信息。它没有直接改某个内部hidden state；一旦输入被替换，后面所有attention、MLP和residual states都会随之改变。因此该实验不能区分“信息先存在哪个endpoint”“由哪一组heads搬运”或“哪一个subspace是唯一carrier”，这些定位必须由后续state/head intervention完成。</p>
 <div class="conclusion"><strong>本小节结论。</strong>Token corruption 审计为 {html.escape(str(token_audit['status']))}。<strong>Qwen：</strong>needle-specific absolute-error increase为{fmt(float(token_all_q_error['mean']), 3)}，accuracy drop为{fmt(float(token_all_q_acc['mean']), 3)}。<strong>Gemma：</strong>对应为{fmt(float(token_all_g_error['mean']), 3)}与{fmt(float(token_all_g_acc['mean']), 3)}；两模型主行为结果均Holm p=0.046875。结论只到“原始needle内容是必要输入证据”，不把input-level necessity误写成某个内部carrier的唯一必要性。</div>
 
-<h3>5.4 两个不同的 subspace 实验：固定 prompt plane 为负，局部跨层 transport 为正</h3>
+<h3>5.4 Subspace 因果实验：从固定锚点到跨层 removal、transport 与 map 稳定性</h3>
 <div class="callout evidence-note"><strong>先分清逻辑。</strong>实验A与B改变的层、方向定义和因果问题都不同，所以结果不矛盾：A问一个<strong>固定早层PCA平面是否必要</strong>；B问一个<strong>允许跨层旋转的晚层transport方向是否足以搬运count</strong>。必要性检验为null、局部充分性检验为positive，可以同时成立。</div>
 <div class="subspace-logic-grid">
   <article><span>实验 A · necessity</span><strong>删掉固定 prompt plane，模型会坏吗？</strong><p>位置：Qwen L8 / Gemma L9 的全部active endpoints。方向：跨seeds平均得到的静态rank-3 PCA plane。结果：相对等范数正交删除，32个注册tests无一通过Holm；行为effects接近0。</p><p><b>只说明：</b>这个特定静态平面不是模型无法绕开的必要瓶颈。模型可能冗余存储、从literal spans重算，或在后层旋转方向。</p></article>
   <article><span>实验 B · local sufficiency</span><strong>沿跨层对齐方向注入，下一层会读到吗？</strong><p>位置：Qwen L28→L29 / Gemma L36→L37 的answer query。方向：discovery学习的source→target rank-3 transport basis，允许两层坐标不同。结果：aligned 1×远大于等范数orthogonal，2×又大于1×；四项exact p=0.001953。</p><p><b>只说明：</b>测试的相邻晚层存在可用、方向特异、近似剂量响应的局部count通道；不说明它是唯一通道。</p></article>
 </div>
-<h4>5.4A · 实验 A：固定 prompt rank-3 PCA plane 是否是必要瓶颈？——负结果</h4>
+<h4>5.4A · 实验 A：固定 prompt rank-3 PCA plane 是否是必要瓶颈？——单锚点负结果</h4>
 <div class="study-preface"><strong>为什么做。</strong><span>旧 single-endpoint ablation 接近零，可能是因为 count state 分散在多个 active endpoints，删一个位置会被其他位置补偿。新实验同时干预全部 active endpoints，并区分“当前 prompt 实际落在 count subspace 中的变化”与“discovery 数据给出的理想 centroid curve”。</span><strong>干预。</strong><span>对 seeds 1254–1263、counts 2–10，在 prompt 代表层 Qwen L8 / Gemma L9 的所有 active needle endpoints 同时执行两种 rank-3 removal，随后让未修改的后续层继续生成完整答案。对照从 within-count residual 的主方向中构造与 count basis 正交的 rank-3 basis，并把每个 prompt 的删除量缩放到与候选删除相同的 Frobenius norm。</span><strong>评估。</strong><span>behavior 使用 accuracy drop 与 absolute-error increase；representation 使用 Qwen L29/L35、Gemma L37/L41 answer residual 到冻结 gold centroid 的 squared-distance increase。所有主 effects 都是 count-subspace damage−orthogonal damage；先在 seed 内平均，再做10-seed exact sign-flip、50,000次 bootstrap，并在 all / clean-correct-only populations 内分别对2 models×2 removals×4 endpoints=16项做 Holm 校正。</span></div>
 <p><strong>精确定义。</strong>用 discovery endpoints 对每个 running count <em>n</em> 求 centroid <code>μ<sub>n</sub></code>，把十个 centroids 整体中心化后做 SVD，取前三个右奇异向量组成正交 basis <code>U∈R<sup>d×3</sup></code>。对一个含 <em>N</em> 个 active endpoints 的样本，将状态堆为 <code>H∈R<sup>N×d</sup></code>。<code>actual rank-3 remove</code> 使用 <code>H′=H−(H−rowmean(H))UUᵀ</code>，删除该样本跨 endpoints 的实际 count-aligned variation，但保留共同 offset；<code>centroid-curve remove</code> 使用 <code>H′<sub>n</sub>=H<sub>n</sub>−(μ<sub>n</sub>−mean(μ<sub>1:N</sub>))UUᵀ</code>，删除 discovery 所预测的理想 running-index step。控制 basis <code>V</code> 来自 <code>h−μ<sub>count</sub></code> 的前三个 residual PCs，经 Gram–Schmidt 与 <code>U</code> 正交化；删除 <code>(H−rowmean(H))VVᵀ</code> 后再缩放，使其删除范数与对应 <code>U</code>-removal 完全相同。</p>
 <figure>{subspace_svg}<figcaption><strong>图 5C · Set-wide prompt count-subspace removal 的特异行为效应。</strong>横轴为删除 count subspace 相对删除等 Frobenius 范数正交 subspace 多增加的 absolute count error；0 表示两类同强度 residual intervention 没有差别，正值表示 count-aligned component 更具行为作用。每点先在 seed 内平均 counts 2–10，再对10个 seed 等权求均值；横线为95% seed-bootstrap CI。actual 与 centroid-curve 是两种不同删除量，不作为重复试验合并。</figcaption></figure>
@@ -1711,7 +2415,7 @@ def build_prompt_direct_causal_subsections(
 <p><strong>为什么会是 null。</strong>这里删除的是一个在 prompt L8/L9、跨 seeds 平均后得到的静态 rank-3 PCA basis，并假设它同时是自然计算的瓶颈。这个假设可能过强：模型可以把同一 count 以冗余方式分布在多个 token；后层可以从未干预的 literal spans 重新计算；真正的 carrier 可以随 layer 旋转、随 context 改变或高于3维；PCA 最大化描述方差，也不保证找到最有因果作用的方向。等范数正交 control 还可能同时删除通用的格式/位置支架，使 candidate−control specificity 变小。</p>
 <div class="conclusion"><strong>实验 A 的结论（negative）。</strong>没有证据表明 Qwen L8 或 Gemma L9 中跨 seed 平均得到的固定三维 PCA plane，是模型无法绕开的必要 count bottleneck。这个 null 只否定“全网络沿同一个静态三维平面传递 count”的强假设，不否定 residual stream 中存在会旋转、可重算或更高维的 count carrier。</div>
 
-<h4>5.4B · 实验 B：允许方向随层变化后，局部 residual subspace 能否搬运 count？——正结果</h4>
+<h4>5.4B · 实验 B：允许方向随层变化后，局部 residual subspace 能否搬运 count？——单锚点正结果</h4>
 <div class="test-card"><p><strong>为什么做。</strong>若第 ℓ 层把 count 写在方向 <code>Uℓ</code>，下一层把它写在不同方向 <code>Uℓ+1</code>，直接删除或复制同一个 PCA vector 会漏掉真实传输；因此我们学习一个低秩 source→target map，而不要求两个层共享同一欧氏坐标。</p><p><strong>具体例子。</strong>对 receiver=1、donor=2，只把 source centroid 差 <code>μsource,2−μsource,1</code> 在冻结 transport basis 内的分量注入 receiver。若下一层沿 target 的1→2 centroid chord 前进约1单位，而等范数正交注入接近0，说明这个局部 subspace 能传递一单位 count；把同一分量加到2×后若前进接近2单位，则形成剂量响应。</p><p><strong>如何构造。</strong>只用 discovery count centroids，以 reduced-rank regression 将 source residual 映射到 target 的 rank-3 count coordinates，再对回归权重 row-space 做QR，得到冻结 source transport basis <code>B</code>。Confirmation 中注入 <code>ProjB(μD−μR)</code> 的1×和2×；control 位于 <code>B</code> 的正交补中，并与1× intervention 等范数。</p><p><strong>如何评估。</strong><code>target donor fraction</code> 是干预后 target state 沿 receiver→donor centroid chord 移动的比例：0表示未移动，1表示到达 donor centroid。要求同时满足 <code>aligned 1× &gt; orthogonal</code>（方向特异性）和 <code>aligned 2× &gt; aligned 1×</code>（剂量响应）。每个seed先平均1↔2、5↔6的双向 pairs，再对10个confirmation seeds做exact sign-flip与bootstrap。</p><p><strong>结果。</strong>Qwen L28→L29 的 orthogonal / aligned 1× / aligned 2× donor fraction 为0.007 / 0.949 / 1.810；Gemma L36→L37为0.002 / 0.976 / 1.801。两模型的1×方向特异性与2×增量均为 exact <code>p=0.001953</code>。完整并列图和置信区间见第7节。</p></div>
 <div class="conclusion"><strong>实验 B 的结论（positive）。</strong>两个模型在测试的相邻 answer-query layers 间都存在 discovery-frozen、方向特异且近似剂量响应的局部 count transport subspace。该结果证明“局部 residual relay 可用于搬运 count”，但不证明所有层共享一个固定 basis，也不证明该局部通道是唯一通道。</div>
 <!--TRANSPORT_ALIGNED_FULL-->
@@ -1728,6 +2432,7 @@ def build_prompt_direct_causal_subsections(
 )}
 <p><strong>什么才足以支持“residual stream 传递 count”。</strong>仅有跨层 CKA/CCA 或 decoder accuracy 不够，因为那只是相似性。当前最强证据是第7节的 transport-aligned intervention：discovery-only 学到 source transport basis，confirmation 中只注入其 donor−receiver 分量；aligned 1× 明显超过等范数正交 control，2× 又超过1×。Qwen L28→L29 与 Gemma L36→L37 的两项 exact p 均为0.001953。这说明<strong>测试的 answer-query 相邻层之间确实存在可用、方向特异、近似剂量响应的 count-carrying residual subspace</strong>。</p>
 <div class="conclusion"><strong>本小节结论。</strong>Subspace ablation 审计为 {html.escape(str(subspace_audit['status']))}。确认性 null 只否定“prompt L8/L9 的单一静态 rank-3 PCA curve 是必要瓶颈”；它不否定 subspace 传递。用允许跨层旋转的 transport-aligned basis，Qwen 与 Gemma 都得到局部因果 positive。严谨表述因此是“存在经测试相邻 answer layers 的局部 transport subspace”，而不是“全网络共享一个固定三维 counter plane”。</div>
+<!--LAYERWISE_SUBSPACE_SWEEP-->
 """
 
 
@@ -7247,6 +7952,7 @@ def build_limits_clear(
         ["Needle token corruption", "reports/v4_non-thinking_causal/v4_4_extension/token_corruption/", html.escape(str(token_audit["status"]))],
         ["Set-wide prompt subspace ablation", "reports/v4_non-thinking_causal/v4_4_extension/prompt_subspace_ablation/", html.escape(str(subspace_audit["status"]))],
         ["Adjacent-layer transport-aligned confirmation", "work/v445_transport_aligned_confirmation/analysis/", "frozen rank-3 basis; exact seed tests"],
+        ["Layerwise rank-3 removal, transport, and map stability", "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/", "discovery-frozen; confirmation seeds 1254–1263; all audits PASS"],
     ]
     return f"""
 <section id="limits">
@@ -7350,6 +8056,30 @@ def validate_inputs(repo_root: Path) -> dict[str, Path]:
         / "reports/v4_non-thinking_causal/v4_4_extension/prompt_subspace_ablation/subspace_ablation_statistics.csv",
         "extension_subspace_audit": repo_root
         / "reports/v4_non-thinking_causal/v4_4_extension/prompt_subspace_ablation/analysis_audit.json",
+        "layerwise_prompt_statistics": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/prompt_removal/layerwise_prompt_removal_statistics.csv",
+        "layerwise_prompt_trends": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/prompt_removal/layerwise_prompt_removal_depth_trends.csv",
+        "layerwise_prompt_audit": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/prompt_removal/analysis_audit.json",
+        "layerwise_transport_statistics": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/transport/layerwise_transport_statistics.csv",
+        "layerwise_transport_trends": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/transport/layerwise_transport_depth_trends.csv",
+        "layerwise_transport_audit": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/transport/analysis_audit.json",
+        "layerwise_map_summary": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/layer_maps/layerwise_linear_map_summary.csv",
+        "layerwise_map_audit": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/layer_maps/analysis_audit.json",
+        "layerwise_registered_stability": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/map_causal_link/registered_boundary_stability.csv",
+        "layerwise_map_causal_tests": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/map_causal_link/stable_minus_unstable_tests.csv",
+        "layerwise_map_causal_correlations": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/map_causal_link/boundary_spearman_descriptive.csv",
+        "layerwise_map_causal_audit": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/map_causal_link/analysis_audit.json",
         "first_locator_qwen_scores": repo_root
         / "reports/v4_non-thinking_causal/v4_4_extension/first_span_locator/Qwen3-8B.all_head_first_span_scores.csv",
         "first_locator_gemma_scores": repo_root
@@ -7400,6 +8130,18 @@ def validate_inputs(repo_root: Path) -> dict[str, Path]:
         "extension_token_audit",
         "extension_subspace_stats",
         "extension_subspace_audit",
+        "layerwise_prompt_statistics",
+        "layerwise_prompt_trends",
+        "layerwise_prompt_audit",
+        "layerwise_transport_statistics",
+        "layerwise_transport_trends",
+        "layerwise_transport_audit",
+        "layerwise_map_summary",
+        "layerwise_map_audit",
+        "layerwise_registered_stability",
+        "layerwise_map_causal_tests",
+        "layerwise_map_causal_correlations",
+        "layerwise_map_causal_audit",
         "first_locator_qwen_scores",
         "first_locator_gemma_scores",
         "first_locator_layer_matched",
@@ -8061,6 +8803,24 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     extension_token_audit = read_json(paths["extension_token_audit"])
     extension_subspace_stats = read_csv_rows(paths["extension_subspace_stats"])
     extension_subspace_audit = read_json(paths["extension_subspace_audit"])
+    layerwise_prompt_statistics = read_csv_rows(paths["layerwise_prompt_statistics"])
+    layerwise_prompt_trends = read_csv_rows(paths["layerwise_prompt_trends"])
+    layerwise_prompt_audit = read_json(paths["layerwise_prompt_audit"])
+    layerwise_transport_statistics = read_csv_rows(
+        paths["layerwise_transport_statistics"]
+    )
+    layerwise_transport_trends = read_csv_rows(paths["layerwise_transport_trends"])
+    layerwise_transport_audit = read_json(paths["layerwise_transport_audit"])
+    layerwise_map_summary = read_csv_rows(paths["layerwise_map_summary"])
+    layerwise_map_audit = read_json(paths["layerwise_map_audit"])
+    layerwise_registered_stability = read_csv_rows(
+        paths["layerwise_registered_stability"]
+    )
+    layerwise_map_causal_tests = read_csv_rows(paths["layerwise_map_causal_tests"])
+    layerwise_map_causal_correlations = read_csv_rows(
+        paths["layerwise_map_causal_correlations"]
+    )
+    layerwise_map_causal_audit = read_json(paths["layerwise_map_causal_audit"])
     cue_doc = paths["cue"].read_text(encoding="utf-8")
 
     if any(
@@ -8081,6 +8841,22 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
             raise RuntimeError(f"{label} audit did not pass")
     if not correct_state.get("audits", {}).get("all_checks_pass", False):
         raise RuntimeError("Correct-only route audit did not pass")
+    for label, audit in (
+        ("layerwise prompt removal", layerwise_prompt_audit),
+        ("layerwise transport", layerwise_transport_audit),
+        ("layerwise linear map", layerwise_map_audit),
+        ("map-causal link", layerwise_map_causal_audit),
+    ):
+        if audit.get("status") != "PASS":
+            raise RuntimeError(f"{label} audit did not pass")
+    required_map_columns = {
+        "full_operator_cosine_to_next",
+        "full_operator_relative_drift_to_next",
+    }
+    if not layerwise_map_summary or not required_map_columns.issubset(
+        layerwise_map_summary[0]
+    ):
+        raise RuntimeError("Layerwise map summary lacks gauge-invariant operator metrics")
 
     base = re.sub(
         r"<title>.*?</title>",
@@ -8104,7 +8880,7 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     )
     if count_palette_replacements != 1:
         raise RuntimeError("Could not apply Aurora count palette")
-    nav = """<nav><a href="#mechanism-overview">Mechanism</a><a href="#scope">结论</a><a href="#methods">设定</a><a href="#prompt">Prompt geometry</a><a href="#representation-extension">Representation tests</a><a href="#formation-tests">State formation</a><a href="#answer">Answer geometry</a><a href="#transport-subspace">Transport</a><a href="#attention">Attention</a><a href="#causal">Ablation / patching</a><a href="#natural-ov">Write / propagation</a><a href="#synthesis">对照</a><a href="#question-audit">逐题审计</a><a href="#limits">复现</a><a href="#appendix-first-locator">Appendix A</a></nav>"""
+    nav = """<nav><a href="#mechanism-overview">Mechanism</a><a href="#scope">结论</a><a href="#methods">设定</a><a href="#prompt">Prompt geometry</a><a href="#representation-extension">Representation tests</a><a href="#formation-tests">State formation</a><a href="#answer">Answer geometry</a><a href="#transport-subspace">Transport</a><a href="#layerwise-subspace-sweep">Layer sweep</a><a href="#attention">Attention</a><a href="#causal">Ablation / patching</a><a href="#natural-ov">Write / propagation</a><a href="#synthesis">对照</a><a href="#question-audit">逐题审计</a><a href="#limits">复现</a><a href="#appendix-first-locator">Appendix A</a></nav>"""
     base, nav_count = re.subn(r"<nav>.*?</nav>", nav, base, count=1, flags=re.S)
     if nav_count != 1:
         raise RuntimeError("Could not replace report navigation")
@@ -8248,6 +9024,27 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     base = base.replace(
         transport_placeholder,
         build_transport_aligned_section(transport_conditions, transport_contrasts),
+        1,
+    )
+    layerwise_placeholder = "<!--LAYERWISE_SUBSPACE_SWEEP-->"
+    if base.count(layerwise_placeholder) != 1:
+        raise RuntimeError("Could not locate the Section 5.4 layerwise placeholder")
+    base = base.replace(
+        layerwise_placeholder,
+        build_layerwise_subspace_section(
+            layerwise_prompt_statistics,
+            layerwise_prompt_trends,
+            layerwise_prompt_audit,
+            layerwise_transport_statistics,
+            layerwise_transport_trends,
+            layerwise_transport_audit,
+            layerwise_map_summary,
+            layerwise_map_audit,
+            layerwise_registered_stability,
+            layerwise_map_causal_tests,
+            layerwise_map_causal_correlations,
+            layerwise_map_causal_audit,
+        ),
         1,
     )
     base = base.replace(
@@ -8404,6 +9201,8 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
             raise RuntimeError(f"Section id count is not one: {section_id}")
     if base.count('id="transport-subspace"') != 1 or '<section id="transport-subspace">' in base:
         raise RuntimeError("Transport results were not merged into section 5.4B")
+    if base.count('id="layerwise-subspace-sweep"') != 1:
+        raise RuntimeError("Layerwise subspace results were not merged into section 5.4")
     for removed_section in ("cue-robustness", "read-write", "upstream"):
         if f'id="{removed_section}"' in base:
             raise RuntimeError(f"Removed section unexpectedly present: {removed_section}")
