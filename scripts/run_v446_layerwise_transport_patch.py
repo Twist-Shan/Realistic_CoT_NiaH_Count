@@ -184,9 +184,19 @@ def quantized_aligned_doses(
         atol=1e-6,
     )
     if used_paired_target:
-        dose_2 = closest_quantized_direction(
-            base, direction, 2.0 * dose_1[2], dtype=dtype
+        dose_2 = quantized_additive_replacement(
+            base, 2.0 * dose_1[1], dtype=dtype
         )
+        realized_ratio = dose_2[2] / max(dose_1[2], 1e-12)
+        if not np.isclose(
+            realized_ratio,
+            2.0,
+            rtol=realized_norm_tolerance,
+            atol=1e-6,
+        ):
+            dose_2 = closest_quantized_direction(
+                base, dose_1[1], 2.0 * dose_1[2], dtype=dtype
+            )
     return dose_1, dose_2, used_paired_target
 
 
@@ -510,7 +520,7 @@ def main() -> None:
         "conditions": list(CONDITIONS),
         "realized_norm_relative_tolerance": realized_norm_tolerance,
         "quantization_protocol": "direction-preserving scalar search to the closest realizable model-dtype norm",
-        "dose2_quantization_policy": "prefer the continuous planned norm; fall back to twice the realized dose-1 norm when required by the frozen paired-dose tolerance",
+        "dose2_quantization_policy": "prefer the continuous planned norm; when required by the frozen paired-dose tolerance, double the realized dose-1 vector and then search along that realized direction if needed",
         "planned_norm_policy": "diagnostic only; causal matching is audited on realized dose-2/dose-1 and control/dose-1 ratios",
         "basis_fit": "discovery count centroids; ridge prediction of adjacent downstream answer-query rank-3 count coordinates",
         "source_support": "answer query at the source post-block residual",
