@@ -31,6 +31,11 @@ def _design() -> dict:
             "layers": {"Tiny": [0, 1]},
             "realized_norm_relative_tolerance": 0.025,
         },
+        "answer_query_removal": {
+            "counts": [2, 3],
+            "layers": {"Tiny": [0, 1]},
+            "realized_norm_relative_tolerance": 0.025,
+        },
         "answer_transport": {
             "pairs": [[1, 2], [2, 1]],
             "boundaries": {"Tiny": [[0, 1], [1, 2]]},
@@ -48,6 +53,7 @@ def _design() -> dict:
         },
         "multiplicity": {
             "prompt_removal": "Holm across registered layers",
+            "answer_query_removal": "Holm across registered layers",
             "answer_transport": "Holm across registered boundaries",
             "map_causal_link": "Holm across six tests",
         },
@@ -115,6 +121,74 @@ def test_prompt_removal_analysis_accepts_a_complete_registered_grid(
     assert set(statistics["mean_effect"]) == {1.0}
     audit = json.loads((output / "analysis_audit.json").read_text())
     assert audit["status"] == "PASS"
+
+
+def test_answer_query_removal_analysis_uses_separate_design_and_outputs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    design_path = tmp_path / "design.json"
+    design_path.write_text(json.dumps(_design()), encoding="utf-8")
+    rows = []
+    for seed in (1, 2, 3):
+        for count in (2, 3):
+            for layer in (0, 1):
+                for condition in (
+                    "actual_rank3_remove",
+                    "actual_normmatched_orthogonal",
+                ):
+                    candidate = condition == "actual_rank3_remove"
+                    rows.append(
+                        {
+                            "model_label": "Tiny",
+                            "seed": seed,
+                            "gold_count": count,
+                            "layer": layer,
+                            "normalized_depth": float(layer),
+                            "condition": condition,
+                            "prediction": count + int(candidate),
+                            "correct": int(not candidate),
+                            "absolute_error": int(candidate),
+                            "signed_error": int(candidate),
+                            "clean_prediction": count,
+                            "clean_correct": 1,
+                            "clean_absolute_error": 0,
+                            "removed_fro_norm": 2.0,
+                            "target_removed_fro_norm": 2.0,
+                            "norm_ratio": 1.0,
+                            "completion": str(count),
+                            "runtime_seconds": 0.1,
+                        }
+                    )
+    input_path = tmp_path / "layerwise_answer_query_removal_detail.csv"
+    pd.DataFrame(rows).to_csv(input_path, index=False)
+    output = tmp_path / "answer-query-analysis"
+    module = _load_script("analyze_v446_layerwise_prompt_removal")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            module.__file__,
+            str(input_path),
+            "--design-config",
+            str(design_path),
+            "--support-role",
+            "answer_query",
+            "--output",
+            str(output),
+            "--bootstraps",
+            "100",
+        ],
+    )
+    module.main()
+
+    statistics = pd.read_csv(
+        output / "layerwise_answer_query_removal_statistics.csv"
+    )
+    assert len(statistics) == 8
+    assert set(statistics["mean_effect"]) == {1.0}
+    audit = json.loads((output / "analysis_audit.json").read_text())
+    assert audit["status"] == "PASS"
+    assert audit["support_role"] == "answer_query"
 
 
 def test_transport_analysis_accepts_a_complete_registered_grid(

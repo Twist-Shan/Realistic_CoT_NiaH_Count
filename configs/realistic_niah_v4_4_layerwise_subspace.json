@@ -14,6 +14,17 @@
       "Gemma4-E4B": [0, 4, 8, 9, 12, 16, 20, 24, 28, 32, 36, 40, 41]
     }
   },
+  "answer_query_removal": {
+    "counts": [2, 3, 4, 5, 6, 7, 8, 9, 10],
+    "primary_condition": "actual_rank3_remove",
+    "control_condition": "actual_normmatched_orthogonal",
+    "realized_norm_relative_tolerance": 0.025,
+    "primary_endpoint": "all_absolute_error_specificity",
+    "layers": {
+      "Qwen3-8B": [0, 4, 8, 12, 16, 20, 24, 28, 32, 35],
+      "Gemma4-E4B": [0, 4, 8, 9, 12, 16, 20, 24, 28, 32, 36, 40, 41]
+    }
+  },
   "answer_transport": {
     "pairs": [[1, 2], [2, 1], [5, 6], [6, 5]],
     "conditions": ["aligned_dose_1", "aligned_dose_2", "matched_orthogonal"],
@@ -45,6 +56,7 @@
   },
   "multiplicity": {
     "prompt_removal": "Holm within model, population, and endpoint across registered layers",
+    "answer_query_removal": "Holm within model, population, and endpoint across registered layers",
     "answer_transport": "Holm within model, metric, and contrast across registered boundaries",
     "map_causal_link": "Holm within model across the six registered metric-by-contrast stable-minus-unstable tests; primary raw and adjusted p are both reported"
   }

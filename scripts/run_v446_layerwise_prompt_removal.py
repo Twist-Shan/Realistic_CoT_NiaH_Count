@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Run discovery-frozen rank-3 prompt removal over registered layer landmarks."""
+"""Run discovery-frozen rank-3 removal over registered layer landmarks."""
 
 import argparse
 import csv
@@ -25,6 +25,7 @@ from realistic_niah_v4.behavior import parse_numeric_completion  # noqa: E402
 from realistic_niah_v4.layerwise_removal import (  # noqa: E402
     PromptRemovalGeometry,
     fit_prompt_removal_geometry,
+    make_answer_query_removal_transform,
     make_prompt_removal_transform,
 )
 from realistic_niah_v4.modeling import (  # noqa: E402
@@ -67,9 +68,9 @@ def parsed_prediction(result: dict[str, Any]) -> int | None:
 
 
 def load_geometry(
-    packed_root: Path, model_label: str, layer: int, rank: int
+    packed_root: Path, model_label: str, role: str, layer: int, rank: int
 ) -> PromptRemovalGeometry:
-    path = packed_root / "layers" / f"{model_label}__prompt_running__L{layer:02d}.npz"
+    path = packed_root / "layers" / f"{model_label}__{role}__L{layer:02d}.npz"
     with np.load(path, allow_pickle=False) as data:
         states = np.asarray(data["states"], dtype=np.float64)
         counts = np.asarray(data["count"], dtype=int)
@@ -110,6 +111,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--packed-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--models", nargs="+", default=["Qwen3-8B", "Gemma4-E4B"])
+    parser.add_argument(
+        "--support-role",
+        choices=("prompt_running", "answer_query"),
+        default="prompt_running",
+    )
     parser.add_argument("--layers", nargs="+", type=int)
     parser.add_argument("--seeds", nargs="+", type=int)
     parser.add_argument("--counts", nargs="+", type=int)
@@ -123,7 +129,12 @@ def main() -> None:
     args = parse_args()
     started = time.perf_counter()
     design = json.loads(args.design_config.read_text(encoding="utf-8"))
-    registered = design["prompt_removal"]
+    design_key = (
+        "prompt_removal"
+        if args.support_role == "prompt_running"
+        else "answer_query_removal"
+    )
+    registered = design[design_key]
     realized_norm_tolerance = float(
         registered["realized_norm_relative_tolerance"]
     )
@@ -146,7 +157,12 @@ def main() -> None:
         raise RuntimeError(f"missing registered stimuli: {missing_stimuli[:5]}")
 
     args.output.mkdir(parents=True, exist_ok=True)
-    detail_path = args.output / "layerwise_prompt_removal_detail.csv"
+    detail_basename = (
+        "layerwise_prompt_removal_detail.csv"
+        if args.support_role == "prompt_running"
+        else "layerwise_answer_query_removal_detail.csv"
+    )
+    detail_path = args.output / detail_basename
     seen = existing_keys(detail_path)
     resolved_layers = {
         model: (
@@ -157,7 +173,9 @@ def main() -> None:
         for model in args.models
     }
     geometries = {
-        (model, layer): load_geometry(args.packed_root, model, layer, rank)
+        (model, layer): load_geometry(
+            args.packed_root, model, args.support_role, layer, rank
+        )
         for model in args.models
         for layer in resolved_layers[model]
     }
@@ -213,16 +231,24 @@ def main() -> None:
                         if clean_prediction is not None
                         else 10
                     )
-                    positions = [int(span.end) - 1 for span in encoding.needle_spans]
-                    if len(positions) != count:
-                        raise RuntimeError(
-                            f"active endpoint count mismatch: {len(positions)} != {count}"
-                        )
+                    if args.support_role == "prompt_running":
+                        positions = [int(span.end) - 1 for span in encoding.needle_spans]
+                        if len(positions) != count:
+                            raise RuntimeError(
+                                f"active endpoint count mismatch: {len(positions)} != {count}"
+                            )
+                    else:
+                        positions = [int(encoding.query_position)]
                     for layer, condition in pending:
                         measurements: dict[str, float] = {}
-                        transform = make_prompt_removal_transform(
-                            geometries[(model_label, layer)], condition, measurements
-                        )
+                        if args.support_role == "prompt_running":
+                            transform = make_prompt_removal_transform(
+                                geometries[(model_label, layer)], condition, measurements
+                            )
+                        else:
+                            transform = make_answer_query_removal_transform(
+                                geometries[(model_label, layer)], condition, measurements
+                            )
                         intervention_started = time.perf_counter()
                         result = generate_with_residual_transforms(
                             model,
@@ -270,7 +296,7 @@ def main() -> None:
                         key = (model_label, seed, count, layer, condition)
                         seen.add(key)
                         print(
-                            f"[layer-remove] {model_label} seed={seed} N={count} "
+                            f"[layer-remove:{args.support_role}] {model_label} seed={seed} N={count} "
                             f"L{layer} {condition} pred={prediction} "
                             f"norm={measurements['removed_fro_norm']:.3f}",
                             flush=True,
@@ -285,7 +311,7 @@ def main() -> None:
         raise RuntimeError(f"incomplete output grid: {missing[:5]}")
     elapsed = time.perf_counter() - started
     audit = {
-        "schema_version": "realistic_niah_v4_4_layerwise_prompt_removal_v1",
+        "schema_version": f"realistic_niah_v4_4_layerwise_{design_key}_v1",
         "status": "PASS",
         "command": sys.argv,
         "python": platform.python_version(),
@@ -301,15 +327,29 @@ def main() -> None:
         "seeds": seeds,
         "counts": counts,
         "rank": rank,
+        "support_role": args.support_role,
         "conditions": list(CONDITIONS),
         "realized_norm_relative_tolerance": realized_norm_tolerance,
         "expected_cells": len(expected),
         "completed_cells": len(expected),
-        "removal_definition": "within-prompt endpoint deviations projected onto the discovery count-centroid rank-3 basis",
-        "control_definition": "within-prompt endpoint deviations projected onto a discovery within-count residual basis and rescaled per example to the candidate Frobenius norm",
+        "removal_definition": (
+            "within-prompt needle-end deviations projected onto the discovery count-centroid rank-3 basis"
+            if args.support_role == "prompt_running"
+            else "answer-query state relative to the discovery global centroid, projected onto the discovery answer-query count-centroid rank-3 basis"
+        ),
+        "control_definition": (
+            "within-prompt needle-end deviations projected onto a discovery within-count residual basis and rescaled per example to the candidate Frobenius norm"
+            if args.support_role == "prompt_running"
+            else "answer-query state relative to the discovery global centroid, projected onto an orthogonal discovery within-count residual basis and rescaled per example to the candidate realized Frobenius norm"
+        ),
         "elapsed_seconds": elapsed,
     }
-    (args.output / "prompt_removal_audit.json").write_text(
+    audit_basename = (
+        "prompt_removal_audit.json"
+        if args.support_role == "prompt_running"
+        else "answer_query_removal_audit.json"
+    )
+    (args.output / audit_basename).write_text(
         json.dumps(audit, indent=2) + "\n", encoding="utf-8"
     )
     print(json.dumps(audit, indent=2))

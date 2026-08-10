@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Analyze layerwise prompt rank-3 removal against its norm-matched control."""
+"""Analyze layerwise rank-3 removal against its norm-matched control."""
 
 import argparse
 import hashlib
@@ -55,15 +55,15 @@ def holm(values: Iterable[float]) -> list[float]:
     return adjusted.tolist()
 
 
-def resolve_inputs(paths: list[Path]) -> list[Path]:
+def resolve_inputs(paths: list[Path], detail_basename: str) -> list[Path]:
     resolved: list[Path] = []
     for path in paths:
         if path.is_dir():
-            resolved.extend(sorted(path.rglob("layerwise_prompt_removal_detail.csv")))
+            resolved.extend(sorted(path.rglob(detail_basename)))
         else:
             resolved.append(path)
     if not resolved:
-        raise RuntimeError("no prompt-removal detail files found")
+        raise RuntimeError(f"no removal detail files named {detail_basename} found")
     return resolved
 
 
@@ -72,15 +72,30 @@ def main() -> None:
     parser.add_argument("inputs", nargs="+", type=Path)
     parser.add_argument("--design-config", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--support-role",
+        choices=("prompt_running", "answer_query"),
+        default="prompt_running",
+    )
     parser.add_argument("--bootstraps", type=int, default=50_000)
     args = parser.parse_args()
 
     design = json.loads(args.design_config.read_text(encoding="utf-8"))
-    prompt_design = design["prompt_removal"]
+    design_key = (
+        "prompt_removal"
+        if args.support_role == "prompt_running"
+        else "answer_query_removal"
+    )
+    prompt_design = design[design_key]
     realized_norm_tolerance = float(
         prompt_design["realized_norm_relative_tolerance"]
     )
-    input_paths = resolve_inputs(args.inputs)
+    output_prefix = (
+        "layerwise_prompt_removal"
+        if args.support_role == "prompt_running"
+        else "layerwise_answer_query_removal"
+    )
+    input_paths = resolve_inputs(args.inputs, f"{output_prefix}_detail.csv")
     detail = pd.concat([pd.read_csv(path) for path in input_paths], ignore_index=True)
     keys = ["model_label", "seed", "gold_count", "layer", "condition"]
     if detail.empty:
@@ -269,14 +284,14 @@ def main() -> None:
         )
 
     args.output.mkdir(parents=True, exist_ok=True)
-    paired.to_csv(args.output / "layerwise_prompt_removal_paired_examples.csv", index=False)
-    seed_effects.to_csv(args.output / "layerwise_prompt_removal_seed_effects.csv", index=False)
-    statistics.to_csv(args.output / "layerwise_prompt_removal_statistics.csv", index=False)
+    paired.to_csv(args.output / f"{output_prefix}_paired_examples.csv", index=False)
+    seed_effects.to_csv(args.output / f"{output_prefix}_seed_effects.csv", index=False)
+    statistics.to_csv(args.output / f"{output_prefix}_statistics.csv", index=False)
     pd.DataFrame(trend_rows).to_csv(
-        args.output / "layerwise_prompt_removal_depth_trends.csv", index=False
+        args.output / f"{output_prefix}_depth_trends.csv", index=False
     )
     audit = {
-        "schema_version": "realistic_niah_v4_4_layerwise_prompt_removal_analysis_v1",
+        "schema_version": f"realistic_niah_v4_4_layerwise_{design_key}_analysis_v1",
         "status": "PASS",
         "inputs": [str(path) for path in input_paths],
         "models": models,
@@ -284,10 +299,13 @@ def main() -> None:
         "paired_examples": len(paired),
         "confirmation_seeds": seeds,
         "counts": counts,
+        "support_role": args.support_role,
         "bootstrap_draws": args.bootstraps,
         "inference_unit": "seed mean across registered counts",
         "primary_effect": "candidate damage minus norm-matched orthogonal-control damage; for absolute error this reduces to candidate absolute error minus control absolute error",
-        "multiplicity": prompt_design.get("multiplicity", design["multiplicity"]["prompt_removal"]),
+        "multiplicity": prompt_design.get(
+            "multiplicity", design["multiplicity"][design_key]
+        ),
         "max_target_norm_relative_difference": max_target_norm_relative_difference,
         "max_control_norm_ratio_error": max_control_norm_ratio_error,
         "realized_norm_relative_tolerance": realized_norm_tolerance,

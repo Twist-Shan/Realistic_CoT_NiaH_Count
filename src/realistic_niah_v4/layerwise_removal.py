@@ -103,6 +103,94 @@ def normmatched_orthogonal_delta(
     return scaled, target
 
 
+def single_position_projected_delta(
+    selected: torch.Tensor,
+    basis: torch.Tensor,
+    center: torch.Tensor,
+) -> torch.Tensor:
+    """Project a single-token state relative to a discovery-frozen center."""
+
+    if selected.ndim != 3 or selected.shape[1] != 1:
+        raise ValueError("single-position states must have shape [batch, 1, hidden]")
+    work = selected.float()
+    axes = basis.to(device=selected.device, dtype=torch.float32)
+    origin = center.to(device=selected.device, dtype=torch.float32)
+    if axes.ndim != 2 or axes.shape[0] != selected.shape[-1]:
+        raise ValueError("basis width does not match selected states")
+    if origin.ndim != 1 or origin.shape[0] != selected.shape[-1]:
+        raise ValueError("center width does not match selected states")
+    centered = work - origin.view(1, 1, -1)
+    return (centered @ axes) @ axes.T
+
+
+def _realized_replacement(
+    selected: torch.Tensor, delta: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    replacement = (selected.float() - delta.float()).to(dtype=selected.dtype)
+    realized = selected.float() - replacement.float()
+    return replacement, realized
+
+
+def _closest_realized_norm_replacement(
+    selected: torch.Tensor,
+    direction: torch.Tensor,
+    target_norm: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    direction_norm = torch.linalg.vector_norm(direction)
+    if direction_norm <= 1e-12 and target_norm > 1e-12:
+        raise RuntimeError("orthogonal control has zero norm for a nonzero target")
+    unit = direction / torch.clamp(direction_norm, min=1e-12)
+
+    def candidate_at(scale: float) -> tuple[torch.Tensor, torch.Tensor, float]:
+        candidate_replacement, candidate_delta = _realized_replacement(
+            selected, unit * float(scale)
+        )
+        candidate_norm = float(torch.linalg.vector_norm(candidate_delta).detach().cpu())
+        return candidate_replacement, candidate_delta, candidate_norm
+
+    # A bf16-written norm is a staircase, not a continuous function of the
+    # fp32 scale. Bracket the target and retain the closest realizable point.
+    target_scalar = float(target_norm.detach().cpu())
+    low = 0.0
+    high = max(target_scalar, 1e-12)
+    candidates = [candidate_at(low), candidate_at(high)]
+    for _ in range(20):
+        if candidates[-1][2] >= target_scalar:
+            break
+        high *= 2.0
+        candidates.append(candidate_at(high))
+    else:
+        raise RuntimeError("could not bracket the realized control norm")
+    for _ in range(40):
+        midpoint = (low + high) / 2.0
+        current = candidate_at(midpoint)
+        candidates.append(current)
+        if current[2] < target_scalar:
+            low = midpoint
+        else:
+            high = midpoint
+    replacement, realized_delta, _ = min(
+        candidates, key=lambda value: abs(value[2] - target_scalar)
+    )
+    return replacement, realized_delta
+
+
+def _record_realized_norms(
+    measurements: MutableMapping[str, float],
+    realized_delta: torch.Tensor,
+    target_norm: torch.Tensor,
+) -> None:
+    realized_norm_value = (
+        torch.linalg.vector_norm(realized_delta).detach().float().cpu().item()
+    )
+    target_norm_value = target_norm.detach().float().cpu().item()
+    measurements["removed_fro_norm"] = float(realized_norm_value)
+    measurements["target_removed_fro_norm"] = float(target_norm_value)
+    measurements["norm_ratio"] = float(
+        realized_norm_value / max(target_norm_value, 1e-12)
+    )
+
+
 def make_prompt_removal_transform(
     geometry: PromptRemovalGeometry,
     condition: str,
@@ -115,70 +203,50 @@ def make_prompt_removal_transform(
     if condition not in {"actual_rank3_remove", "actual_normmatched_orthogonal"}:
         raise ValueError(f"unsupported removal condition: {condition}")
 
-    def realized_replacement(
-        selected: torch.Tensor, delta: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        replacement = (selected.float() - delta.float()).to(dtype=selected.dtype)
-        realized = selected.float() - replacement.float()
-        return replacement, realized
-
     def transform(selected: torch.Tensor) -> torch.Tensor:
         target = projected_delta(selected, basis)
-        target_replacement, realized_target = realized_replacement(selected, target)
+        target_replacement, realized_target = _realized_replacement(selected, target)
         target_norm = torch.linalg.vector_norm(realized_target)
         if condition == "actual_rank3_remove":
             replacement = target_replacement
             realized_delta = realized_target
         else:
             nuisance = projected_delta(selected, control)
-            nuisance_norm = torch.linalg.vector_norm(nuisance)
-            if nuisance_norm <= 1e-12 and target_norm > 1e-12:
-                raise RuntimeError("orthogonal control has zero realized norm")
-            unit = nuisance / nuisance_norm
-
-            def candidate_at(scale: float) -> tuple[torch.Tensor, torch.Tensor, float]:
-                candidate_replacement, candidate_delta = realized_replacement(
-                    selected, unit * float(scale)
-                )
-                candidate_norm = float(
-                    torch.linalg.vector_norm(candidate_delta).detach().cpu()
-                )
-                return candidate_replacement, candidate_delta, candidate_norm
-
-            # A bf16-written norm is a staircase, not a continuous function of
-            # the fp32 scale. Bracket the target and retain the closest
-            # realizable point encountered by bisection.
-            target_scalar = float(target_norm.detach().cpu())
-            low = 0.0
-            high = max(target_scalar, 1e-12)
-            candidates = [candidate_at(low), candidate_at(high)]
-            for _ in range(20):
-                if candidates[-1][2] >= target_scalar:
-                    break
-                high *= 2.0
-                candidates.append(candidate_at(high))
-            else:
-                raise RuntimeError("could not bracket the realized control norm")
-            for _ in range(40):
-                midpoint = (low + high) / 2.0
-                current = candidate_at(midpoint)
-                candidates.append(current)
-                if current[2] < target_scalar:
-                    low = midpoint
-                else:
-                    high = midpoint
-            replacement, realized_delta, _ = min(
-                candidates, key=lambda value: abs(value[2] - target_scalar)
+            replacement, realized_delta = _closest_realized_norm_replacement(
+                selected, nuisance, target_norm
             )
-        realized_norm_value = (
-            torch.linalg.vector_norm(realized_delta).detach().float().cpu().item()
-        )
-        target_norm_value = target_norm.detach().float().cpu().item()
-        measurements["removed_fro_norm"] = float(realized_norm_value)
-        measurements["target_removed_fro_norm"] = float(target_norm_value)
-        measurements["norm_ratio"] = float(
-            realized_norm_value / max(target_norm_value, 1e-12)
-        )
+        _record_realized_norms(measurements, realized_delta, target_norm)
+        return replacement
+
+    return transform
+
+
+def make_answer_query_removal_transform(
+    geometry: PromptRemovalGeometry,
+    condition: str,
+    measurements: MutableMapping[str, float],
+) -> Callable[[torch.Tensor], torch.Tensor]:
+    """Remove the answer-query count coordinate relative to its global center."""
+
+    basis = torch.from_numpy(geometry.basis.astype(np.float32))
+    control = torch.from_numpy(geometry.control_basis.astype(np.float32))
+    center = torch.from_numpy(geometry.centroids.mean(axis=0).astype(np.float32))
+    if condition not in {"actual_rank3_remove", "actual_normmatched_orthogonal"}:
+        raise ValueError(f"unsupported removal condition: {condition}")
+
+    def transform(selected: torch.Tensor) -> torch.Tensor:
+        target = single_position_projected_delta(selected, basis, center)
+        target_replacement, realized_target = _realized_replacement(selected, target)
+        target_norm = torch.linalg.vector_norm(realized_target)
+        if condition == "actual_rank3_remove":
+            replacement = target_replacement
+            realized_delta = realized_target
+        else:
+            nuisance = single_position_projected_delta(selected, control, center)
+            replacement, realized_delta = _closest_realized_norm_replacement(
+                selected, nuisance, target_norm
+            )
+        _record_realized_norms(measurements, realized_delta, target_norm)
         return replacement
 
     return transform

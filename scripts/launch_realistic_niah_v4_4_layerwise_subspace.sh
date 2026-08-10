@@ -13,7 +13,8 @@ STAGE="${1:-all}"
 MODEL="${2:-}"
 
 export PYTHONPATH="$CODE/src"
-mkdir -p "$RUN_ROOT/raw/prompt_removal" "$RUN_ROOT/raw/transport" \
+mkdir -p "$RUN_ROOT/raw/prompt_removal" "$RUN_ROOT/raw/answer_query_removal" \
+  "$RUN_ROOT/raw/transport" \
   "$RUN_ROOT/analysis" "$RUN_ROOT/logs"
 
 run_maps() {
@@ -31,6 +32,15 @@ run_prompt() {
     --models "$model" --cache-dir "$CACHE"
 }
 
+run_answer_query_removal() {
+  local model="$1"
+  "$PY" "$CODE/scripts/run_v446_layerwise_prompt_removal.py" \
+    --v4-config "$V4_CONFIG" --design-config "$DESIGN" \
+    --stimuli "$STIMULI" --packed-root "$PACKED" \
+    --output "$RUN_ROOT/raw/answer_query_removal/$model" \
+    --models "$model" --support-role answer_query --cache-dir "$CACHE"
+}
+
 run_transport() {
   local model="$1"
   "$PY" "$CODE/scripts/run_v446_layerwise_transport_patch.py" \
@@ -44,6 +54,10 @@ run_analysis() {
   "$PY" "$CODE/scripts/analyze_v446_layerwise_prompt_removal.py" \
     "$RUN_ROOT/raw/prompt_removal" --design-config "$DESIGN" \
     --output "$RUN_ROOT/analysis/prompt_removal"
+  "$PY" "$CODE/scripts/analyze_v446_layerwise_prompt_removal.py" \
+    "$RUN_ROOT/raw/answer_query_removal" --design-config "$DESIGN" \
+    --support-role answer_query \
+    --output "$RUN_ROOT/analysis/answer_query_removal"
   "$PY" "$CODE/scripts/analyze_v446_layerwise_transport_patch.py" \
     "$RUN_ROOT/raw/transport" --design-config "$DESIGN" \
     --output "$RUN_ROOT/analysis/transport"
@@ -56,8 +70,10 @@ run_analysis() {
 
 run_gpu() {
   run_prompt Qwen3-8B
+  run_answer_query_removal Qwen3-8B
   run_transport Qwen3-8B
   run_prompt Gemma4-E4B
+  run_answer_query_removal Gemma4-E4B
   run_transport Gemma4-E4B
   run_analysis
 }
@@ -67,6 +83,10 @@ case "$STAGE" in
   prompt)
     test -n "$MODEL"
     run_prompt "$MODEL"
+    ;;
+  answer-removal)
+    test -n "$MODEL"
+    run_answer_query_removal "$MODEL"
     ;;
   transport)
     test -n "$MODEL"
@@ -79,7 +99,7 @@ case "$STAGE" in
     run_gpu
     ;;
   *)
-    echo "usage: $0 {maps|prompt MODEL|transport MODEL|analyze|gpu|all}" >&2
+    echo "usage: $0 {maps|prompt MODEL|answer-removal MODEL|transport MODEL|analyze|gpu|all}" >&2
     exit 2
     ;;
 esac
