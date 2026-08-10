@@ -175,67 +175,6 @@ def _closest_realized_norm_replacement(
     return replacement, realized_delta
 
 
-def _closest_control_subspace_replacement(
-    selected: torch.Tensor,
-    projected_direction: torch.Tensor,
-    control_basis: torch.Tensor,
-    target_norm: torch.Tensor,
-    relative_tolerance: float,
-) -> tuple[torch.Tensor, torch.Tensor, int]:
-    """Search fixed directions in one orthogonal subspace for a BF16 norm match."""
-
-    axes = control_basis.to(device=selected.device, dtype=torch.float32)
-    if axes.ndim != 2 or axes.shape[0] != selected.shape[-1]:
-        raise ValueError("control basis width does not match selected states")
-    if selected.shape[0] != 1 or selected.shape[1] != 1:
-        raise ValueError("control-subspace search requires one selected token")
-
-    target_scalar = float(target_norm.detach().cpu())
-    if torch.linalg.vector_norm(projected_direction) > 1e-12:
-        original_replacement, original_realized = _closest_realized_norm_replacement(
-            selected, projected_direction, target_norm
-        )
-        original_norm = float(
-            torch.linalg.vector_norm(original_realized).detach().cpu()
-        )
-        original_relative_error = abs(original_norm - target_scalar) / max(
-            target_scalar, 1e-12
-        )
-        if original_relative_error <= relative_tolerance:
-            return original_replacement, original_realized, 0
-
-    directions: list[torch.Tensor] = []
-    # The signed {-1,0,1}^3 bank remains entirely inside the same frozen
-    # orthogonal rank-3 subspace, but offers different BF16 quantization
-    # staircases when the original direction cannot realize the target norm.
-    for first in (-1.0, 0.0, 1.0):
-        for second in (-1.0, 0.0, 1.0):
-            for third in (-1.0, 0.0, 1.0):
-                coefficients = torch.tensor(
-                    [first, second, third], device=axes.device, dtype=axes.dtype
-                )
-                if not torch.any(coefficients):
-                    continue
-                vector = axes @ coefficients
-                directions.append(vector.view(1, 1, -1))
-
-    candidates: list[tuple[torch.Tensor, torch.Tensor, float, int]] = []
-    for index, direction in enumerate(directions):
-        if torch.linalg.vector_norm(direction) <= 1e-12:
-            continue
-        replacement, realized = _closest_realized_norm_replacement(
-            selected, direction, target_norm
-        )
-        realized_norm = float(torch.linalg.vector_norm(realized).detach().cpu())
-        candidates.append(
-            (replacement, realized, abs(realized_norm - target_scalar), index + 1)
-        )
-    replacement, realized_delta, _, index = min(
-        candidates, key=lambda value: (value[2], value[3])
-    )
-    return replacement, realized_delta, index
-
-
 def _record_realized_norms(
     measurements: MutableMapping[str, float],
     realized_delta: torch.Tensor,
@@ -286,8 +225,6 @@ def make_answer_query_removal_transform(
     geometry: PromptRemovalGeometry,
     condition: str,
     measurements: MutableMapping[str, float],
-    *,
-    realized_norm_relative_tolerance: float = 0.025,
 ) -> Callable[[torch.Tensor], torch.Tensor]:
     """Remove the answer-query count coordinate relative to its global center."""
 
@@ -306,16 +243,9 @@ def make_answer_query_removal_transform(
             realized_delta = realized_target
         else:
             nuisance = single_position_projected_delta(selected, control, center)
-            replacement, realized_delta, control_index = (
-                _closest_control_subspace_replacement(
-                    selected,
-                    nuisance,
-                    control,
-                    target_norm,
-                    realized_norm_relative_tolerance,
-                )
+            replacement, realized_delta = _closest_realized_norm_replacement(
+                selected, nuisance, target_norm
             )
-            measurements["control_direction_index"] = float(control_index)
         _record_realized_norms(measurements, realized_delta, target_norm)
         return replacement
 
