@@ -247,7 +247,10 @@ def main() -> None:
                             )
                         else:
                             transform = make_answer_query_removal_transform(
-                                geometries[(model_label, layer)], condition, measurements
+                                geometries[(model_label, layer)],
+                                condition,
+                                measurements,
+                                realized_norm_relative_tolerance=realized_norm_tolerance,
                             )
                         intervention_started = time.perf_counter()
                         result = generate_with_residual_transforms(

@@ -180,6 +180,7 @@ def _closest_control_subspace_replacement(
     projected_direction: torch.Tensor,
     control_basis: torch.Tensor,
     target_norm: torch.Tensor,
+    relative_tolerance: float,
 ) -> tuple[torch.Tensor, torch.Tensor, int]:
     """Search fixed directions in one orthogonal subspace for a BF16 norm match."""
 
@@ -189,8 +190,21 @@ def _closest_control_subspace_replacement(
     if selected.shape[0] != 1 or selected.shape[1] != 1:
         raise ValueError("control-subspace search requires one selected token")
 
-    directions = [projected_direction]
-    # The first direction preserves the original projected-residual control.
+    target_scalar = float(target_norm.detach().cpu())
+    if torch.linalg.vector_norm(projected_direction) > 1e-12:
+        original_replacement, original_realized = _closest_realized_norm_replacement(
+            selected, projected_direction, target_norm
+        )
+        original_norm = float(
+            torch.linalg.vector_norm(original_realized).detach().cpu()
+        )
+        original_relative_error = abs(original_norm - target_scalar) / max(
+            target_scalar, 1e-12
+        )
+        if original_relative_error <= relative_tolerance:
+            return original_replacement, original_realized, 0
+
+    directions: list[torch.Tensor] = []
     # The signed {-1,0,1}^3 bank remains entirely inside the same frozen
     # orthogonal rank-3 subspace, but offers different BF16 quantization
     # staircases when the original direction cannot realize the target norm.
@@ -206,7 +220,6 @@ def _closest_control_subspace_replacement(
                 directions.append(vector.view(1, 1, -1))
 
     candidates: list[tuple[torch.Tensor, torch.Tensor, float, int]] = []
-    target_scalar = float(target_norm.detach().cpu())
     for index, direction in enumerate(directions):
         if torch.linalg.vector_norm(direction) <= 1e-12:
             continue
@@ -215,7 +228,7 @@ def _closest_control_subspace_replacement(
         )
         realized_norm = float(torch.linalg.vector_norm(realized).detach().cpu())
         candidates.append(
-            (replacement, realized, abs(realized_norm - target_scalar), index)
+            (replacement, realized, abs(realized_norm - target_scalar), index + 1)
         )
     replacement, realized_delta, _, index = min(
         candidates, key=lambda value: (value[2], value[3])
@@ -273,6 +286,8 @@ def make_answer_query_removal_transform(
     geometry: PromptRemovalGeometry,
     condition: str,
     measurements: MutableMapping[str, float],
+    *,
+    realized_norm_relative_tolerance: float = 0.025,
 ) -> Callable[[torch.Tensor], torch.Tensor]:
     """Remove the answer-query count coordinate relative to its global center."""
 
@@ -293,7 +308,11 @@ def make_answer_query_removal_transform(
             nuisance = single_position_projected_delta(selected, control, center)
             replacement, realized_delta, control_index = (
                 _closest_control_subspace_replacement(
-                    selected, nuisance, control, target_norm
+                    selected,
+                    nuisance,
+                    control,
+                    target_norm,
+                    realized_norm_relative_tolerance,
                 )
             )
             measurements["control_direction_index"] = float(control_index)
