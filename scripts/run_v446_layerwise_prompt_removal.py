@@ -124,6 +124,9 @@ def main() -> None:
     started = time.perf_counter()
     design = json.loads(args.design_config.read_text(encoding="utf-8"))
     registered = design["prompt_removal"]
+    realized_norm_tolerance = float(
+        registered["realized_norm_relative_tolerance"]
+    )
     rank = int(design["rank"])
     seeds = args.seeds or [int(value) for value in design["confirmation_seeds"]]
     counts = args.counts or [int(value) for value in registered["counts"]]
@@ -234,7 +237,10 @@ def main() -> None:
                         if "removed_fro_norm" not in measurements:
                             raise RuntimeError("removal hook did not record its norm")
                         if condition == "actual_normmatched_orthogonal" and not np.isclose(
-                            measurements["norm_ratio"], 1.0, rtol=5e-5, atol=5e-6
+                            measurements["norm_ratio"],
+                            1.0,
+                            rtol=realized_norm_tolerance,
+                            atol=1e-6,
                         ):
                             raise RuntimeError(
                                 f"norm-matched control failed: {measurements['norm_ratio']}"
@@ -296,6 +302,7 @@ def main() -> None:
         "counts": counts,
         "rank": rank,
         "conditions": list(CONDITIONS),
+        "realized_norm_relative_tolerance": realized_norm_tolerance,
         "expected_cells": len(expected),
         "completed_cells": len(expected),
         "removal_definition": "within-prompt endpoint deviations projected onto the discovery count-centroid rank-3 basis",

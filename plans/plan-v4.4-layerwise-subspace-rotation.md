@@ -43,6 +43,11 @@ every prompt so that its Frobenius norm equals the candidate removed tensor to
 numerical tolerance. Clean generation is computed once per prompt and reused
 across layers.
 
+Norm matching is audited after the replacement is quantized back to the model
+residual dtype. Because a very small bf16 intervention has discrete realizable
+norms, the control scalar is searched and the closest value must be within
+2.5% of the candidate norm; the realized ratio remains an output.
+
 Outcome-blind landmark layers:
 
 - Qwen3-8B: 0, 4, 8, 12, 16, 20, 24, 28, 32, 35.

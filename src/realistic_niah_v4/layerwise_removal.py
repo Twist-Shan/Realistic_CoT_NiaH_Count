@@ -134,17 +134,42 @@ def make_prompt_removal_transform(
             nuisance_norm = torch.linalg.vector_norm(nuisance)
             if nuisance_norm <= 1e-12 and target_norm > 1e-12:
                 raise RuntimeError("orthogonal control has zero realized norm")
-            scaled = nuisance * target_norm / torch.clamp(nuisance_norm, min=1e-12)
-            # Quantization makes a once-scaled fp32 delta slightly non-matched
-            # after it is written into a bf16 residual.  Re-evaluate the actual
-            # written delta and correct the scalar a few times.
-            for _ in range(6):
-                replacement, realized_delta = realized_replacement(selected, scaled)
-                realized_norm = torch.linalg.vector_norm(realized_delta)
-                if torch.isclose(realized_norm, target_norm, rtol=1e-5, atol=1e-6):
+            unit = nuisance / nuisance_norm
+
+            def candidate_at(scale: float) -> tuple[torch.Tensor, torch.Tensor, float]:
+                candidate_replacement, candidate_delta = realized_replacement(
+                    selected, unit * float(scale)
+                )
+                candidate_norm = float(
+                    torch.linalg.vector_norm(candidate_delta).detach().cpu()
+                )
+                return candidate_replacement, candidate_delta, candidate_norm
+
+            # A bf16-written norm is a staircase, not a continuous function of
+            # the fp32 scale. Bracket the target and retain the closest
+            # realizable point encountered by bisection.
+            target_scalar = float(target_norm.detach().cpu())
+            low = 0.0
+            high = max(target_scalar, 1e-12)
+            candidates = [candidate_at(low), candidate_at(high)]
+            for _ in range(20):
+                if candidates[-1][2] >= target_scalar:
                     break
-                scaled = scaled * target_norm / torch.clamp(realized_norm, min=1e-12)
-            replacement, realized_delta = realized_replacement(selected, scaled)
+                high *= 2.0
+                candidates.append(candidate_at(high))
+            else:
+                raise RuntimeError("could not bracket the realized control norm")
+            for _ in range(40):
+                midpoint = (low + high) / 2.0
+                current = candidate_at(midpoint)
+                candidates.append(current)
+                if current[2] < target_scalar:
+                    low = midpoint
+                else:
+                    high = midpoint
+            replacement, realized_delta, _ = min(
+                candidates, key=lambda value: abs(value[2] - target_scalar)
+            )
         realized_norm_value = (
             torch.linalg.vector_norm(realized_delta).detach().float().cpu().item()
         )

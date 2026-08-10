@@ -77,6 +77,9 @@ def main() -> None:
 
     design = json.loads(args.design_config.read_text(encoding="utf-8"))
     prompt_design = design["prompt_removal"]
+    realized_norm_tolerance = float(
+        prompt_design["realized_norm_relative_tolerance"]
+    )
     input_paths = resolve_inputs(args.inputs)
     detail = pd.concat([pd.read_csv(path) for path in input_paths], ignore_index=True)
     keys = ["model_label", "seed", "gold_count", "layer", "condition"]
@@ -143,7 +146,10 @@ def main() -> None:
     max_control_norm_ratio_error = float(
         np.abs(pivot["norm_ratio"][control].to_numpy(float) - 1.0).max()
     )
-    if max_target_norm_relative_difference > 5e-4 or max_control_norm_ratio_error > 5e-4:
+    if (
+        max_target_norm_relative_difference > 5e-4
+        or max_control_norm_ratio_error > realized_norm_tolerance
+    ):
         raise RuntimeError("norm-matched control audit failed")
     for endpoint, (column, sign) in ENDPOINTS.items():
         paired[endpoint] = sign * (
@@ -284,6 +290,7 @@ def main() -> None:
         "multiplicity": prompt_design.get("multiplicity", design["multiplicity"]["prompt_removal"]),
         "max_target_norm_relative_difference": max_target_norm_relative_difference,
         "max_control_norm_ratio_error": max_control_norm_ratio_error,
+        "realized_norm_relative_tolerance": realized_norm_tolerance,
     }
     (args.output / "analysis_audit.json").write_text(
         json.dumps(audit, indent=2) + "\n", encoding="utf-8"

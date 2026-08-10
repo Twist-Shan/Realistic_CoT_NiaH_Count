@@ -7,6 +7,7 @@
     "counts": [2, 3, 4, 5, 6, 7, 8, 9, 10],
     "primary_condition": "actual_rank3_remove",
     "control_condition": "actual_normmatched_orthogonal",
+    "realized_norm_relative_tolerance": 0.025,
     "primary_endpoint": "all_absolute_error_specificity",
     "layers": {
       "Qwen3-8B": [0, 4, 8, 12, 16, 20, 24, 28, 32, 35],

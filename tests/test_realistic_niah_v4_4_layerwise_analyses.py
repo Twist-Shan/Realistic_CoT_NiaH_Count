@@ -27,6 +27,7 @@ def _design() -> dict:
         "prompt_removal": {
             "counts": [2, 3],
             "layers": {"Tiny": [0, 1]},
+            "realized_norm_relative_tolerance": 0.025,
         },
         "answer_transport": {
             "pairs": [[1, 2], [2, 1]],
