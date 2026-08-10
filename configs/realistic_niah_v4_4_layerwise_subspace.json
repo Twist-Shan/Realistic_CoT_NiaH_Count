@@ -34,8 +34,18 @@
     "count_pairing_permutations": 500,
     "rank_sensitivity": [1, 2, 3]
   },
+  "map_causal_link": {
+    "role": "answer_query",
+    "rank": 3,
+    "stable_cv_centroid_r2_min": 0.9,
+    "stable_bootstrap_map_relative_frobenius_median_max": 0.1,
+    "primary_contrast": "aligned_dose_1_minus_orthogonal",
+    "primary_metric": "target_donor_fraction",
+    "primary_estimand": "confirmation seed mean over locally stable registered boundaries minus seed mean over unstable registered boundaries"
+  },
   "multiplicity": {
     "prompt_removal": "Holm within model, population, and endpoint across registered layers",
-    "answer_transport": "Holm within model, metric, and contrast across registered boundaries"
+    "answer_transport": "Holm within model, metric, and contrast across registered boundaries",
+    "map_causal_link": "Holm within model across the six registered metric-by-contrast stable-minus-unstable tests; primary raw and adjusted p are both reported"
   }
 }

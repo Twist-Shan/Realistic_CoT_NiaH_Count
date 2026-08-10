@@ -119,6 +119,17 @@ This analysis is run for every adjacent layer of `prompt_running` and
 `answer_query`. It is descriptive unless paired with Experiment B at the same
 boundary.
 
+### Frozen map-to-causal link
+
+After the discovery-only map sweep passed, but before the layerwise transport
+confirmation began, a local-stability rule was frozen: answer-query rank-3
+boundaries with grouped centroid CV R2 at least 0.9 and gauge-aligned bootstrap
+map relative-Frobenius median at most 0.1 are `locally_stable`. The primary
+confirmation estimand is each seed's mean aligned-1-minus-orthogonal target
+donor fraction over stable registered boundaries minus its mean over unstable
+registered boundaries. This is an outcome-blind, two-stage discovery-to-
+confirmation test; boundary-level Spearman associations are descriptive only.
+
 ## Output and audit rules
 
 - Large hidden states remain on `/lambda/nfs` and are not committed.

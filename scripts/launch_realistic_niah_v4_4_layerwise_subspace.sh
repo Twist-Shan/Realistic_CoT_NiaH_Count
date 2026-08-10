@@ -47,6 +47,11 @@ run_analysis() {
   "$PY" "$CODE/scripts/analyze_v446_layerwise_transport_patch.py" \
     "$RUN_ROOT/raw/transport" --design-config "$DESIGN" \
     --output "$RUN_ROOT/analysis/transport"
+  "$PY" "$CODE/scripts/analyze_v446_map_causal_link.py" \
+    --map-analysis "$RUN_ROOT/analysis/layer_maps" \
+    --transport-analysis "$RUN_ROOT/analysis/transport" \
+    --design-config "$DESIGN" \
+    --output "$RUN_ROOT/analysis/map_causal_link"
 }
 
 run_gpu() {

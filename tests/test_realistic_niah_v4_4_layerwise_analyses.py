@@ -37,9 +37,19 @@ def _design() -> dict:
             "primary_endpoint": "target_donor_fraction",
             "realized_norm_relative_tolerance": 0.025,
         },
+        "map_causal_link": {
+            "role": "answer_query",
+            "rank": 3,
+            "stable_cv_centroid_r2_min": 0.9,
+            "stable_bootstrap_map_relative_frobenius_median_max": 0.1,
+            "primary_contrast": "aligned_dose_1_minus_orthogonal",
+            "primary_metric": "target_donor_fraction",
+            "primary_estimand": "stable minus unstable",
+        },
         "multiplicity": {
             "prompt_removal": "Holm across registered layers",
             "answer_transport": "Holm across registered boundaries",
+            "map_causal_link": "Holm across six tests",
         },
     }
 
@@ -198,3 +208,98 @@ def test_transport_control_matches_the_realized_bfloat16_norm() -> None:
     assert replacement.dtype == torch.bfloat16
     assert torch.linalg.vector_norm(realized).item() == control_norm
     assert control_norm / aligned_norm == pytest.approx(1.0, rel=0.025)
+
+
+def test_map_causal_link_uses_frozen_stability_regimes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    design_path = tmp_path / "design.json"
+    design_path.write_text(json.dumps(_design()), encoding="utf-8")
+    map_analysis = tmp_path / "maps"
+    transport_analysis = tmp_path / "transport"
+    map_analysis.mkdir()
+    transport_analysis.mkdir()
+    (map_analysis / "analysis_audit.json").write_text(
+        json.dumps({"status": "PASS"}), encoding="utf-8"
+    )
+    (transport_analysis / "analysis_audit.json").write_text(
+        json.dumps({"status": "PASS"}), encoding="utf-8"
+    )
+    pd.DataFrame(
+        [
+            {
+                "model_label": "Tiny",
+                "role": "answer_query",
+                "rank": 3,
+                "source_layer": 0,
+                "target_layer": 1,
+                "cv_centroid_r2": 0.5,
+                "bootstrap_map_relative_frobenius_median": 0.2,
+                "bootstrap_rotation_geodesic_degrees_median": 12.0,
+                "subspace_principal_angle_max_degrees": 70.0,
+            },
+            {
+                "model_label": "Tiny",
+                "role": "answer_query",
+                "rank": 3,
+                "source_layer": 1,
+                "target_layer": 2,
+                "cv_centroid_r2": 0.95,
+                "bootstrap_map_relative_frobenius_median": 0.05,
+                "bootstrap_rotation_geodesic_degrees_median": 2.0,
+                "subspace_principal_angle_max_degrees": 30.0,
+            },
+        ]
+    ).to_csv(map_analysis / "layerwise_linear_map_summary.csv", index=False)
+    effect_rows = []
+    contrasts = (
+        "aligned_dose_1_minus_orthogonal",
+        "aligned_dose_2_minus_orthogonal",
+        "dose_2_minus_dose_1",
+    )
+    for seed in (1, 2, 3):
+        for source, target, effect in ((0, 1, 0.0), (1, 2, 1.0)):
+            for contrast in contrasts:
+                for metric in ("target_donor_fraction", "donor_log_odds_gain"):
+                    effect_rows.append(
+                        {
+                            "model_label": "Tiny",
+                            "source_layer": source,
+                            "target_layer": target,
+                            "normalized_depth": target / 2,
+                            "contrast": contrast,
+                            "metric": metric,
+                            "seed": seed,
+                            "effect": effect,
+                            "pairs_per_seed": 2,
+                        }
+                    )
+    pd.DataFrame(effect_rows).to_csv(
+        transport_analysis / "layerwise_transport_seed_effects.csv", index=False
+    )
+    output = tmp_path / "link"
+    module = _load_script("analyze_v446_map_causal_link")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            module.__file__,
+            "--map-analysis",
+            str(map_analysis),
+            "--transport-analysis",
+            str(transport_analysis),
+            "--design-config",
+            str(design_path),
+            "--output",
+            str(output),
+            "--bootstraps",
+            "100",
+        ],
+    )
+    module.main()
+
+    tests = pd.read_csv(output / "stable_minus_unstable_tests.csv")
+    assert len(tests) == 6
+    assert set(tests["mean_stable_minus_unstable"]) == {1.0}
+    assert set(tests["stable_boundaries"]) == {1}
+    assert json.loads((output / "analysis_audit.json").read_text())["status"] == "PASS"
