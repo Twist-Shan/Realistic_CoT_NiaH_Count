@@ -74,10 +74,13 @@ def projected_delta(selected: torch.Tensor, basis: torch.Tensor) -> torch.Tensor
 
     if selected.ndim != 3:
         raise ValueError("selected states must have shape [batch, positions, hidden]")
-    axes = basis.to(device=selected.device, dtype=selected.dtype)
+    # Perform the geometry in fp32 even when the model residual is bf16.  The
+    # final replacement is quantized below and audited in the model dtype.
+    work = selected.float()
+    axes = basis.to(device=selected.device, dtype=torch.float32)
     if axes.ndim != 2 or axes.shape[0] != selected.shape[-1]:
         raise ValueError("basis width does not match selected states")
-    centered = selected - selected.mean(dim=1, keepdim=True)
+    centered = work - work.mean(dim=1, keepdim=True)
     return (centered @ axes) @ axes.T
 
 
@@ -112,17 +115,45 @@ def make_prompt_removal_transform(
     if condition not in {"actual_rank3_remove", "actual_normmatched_orthogonal"}:
         raise ValueError(f"unsupported removal condition: {condition}")
 
+    def realized_replacement(
+        selected: torch.Tensor, delta: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        replacement = (selected.float() - delta.float()).to(dtype=selected.dtype)
+        realized = selected.float() - replacement.float()
+        return replacement, realized
+
     def transform(selected: torch.Tensor) -> torch.Tensor:
+        target = projected_delta(selected, basis)
+        target_replacement, realized_target = realized_replacement(selected, target)
+        target_norm = torch.linalg.vector_norm(realized_target)
         if condition == "actual_rank3_remove":
-            delta = projected_delta(selected, basis)
-            target = delta
+            replacement = target_replacement
+            realized_delta = realized_target
         else:
-            delta, target = normmatched_orthogonal_delta(selected, basis, control)
-        realized = torch.linalg.vector_norm(delta).detach().float().cpu().item()
-        target_norm = torch.linalg.vector_norm(target).detach().float().cpu().item()
-        measurements["removed_fro_norm"] = float(realized)
-        measurements["target_removed_fro_norm"] = float(target_norm)
-        measurements["norm_ratio"] = float(realized / max(target_norm, 1e-12))
-        return selected - delta
+            nuisance = projected_delta(selected, control)
+            nuisance_norm = torch.linalg.vector_norm(nuisance)
+            if nuisance_norm <= 1e-12 and target_norm > 1e-12:
+                raise RuntimeError("orthogonal control has zero realized norm")
+            scaled = nuisance * target_norm / torch.clamp(nuisance_norm, min=1e-12)
+            # Quantization makes a once-scaled fp32 delta slightly non-matched
+            # after it is written into a bf16 residual.  Re-evaluate the actual
+            # written delta and correct the scalar a few times.
+            for _ in range(6):
+                replacement, realized_delta = realized_replacement(selected, scaled)
+                realized_norm = torch.linalg.vector_norm(realized_delta)
+                if torch.isclose(realized_norm, target_norm, rtol=1e-5, atol=1e-6):
+                    break
+                scaled = scaled * target_norm / torch.clamp(realized_norm, min=1e-12)
+            replacement, realized_delta = realized_replacement(selected, scaled)
+        realized_norm_value = (
+            torch.linalg.vector_norm(realized_delta).detach().float().cpu().item()
+        )
+        target_norm_value = target_norm.detach().float().cpu().item()
+        measurements["removed_fro_norm"] = float(realized_norm_value)
+        measurements["target_removed_fro_norm"] = float(target_norm_value)
+        measurements["norm_ratio"] = float(
+            realized_norm_value / max(target_norm_value, 1e-12)
+        )
+        return replacement
 
     return transform

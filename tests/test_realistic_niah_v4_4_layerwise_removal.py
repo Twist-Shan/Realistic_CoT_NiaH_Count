@@ -65,3 +65,28 @@ def test_invalid_condition_is_rejected() -> None:
     geometry = fit_prompt_removal_geometry(states, labels, rank=3)
     with pytest.raises(ValueError, match="unsupported"):
         make_prompt_removal_transform(geometry, "wrong", {})
+
+
+def test_bfloat16_transform_matches_the_realized_written_norm() -> None:
+    rng = np.random.default_rng(451)
+    labels = np.repeat(np.arange(1, 11), 8)
+    states = rng.normal(size=(len(labels), 32))
+    geometry = fit_prompt_removal_geometry(states, labels, rank=3)
+    selected = torch.from_numpy(rng.normal(size=(1, 10, 32)).astype(np.float32)).to(
+        torch.bfloat16
+    )
+    candidate_measurements: dict[str, float] = {}
+    control_measurements: dict[str, float] = {}
+    candidate = make_prompt_removal_transform(
+        geometry, "actual_rank3_remove", candidate_measurements
+    )(selected)
+    control = make_prompt_removal_transform(
+        geometry, "actual_normmatched_orthogonal", control_measurements
+    )(selected)
+
+    candidate_delta = selected.float() - candidate.float()
+    control_delta = selected.float() - control.float()
+    assert control_measurements["norm_ratio"] == pytest.approx(1.0, rel=5e-5)
+    assert torch.linalg.vector_norm(control_delta).item() == pytest.approx(
+        torch.linalg.vector_norm(candidate_delta).item(), rel=5e-5
+    )
