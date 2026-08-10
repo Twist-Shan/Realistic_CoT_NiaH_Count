@@ -49,6 +49,14 @@ run_analysis() {
     --output "$RUN_ROOT/analysis/transport"
 }
 
+run_gpu() {
+  run_prompt Qwen3-8B
+  run_transport Qwen3-8B
+  run_prompt Gemma4-E4B
+  run_transport Gemma4-E4B
+  run_analysis
+}
+
 case "$STAGE" in
   maps) run_maps ;;
   prompt)
@@ -60,16 +68,13 @@ case "$STAGE" in
     run_transport "$MODEL"
     ;;
   analyze) run_analysis ;;
+  gpu) run_gpu ;;
   all)
     run_maps
-    run_prompt Qwen3-8B
-    run_prompt Gemma4-E4B
-    run_transport Qwen3-8B
-    run_transport Gemma4-E4B
-    run_analysis
+    run_gpu
     ;;
   *)
-    echo "usage: $0 {maps|prompt MODEL|transport MODEL|analyze|all}" >&2
+    echo "usage: $0 {maps|prompt MODEL|transport MODEL|analyze|gpu|all}" >&2
     exit 2
     ;;
 esac
