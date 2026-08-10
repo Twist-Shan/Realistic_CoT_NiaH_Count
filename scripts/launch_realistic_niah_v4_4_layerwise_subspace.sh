@@ -50,14 +50,18 @@ run_transport() {
     --models "$model" --cache-dir "$CACHE"
 }
 
-run_analysis() {
-  "$PY" "$CODE/scripts/analyze_v446_layerwise_prompt_removal.py" \
-    "$RUN_ROOT/raw/prompt_removal" --design-config "$DESIGN" \
-    --output "$RUN_ROOT/analysis/prompt_removal"
+run_answer_query_analysis() {
   "$PY" "$CODE/scripts/analyze_v446_layerwise_prompt_removal.py" \
     "$RUN_ROOT/raw/answer_query_removal" --design-config "$DESIGN" \
     --support-role answer_query \
     --output "$RUN_ROOT/analysis/answer_query_removal"
+}
+
+run_analysis() {
+  "$PY" "$CODE/scripts/analyze_v446_layerwise_prompt_removal.py" \
+    "$RUN_ROOT/raw/prompt_removal" --design-config "$DESIGN" \
+    --output "$RUN_ROOT/analysis/prompt_removal"
+  run_answer_query_analysis
   "$PY" "$CODE/scripts/analyze_v446_layerwise_transport_patch.py" \
     "$RUN_ROOT/raw/transport" --design-config "$DESIGN" \
     --output "$RUN_ROOT/analysis/transport"
@@ -88,6 +92,11 @@ case "$STAGE" in
     test -n "$MODEL"
     run_answer_query_removal "$MODEL"
     ;;
+  answer-removal-all)
+    run_answer_query_removal Qwen3-8B
+    run_answer_query_removal Gemma4-E4B
+    run_answer_query_analysis
+    ;;
   transport)
     test -n "$MODEL"
     run_transport "$MODEL"
@@ -99,7 +108,7 @@ case "$STAGE" in
     run_gpu
     ;;
   *)
-    echo "usage: $0 {maps|prompt MODEL|answer-removal MODEL|transport MODEL|analyze|gpu|all}" >&2
+    echo "usage: $0 {maps|prompt MODEL|answer-removal MODEL|answer-removal-all|transport MODEL|analyze|gpu|all}" >&2
     exit 2
     ;;
 esac
