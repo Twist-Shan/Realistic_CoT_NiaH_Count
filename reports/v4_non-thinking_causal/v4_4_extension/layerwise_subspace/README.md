@@ -43,12 +43,47 @@ map-to-causal test asks whether held-out causal transport defined by `B_l` is
 stronger where the discovery-only coordinate map `A_l` is locally stable. It
 does not claim to intervene directly on the polar rotation matrix.
 
+## Confirmatory results
+
+All eight raw and analysis audits pass. Rank-3 prompt removal does not show a
+control-adjusted counting-specific effect at any registered layer in either
+model after Holm correction (0/92 model-by-population-by-endpoint layer tests
+significant). The corresponding depth slopes are also non-significant. Thus,
+removing the prompt count subspace at a single layer is not sufficient evidence
+for a layer-localized necessary channel under this intervention and control.
+
+Answer-query transport shows the opposite pattern. The aligned-dose-1 minus
+orthogonal target-donor-fraction contrast rises strongly with depth: the
+seed-level slope is 0.961 per unit normalized depth for Qwen3-8B and 1.201 for
+Gemma4-E4B (both exact sign-flip `p=0.001953`). Ten of 11 Qwen boundaries and
+all 14 Gemma boundaries survive their registered Holm families. Gemma's
+earliest `L0→L1` effect is negative (-0.452), whereas the largest later effects
+are 0.942 for Qwen (`L28→L29`) and 0.976 for Gemma (`L36→L37`). Dose 2 adds a
+positive depth-dependent increment in both models.
+
+The frozen stable-minus-unstable primary contrast is positive for both models:
+0.532 for Qwen (95% bootstrap CI [0.521, 0.545]) and 0.661 for Gemma
+([0.567, 0.783]); both have exact seed sign-flip `p=0.001953` and Holm-adjusted
+`p=0.011719`. This supports the registered claim that locally stable
+discovery-only maps identify boundaries with stronger held-out causal
+transport. It does not isolate map stability from late-layer maturation,
+because stability status is strongly aligned with depth.
+
+The realized-norm audit has maximum control/dose-1 ratio error 0.0179 and
+maximum absolute dose-2/dose-1 ratio error 0.0450, within the frozen 2.5%
+relative tolerance. The maximum deviation from the continuous-space planned
+norm is 0.0395 and is reported diagnostically; BF16 causal matching is defined
+on realized paired doses. Full code history, model revisions, raw hashes, and
+the preserved failed partial row are recorded in `run_provenance.json`.
+
 ## Report-facing files
 
 - `layer_maps/`: adjacent-layer map summaries and audit.
 - `prompt_removal/`: paired layerwise removal statistics, trends, and audit.
 - `transport/`: layerwise transport contrasts, trends, and audit.
 - `map_causal_link/`: frozen stability labels and stable-minus-unstable tests.
+- `run_provenance.json`: runtime, model revisions, code history, raw hashes,
+  and formal audit status.
 
 All four component audits must be `PASS` before the integrated report builder
 will render Section 5.4C–E.

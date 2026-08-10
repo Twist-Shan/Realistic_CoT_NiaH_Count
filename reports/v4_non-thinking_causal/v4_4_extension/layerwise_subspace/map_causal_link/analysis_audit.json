@@ -1,0 +1,53 @@
+{
+  "schema_version": "realistic_niah_v4_4_map_causal_link_v1",
+  "status": "PASS",
+  "design_config": "/lambda/nfs/CoT-Non-thinking-v4/runs/v4_4_layerwise_subspace_20260809/code/configs/realistic_niah_v4_4_layerwise_subspace.json",
+  "map_analysis": "/lambda/nfs/CoT-Non-thinking-v4/runs/v4_4_layerwise_subspace_20260809/analysis/layer_maps",
+  "transport_analysis": "/lambda/nfs/CoT-Non-thinking-v4/runs/v4_4_layerwise_subspace_20260809/analysis/transport",
+  "map_source_status": "PASS",
+  "transport_source_status": "PASS",
+  "role": "answer_query",
+  "rank": 3,
+  "stable_rule": {
+    "cv_centroid_r2_min": 0.9,
+    "bootstrap_map_relative_frobenius_median_max": 0.1
+  },
+  "primary_estimand": "confirmation seed mean over locally stable registered boundaries minus seed mean over unstable registered boundaries",
+  "primary_results": [
+    {
+      "model_label": "Gemma4-E4B",
+      "contrast": "aligned_dose_1_minus_orthogonal",
+      "metric": "target_donor_fraction",
+      "is_primary": true,
+      "stable_boundaries": 8,
+      "unstable_boundaries": 6,
+      "seeds": 10,
+      "mean_stable_minus_unstable": 0.6612029813241105,
+      "bootstrap_95ci_low": 0.567100772946809,
+      "bootstrap_95ci_high": 0.7832354752491484,
+      "exact_seed_signflip_p_two_sided": 0.001953125,
+      "seed_effect_min": 0.5065514847398542,
+      "seed_effect_max": 1.0866752503558625,
+      "holm_p_within_model_six_tests": 0.01171875
+    },
+    {
+      "model_label": "Qwen3-8B",
+      "contrast": "aligned_dose_1_minus_orthogonal",
+      "metric": "target_donor_fraction",
+      "is_primary": true,
+      "stable_boundaries": 7,
+      "unstable_boundaries": 4,
+      "seeds": 10,
+      "mean_stable_minus_unstable": 0.5323876061547936,
+      "bootstrap_95ci_low": 0.5211110459524981,
+      "bootstrap_95ci_high": 0.5449414422406504,
+      "exact_seed_signflip_p_two_sided": 0.001953125,
+      "seed_effect_min": 0.5027923254040487,
+      "seed_effect_max": 0.5667593278537554,
+      "holm_p_within_model_six_tests": 0.01171875
+    }
+  ],
+  "multiplicity": "Holm within model across the six registered metric-by-contrast stable-minus-unstable tests; primary raw and adjusted p are both reported",
+  "boundary_correlations": "descriptive only; registered depth landmarks are not treated as a random population",
+  "bootstrap_draws": 50000
+}

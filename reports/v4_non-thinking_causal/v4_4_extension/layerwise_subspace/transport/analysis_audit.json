@@ -1,0 +1,52 @@
+{
+  "schema_version": "realistic_niah_v4_4_layerwise_transport_analysis_v1",
+  "status": "PASS",
+  "inputs": [
+    "/lambda/nfs/CoT-Non-thinking-v4/runs/v4_4_layerwise_subspace_20260809/raw/transport/Gemma4-E4B/layerwise_transport_patch.csv",
+    "/lambda/nfs/CoT-Non-thinking-v4/runs/v4_4_layerwise_subspace_20260809/raw/transport/Qwen3-8B/layerwise_transport_patch.csv"
+  ],
+  "models": [
+    "Gemma4-E4B",
+    "Qwen3-8B"
+  ],
+  "rows": 3000,
+  "confirmation_seeds": [
+    1254,
+    1255,
+    1256,
+    1257,
+    1258,
+    1259,
+    1260,
+    1261,
+    1262,
+    1263
+  ],
+  "directed_pairs": [
+    [
+      1,
+      2
+    ],
+    [
+      2,
+      1
+    ],
+    [
+      5,
+      6
+    ],
+    [
+      6,
+      5
+    ]
+  ],
+  "bootstraps": 50000,
+  "inference_unit": "seed mean across four preregistered directed count pairs",
+  "primary_endpoint": "target_donor_fraction",
+  "multiplicity": "Holm within model, metric, and contrast across registered boundaries",
+  "max_control_norm_ratio_error": 0.017882071091029017,
+  "max_dose2_norm_ratio_error": 0.045040370360111215,
+  "max_planned_norm_ratio_error_diagnostic": 0.039549113240014755,
+  "planned_norm_policy": "diagnostic only; realized paired-dose ratios define the causal norm audit",
+  "realized_norm_relative_tolerance": 0.025
+}
