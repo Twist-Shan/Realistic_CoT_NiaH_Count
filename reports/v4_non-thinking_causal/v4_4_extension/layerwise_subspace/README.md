@@ -8,15 +8,22 @@ extension of Section 5.4. Large packed hidden states, raw GPU rows, and the
 
 - Discovery seeds: 1234–1253.
 - Confirmation seeds: 1254–1263.
-- Prompt-removal counts: 2–10.
+- Needle-end prompt-removal counts: 2–10.
+- Answer-query removal counts: 2–10; its BF16 realized-norm tolerance is 5%.
 - Transport donor/receiver pairs: 1→2, 2→1, 5→6, and 6→5.
 - Rank 3 is primary; map ranks 1 and 2 are sensitivity analyses.
 - Layer and boundary landmarks, norm tolerance, multiplicity families, and the
   map-to-causal stability rule are frozen in
   `configs/realistic_niah_v4_4_layerwise_subspace.json`.
 
-Prompt removal reports candidate absolute-error damage minus the realized-
-norm-matched orthogonal-control damage. Transport reports aligned 1× minus
+The two removal positions are separate estimands. Needle-end prompt removal
+intervenes on every active needle endpoint token. Answer-query removal
+intervenes only on the final `Total:` query token. Both report candidate
+absolute-error damage minus realized-norm-matched orthogonal-control damage.
+For answer-query removal, the control direction is the original projection of
+the current state relative to the discovery global centroid onto the frozen
+orthogonal within-count rank-3 basis; it is only rescaled along that fixed
+direction, never optimized or searched. Transport reports aligned 1× minus
 orthogonal target donor fraction and aligned 2× minus aligned 1×. Inference is
 at the confirmation-seed level; registered layer or boundary families use
 Holm correction.
@@ -45,12 +52,26 @@ does not claim to intervene directly on the polar rotation matrix.
 
 ## Confirmatory results
 
-All eight raw and analysis audits pass. Rank-3 prompt removal does not show a
-control-adjusted counting-specific effect at any registered layer in either
-model after Holm correction (0/92 model-by-population-by-endpoint layer tests
-significant). The corresponding depth slopes are also non-significant. Thus,
-removing the prompt count subspace at a single layer is not sufficient evidence
-for a layer-localized necessary channel under this intervention and control.
+All eleven raw and analysis audits pass. Rank-3 **needle-end prompt removal**
+does not show a control-adjusted counting-specific effect at any registered
+layer in either model after Holm correction (0/92
+model-by-population-by-endpoint layer tests significant). The corresponding
+depth slopes are also non-significant. Thus, removing the prompt count
+subspace at all needle endpoints in one layer is not sufficient evidence for a
+layer-localized necessary channel under this intervention and control.
+
+Rank-3 **answer-query removal** shows a different, depth-localized pattern.
+For Qwen, absolute-error specificity is Holm-significant at L24/L28/L32/L35
+(4/10 layers), peaks at L28 at 0.878 count units (95% seed-bootstrap CI
+[0.556, 1.244]), and has a normalized-depth slope of 0.987
+([0.653, 1.366], exact sign-flip `p=0.001953`). Candidate damage peaks at
+1.133 at L28, versus 0.256 for the fixed-direction orthogonal control. For
+Gemma, specificity is significant at L28/L32/L36/L40/L41 (5/13), peaks at L32
+at 1.222 ([1.044, 1.411]), and has a slope of 1.437
+([1.230, 1.611], `p=0.001953`). Candidate damage peaks at 1.344 at L41,
+versus 0.211 for control. These are position-specific necessity results: they
+support a late answer-query count channel and do not overturn the needle-end
+null by relabeling the two interventions as one experiment.
 
 Answer-query transport shows the opposite pattern. The aligned-dose-1 minus
 orthogonal target-donor-fraction contrast rises strongly with depth: the
@@ -80,6 +101,8 @@ the preserved failed partial row are recorded in `run_provenance.json`.
 
 - `layer_maps/`: adjacent-layer map summaries and audit.
 - `prompt_removal/`: paired layerwise removal statistics, trends, and audit.
+- `answer_query_removal/`: separate answer-query candidate/control absolute
+  damage, candidate-minus-control specificity, depth trends, and audit.
 - `transport/`: layerwise transport contrasts, trends, and audit.
 - `map_causal_link/`: frozen stability labels and stable-minus-unstable tests.
 - `run_provenance.json`: runtime, model revisions, code history, raw hashes,

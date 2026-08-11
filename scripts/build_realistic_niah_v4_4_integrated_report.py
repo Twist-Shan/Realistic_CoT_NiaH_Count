@@ -913,6 +913,10 @@ def build_layerwise_subspace_section(
     prompt_statistics: list[dict[str, str]],
     prompt_trends: list[dict[str, str]],
     prompt_audit: dict[str, Any],
+    answer_statistics: list[dict[str, str]],
+    answer_damage_statistics: list[dict[str, str]],
+    answer_trends: list[dict[str, str]],
+    answer_audit: dict[str, Any],
     transport_statistics: list[dict[str, str]],
     transport_trends: list[dict[str, str]],
     transport_audit: dict[str, Any],
@@ -1027,6 +1031,152 @@ def build_layerwise_subspace_section(
         description=(
             "Mean confirmation-seed difference between rank-three removal damage and "
             "the realized-norm-matched orthogonal control, with 95 percent seed bootstrap intervals."
+        ),
+    )
+
+    answer_primary = [
+        dict(row, layer_tick=f'L{int(row["layer"])}')
+        for row in answer_statistics
+        if row["population"] == "all"
+        and row["endpoint"] == "absolute_error_specificity"
+    ]
+    answer_damage = [
+        dict(row, layer_tick=f'L{int(row["layer"])}')
+        for row in answer_damage_statistics
+        if row["population"] == "all"
+        and row["endpoint"]
+        in {
+            "candidate_absolute_error_damage",
+            "control_absolute_error_damage",
+        }
+    ]
+    answer_primary_trends = [
+        row
+        for row in answer_trends
+        if row["population"] == "all"
+        and row["endpoint"] == "absolute_error_specificity"
+    ]
+
+    def damage_ci(row: dict[str, str]) -> str:
+        return (
+            f'{float(row["mean_damage"]):.3f} '
+            f'[{float(row["bootstrap_95ci_low"]):.3f}, '
+            f'{float(row["bootstrap_95ci_high"]):.3f}]'
+        )
+
+    answer_summary_rows: list[list[str]] = []
+    answer_detail_rows: list[list[str]] = []
+    answer_sentences: list[str] = []
+    for model in models:
+        model_rows = sorted(
+            [row for row in answer_primary if row["model_label"] == model],
+            key=lambda row: int(row["layer"]),
+        )
+        trend = next(
+            row for row in answer_primary_trends if row["model_label"] == model
+        )
+        positive = [
+            row
+            for row in model_rows
+            if is_holm_positive(
+                row,
+                "holm_p_within_model_population_endpoint",
+                "mean_effect",
+            )
+        ]
+        specificity_peak = max(model_rows, key=lambda row: float(row["mean_effect"]))
+        candidate_by_layer = {
+            int(row["layer"]): row
+            for row in answer_damage
+            if row["model_label"] == model
+            and row["endpoint"] == "candidate_absolute_error_damage"
+        }
+        control_by_layer = {
+            int(row["layer"]): row
+            for row in answer_damage
+            if row["model_label"] == model
+            and row["endpoint"] == "control_absolute_error_damage"
+        }
+        candidate_peak = max(
+            candidate_by_layer.values(), key=lambda row: float(row["mean_damage"])
+        )
+        control_peak = max(
+            control_by_layer.values(), key=lambda row: float(row["mean_damage"])
+        )
+        answer_summary_rows.append(
+            [
+                model,
+                f"{len(positive)}/{len(model_rows)}",
+                f'L{int(specificity_peak["layer"])}: {ci(specificity_peak)}',
+                f'L{int(candidate_peak["layer"])}: {damage_ci(candidate_peak)}',
+                f'L{int(control_peak["layer"])}: {damage_ci(control_peak)}',
+                f'{float(trend["mean_slope_per_unit_depth"]):.3f} '
+                f'[{float(trend["bootstrap_95ci_low"]):.3f}, '
+                f'{float(trend["bootstrap_95ci_high"]):.3f}]',
+                fmt_p(float(trend["exact_seed_signflip_p_two_sided"])),
+            ]
+        )
+        answer_sentences.append(
+            f'{model} 有 {len(positive)}/{len(model_rows)} 个注册层呈正向且 Holm 显著的 answer-query specificity'
+        )
+        for row in model_rows:
+            layer = int(row["layer"])
+            answer_detail_rows.append(
+                [
+                    model,
+                    f"L{layer}",
+                    damage_ci(candidate_by_layer[layer]),
+                    damage_ci(control_by_layer[layer]),
+                    ci(row),
+                    fmt_p(float(row["exact_seed_signflip_p_two_sided"])),
+                    fmt_p(float(row["holm_p_within_model_population_endpoint"])),
+                ]
+            )
+
+    answer_damage_svg = layerwise_ci_curve_svg(
+        answer_damage,
+        panels=panel_titles,
+        series_key="endpoint",
+        series_order=(
+            "candidate_absolute_error_damage",
+            "control_absolute_error_damage",
+        ),
+        series_labels={
+            "candidate_absolute_error_damage": "candidate damage vs clean",
+            "control_absolute_error_damage": "orthogonal-control damage vs clean",
+        },
+        x_key="normalized_depth",
+        layer_label_key="layer_tick",
+        value_key="mean_damage",
+        low_key="bootstrap_95ci_low",
+        high_key="bootstrap_95ci_high",
+        significance_key=None,
+        y_label="absolute-error damage from clean (count units)",
+        title="Answer-query removal: absolute candidate and control damage",
+        description=(
+            "Absolute-error damage from clean generation after rank-three answer-query removal "
+            "and after its fixed-direction realized-norm-matched orthogonal control."
+        ),
+    )
+    answer_specificity_svg = layerwise_ci_curve_svg(
+        answer_primary,
+        panels=panel_titles,
+        series_key="endpoint",
+        series_order=("absolute_error_specificity",),
+        series_labels={
+            "absolute_error_specificity": "candidate damage − orthogonal-control damage"
+        },
+        x_key="normalized_depth",
+        layer_label_key="layer_tick",
+        value_key="mean_effect",
+        low_key="bootstrap_95ci_low",
+        high_key="bootstrap_95ci_high",
+        significance_key="significant_holm_0_05",
+        y_label="absolute-error specificity (count units)",
+        title="Answer-query removal: direction-specific damage",
+        description=(
+            "Candidate absolute-error damage minus fixed-direction orthogonal-control damage "
+            "across registered decoder layers, with seed-bootstrap intervals."
         ),
     )
 
@@ -1399,13 +1549,23 @@ def build_layerwise_subspace_section(
 
     audit_rows = [
         [
-            "prompt removal",
+            "needle-end prompt removal",
             str(prompt_audit["status"]),
             f'{int(prompt_audit["rows"]):,} raw rows; '
             f'max candidate/control target-norm relative difference '
             f'{float(prompt_audit["max_target_norm_relative_difference"]):.4g}; '
             f'max realized control-ratio error '
-            f'{float(prompt_audit["max_control_norm_ratio_error"]):.4g}',
+                f'{float(prompt_audit["max_control_norm_ratio_error"]):.4g}',
+        ],
+        [
+            "answer-query removal",
+            str(answer_audit["status"]),
+            f'{int(answer_audit["rows"]):,} raw rows; '
+            f'max candidate/control target-norm relative difference '
+            f'{float(answer_audit["max_target_norm_relative_difference"]):.4g}; '
+            f'max realized control-ratio error '
+            f'{float(answer_audit["max_control_norm_ratio_error"]):.4g} '
+            f'(tolerance {float(answer_audit["realized_norm_relative_tolerance"]):.1%})',
         ],
         [
             "transport",
@@ -1434,11 +1594,20 @@ def build_layerwise_subspace_section(
     return f"""
 <div class="transport-subspace-embedded layerwise-subspace-sweep" id="layerwise-subspace-sweep">
 <h4>5.4C · 实验 A 的跨层扫描：三维 removal 在哪些层具有方向特异性？</h4>
-<p><strong>估计量。</strong>每个注册层都在 discovery seeds 上重拟合 rank-3 count plane；confirmation prompt 在该层移除实际 rank-3 分量，并与<strong>经过 bf16 写回后仍等范数</strong>的正交控制配对。纵轴为 <code>candidate absolute error − control absolute error</code>，所以正值才表示 count plane 本身的方向特异 damage，而不是层间 residual 尺度增长。</p>
-<figure>{prompt_svg}<figcaption><strong>Figure · Layerwise prompt rank-3 removal.</strong> 点是 10 个 confirmation seeds 的均值，误差棒为 seed bootstrap 95% CI；外圈表示在“模型 × population × endpoint”预注册 family 内跨层 Holm 后仍显著。所有 count 2–10 先在 seed 内平均。</figcaption></figure>
+<p><strong>两个位置、两个 estimand。</strong>原实验改动每条 active needle 的 <em>endpoint token</em>，现在明确称为 <strong>needle-end prompt removal</strong>；新增实验只改 final <code>Total:</code> 的 <strong>answer-query token</strong>。两者使用相同 discovery/confirmation seeds、counts 2–10、rank 3 与注册层网格，但绝不能把位置不同的结果合并成一条曲线。</p>
+<p><strong>共同主估计量。</strong>每个注册层都只用 discovery seeds 冻结该位置的 rank-3 count plane。candidate 删除当前 state 相对 discovery global centroid 在 count plane 上的投影；control 删除它在 discovery-frozen orthogonal within-count rank-3 basis 上的投影，并且只沿该原方向缩放。纵轴 specificity 为 <code>candidate absolute-error damage from clean − control absolute-error damage from clean</code>。answer-query 的 BF16 realized-norm 相对容差为 5%；不搜索或优化 control 方向。</p>
+<h5>5.4C-1 · Needle-end prompt removal（保留的原实验）</h5>
+<figure>{prompt_svg}<figcaption><strong>Figure · Layerwise needle-end prompt rank-3 removal.</strong> candidate 与 control 都在每条 needle 的 endpoint token 上实施；点是 10 个 confirmation seeds 的均值，误差棒为 seed bootstrap 95% CI，外圈表示在“模型 × population × endpoint”family 内跨层 Holm 后仍显著。</figcaption></figure>
 {table(["model", "positive Holm layers", "negative Holm layers", "largest observed effect", "linear depth slope [95% CI]", "trend exact p"], prompt_summary_rows, classes="paper-table compact-result-table")}
-{details_table("All registered prompt-removal layers", ["model", "layer", "specificity [95% CI]", "raw exact p", "Holm p"], prompt_detail_rows)}
-<p><strong>读法。</strong>{'；'.join(prompt_sentences)}。线性 depth slope 只是预先指定的全局趋势摘要；曲线中的非单调结构仍以逐层估计为准。</p>
+{details_table("All registered needle-end prompt-removal layers", ["model", "layer", "specificity [95% CI]", "raw exact p", "Holm p"], prompt_detail_rows)}
+<p><strong>Needle-end 读法。</strong>{'；'.join(prompt_sentences)}。它只说明“在单层同时删除各 needle endpoint 的三维 prompt-side 分量”没有建立方向特异必要性，不能据此推断 answer-query state 也不必要。</p>
+
+<h5>5.4C-2 · Answer-query removal（新增的对称位置实验）</h5>
+<figure>{answer_damage_svg}<figcaption><strong>Figure · Absolute answer-query damage.</strong> 两条曲线分别是 candidate 与固定方向 orthogonal control 相对 clean generation 的绝对误差损伤；这里只展示 intervention dose 的行为后果，不把各自相对零的 CI 当作 count-direction specificity 检验。</figcaption></figure>
+<figure>{answer_specificity_svg}<figcaption><strong>Figure · Direction-specific answer-query damage.</strong> 纵轴是上图两条损伤曲线逐 seed 配对后的 candidate−control；外圈才表示跨注册层 Holm 后通过的方向特异性检验。所有 counts 先在 seed 内平均。</figcaption></figure>
+{table(["model", "positive Holm layers", "peak specificity", "peak candidate damage", "peak control damage", "specificity depth slope [95% CI]", "trend exact p"], answer_summary_rows, classes="paper-table compact-result-table")}
+{details_table("All registered answer-query removal layers", ["model", "layer", "candidate damage [95% CI]", "control damage [95% CI]", "specificity [95% CI]", "raw exact p", "Holm p"], answer_detail_rows)}
+<p><strong>Answer-query 读法。</strong>{'；'.join(answer_sentences)}。两个模型的 specificity 都随深度显著上升，且显著层集中在中后段；这与 needle-end 的全层 null 形成位置特异的对照。结论是 late answer-query count subspace 对输出具有方向特异的必要性证据，而不是“任意位置删除同样三维方向都会破坏计数”。线性 depth slope 是注册的全局趋势摘要，非单调细节仍以逐层估计为准。</p>
 
 <h4>5.4D · 实验 B 的跨层扫描：transport causal effect 与剂量响应如何随层变化？</h4>
 <p>对每个注册相邻边界，把 source ambient centroids ridge-regress 到 target rank-3 coordinates，并对回归权重做 QR 得到 discovery-frozen transport basis <code>B<sub>ℓ</sub></code>；confirmation 只使用 1→2、2→1、5→6、6→5 四个预注册 donor/receiver 对。紫色曲线检验 aligned 1× 相对等范数正交方向的 specificity；蓝色曲线检验 2× 相对 1× 的 dose increment。</p>
@@ -7952,7 +8121,7 @@ def build_limits_clear(
         ["Needle token corruption", "reports/v4_non-thinking_causal/v4_4_extension/token_corruption/", html.escape(str(token_audit["status"]))],
         ["Set-wide prompt subspace ablation", "reports/v4_non-thinking_causal/v4_4_extension/prompt_subspace_ablation/", html.escape(str(subspace_audit["status"]))],
         ["Adjacent-layer transport-aligned confirmation", "work/v445_transport_aligned_confirmation/analysis/", "frozen rank-3 basis; exact seed tests"],
-        ["Layerwise rank-3 removal, transport, and map stability", "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/", "discovery-frozen; confirmation seeds 1254–1263; all audits PASS"],
+        ["Layerwise needle-end/answer-query rank-3 removal, transport, and map stability", "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/", "positions reported as separate estimands; discovery-frozen; confirmation seeds 1254–1263; all audits PASS"],
     ]
     return f"""
 <section id="limits">
@@ -8062,6 +8231,14 @@ def validate_inputs(repo_root: Path) -> dict[str, Path]:
         / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/prompt_removal/layerwise_prompt_removal_depth_trends.csv",
         "layerwise_prompt_audit": repo_root
         / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/prompt_removal/analysis_audit.json",
+        "layerwise_answer_statistics": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/answer_query_removal/layerwise_answer_query_removal_statistics.csv",
+        "layerwise_answer_damage_statistics": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/answer_query_removal/layerwise_answer_query_removal_damage_statistics.csv",
+        "layerwise_answer_trends": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/answer_query_removal/layerwise_answer_query_removal_depth_trends.csv",
+        "layerwise_answer_audit": repo_root
+        / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/answer_query_removal/analysis_audit.json",
         "layerwise_transport_statistics": repo_root
         / "reports/v4_non-thinking_causal/v4_4_extension/layerwise_subspace/transport/layerwise_transport_statistics.csv",
         "layerwise_transport_trends": repo_root
@@ -8133,6 +8310,10 @@ def validate_inputs(repo_root: Path) -> dict[str, Path]:
         "layerwise_prompt_statistics",
         "layerwise_prompt_trends",
         "layerwise_prompt_audit",
+        "layerwise_answer_statistics",
+        "layerwise_answer_damage_statistics",
+        "layerwise_answer_trends",
+        "layerwise_answer_audit",
         "layerwise_transport_statistics",
         "layerwise_transport_trends",
         "layerwise_transport_audit",
@@ -8806,6 +8987,12 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     layerwise_prompt_statistics = read_csv_rows(paths["layerwise_prompt_statistics"])
     layerwise_prompt_trends = read_csv_rows(paths["layerwise_prompt_trends"])
     layerwise_prompt_audit = read_json(paths["layerwise_prompt_audit"])
+    layerwise_answer_statistics = read_csv_rows(paths["layerwise_answer_statistics"])
+    layerwise_answer_damage_statistics = read_csv_rows(
+        paths["layerwise_answer_damage_statistics"]
+    )
+    layerwise_answer_trends = read_csv_rows(paths["layerwise_answer_trends"])
+    layerwise_answer_audit = read_json(paths["layerwise_answer_audit"])
     layerwise_transport_statistics = read_csv_rows(
         paths["layerwise_transport_statistics"]
     )
@@ -8842,7 +9029,8 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     if not correct_state.get("audits", {}).get("all_checks_pass", False):
         raise RuntimeError("Correct-only route audit did not pass")
     for label, audit in (
-        ("layerwise prompt removal", layerwise_prompt_audit),
+        ("layerwise needle-end prompt removal", layerwise_prompt_audit),
+        ("layerwise answer-query removal", layerwise_answer_audit),
         ("layerwise transport", layerwise_transport_audit),
         ("layerwise linear map", layerwise_map_audit),
         ("map-causal link", layerwise_map_causal_audit),
@@ -9035,6 +9223,10 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
             layerwise_prompt_statistics,
             layerwise_prompt_trends,
             layerwise_prompt_audit,
+            layerwise_answer_statistics,
+            layerwise_answer_damage_statistics,
+            layerwise_answer_trends,
+            layerwise_answer_audit,
             layerwise_transport_statistics,
             layerwise_transport_trends,
             layerwise_transport_audit,

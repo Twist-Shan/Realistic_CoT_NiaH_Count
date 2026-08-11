@@ -1,0 +1,46 @@
+{
+  "schema_version": "realistic_niah_v4_4_layerwise_answer_query_removal_analysis_v1",
+  "status": "PASS",
+  "inputs": [
+    "/lambda/nfs/CoT-Non-thinking-v4/runs/v4_4_layerwise_subspace_20260809/raw/answer_query_removal/Qwen3-8B/layerwise_answer_query_removal_detail.csv",
+    "/lambda/nfs/CoT-Non-thinking-v4/runs/v4_4_layerwise_subspace_20260809/raw/answer_query_removal/Gemma4-E4B/layerwise_answer_query_removal_detail.csv"
+  ],
+  "models": [
+    "Gemma4-E4B",
+    "Qwen3-8B"
+  ],
+  "rows": 4140,
+  "paired_examples": 2070,
+  "damage_statistics_rows": 92,
+  "confirmation_seeds": [
+    1254,
+    1255,
+    1256,
+    1257,
+    1258,
+    1259,
+    1260,
+    1261,
+    1262,
+    1263
+  ],
+  "counts": [
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "support_role": "answer_query",
+  "bootstrap_draws": 50000,
+  "inference_unit": "seed mean across registered counts",
+  "primary_effect": "candidate damage minus norm-matched orthogonal-control damage; for absolute error this reduces to candidate absolute error minus control absolute error",
+  "multiplicity": "Holm within model, population, and endpoint across registered layers",
+  "max_target_norm_relative_difference": 0.0,
+  "max_control_norm_ratio_error": 0.046463562478022746,
+  "realized_norm_relative_tolerance": 0.05
+}

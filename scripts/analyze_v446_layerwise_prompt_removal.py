@@ -18,6 +18,10 @@ ENDPOINTS = {
     "absolute_error_specificity": ("absolute_error", 1.0),
     "accuracy_damage_specificity": ("correct", -1.0),
 }
+DAMAGE_ENDPOINTS = {
+    "candidate_absolute_error_damage": "candidate_absolute_error_damage_from_clean",
+    "control_absolute_error_damage": "control_absolute_error_damage_from_clean",
+}
 
 
 def exact_signflip_p(values: Iterable[float]) -> float:
@@ -248,6 +252,42 @@ def main() -> None:
         statistics["holm_p_within_model_population_endpoint"] <= 0.05
     )
 
+    damage_rows: list[dict[str, float | int | str]] = []
+    for population, eligible in populations.items():
+        subset = paired.loc[eligible].copy()
+        for (model, layer), group in subset.groupby(["model_label", "layer"]):
+            for endpoint, column in DAMAGE_ENDPOINTS.items():
+                seed_means = group.groupby("seed")[column].mean()
+                if set(seed_means.index.astype(int)) != set(seeds):
+                    raise RuntimeError(
+                        f"population {population} lacks a seed for "
+                        f"{model}/L{layer}/{endpoint}"
+                    )
+                values = seed_means.to_numpy(float)
+                low, high = bootstrap_ci(
+                    values,
+                    label=f"damage/{model}/{population}/{layer}/{endpoint}",
+                    draws=args.bootstraps,
+                )
+                damage_rows.append(
+                    {
+                        "model_label": model,
+                        "population": population,
+                        "layer": int(layer),
+                        "normalized_depth": float(group["normalized_depth"].iloc[0]),
+                        "endpoint": endpoint,
+                        "examples": len(group),
+                        "seeds": len(values),
+                        "mean_damage": float(values.mean()),
+                        "bootstrap_95ci_low": low,
+                        "bootstrap_95ci_high": high,
+                        "seed_damage_min": float(values.min()),
+                        "seed_damage_max": float(values.max()),
+                    }
+                )
+
+    damage_statistics = pd.DataFrame(damage_rows)
+
     seed_effects = pd.DataFrame(seed_rows)
     trend_rows: list[dict[str, float | int | str]] = []
     for (model, population, endpoint), group in seed_effects.groupby(
@@ -287,6 +327,9 @@ def main() -> None:
     paired.to_csv(args.output / f"{output_prefix}_paired_examples.csv", index=False)
     seed_effects.to_csv(args.output / f"{output_prefix}_seed_effects.csv", index=False)
     statistics.to_csv(args.output / f"{output_prefix}_statistics.csv", index=False)
+    damage_statistics.to_csv(
+        args.output / f"{output_prefix}_damage_statistics.csv", index=False
+    )
     pd.DataFrame(trend_rows).to_csv(
         args.output / f"{output_prefix}_depth_trends.csv", index=False
     )
@@ -297,6 +340,7 @@ def main() -> None:
         "models": models,
         "rows": len(detail),
         "paired_examples": len(paired),
+        "damage_statistics_rows": len(damage_statistics),
         "confirmation_seeds": seeds,
         "counts": counts,
         "support_role": args.support_role,

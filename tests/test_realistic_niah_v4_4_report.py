@@ -121,6 +121,16 @@ def test_integrated_report_defines_layerwise_map_rotation_without_gauge_overclai
     assert "full_operator_relative_drift_to_next" in INTEGRATED_SOURCE
 
 
+def test_integrated_report_keeps_removal_positions_as_separate_estimands() -> None:
+    assert "5.4C-1 · Needle-end prompt removal" in INTEGRATED_SOURCE
+    assert "5.4C-2 · Answer-query removal" in INTEGRATED_SOURCE
+    assert "candidate damage vs clean" in INTEGRATED_SOURCE
+    assert "orthogonal-control damage vs clean" in INTEGRATED_SOURCE
+    assert "不搜索或优化 control 方向" in INTEGRATED_SOURCE
+    assert "layerwise_answer_query_removal_damage_statistics.csv" in INTEGRATED_SOURCE
+    assert '("layerwise answer-query removal", layerwise_answer_audit)' in INTEGRATED_SOURCE
+
+
 def test_variant_filter_rejects_cross_panel_leakage() -> None:
     assert 'frame["design_variant"].astype(str) == FOCUS_VARIANT' in SOURCE
     assert 'raise RuntimeError(f"{model}/{stage}: no {FOCUS_VARIANT} rows")' in SOURCE

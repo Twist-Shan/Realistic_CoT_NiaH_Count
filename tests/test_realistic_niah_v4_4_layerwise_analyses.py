@@ -186,9 +186,26 @@ def test_answer_query_removal_analysis_uses_separate_design_and_outputs(
     )
     assert len(statistics) == 8
     assert set(statistics["mean_effect"]) == {1.0}
+    damage = pd.read_csv(
+        output / "layerwise_answer_query_removal_damage_statistics.csv"
+    )
+    assert len(damage) == 8
+    assert set(
+        damage.loc[
+            damage["endpoint"] == "candidate_absolute_error_damage",
+            "mean_damage",
+        ]
+    ) == {1.0}
+    assert set(
+        damage.loc[
+            damage["endpoint"] == "control_absolute_error_damage",
+            "mean_damage",
+        ]
+    ) == {0.0}
     audit = json.loads((output / "analysis_audit.json").read_text())
     assert audit["status"] == "PASS"
     assert audit["support_role"] == "answer_query"
+    assert audit["damage_statistics_rows"] == 8
 
 
 def test_transport_analysis_accepts_a_complete_registered_grid(
