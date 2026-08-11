@@ -243,6 +243,192 @@ def make_secondary_content_collapsible(document: str) -> str:
     return document
 
 
+def apply_publication_editorial_pass(document: str) -> str:
+    """Turn the evidence-complete report into a paper-facing main narrative.
+
+    Earlier revisions intentionally exposed every diagnostic view.  The final
+    report instead follows the inferential order mechanism -> representation ->
+    causal identification, while preserving machine-readable source artifacts.
+    This pass removes duplicate/exploratory views, moves all residual-subspace
+    interventions into the causal chapter, and adds explicit claim boundaries.
+    """
+
+    def section(section_id: str) -> str:
+        match = re.search(
+            rf'<section id="{re.escape(section_id)}".*?</section>',
+            document,
+            flags=re.S,
+        )
+        if match is None:
+            raise RuntimeError(f"Publication pass could not find section {section_id}")
+        return match.group(0)
+
+    def replace_fragment(old: str, new: str) -> None:
+        nonlocal document
+        if document.count(old) != 1:
+            raise RuntimeError("Publication pass expected one section fragment")
+        document = document.replace(old, new, 1)
+
+    # The animated centroid trajectory is the paper-facing prompt figure.  The
+    # second projector repeats the same evidence with more UI controls and the
+    # answer projector repeats the layerwise rank/decoder evidence in Section 4.
+    for label, pattern in (
+        (
+            "prompt seed-level projector",
+            r'\s*<div class="figure-block"><h3>3\.2 .*?</figure></div>',
+        ),
+        (
+            "answer seed-level projector",
+            r'\s*<div class="figure-block"><h3>6\.3 .*?</figure></div>',
+        ),
+    ):
+        document, count = re.subn(pattern, "", document, count=1, flags=re.S)
+        if count != 1:
+            raise RuntimeError(f"Could not remove duplicate {label}")
+    document = document.replace(
+        "makeMechanismWalkthrough();makeRunningIndex();makeProjector('prompt',PROMPT_DATA,'prompt');makeProjector('answer',ANSWER_DATA,'answer');makeJoint();",
+        "makeMechanismWalkthrough();makeRunningIndex();makeJoint();",
+        1,
+    )
+
+    # The all-head heatmap is a discovery artifact, not an inferential result.
+    # Keep the score definition and frozen banks in the main text; the causal
+    # validation remains the matched-control nested-K curve in Section 8.
+    attention = section("attention")
+    atlas_marker = "\n<p>Atlas 的每一个格子"
+    atlas_start = attention.find(atlas_marker)
+    if atlas_start < 0:
+        raise RuntimeError("Could not locate the exploratory all-head atlas")
+    attention = attention[:atlas_start]
+    attention = attention.replace(
+        "<strong>可视化。</strong><span>下方只保留 full-span atlas：横轴是 layer，纵轴是 head，颜色编码 seed-aggregated broad score。颜色只用于发现候选，功能性必须由第8节的 layer-matched ablation 验证。</span>",
+        "<strong>呈现范围。</strong><span>正文保留分数定义、冻结规则与进入确认实验的 head sets；逐 head atlas 属于 discovery 审计，不作为结果图重复展示。功能性只由第8节的 layer-matched ablation 判定。</span>",
+    )
+    attention += """
+<div class="compact-evidence-strip"><strong>冻结候选。</strong>全层行为排序的 Qwen top-4 为 L27H18、L28H19、L23H29、L23H13；为避免把 L28 writer 同时计作 upstream source，Qwen 路径实验在 L&lt;28 内重新冻结 L27H18、L23H29、L23H13、L23H28。Gemma 冻结 top-2 为 L29H4、L35H2。完整逐头 discovery atlas 保留在机器可读 attention artifact 中，不进入确认性主图。</div>
+<div class="conclusion"><strong>第7节结论。</strong>full-span attention 只承担 outcome-blind 候选发现：它表明哪些 heads 广泛读取 needle spans，但不提供因果结论。后续所有“功能 bank”主张都以独立 seeds 上的 layer-matched ablation、patching 或 mediation 为依据。</div>
+</section>"""
+    replace_fragment(section("attention"), attention)
+
+    # State formation ends with input-level evidence.  Residual removal,
+    # transport, and map-stability tests are interventions and therefore belong
+    # in the causal-identification chapter, after the common estimand definitions.
+    formation = section("formation-tests")
+    subspace_start = formation.find("<h3>5.4 ")
+    if subspace_start < 0:
+        raise RuntimeError("Could not locate the subspace causal block")
+    subspace = formation[subspace_start : -len("</section>")]
+    formation = formation[:subspace_start] + """
+<div class="conclusion"><strong>第5节结论。</strong>两模型都在 needle endpoint 聚合更早目标记录，且替换真实 needle 内容会造成远大于等预算普通文本替换的行为损伤。由此可得“needle evidence 在 prompt 中被整合并且是必要输入”；尚不能仅凭 attention 或输入 corruption 指定唯一内部 carrier。</div>
+</section>"""
+    replace_fragment(section("formation-tests"), formation)
+
+    for caption in (
+        "图 5C · Set-wide prompt count-subspace removal",
+        "Figure · Adjacent-layer transport-aligned dose response",
+        "Figure · Absolute answer-query damage",
+        "Figure · Predictive map stability",
+    ):
+        pattern = re.compile(
+            r'<figure\b(?:(?!<figure\b).)*?' + re.escape(caption) + r'.*?</figure>',
+            re.S,
+        )
+        subspace, count = pattern.subn("", subspace, count=1)
+        if count != 1:
+            raise RuntimeError(f"Could not remove redundant causal figure: {caption}")
+    subspace = re.sub(
+        r'<details class="data-table"[^>]*>.*?</details>', "", subspace, flags=re.S
+    )
+    subspace = re.sub(r'<div class="figure-grid[^>]*>\s*</div>', "", subspace)
+    subspace = re.sub(r'(<h[345][^>]*>)5\.4', r'\g<1>8.3', subspace)
+    subspace = subspace.replace("§5.4", "§8.3").replace("5.4D 的", "8.3D 的")
+
+    causal = section("causal")
+    causal = causal.replace(
+        "<h2>8 · 因果实验：先定位功能 bank，再验证可执行 answer state</h2>",
+        "<h2>8 · 因果识别：必要性、充分性与路径中介</h2>",
+        1,
+    )
+    causal = causal.replace(
+        "<h3>8.1 这部分只回答两个问题</h3>",
+        """<h3>8.1 因果证据链与判定顺序</h3>
+<p>本章依次检验四类主张：固定 count plane 是否必要、跨层 transport direction 是否足以搬运 count、discovery-ranked retrieval bank 是否具有 matched-control-specific 功能，以及 answer-query state 是否足以改变数字。相似性、可解码性或 attention 排名均不单独计作因果证据。</p>""",
+        1,
+    )
+    causal = causal.replace(
+        "<h3>8.2 Effect 的逐样本定义与跨 seed 聚合</h3>",
+        """<div class="conclusion"><strong>8.1 结论。</strong>本章采用递进而非互换的因果语言：removal 检验测试 component 的必要性，transport/patch 检验方向或 state 的充分性，mediation 检验 donor effect 是否经过指定路径；任一单项 positive 都不推出唯一机制。</div>
+<h3>8.2 统一效应定义、统计单位与多重比较</h3>""",
+        1,
+    )
+    causal = causal.replace(
+        "<h3>8.3 Full-span Top-K ablation：检索 bank 是否具有因果功能？</h3>",
+        """<div class="conclusion"><strong>因果判定口径。</strong>所有主效应都先在 seed 内聚合，再以 seed 为推断单位；candidate 必须超过 outcome-blind matched control，并在预先定义的比较 family 内通过校正。正结果支持测试方向的必要性或充分性，不能自动升级为唯一通道。</div>
+
+"""
+        + subspace
+        + "\n<h3>8.4 Full-span Top-K ablation：检索 bank 是否具有因果功能？</h3>",
+        1,
+    )
+    causal = causal.replace(
+        "<h3>8.4 Answer-query patching：all samples 与 correct-only</h3>",
+        "<h3>8.5 Answer-query patching：all samples 与 correct-only</h3>",
+        1,
+    )
+    causal = causal.replace(
+        "<h4>8.3B · 完整结果图、统计量与边界对照</h4>",
+        "<h5>8.3B-1 · 确认性效应与边界</h5>",
+        1,
+    )
+    replace_fragment(section("causal"), causal)
+
+    # The extension memo audit duplicated the same claims and numbers after the
+    # synthesis.  The reproducibility ledger remains, but the paper main text
+    # now ends its argument once, in the synthesis and limitations sections.
+    audit_match = re.search(
+        r'<section id="question-audit".*?</section>', document, flags=re.S
+    )
+    if audit_match is not None:
+        document = document[: audit_match.start()] + document[audit_match.end() :]
+
+    document = document.replace("<h2>12 · 复现信息</h2>", "<h2>11 · 复现与证据边界</h2>", 1)
+    document = document.replace(
+        "<h3>6.4 Prompt 与 answer counter 的共同坐标</h3>",
+        "<h3>6.3 Prompt 与 answer counter 的共同坐标</h3>",
+        1,
+    )
+    document = document.replace(
+        "<figcaption>Role-centered joint geometry. 圆点/实线是 prompt needle-end centroid trajectory，方块/虚线是 answer-query trajectory；同颜色细线只连接相同 count。三个轴是 shared PC scores。图下的 linear CKA、centroid-distance correlation 和 adjacent-step cosine 均在 full residual space 计算，不依赖 PCA 旋转。</figcaption>",
+        "<figcaption><strong>图 6B · Role-centered joint geometry。</strong>横轴、纵轴与深度轴是 pooled role-centered PCA 的 shared PC scores；圆点/实线为 prompt needle-end centroid trajectory，方块/虚线为 answer-query trajectory，同颜色细线只连接相同 count。图下的 linear CKA、centroid-distance correlation 和 adjacent-step cosine 均在 full residual space 计算，不依赖 PCA 旋转；因此三维视图只展示全空间关系的投影。</figcaption>",
+        1,
+    )
+
+    mechanism = section("mechanism-overview")
+    mechanism = mechanism.replace(
+        "<h3>Qwen3-8B：从 full-span early retrieval 到局部 OV 写入</h3>",
+        """<div class="conclusion"><strong>定义结论。</strong>本文把 state 定义为指定 token 与 post-block layer 的 residual vector，把 count direction 定义为只用 discovery 数据拟合并冻结的统计方向。后续结论因此指向“状态中的可读/可干预分量”，不把一个 token 或一个 PCA 轴写成离散整数寄存器。</div>
+<h3>Qwen3-8B：从 full-span early retrieval 到局部 OV 写入</h3>""",
+        1,
+    )
+    mechanism = mechanism.replace(
+        "<h3>Gemma4-E4B：周期性全局读取与窗口内 residual 传递</h3>",
+        """<div class="conclusion"><strong>Qwen 局部结论。</strong>Qwen 的证据链把 full-span-ranked early source bank 接到 L28 H16/H19，并进一步确认这组 heads 通过自身 <em>W</em><sub>O</sub> 写入、在 L29–L35 传播并影响最终数字；单个 head 的独立充分性不由 set-level 结果保证。</div>
+<h3>Gemma4-E4B：周期性全局读取与窗口内 residual 传递</h3>""",
+        1,
+    )
+    mechanism = mechanism[:-len("</section>")] + """
+<div class="conclusion"><strong>机制总述。</strong>两模型共享“prompt-side running state → distributed retrieval → residual-space rewrite → executable answer state”的计算链；Qwen 的写入定位到 L28 H16/H19，Gemma 的写入定位到 L29H4/L35H2→L37→L41。该总述是后文 representation、necessity/sufficiency 与 mediation 证据的合取，而不是由机制示意图本身推出。</div>
+</section>"""
+    replace_fragment(section("mechanism-overview"), mechanism)
+
+    # Paper-facing navigation follows the argument rather than every diagnostic.
+    nav = """<nav><a href="#mechanism-overview">Mechanism claim</a><a href="#scope">Conclusions</a><a href="#methods">Design &amp; estimands</a><a href="#prompt">Prompt representation</a><a href="#representation-extension">Representation audit</a><a href="#formation-tests">State formation</a><a href="#answer">Answer state</a><a href="#attention">Retrieval definition</a><a href="#causal">Causal identification</a><a href="#natural-ov">Write &amp; mediation</a><a href="#synthesis">Synthesis</a><a href="#limits">Limits &amp; reproducibility</a><a href="#appendix-first-locator">Appendix A</a></nav>"""
+    document, nav_count = re.subn(r"<nav>.*?</nav>", nav, document, count=1, flags=re.S)
+    if nav_count != 1:
+        raise RuntimeError("Could not install paper-facing navigation")
+    return document
+
+
 def model_coverage_matrix() -> str:
     """Machine-readable editorial audit: every core question covers both models."""
 
@@ -1597,31 +1783,33 @@ def build_layerwise_subspace_section(
 <p><strong>两个位置、两个 estimand。</strong>原实验改动每条 active needle 的 <em>endpoint token</em>，现在明确称为 <strong>needle-end prompt removal</strong>；新增实验只改 final <code>Total:</code> 的 <strong>answer-query token</strong>。两者使用相同 discovery/confirmation seeds、counts 2–10、rank 3 与注册层网格，但绝不能把位置不同的结果合并成一条曲线。</p>
 <p><strong>共同主估计量。</strong>每个注册层都只用 discovery seeds 冻结该位置的 rank-3 count plane。candidate 删除当前 state 相对 discovery global centroid 在 count plane 上的投影；control 删除它在 discovery-frozen orthogonal within-count rank-3 basis 上的投影，并且只沿该原方向缩放。纵轴 specificity 为 <code>candidate absolute-error damage from clean − control absolute-error damage from clean</code>。answer-query 的 BF16 realized-norm 相对容差为 5%；不搜索或优化 control 方向。</p>
 <h5>5.4C-1 · Needle-end prompt removal（保留的原实验）</h5>
-<figure>{prompt_svg}<figcaption><strong>Figure · Layerwise needle-end prompt rank-3 removal.</strong> candidate 与 control 都在每条 needle 的 endpoint token 上实施；点是 10 个 confirmation seeds 的均值，误差棒为 seed bootstrap 95% CI，外圈表示在“模型 × population × endpoint”family 内跨层 Holm 后仍显著。</figcaption></figure>
+<figure>{prompt_svg}<figcaption><strong>图 8A · Needle-end prompt rank-3 removal 的逐层特异效应。</strong>横轴为实施 intervention 的 decoder layer，纵轴为 candidate 相对等范数正交 control 多造成的 absolute-error damage；0 表示两种方向的破坏相同。candidate 与 control 都在每条 needle 的 endpoint token 上实施；点是10个 confirmation seeds 的等权均值，误差棒为 seed-bootstrap 95% CI，外圈表示在“模型 × population × endpoint”family 内跨层 Holm 后仍显著。</figcaption></figure>
 {table(["model", "positive Holm layers", "negative Holm layers", "largest observed effect", "linear depth slope [95% CI]", "trend exact p"], prompt_summary_rows, classes="paper-table compact-result-table")}
 {details_table("All registered needle-end prompt-removal layers", ["model", "layer", "specificity [95% CI]", "raw exact p", "Holm p"], prompt_detail_rows)}
 <p><strong>Needle-end 读法。</strong>{'；'.join(prompt_sentences)}。它只说明“在单层同时删除各 needle endpoint 的三维 prompt-side 分量”没有建立方向特异必要性，不能据此推断 answer-query state 也不必要。</p>
 
 <h5>5.4C-2 · Answer-query removal（新增的对称位置实验）</h5>
 <figure>{answer_damage_svg}<figcaption><strong>Figure · Absolute answer-query damage.</strong> 两条曲线分别是 candidate 与固定方向 orthogonal control 相对 clean generation 的绝对误差损伤；这里只展示 intervention dose 的行为后果，不把各自相对零的 CI 当作 count-direction specificity 检验。</figcaption></figure>
-<figure>{answer_specificity_svg}<figcaption><strong>Figure · Direction-specific answer-query damage.</strong> 纵轴是上图两条损伤曲线逐 seed 配对后的 candidate−control；外圈才表示跨注册层 Holm 后通过的方向特异性检验。所有 counts 先在 seed 内平均。</figcaption></figure>
+<figure>{answer_specificity_svg}<figcaption><strong>图 8B · Answer-query removal 的逐层方向特异效应。</strong>横轴为 answer-query intervention layer，纵轴为逐 seed 配对的 candidate−control absolute-error damage；0 表示 count plane 与固定正交方向的破坏相同。点与误差棒分别是等权 seed mean 和 seed-bootstrap 95% CI；外圈表示跨注册层 Holm 后通过。所有 counts 先在 seed 内平均。</figcaption></figure>
 {table(["model", "positive Holm layers", "peak specificity", "peak candidate damage", "peak control damage", "specificity depth slope [95% CI]", "trend exact p"], answer_summary_rows, classes="paper-table compact-result-table")}
 {details_table("All registered answer-query removal layers", ["model", "layer", "candidate damage [95% CI]", "control damage [95% CI]", "specificity [95% CI]", "raw exact p", "Holm p"], answer_detail_rows)}
 <p><strong>Answer-query 读法。</strong>{'；'.join(answer_sentences)}。两个模型的 specificity 都随深度显著上升，且显著层集中在中后段；这与 needle-end 的全层 null 形成位置特异的对照。结论是 late answer-query count subspace 对输出具有方向特异的必要性证据，而不是“任意位置删除同样三维方向都会破坏计数”。线性 depth slope 是注册的全局趋势摘要，非单调细节仍以逐层估计为准。</p>
+<div class="conclusion"><strong>8.3C 结论。</strong>needle-end prompt removal 在注册层上没有建立方向特异必要性，而 answer-query removal 的 specificity 随深度增加并在中后层出现确认性正效应。因而“同一个三维 count plane 在任何 token 位置都同样必要”不成立；当前必要性证据定位于 late answer-query state。</div>
 
 <h4>5.4D · 实验 B 的跨层扫描：transport causal effect 与剂量响应如何随层变化？</h4>
 <p>对每个注册相邻边界，把 source ambient centroids ridge-regress 到 target rank-3 coordinates，并对回归权重做 QR 得到 discovery-frozen transport basis <code>B<sub>ℓ</sub></code>；confirmation 只使用 1→2、2→1、5→6、6→5 四个预注册 donor/receiver 对。紫色曲线检验 aligned 1× 相对等范数正交方向的 specificity；蓝色曲线检验 2× 相对 1× 的 dose increment。</p>
-<figure>{transport_svg}<figcaption><strong>Figure · Layerwise transport and dose response.</strong> 纵轴是 target donor fraction 的 seed-level contrast；误差棒、外圈与 multiplicity 规则同上，但 Holm family 是“模型 × metric × contrast”内跨注册边界。</figcaption></figure>
+<figure>{transport_svg}<figcaption><strong>图 8C · Layerwise transport specificity 与 dose response。</strong>横轴为相邻 source→target decoder-layer boundary，纵轴为 target donor fraction 的 seed-level contrast；紫色为 aligned 1×−orthogonal，蓝色为 aligned 2×−aligned 1×，0 表示没有方向特异性或剂量增量。误差棒为 seed-bootstrap 95% CI，外圈表示在“模型 × metric × contrast”family 内跨注册边界 Holm 后仍显著。</figcaption></figure>
 {table(["model", "contrast", "positive Holm boundaries", "negative Holm boundaries", "largest observed effect", "linear depth slope [95% CI]", "trend exact p"], transport_summary_rows, classes="paper-table compact-result-table")}
 {details_table("All registered transport boundaries", ["model", "boundary", "contrast", "effect [95% CI]", "raw exact p", "Holm p"], transport_detail_rows)}
 <p><strong>跨层复现。</strong>{'；'.join(transport_sentences)}。这一区分“某个锚点可 transport”与“transport 通道在整个 decoder 中均匀存在”；后者必须由曲线而不是单点结果判断。</p>
+<div class="conclusion"><strong>8.3D 结论。</strong>方向特异 transport 与 2×−1× 剂量增量主要在 decoder 中后段增强，并非从早层到晚层均匀存在。该结果支持局部成熟的 count relay，而不支持全网络共享恒定强度的单一 transport channel。</div>
 
 <h4>5.4E · 如何定义跨层 linear map、rotation 与稳定性？</h4>
 <p><strong>形式化定义。</strong>令 discovery-fitted source/target bases 为 <code>U<sub>ℓ</sub></code> 与 <code>U<sub>ℓ+1</sub></code>，中心化 rank-3 coordinates 为 <code>z<sub>ℓ</sub></code>。以 seed-grouped ridge 拟合 <code>z<sub>ℓ+1</sub> ≈ z<sub>ℓ</sub>A<sub>ℓ</sub></code>，再做 polar decomposition <code>A<sub>ℓ</sub>=R<sub>ℓ</sub>S<sub>ℓ</sub></code>：<code>R</code> 是 coordinate rotation/reflection，<code>S</code> 是 stretch。PCA basis 可各自右乘任意正交矩阵，因此裸的 <code>R<sub>ℓ</sub></code> 角度依赖 gauge；它只在 bootstrap basis 先向 full-discovery reference 做 Procrustes 对齐后用于<strong>同一边界内</strong>的不确定性。</p>
 <p><strong>与 causal patch 的关系。</strong><code>A<sub>ℓ</sub></code> 是两端都先截断为 rank 3 的坐标 map；5.4D 的 <code>B<sub>ℓ</sub></code> 则是从 source ambient centroid curve 直接预测 target rank-3 coordinates 后取得的三维 row-space。二者共享 discovery centroids 与 target rank，但不是同一个参数化；实验没有把 <code>R<sub>ℓ</sub></code> 矩阵本身写入模型。最后的 map–causal test 问的是“<code>A<sub>ℓ</sub></code> 稳定的边界上，<code>B<sub>ℓ</sub></code> 定义的 held-out causal transport 是否更强”，不是把相关性误写成对 rotation matrix 的直接干预。</p>
 <p><strong>跨边界主稳定量。</strong>把 map 提升回 residual space：<code>T<sub>ℓ</sub>=U<sub>ℓ</sub>A<sub>ℓ</sub>U<sub>ℓ+1</sub><sup>T</sup></code>。若独立换 gauge 为 <code>U′<sub>ℓ</sub>=U<sub>ℓ</sub>Q<sub>ℓ</sub></code>，则 <code>A′<sub>ℓ</sub>=Q<sub>ℓ</sub><sup>T</sup>A<sub>ℓ</sub>Q<sub>ℓ+1</sub></code>，代回即有 <code>T′<sub>ℓ</sub>=T<sub>ℓ</sub></code>。因此可比较 <code>cos(T<sub>ℓ</sub>,T<sub>ℓ+1</sub>)</code> 与相对 Frobenius drift，而不把 PCA 轴的任意换号/旋转当成机制变化。另报告 grouped-seed centroid CV R²（跨 seed 泛化）和 seed bootstrap map relative-Frobenius dispersion（估计稳定性）。</p>
 <figure>{map_cv_svg}<figcaption><strong>Figure · Predictive map stability.</strong> rank-3 grouped-seed centroid CV R²；为保留后层分辨率，小于 −1 的早层失败值画在 −1 下限，未截断数值保留在机器可读 CSV。</figcaption></figure>
-<figure>{map_operator_svg}<figcaption><strong>Figure · Gauge-invariant operator continuity.</strong> 每一点比较连续两个相邻层 map 的 full-space operator。高 cosine 表示相邻边界实施相似的 ambient-space linear transport；它不等于“PCA 轴标签相同”。</figcaption></figure>
+<figure>{map_operator_svg}<figcaption><strong>图 8D · Gauge-invariant operator continuity。</strong>横轴为 map 起始 decoder layer，纵轴为相邻两个 full-space operators <code>T<sub>ℓ</sub></code> 与 <code>T<sub>ℓ+1</sub></code> 的 Frobenius cosine。1 表示两条相邻边界实施近乎相同的 ambient-space linear transport，0 表示正交；它不等于“PCA 轴标签相同”，也不是对 rotation matrix 的直接因果干预。</figcaption></figure>
 {table(["model", "role", "early→late median CV R²", "early→late map dispersion", "early→late rotation dispersion", "early→late max principal angle", "early→late operator cosine", "early→late operator drift"], map_phase_rows, classes="paper-table compact-result-table")}
 {details_table("All adjacent rank-3 map boundaries (unclipped)", ["model", "role", "boundary", "CV R²", "map dispersion", "rotation dispersion", "max principal angle", "operator cosine", "operator drift", "answer stability rule"], map_detail_rows)}
 {details_table("Polar stretch summary: median [smallest, largest] singular value", ["model", "role", "early third", "late third"], stretch_rows)}
@@ -2113,13 +2301,8 @@ def build_extension_representation_section(
 <div class="conclusion"><strong>本段结论。</strong>两模型在 prompt 与 answer 的十个 count centroids 上都存在近低维的有序轨迹，但原始状态云明显更高维。例如 Qwen prompt L8 的 centroid rank-3 解释 0.988，而全部 endpoint states 只有 0.690；Gemma prompt L9 分别为 0.979 与 0.598。因此严谨表述是“低维 count curve 嵌在高维、上下文依赖的 residual state 中”，而不是“hidden state 整体是三维的”。</div>
 
 <h3>4.2 压缩、解码与聚类：count 线性可读，但 PCA 中心轨迹可以弯曲</h3>
-<div class="study-preface"><strong>为什么做。</strong><span>低维中心轨迹若能在 held-out seed 上预测 count，才是可泛化表征；若只在训练样本上形成十个簇，可能是可视化过拟合。这里还必须区分两个问题：“能否用线性函数读出 count”与“十个 centroids 是否落在一条欧氏直线上”不是同一命题。</span><strong>具体例子。</strong><span>十个点可以沿一条弯曲的弧线排列，但它们在某个方向上的标量投影仍随 count 单调增加。此时 ridge 可以准确预测 count，而前三个 PCA 轴中的轨迹仍明显弯曲；因此高线性解码 R²不能被写成“geometry 是直线”。</span><strong>评估。</strong><span>连续解码比较 ridge 与 distance-weighted kNN-5 的 held-out R²、MAE 与 Pearson r。离散解码比较六种固定算法；PCA-32、标准化和分类器全部只在训练 fold 拟合，fold 按 seed 切分。聚类在 train-fitted PCA 中计算 held-out cosine silhouette、Calinski–Harabasz 与 Davies–Bouldin。</span><strong>固定分类器规则。</strong><span>不允许每层挑最优算法。我们先在四个 model×site 的全部层上求平均准确率，只选一个全局 primary；结果为 <code>{algorithm_labels[global_primary]}</code>。这一步是描述性选择，不作为显著性检验；所有六条曲线同时公开。</span></div>
+<div class="study-preface"><strong>为什么做。</strong><span>低维中心轨迹若能在 held-out seed 上预测 count，才是可泛化表征；若只在训练样本上形成十个簇，可能是可视化过拟合。这里还必须区分两个问题：“能否用线性函数读出 count”与“十个 centroids 是否落在一条欧氏直线上”不是同一命题。</span><strong>具体例子。</strong><span>十个点可以沿一条弯曲的弧线排列，但它们在某个方向上的标量投影仍随 count 单调增加。此时 ridge 可以准确预测 count，而前三个 PCA 轴中的轨迹仍明显弯曲；因此高线性解码 R²不能被写成“geometry 是直线”。</span><strong>评估。</strong><span>连续解码比较 ridge 与 distance-weighted kNN-5 的 held-out R²、MAE 与 Pearson r；所有预处理只在训练 fold 拟合，5-fold GroupKFold 按 seed 切分。离散分类器与聚类只作为敏感性分析：分类器家族在查看单层结果前固定，correct-only 只检验成功作答路径，不替代平衡 all-sample estimand。</span></div>
 <div class="figure-grid"><figure>{prompt_regression_svg}<figcaption><strong>图 4C · Prompt count 连续解码。</strong>横轴为层，纵轴为 held-out R²；紫/绿线分别表示 ridge 与 kNN-5。为保持后层可读性，低于 −0.25 的早层 R² 只在图中截到 −0.25，CSV 保留原值。</figcaption></figure><figure>{answer_regression_svg}<figcaption><strong>图 4D · Answer count 连续解码。</strong>与图 4C 相同，但样本单位是 answer-query state，5-fold GroupKFold 以 seed 分组。</figcaption></figure></div>
-<figure>{prompt_classifier_svg}<figcaption><strong>图 4E · Prompt 十分类器逐层比较（全样本）。</strong>横轴为层，纵轴为 held-out 10-class accuracy，机会水平0.1；六条线对应固定的 L2 logistic、ridge classifier、linear SVM、nearest centroid、shrinkage LDA 与 cosine kNN-5。Prompt running-index 的一个样本属于整条 N=10 轨迹中的某个 occurrence；若按最终答案 correct-only 筛选，会整条删除很多轨迹并破坏 count×seed 平衡，因此这里保留全样本。</figcaption></figure>
-<div class="figure-grid"><figure>{answer_classifier_svg}<figcaption><strong>图 4F-left · Answer classification：全样本。</strong>横轴为层，纵轴为 held-out accuracy；200条/model、20 seeds、counts 1–10完整平衡。它回答“无论最终答对与否，gold count 是否仍可从 state 读出”。</figcaption></figure><figure>{answer_classifier_correct_svg}<figcaption><strong>图 4F-right · Answer classification：clean-correct-only。</strong>横轴为层，纵轴为 held-out balanced accuracy；Qwen 100条、Gemma 73条，均只保留 clean forward 最终数字正确的 rows。剩余 count classes 各自等权，但两模型都只剩8个 classes，因此不能把纵轴与左图的十分类 raw accuracy 直接相减。</figcaption></figure></div>
-{details_table("六种算法跨四个 model×site、全部层的平均准确率", ["algorithm", "global mean accuracy"], classifier_rank_table, opened=True)}
-{table(["model", "answer layer", "all / correct-only rows", "all accuracy", "correct-only accuracy", "correct-only balanced acc.", "correct-only classes"], correct_rows, classes="paper-table compact-result-table")}
-{table(["model", "site", "layer", "cosine silhouette", "Calinski–Harabasz", "Davies–Bouldin"], cluster_rows, classes="paper-table compact-result-table")}
 <p><strong>为什么不能只报 correct-only。</strong>Correct-only 很适合回答“模型成功作答时，state 是否清楚记录 gold count”，但它是由最终输出决定的 outcome-conditioned subset：Qwen 失去 counts 7/9，Gemma 失去9/10，chance level 由0.1变为0.125，且容易留下较简单样本。只报它会高估总体可解码性并隐藏错误机制。因此正文把 correct-only balanced accuracy 作为<strong>成功计算路径的主敏感性分析</strong>，同时保留平衡 all-sample 作为总体机制诊断。</p>
 <p><strong>连续解码结果。</strong>Qwen prompt L8 的 ridge / kNN R²为0.945 / 0.711，Gemma prompt L9为0.719 / 0.374；Qwen answer L29为0.891 / 0.871，Gemma answer L37为0.885 / 0.773。线性 ridge 在四个代表点都不差于kNN，说明 count 可由 hidden state 的线性组合稳定读出。它不说明 centroid path 本身是直线：PCA 图中两模型的轨迹都有可见曲率，而ridge只要求存在一个线性投影能够预测标量count。kNN在高维中还会受到seed/context dispersion和有限样本的影响，因此“ridge更好”也不能用于否定曲率。</p>
 <p><strong>离散解码与聚类结果。</strong>固定 L2 logistic 在 correct-only answer代表层的 raw / balanced accuracy 分别为Qwen 0.880 / 0.759、Gemma 0.918 / 0.625。代表层 cosine silhouette 为Qwen prompt −0.075、Gemma prompt −0.043、Qwen answer 0.056、Gemma answer −0.038；十类并未形成紧密球状clusters。最一致的几何描述因此是<strong>“线性可读的、有曲率的有序中心轨迹，外加seed/context形变”</strong>。</p>
@@ -2134,7 +2317,7 @@ def build_extension_representation_section(
 </div>
 <div class="equation"><code>H<sub>c,s</sub>−μ = (μ<sub>c</sub>−μ) + (μ<sub>s</sub>−μ) + (H<sub>c,s</sub>−μ<sub>c</sub>−μ<sub>s</sub>+μ)</code></div>
 <p><strong>如何得到三个比例。</strong>在平衡的 <code>count×seed</code> 网格中，分别对上面三个向量项求所有样本、所有 hidden dimensions 的平方和：<code>SS=Σ||component||²</code>，再除以总平方和 <code>SS<sub>total</sub>=Σ||H<sub>c,s</sub>−μ||²</code>。平衡设计使三项正交，所以比例之和为 1（表中因三位小数舍入可能相差 0.001）。这也可逐维写成含 count、seed 与 count×seed one-hot 项的 two-way ANOVA；它是方差记账，不是拿 seed 编号做数值预测。</p>
-<figure>{noise_svg}<figcaption><strong>图 4G · Prompt endpoint 的 balanced two-way variance decomposition。</strong>横轴是层，纵轴是 confirmation states 的 Frobenius 总平方和比例；三条线之和为 1。count 主效应是跨 seed 共享的 count trajectory，seed/context 是跨 count 共享的 prompt offset，interaction 是 seed 特异的轨迹形变。</figcaption></figure>
+<figure>{noise_svg}<figcaption><strong>图 4E · Prompt endpoint 的 balanced two-way variance decomposition。</strong>横轴是层，纵轴是 confirmation states 的 Frobenius 总平方和比例；三条线之和为 1。count 主效应是跨 seed 共享的 count trajectory，seed/context 是跨 count 共享的 prompt offset，interaction 是 seed 特异的轨迹形变。</figcaption></figure>
 {table(["model", "layer", "count", "seed/context", "count×seed"], noise_landmark_rows, classes="paper-table compact-result-table")}
 <p><strong>Qwen：noise 来自什么。</strong>Qwen L8 的总变异中，59.9%是跨 prompts 共享的 count trajectory，剩余40.2%可视为相对count centroid的noise。以<strong>noise本身</strong>为分母，prompt identity所对应的整条轨迹offset解释16.1/(16.1+24.1)=40.0%，count×prompt interaction解释60.0%。因此Qwen的noise约四成是“整条轨迹一起平移”，约六成是“不同prompt使轨迹发生count-dependent弯曲、压缩或局部偏移”。</p>
 <p><strong>Gemma：noise 来自什么。</strong>Gemma L9 的共享 count trajectory解释38.5%的总变异，剩余61.4%是noise。以<strong>noise本身</strong>为分母，prompt-wide offset解释22.8/(22.8+38.6)=37.1%，count×prompt interaction解释62.9%。Gemma比Qwen更noisy，具体表现为共享count signal占比更低，而且绝对interaction份额更大（38.6% vs 24.1%的总变异）。</p>
@@ -2144,7 +2327,7 @@ def build_extension_representation_section(
 
 <h3>4.4 把同一 endpoint PCA 投到所有 token：count curve 是 endpoint-gated</h3>
 <div class="study-preface"><strong>为什么做。</strong><span>若每个 needle 内部 token 都携带同一 running index，公式应对整段成立；若只有记录结束时形成汇总状态，只有 endpoint 应沿 count curve 排列。</span><strong>设定。</strong><span>用 discovery needle endpoints 拟合 PCA-32、十个 centroids 与 curve；冻结后投影 confirmation 的全部 needle endpoints、needle interiors、hard negatives，以及每个 prompt 128 个按深度分层抽取的 ordinary passage tokens。比较 category-only baseline、endpoint-gated curve、whole-needle-span gated curve 与把 prefix count 强加给普通 token 的 ungated curve。</span><strong>指标。</strong><span>表中 acc. 是 token 到最近 endpoint count centroid 的十分类准确率；ΔR² 是加入指定 count curve 后相对 category mean baseline 减少的 full-space SSE 比例，负值表示公式比只用 token category 更差。</span></div>
-<div class="figure-grid token-role-comparison"><figure>{all_token_scatter_svg(projection_rows, model="Qwen3-8B", layer=8)}<figcaption><strong>图 4H-left · Qwen L8：同一 endpoint basis 下的 token roles。</strong>横轴/纵轴是只用 discovery endpoints 拟合的 PC1/PC2。黄色=needle endpoint，紫色=同一句内部 token，棕色=外形相似但不是目标记录的 hard negative，灰色=普通 passage。问题不是各颜色是否视觉分开，而是哪一类能被冻结 count centroids 正确排序。</figcaption></figure><figure>{all_token_scatter_svg(projection_rows, model="Gemma4-E4B", layer=9)}<figcaption><strong>图 4H-right · Gemma L9：与左图完全相同的定义。</strong>两图并列用于比较模型，而正式判定使用下表的 full-space nearest-centroid accuracy 与ΔR²。endpoint-gated ΔR²问“只给 endpoint 加 count curve能减少多少误差”；span/ungated ΔR²问把同一公式错误推广到其他 token 会怎样。</figcaption></figure></div>
+<div class="figure-grid token-role-comparison"><figure>{all_token_scatter_svg(projection_rows, model="Qwen3-8B", layer=8)}<figcaption><strong>图 4F-left · Qwen L8：同一 endpoint basis 下的 token roles。</strong>横轴/纵轴是只用 discovery endpoints 拟合的 PC1/PC2。黄色=needle endpoint，紫色=同一句内部 token，棕色=外形相似但不是目标记录的 hard negative，灰色=普通 passage。问题不是各颜色是否视觉分开，而是哪一类能被冻结 count centroids 正确排序。</figcaption></figure><figure>{all_token_scatter_svg(projection_rows, model="Gemma4-E4B", layer=9)}<figcaption><strong>图 4F-right · Gemma L9：与左图完全相同的定义。</strong>两图并列用于比较模型，而正式判定使用下表的 full-space nearest-centroid accuracy 与ΔR²。endpoint-gated ΔR²问“只给 endpoint 加 count curve能减少多少误差”；span/ungated ΔR²问把同一公式错误推广到其他 token 会怎样。</figcaption></figure></div>
 {table(["model", "layer", "endpoint acc.", "interior acc.", "hard-neg. acc.", "ordinary acc.", "endpoint-gated ΔR²", "span-gated interior ΔR²", "ungated ordinary ΔR²"], token_rows, classes="paper-table compact-result-table")}
 <div class="equation">h_t = b_{{type(t)}} + 1[t is a needle endpoint] · γ(N(s≤t)) + ε_t.</div>
 <p>Qwen L8 的 endpoint 最近中心准确率为 0.49、MAE 0.87，而 interior / hard-negative / ordinary 仅为 0.016 / 0.008 / 0.025；endpoint-gated curve 增量 R²=0.551。Gemma L9 的 endpoint accuracy=0.28、增量 R²=0.326，而三类非 endpoint 均约机会水平。把 curve 扩展到整个 needle interior 或普通 passage 会得到负的 ΔR²。因此原 memo 中的 <code>1(t∈needle span)</code> 需要收紧为 endpoint gate。</p>
@@ -2559,7 +2742,7 @@ def build_prompt_direct_causal_subsections(
     return f"""
 <h3>5.3 Needle token corruption：直接移除输入证据</h3>
 <div class="study-preface"><strong>为什么做。</strong><span>Attention mask 只改某一个 endpoint query 的可见 keys；模型仍可能在别的位置读取原始 needle。要检验输入证据是否必要，必须让整条 forward 都看不到原 needle 内容。</span><strong>到底 corrupt 什么。</strong><span>对 seeds 1254–1263、gold count 1–10（每模型100条），定位从每条 active needle 第一个 token 到最后一个 token 的完整 span，并逐 span 替换成同一 prompt 中抽取的<strong>等 token 数 ordinary sequence</strong>。不是删除、打乱位置或改 answer query。matched control 在普通 passage 中选取总 token 数和深度匹配的 spans，也替换成 ordinary sequence。两种条件保持序列长度、所有后续绝对位置、query position 与改动 token budget相同。</span><strong>评估。</strong><span>clean、needle-corrupt、ordinary-control 都从头 greedy 生成。behavior damage 是 accuracy drop 与 absolute-error increase；representation damage 是 answer residual 到 discovery-frozen gold centroid 的 squared-distance increase；specificity=needle damage−ordinary-control damage。先在 seed 内平均 counts，再以10 seeds做bootstrap、exact sign-flip和population内 Holm校正。clean-correct-only 仅保留原 clean forward 答对的 Qwen 44/100、Gemma 36/100 rows。</span></div>
-<figure>{token_svg}<figcaption><strong>图 5B · Needle-token corruption 的特异行为损伤。</strong>横轴是 needle corruption 相对等 token-budget ordinary corruption 多增加的 absolute count error；0 表示两类同规模文本破坏影响相同，正值表示 needle tokens 有额外的计数必要性。点为10个等权 seed effects 的均值，横线为95% seed-bootstrap CI。</figcaption></figure>
+<figure>{token_svg}<figcaption><strong>图 5B · Needle-token corruption 的特异行为损伤。</strong>纵向各行分别是 model × analysis population；横轴是 needle corruption 相对等 token-budget ordinary corruption 多增加的 absolute count error。0 表示两类同规模文本破坏影响相同，正值表示 needle tokens 有额外的计数必要性。点为10个等权 seed effects 的均值，横线为95% seed-bootstrap CI。</figcaption></figure>
 {table(["population", "model", "endpoint", "needle damage", "ordinary damage", "specificity [95% CI]", "exact / Holm p"], token_behavior_rows, classes="paper-table compact-result-table")}
 {details_table("Needle corruption 对下游 answer geometry 的全部结果", ["population", "model", "answer layer", "specificity [95% CI]", "exact p", "Holm p"], token_rep_rows)}
 <p>全样本中，ordinary control 的 absolute-error damage 接近零（Qwen −0.010；Gemma +0.040），而 needle corruption 相对它额外增加的 absolute error 为 Qwen {fmt(float(token_all_q_error['mean']), 3)}、Gemma {fmt(float(token_all_g_error['mean']), 3)}；额外 accuracy drop 为 {fmt(float(token_all_q_acc['mean']), 3)} / {fmt(float(token_all_g_acc['mean']), 3)}。两模型行为与两个下游 answer layers 的 specificity 都为正；all 与 clean-correct-only 合计 {len(token_specific_rows)}/16 个注册 specificity endpoints 通过各自 population 的 Holm 校正（这些最小 exact p=0.001953 的检验经24项保守校正后 Holm p=0.046875）。</p>
@@ -3517,7 +3700,7 @@ def build_running_index_block() -> str:
 </div>
 <div class="plot-shell running-shell"><canvas id="running-index-canvas" aria-label="Interactive three-dimensional running-index centroid trajectory"></canvas></div>
 <div id="running-status" class="running-status" aria-live="polite"></div>
-<figcaption><strong>Figure · Running-index trajectory in frozen PCA coordinates.</strong> 横轴、纵轴、深度轴分别是 PC1、PC2、PC3；Qwen 默认使用 prompt manifold-display L8，Gemma 使用其数据中标记的 manifold-display layer。PCA basis 在 disjoint V4.1 discovery rows 上冻结，随后投影全部 30 个 V4.4 seeds（1234–1263）；所以播放不会重新拟合 basis。拖拽旋转、滚轮缩放。三维距离只作可视化，显著性与效应大小仍由 full-space 统计和因果实验判断。</figcaption>
+<figcaption><strong>图 3A · Frozen-PCA 中的 running-index trajectory。</strong>横轴、纵轴、深度轴分别是 PC1、PC2、PC3；Qwen 默认使用 prompt manifold-display L8，Gemma 使用其数据中标记的 manifold-display layer。PCA basis 在 disjoint V4.1 discovery rows 上冻结，随后投影全部30个 V4.4 seeds（1234–1263）；所以播放不会重新拟合 basis。拖拽旋转、滚轮缩放。三维距离只作可视化，显著性与效应大小仍由 full-space 统计和因果实验判断。</figcaption>
 </figure>
 <div class="conclusion"><strong>图的判读</strong>轨迹有序说明 occurrence index 在 residual 中可解码；它本身不说明模型是否读取这条轴，也不等于每个 n 都被一个单独 head 保存。</div>
 </div>
@@ -3821,7 +4004,7 @@ def build_absolute_deviation_section(answer_data: dict[str, Any]) -> str:
 <h3>4.1 错误答案偏离正确 count 多远？</h3>
 <div class="study-preface"><strong>为什么做。</strong><span>Accuracy 只把所有错误都记为 0，无法区分少算 1 个与少算 4–5 个。若 absolute deviation 随 gold count 增大，就支持累积遗漏、饱和或 geometry compression，而不是均匀的随机读出错误。</span><strong>定义与评估。</strong><span>对可解析输出定义 signed error <code>e=prediction−gold</code> 和 absolute deviation <code>|e|</code>。主表同时报告全样本 MAE 与只在错误样本中的 conditional MAE；invalid 输出必须单列，不能被任意赋予数值误差。区间按 20 个 discovery seeds 做 5,000 次 cluster bootstrap。</span><strong>样本。</strong><span>这里使用 base HTML 内嵌的逐样本 V4.4 non-thinking discovery labels：每模型 20 seeds×10 counts=200 条。相同标签在所有 layer viewer 中重复，因此构建器只读取最低 all-fit layer 并按 seed×gold 去重。</span></div>
 {table(["model", "correct / 200", "all-sample MAE [95% CI]", "all-sample signed error [95% CI]", "wrong-only MAE [95% CI]", "wrong-only signed error [95% CI]", "under / correct / over / invalid", "|e|=1 / |e|≥2"], summary_rows)}
-<figure>{figure}<figcaption><strong>Figure · V4.4 error magnitude.</strong> 左图横轴是错误输出的 absolute deviation，纵轴是相应错误 prompt 数；右图横轴是真实 count，纵轴是该 count 下只在错误样本中计算的平均 absolute deviation。紫色为 Qwen3-8B，绿色为 Gemma4-E4B。某个 count 没有错误时不画点；折线只连接相邻的已有条件均值，不是拟合曲线。</figcaption></figure>
+<figure>{figure}<figcaption><strong>图 6A · V4.4 error magnitude。</strong>左图横轴是错误输出的 absolute deviation，纵轴是相应错误 prompt 数；右图横轴是真实 count，纵轴是该 count 下只在错误样本中计算的平均 absolute deviation。紫色为 Qwen3-8B，绿色为 Gemma4-E4B。某个 count 没有错误时不画点；折线只连接相邻的已有条件均值，不是拟合曲线。</figcaption></figure>
 {details_table("Wrong-only deviation by gold count", ["gold count", "Qwen3-8B", "Gemma4-E4B"], count_rows)}
 <p><strong>如果不取 absolute value。</strong>Signed error 保留方向，但高估与低估会互相抵消，因此它回答“模型整体偏高还是偏低”，MAE 才回答“平均偏离多远”。Qwen 的全样本 mean signed error 为 −0.815 [−0.995, −0.620]，即200条样本合计少算163；其中89条低估、100条正确、11条高估、0条不可解析。在100个错误中，89.0%是低估，wrong-only signed error 为−1.630 [−1.888, −1.353]。Gemma 的全样本 mean signed error 为−1.320 [−1.525, −1.110]，合计少算264；其中125条低估、73条正确、2条高估、0条不可解析。在127个错误中，98.4%是低估，wrong-only signed error 为−2.079 [−2.303, −1.853]。因此负偏差并不是少量极端样本造成，而是错误方向高度一致。</p>
 <p><strong>Absolute magnitude。</strong>Qwen 的 wrong-only MAE 为1.850，且52.0%的错误至少偏离2；Gemma 为2.110，67.7%的错误至少偏离2。两模型在N=8–10的 conditional deviation 接近2–3，说明高-count failure不是单纯的偶发 off-by-one。</p>
@@ -7387,7 +7570,7 @@ def build_mechanism_overview_detailed(
 <text class="lane-sub" x="22" y="562">Boxes name the localization granularity supported by the experiments; arrow length and box size do not encode effect size.</text>
 </svg>
 <div class="mechanism-live-grid" aria-live="polite"><div><strong id="mechanism-live-q-title"></strong><span id="mechanism-live-q-body"></span></div><div><strong id="mechanism-live-g-title"></strong><span id="mechanism-live-g-body"></span></div></div>
-<figcaption id="mechanism-paper-caption"><strong>Figure 1 · Stepwise non-thinking counting mechanism.</strong> 上下两条 lane 使用相同的五步语义，但不是同一组 heads。Qwen 的读取/写入被定位到 L28 H16/H19；Gemma 的 K2 source heads 位于周期性 full-attention layers L29/L35，随后由 L37 residual mediator 将其影响传到 L41。图没有数值坐标轴；高亮仅表示当前讲解步骤。</figcaption>
+<figcaption id="mechanism-paper-caption"><strong>图 1 · Stepwise non-thinking counting mechanism。</strong>上下两条 lane 使用相同的五步语义，但不是同一组 heads。Qwen 的读取/写入被定位到 L28 H16/H19；Gemma 的 K2 source heads 位于周期性 full-attention layers L29/L35，随后由 L37 residual mediator 将其影响传到 L41。图没有数值坐标轴；从左到右表示计算顺序，高亮仅表示当前讲解步骤。</figcaption>
 </figure>
 
 <div class="mechanism-definitions">
@@ -7780,10 +7963,10 @@ def build_causal_section_clear(
 <h2>9 · 因果实验：先定位功能 bank，再验证可执行 answer state</h2>
 <h3>9.1 这部分只回答两个问题</h3>
 <div class="causal-roadmap">
-<div><strong>问题 A</strong><span>排序得到的 top-k heads 是否比同层随机 heads 更影响 counting？</span></div>
-<div><strong>实验 A</strong><span>Ablate ranked set，并减去三个 layer-matched random sets 的平均影响。</span></div>
-<div><strong>问题 B</strong><span>answer-query hidden state 是否已经包含能驱动数字输出的 count state？</span></div>
-<div><strong>实验 B</strong><span>把 donor answer state patch 到 receiver，测 receiver 是否采用 donor count。</span></div>
+<div><strong>① 必要性</strong><span>在注册层删除 discovery-frozen rank-3 count component，并减去固定正交、近等范数 control 的损伤；分别估计 needle-end 与 answer-query 两个位置。</span></div>
+<div><strong>② 方向充分性</strong><span>沿跨层 transport basis 注入 1×/2× count step，并与等范数正交注入比较，检验 donor-directed movement 与剂量响应。</span></div>
+<div><strong>③ Retrieval-bank 功能</strong><span>删除 full-span score 冻结的 nested top-K heads，并减去三个 layer-matched random banks 的平均影响。</span></div>
+<div><strong>④ 可执行 state 与路径</strong><span>把 donor answer state patch 到 receiver，再用 pre-O OV 与 residual mediation 检验 donor effect 是否经指定 write/relay 到达输出。</span></div>
 </div>
 
 <h3>9.2 Effect 的逐样本定义与跨 seed 聚合</h3>
@@ -7802,7 +7985,7 @@ def build_causal_section_clear(
 
 <h3>9.3 Full-span Top-K ablation：检索 bank 是否具有因果功能？</h3>
 <div class="study-preface"><strong>为什么做。</strong><span>attention score 只能说明某些 heads 把概率质量分配给 needle spans；它不能证明这些 heads 对生成 count 有用。我们因此删除按 full-span literal score 冻结的 nested head sets，并要求其影响超过删除同层随机 heads。</span><strong>如何定义与评估。</strong><span>排序分数对每个 head 先求全部 active needle spans 的 attention mass，再乘 entropy-based occurrence coverage；K 在任何 outcome 之前冻结为 1/2/4/8/16/32。实验使用 fresh seeds 1316–1335、count 1–5，共100条/model。只在 final <code>Total:</code> query 把 selected heads 的 pre-<em>O</em> output slices 置零；其他 prompt/query positions 不变。每个 ranked K 配3个层分配完全相同的 layer-matched random banks。主 estimands 是上节定义的 <code>d<sup>abs</sup></code> 与 <code>d<sup>fail</sup></code>；exact sign-flip 以20个 seed effects 为输入，并在每个 endpoint 的12个 model×K tests 内做 Holm 校正。</span></div>
-<figure>{ablation_topk_svg_fullspan(seed_confirmation)}<figcaption><strong>Figure · Full-span-ranked nested-K ablation.</strong> 横轴是冻结的 K=1/2/4/8/16/32，等距展示对应 log<sub>2</sub> 剂量。左图纵轴为 all-sample ranked-minus-random absolute generated-count shift；右图为 baseline-correct 样本的 correct-to-wrong probability excess。圆形为 Qwen，方形为 Gemma；实心表示该 model×K 在本 endpoint 的12比较 Holm p≤.05，空心表示未通过。竖线是对等权 seed means 做10,000次 bootstrap 的95% CI。</figcaption></figure>
+<figure>{ablation_topk_svg_fullspan(seed_confirmation)}<figcaption><strong>图 8E · Full-span-ranked nested-K ablation。</strong>横轴是冻结的 K=1/2/4/8/16/32，等距展示对应 log<sub>2</sub> 剂量。左图纵轴为 all-sample ranked-minus-random absolute generated-count shift；右图为 baseline-correct 样本的 correct-to-wrong probability excess。圆形为 Qwen，方形为 Gemma；实心表示该 model×K 在本 endpoint 的12比较 Holm p≤.05，空心表示未通过。竖线是对等权 seed means 做10,000次 bootstrap 的95% CI。</figcaption></figure>
 {table(["model", "K", "full-span-ranked heads（前4名）", "all-sample effect [95% CI]", "all exact/Holm p", "correct-only effect [95% CI]", "correct exact/Holm p"], topk_rows, classes="paper-table compact-result-table")}
 <p><strong>结果。</strong>Qwen 的 all-sample effect 在 K={format_k_set(q_all_sig)} 通过12比较 Holm，correct-only effect 在 K={format_k_set(q_clean_sig)} 通过；Gemma 的 all-sample effect 在 K={format_k_set(g_all_sig)} 通过，correct-only effect 在 K={format_k_set(g_clean_sig)} 通过。全-layer behavior ranking 的 Qwen top-4 为 L27H18、L28H19、L23H29、L23H13；Gemma top-2 为 L29H4、L35H2。Qwen 的 upstream path 另按同一 full-span score 在 L&lt;28 候选域排序，其 early top-4 为 L27H18、L23H29、L23H13、L23H28。这个区分保证 mediator L28H19 不会同时被计作上游 source。</p>
 <p>剂量曲线明显非单调：Qwen K=8 小于 K=4，而 K=16/32 急剧增大；Gemma K=4 小于 K=1/2，而 K=8 达到峰值。这说明 K 不是“同一种独立 head 功能”的线性剂量。较大 set 同时删除协同、冗余和可能互相补偿的 heads；因此本实验定位的是功能 bank 的范围，而不是从曲线反推出唯一最小 circuit。</p>
@@ -7811,7 +7994,7 @@ def build_causal_section_clear(
 <h3>9.4 Answer-query patching：all samples 与 correct-only</h3>
 <div class="study-preface"><strong>为什么做。</strong><span>Ablation 只表明 retrieval bank 对行为重要，尚不能证明最终 answer-query residual 已经携带可执行的 count state。若把 donor 的 answer state 搬给 receiver 能系统推动 donor count，才说明该 representation 位于输出因果链上。</span><strong>如何定义与评估。</strong><span>all-sample 使用 counts 0–10、18个有向 anchor pairs；seeds 1254–1258 只做 screen，1259–1263 才做 held-out confirmation。每个条件把 donor 在 final <code>Total:</code> query 的完整 residual patch 给 receiver：single-layer 只替换 layer L，cumulative protocol 从 L 到 final layer 持续 clamp；控制为 self-patch 与 same-count different-seed state。correct-only 完全复用冻结条件，只筛选 donor/receiver clean 都正确的 pairs，测 donor gold adoption。</span><strong>可视化。</strong><span>左 panel 的纵轴是 control-adjusted normalized transport，右 panel 是 donor adoption probability；两者是不同 estimands，不能直接比较柱高。表中同时给出 held-out CI coverage、fresh continuous effect 的95% CI 与 p 值。</span></div>
 <div class="ov-data-strip"><strong>具体配对。</strong><code>k=1</code>: 0↔1、4↔5、9↔10；<code>k=3</code>: 0↔3、3↔6、7↔10；<code>k=5</code>: 0↔5、2↔7、5↔10（每个↔都执行两个方向）。all-sample screen 后冻结 Qwen 149、Gemma 177 个 answer layer×protocol×k 条件。correct-only 要求每个 model×k×direction 至少5个 eligible seed clusters；Qwen 追加 1274/1275/1276/1278，Gemma 追加 1275/1277/1281/1295，追加规则只看 clean correctness，不看 patch outcome。</div>
-<figure>{answer_patch_comparison_svg(causal_v2)}<figcaption><strong>Figure · Answer-query state transport.</strong> 左图纵轴是 all-sample held-out confirmation 中，answer-query patch 相对 control 的平均 donor transport；右图纵轴是 donor 与 receiver 都 clean-correct 时，patch 后 receiver 生成 donor gold count 的比例。两个 panel 的统计量不同，因此只在各自 panel 内比较模型。</figcaption></figure>
+<figure>{answer_patch_comparison_svg(causal_v2)}<figcaption><strong>图 8F · Answer-query state transport。</strong>横轴为模型（Qwen、Gemma）。左图纵轴是 all-sample held-out confirmation 中 answer-query patch 相对 control 的平均 normalized donor transport；右图纵轴是 donor 与 receiver 都 clean-correct 时，patch 后 receiver 生成 donor gold count 的比例。两个 panel 的统计量不同，因此只在各自 panel 内比较模型。</figcaption></figure>
 {table(["model", "all-sample mean transport", "conditions with CI>0", "correct-only donor adoption", "fresh low-count source gain [95% CI]", "fresh p"], patch_rows, classes="paper-table compact-result-table")}
 <p>all-sample estimand 中，Qwen 的平均 control-adjusted donor transport 为 0.7580，149/149 个冻结条件的 held-out CI 均大于 0；Gemma 为 0.7010，177/177 个条件均大于 0。clean-correct donor adoption 分别为 96.6% 与 96.0%。在另一组 20 fresh seeds、count 1–3 且 donor/receiver 都正确的实验中，Qwen 与 Gemma 的 answer aggregate source gain 也分别显著（p=1.43×10<sup>−5</sup> 与 9.54×10<sup>−7</sup>）。</p>
 <div class="conclusion"><strong>本小节结论</strong>answer-query hidden state 不是只与 count 相关；它包含足以改变后续数字输出的可执行 count information，而且这一结果同时出现在全样本与 correct-only 分析中。</div>
@@ -8026,8 +8209,8 @@ def build_positive_mechanism_section(
 <p><strong>上游接入。</strong>使用同一 full-span score 在 L&lt;28 候选域冻结 nested K 后，top-4=L27H18/L23H29/L23H13/L23H28 的 slot-state patch 产生 donor log-odds gain={q_fs_top4['early_donor_log_odds_gain_mean']:.4f} [{q_fs_top4['early_donor_log_odds_gain_ci_low']:.4f}, {q_fs_top4['early_donor_log_odds_gain_ci_high']:.4f}]；在 L28 H16/H19 阻断 induced natural component 的 mediation specificity={q_fs_top4['donor_log_odds_mediation_specificity_mean']:.4f} [{q_fs_top4['donor_log_odds_mediation_specificity_ci_low']:.4f}, {q_fs_top4['donor_log_odds_mediation_specificity_ci_high']:.4f}]，两项在6个K×3 routes内 Holm p={fmt_p(q_fs_top4_p)}。这直接把 full-span early bank 接到 H16/H19 writer。另一个旧 endpoint-ranked top-4（与新 set 共享3/4成员）在20个独立 fresh seeds 上也得到 source+mediation IUT p={fmt_p(up['intersection_union_p'])}；它只作为 route-family 的独立 replication，不冒充新 top-4 的 exact-set replication。</p>
 {table(["full-span early set", "source intervention", "source gain [95% CI]", "source Holm p", "L28 mediation [95% CI]", "mediation Holm p"], q_fs_supported_rows, classes="paper-table compact-result-table")}
 <p>上表只列同时通过 source 与 L28 mediation 的组合。K=4/8/16/32 的 slot-state route 通过，K=16 的 slot-edge α/V route 也通过；K=1/2 没有通过串联 conjunction。因为所有 K 与 routes 在 outcome 前冻结且 p 已在18个组合内 Holm 校正，我们采用较小且已通过的 top-4 slot-state route 作为主图，而不以最大 effect 的 K 事后选路。</p>
-<figure>{q_gate}<figcaption><strong>Figure · Qwen natural-OV conjunction.</strong> 四个框对应四个不可互相替代的证据门；框内给出该 family 的核心 effect、95% CI 与 IUT p。勾号表示 family 通过。global IUT p 是四个 family p 的最大值，因此只有四门全部显著才支持自然 OV channel。</figcaption></figure>
-<figure>{q_write_svg}<figcaption><strong>Figure · Qwen write propagation.</strong> 横轴为 decoder layer L28–L35；纵轴为 natural pre-O intervention 相对同 W<sub>O</sub> span、等 post-O norm 正交 control 多产生的 frozen answer-count-axis coefficient。点为20个 seed effects 的均值，竖线为95% CI；0 表示 natural 与 control 在该层的 count-aligned propagation 没有差异。</figcaption></figure>
+<figure>{q_gate}<figcaption><strong>图 9A · Qwen natural-OV conjunction。</strong>该流程图没有数值坐标轴；四个框依次对应 natural carrier、pre-O sufficiency、centered necessity 和 donor-path mediation。框内给出 family 核心 effect、95% CI 与 IUT p；global IUT p 是四个 family p 的最大值，因此只有四门全部显著才支持 natural OV channel。</figcaption></figure>
+<figure>{q_write_svg}<figcaption><strong>图 9B · Qwen write propagation。</strong>横轴为 decoder layer L28–L35；纵轴为 natural pre-O intervention 相对同 W<sub>O</sub> span、等 post-O norm 正交 control 多产生的 frozen answer-count-axis coefficient。点为20个 seed effects 的均值，竖线为95% CI；0 表示 natural 与 control 在该层的 count-aligned propagation 没有差异。</figcaption></figure>
 <p class="result-sentence"><strong>结果。</strong>H16/H19 的自然载荷、pre-O 充分性、centered 必要性和 donor-path mediation 四个 families 全部通过，global IUT p={fmt_p(ov['primary_decision']['global_intersection_union_p'])}。routing 与 value 两个读取分量也分别显著；写入后的 specificity 一直保留到 L35。</p>
 {table(["证据", "具体验证什么", "effect [95% CI]", "p"], q_rows, classes="paper-table compact-result-table")}
 <div class="conclusion"><strong>Qwen 机制结论</strong>prompt running state 经 full-span-ranked early top-4 到达 L28；H16/H19 用 α 与 V 共同读取，再由自身 W<sub>O</sub> 写入新的 answer-residual direction，并传播到最终输出。新 exact-set 串联证据为复用冻结 seeds 的多重比较校正探索性确认；独立 fresh-seed 结果确认的是同一路由家族。</div>
@@ -8046,7 +8229,7 @@ def build_positive_mechanism_section(
 </dl></div>
 <p><strong>Window 的具体作用。</strong>L29H4 与 L35H2 位于 full-attention layers，能在 answer query 汇集完整 causal prefix；L30–L34、L36–L40 的 sliding layers不能直接重新看见大部分远端 needles，但 residual connection 会把此前已写入的 state 带入下一层，局部 attention/MLP 再变换它。因而 Gemma 路径不是“每层重新检索”，而是“full-attention 写入 → windowed residual 传播 → L41 terminal readout”。</p>
 <p>表中的四个 candidate-core effects 均显著；完整判定还要求每个 endpoint 同时优于三个冻结 layer-matched K2 controls。family p 取候选效应与 candidate-minus-control specificity 中较弱者，global IUT p 再取四个 family p 的最大值；因此 global IUT p={fmt_p(gemma_residual['primary_decision']['global_intersection_union_p'])} 表示四步 conjunction 全部通过，而不是从多个 endpoint 中挑最小 p。</p>
-<figure>{g_gate}<figcaption><strong>Figure · Gemma source→residual→terminal conjunction.</strong> 四个框按计算顺序展示 K2 source transport、删除完整 L37 induced residual、仅删除其 count-axis component，以及 L41 donor-count adoption。每框给出 candidate-core effect、95% CI 和包含 matched-specificity 的 family IUT p；global p 为四框中最大的 family p。</figcaption></figure>
+<figure>{g_gate}<figcaption><strong>图 9C · Gemma source→residual→terminal conjunction。</strong>该流程图没有数值坐标轴；四个框按计算顺序展示 K2 source transport、删除完整 L37 induced residual、仅删除其 count-axis component，以及 L41 donor-count adoption。每框给出 candidate-core effect、95% CI 和包含 matched-specificity 的 family IUT p；global p 为四框中最大的 family p。</figcaption></figure>
 <p class="result-sentence"><strong>结果。</strong>L29H4/L35H2 source patch 产生显著 donor transport；删除完整 δ<sub>37</sub> 或只删除其 count-aligned component 都会特异削弱 transport；L41 state 显著采用 donor count。四个 families 全部通过，global IUT p={fmt_p(gemma_residual['primary_decision']['global_intersection_union_p'])}。</p>
 {table(["证据", "具体验证什么", "effect [95% CI]", "p"], g_rows, classes="paper-table compact-result-table")}
 <div class="conclusion"><strong>Gemma 机制结论</strong>L29H4/L35H2 在 full-attention answer queries 聚合全 prompt，并经各自 W<sub>O</sub> 写回；写入形成 L37 的分布式、部分 count-aligned residual mediator。后续 sliding layers 不必重新访问远端 needles，而是让该 residual state 继续传播到 L41 answer computation。</div>
@@ -8101,7 +8284,7 @@ def build_limits_clear(
     subspace_audit: dict[str, Any],
 ) -> str:
     rows = [
-        ["Question specification", "reports/non-thinking extension.md", "one-row-per-question audit in §12"],
+        ["Question specification", "reports/non-thinking extension.md", "registered question and implementation map; paper claims summarized in §10"],
         ["Deterministic report builder", "scripts/build_realistic_niah_v4_4_integrated_report.py", "self-contained HTML; no runtime network dependency"],
         ["Extension code map", "scripts/v4_4_extension/README_v4_4_extension.md", "GPU runners, CPU analyzers, launch commands, split definitions"],
         ["Macro representation / patching", "reports/v4_non-thinking_causal/v4_4_causal_v2/report_summary.json", causal_v2["schema_version"]],
@@ -9068,15 +9251,15 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     )
     if count_palette_replacements != 1:
         raise RuntimeError("Could not apply Aurora count palette")
-    nav = """<nav><a href="#mechanism-overview">Mechanism</a><a href="#scope">结论</a><a href="#methods">设定</a><a href="#prompt">Prompt geometry</a><a href="#representation-extension">Representation tests</a><a href="#formation-tests">State formation</a><a href="#answer">Answer geometry</a><a href="#transport-subspace">Transport</a><a href="#layerwise-subspace-sweep">Layer sweep</a><a href="#attention">Attention</a><a href="#causal">Ablation / patching</a><a href="#natural-ov">Write / propagation</a><a href="#synthesis">对照</a><a href="#question-audit">逐题审计</a><a href="#limits">复现</a><a href="#appendix-first-locator">Appendix A</a></nav>"""
+    nav = """<nav><a href="#mechanism-overview">Mechanism claim</a><a href="#scope">Conclusions</a><a href="#methods">Design &amp; estimands</a><a href="#prompt">Prompt representation</a><a href="#representation-extension">Representation audit</a><a href="#formation-tests">State formation</a><a href="#answer">Answer state</a><a href="#transport-subspace">Transport</a><a href="#attention">Retrieval definition</a><a href="#causal">Causal identification</a><a href="#natural-ov">Write &amp; mediation</a><a href="#synthesis">Synthesis</a><a href="#limits">Limits &amp; reproducibility</a><a href="#appendix-first-locator">Appendix A</a></nav>"""
     base, nav_count = re.subn(r"<nav>.*?</nav>", nav, base, count=1, flags=re.S)
     if nav_count != 1:
         raise RuntimeError("Could not replace report navigation")
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     header = f"""<header>
 <div class="eyebrow">Realistic NIAH · V4.4 · non-thinking</div>
-<h1>从 prompt running counter 到 answer count：一条可检验的 non-thinking counting mechanism</h1>
-<p class="lead">这份报告从 decoder-only Transformer 的 residual stream 出发，逐步解释 Qwen3-8B 与 Gemma4-E4B 如何在长 prompt 中形成累计状态、用 attention heads 汇集它、经 OV/residual 路径改写成 answer-query state，并最终生成数字。每一步都把表示相关性、功能扰动和路径因果证据分开报告。</p>
+<h1>从 prompt running state 到可执行 answer count：non-thinking counting 的表征与因果机制</h1>
+<p class="lead">本文按照“机制命题—表征证据—因果识别”的顺序，研究 Qwen3-8B 与 Gemma4-E4B 如何在约10k-token prompt 中形成累计状态、在最终 query 汇集该状态、经 OV/residual 路径改写为 answer representation，并生成数字。每项主张都明确区分 discovery 与 confirmation、相关与干预、必要性与充分性，以及模型共同机制与架构特异路径。</p>
 <p class="meta">generated {generated} · self-contained HTML · raw tensors remain in FileStream · Aurora palette · editorial reference: <a href="https://transformer-circuits.pub/2025/linebreaks/index.html">Transformer Circuits · Line Breaks</a></p>
 </header>"""
     base, header_count = re.subn(
@@ -9297,28 +9480,11 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
         ov, read_write, upstream, fullspan_upstream, gemma_residual
     )
     synthesis_section = build_synthesis_clear(ov, fullspan_upstream, gemma_residual)
-    synthesis_section, coverage_count = re.subn(
-        r"</section>\s*$",
-        model_coverage_matrix() + "\n</section>",
-        synthesis_section,
-        count=1,
-    )
-    if coverage_count != 1:
-        raise RuntimeError("Could not append the two-model coverage audit")
     base = base.replace(
         '<section id="limits">',
         positive_section
         + "\n\n"
         + synthesis_section
-        + "\n\n"
-        + build_extension_question_audit(
-            extension_token_stats,
-            extension_subspace_stats,
-            causal_v2,
-            ov,
-            gemma_residual,
-            extension_earlier_heads,
-        )
         + '\n\n<section id="limits">',
         1,
     )
@@ -9371,6 +9537,7 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     base = make_all_tables_collapsible(base)
     base = merge_transport_into_section_5_4(base)
     base = make_secondary_content_collapsible(base)
+    base = apply_publication_editorial_pass(base)
 
     required_sections = [
         "mechanism-overview",
@@ -9384,7 +9551,6 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
         "causal",
         "natural-ov",
         "synthesis",
-        "question-audit",
         "limits",
         "appendix-first-locator",
     ]
@@ -9400,8 +9566,6 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
             raise RuntimeError(f"Removed section unexpectedly present: {removed_section}")
     for canvas_id in (
         "running-index-canvas",
-        "prompt-canvas",
-        "answer-canvas",
         "joint-canvas",
     ):
         if base.count(f'id="{canvas_id}"') != 1:
