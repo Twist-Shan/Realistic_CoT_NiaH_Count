@@ -127,3 +127,51 @@ def test_experimental_subsections_end_with_explicit_conclusions() -> None:
         assert 'class="conclusion"' in report[start:end], re.sub(
             r"<[^>]+>", "", match.group(1)
         )
+
+
+def test_equations_use_paper_math_typography_not_code_chips() -> None:
+    report = _report()
+    assert '--math-font:"Cambria Math","STIX Two Math"' in report
+    assert report.count('class="math-inline"') >= 150
+    assert ".math-inline,.equation,.formula-line{font-family:var(--math-font)" in report
+    assert ".equation,.formula-line{display:block" in report
+    assert ".equation,.formula-line{background:#F0F6FF" not in report
+    for formula in (
+        "h<sup>P</sup><sub>s,n,ℓ</sub>=h<sub>ℓ</sub>",
+        "b<sub>ℓ</sub>=Σ<sub>i</sub>",
+    ):
+        assert f'<span class="math-inline">{formula}' in report
+    assert (
+        '<span class="formula-line">T=(y<sub>P</sub>−y<sub>0</sub>)/(D−R)</span>'
+        in report
+    )
+
+
+def test_mechanism_headers_do_not_create_empty_grid_rows() -> None:
+    overview = _section("mechanism-overview")
+    headers = re.findall(
+        r'<div class="model-mechanism-header">(.*?)</div>', overview, re.S
+    )
+    assert len(headers) == 2
+    for header in headers:
+        assert header.count("<h3>") == 1
+        assert header.count("<p>") == 1
+        assert 'class="conclusion"' not in header
+    assert overview.index("定义结论。") < overview.index(
+        '<article class="model-mechanism qwen">'
+    )
+    assert overview.index("Qwen 局部结论。") < overview.index(
+        '<article class="model-mechanism gemma">'
+    )
+
+
+def test_report_has_no_empty_figure_or_empty_figure_grid() -> None:
+    report = _report()
+    assert not re.search(r'<div class="figure-grid[^>]*>\s*</div>', report)
+    figures = re.findall(r"<figure\b[^>]*>(.*?)</figure>", report, re.S)
+    assert len(figures) == 28
+    for figure in figures:
+        body = re.sub(r"<figcaption\b.*?</figcaption>", "", figure, flags=re.S)
+        assert re.sub(r"<[^>]+>", "", body).strip() or any(
+            marker in body for marker in ("<svg", "<canvas", "plot-shell")
+        )

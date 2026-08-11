@@ -405,15 +405,15 @@ def apply_publication_editorial_pass(document: str) -> str:
 
     mechanism = section("mechanism-overview")
     mechanism = mechanism.replace(
-        "<h3>Qwen3-8B：从 full-span early retrieval 到局部 OV 写入</h3>",
+        '<article class="model-mechanism qwen">',
         """<div class="conclusion"><strong>定义结论。</strong>本文把 state 定义为指定 token 与 post-block layer 的 residual vector，把 count direction 定义为只用 discovery 数据拟合并冻结的统计方向。后续结论因此指向“状态中的可读/可干预分量”，不把一个 token 或一个 PCA 轴写成离散整数寄存器。</div>
-<h3>Qwen3-8B：从 full-span early retrieval 到局部 OV 写入</h3>""",
+<article class="model-mechanism qwen">""",
         1,
     )
     mechanism = mechanism.replace(
-        "<h3>Gemma4-E4B：周期性全局读取与窗口内 residual 传递</h3>",
+        '<article class="model-mechanism gemma">',
         """<div class="conclusion"><strong>Qwen 局部结论。</strong>Qwen 的证据链把 full-span-ranked early source bank 接到 L28 H16/H19，并进一步确认这组 heads 通过自身 <em>W</em><sub>O</sub> 写入、在 L29–L35 传播并影响最终数字；单个 head 的独立充分性不由 set-level 结果保证。</div>
-<h3>Gemma4-E4B：周期性全局读取与窗口内 residual 传递</h3>""",
+<article class="model-mechanism gemma">""",
         1,
     )
     mechanism = mechanism[:-len("</section>")] + """
@@ -427,6 +427,43 @@ def apply_publication_editorial_pass(document: str) -> str:
     if nav_count != 1:
         raise RuntimeError("Could not install paper-facing navigation")
     return document
+
+
+def apply_paper_math_typesetting(document: str) -> str:
+    """Mark mathematical code spans so prose code and equations render differently.
+
+    The legacy report used ``<code>`` for both implementation identifiers and
+    mathematical notation.  That made equations monospaced and gave every
+    variable a colored code-chip background.  This pass keeps literal tokens
+    such as ``Total:`` and artifact names as code, while converting expressions,
+    indexed variables, Greek symbols, and one-letter mathematical variables to
+    semantic inline-math spans.  Display equations already carry the dedicated
+    ``equation`` or ``formula-line`` class and are styled separately in CSS.
+    """
+
+    mathematical_symbols = set(
+        "=Σ∑∈≈≠≤≥←→±−·Δδβαℓεμρ√∥⟨⟩"
+    )
+    single_symbol = re.compile(r"[A-Za-zα-ωΑ-Ωℓ]")
+
+    def replace_code(match: re.Match[str]) -> str:
+        contents = match.group(1)
+        plain = html.unescape(re.sub(r"<[^>]+>", "", contents)).strip()
+        is_math = (
+            "<sub>" in contents
+            or "<sup>" in contents
+            or any(symbol in plain for symbol in mathematical_symbols)
+            or single_symbol.fullmatch(plain) is not None
+        )
+        if not is_math:
+            return match.group(0)
+        return f'<span class="math-inline">{contents}</span>'
+
+    head, marker, tail = document.partition("<script>")
+    if not marker:
+        raise RuntimeError("Paper math pass could not locate the report script")
+    head = re.sub(r"<code>(.*?)</code>", replace_code, head, flags=re.S)
+    return head + marker + tail
 
 
 def model_coverage_matrix() -> str:
@@ -7305,9 +7342,28 @@ details.data-table{margin:16px 0;border:1px solid #D7DEE8;border-radius:8px;back
 
 AURORA_CSS = r"""
 :root{--paper:#F8FBFF;--surface:#FFFFFF;--ink:#161923;--muted:#64748B;--line:#D7DEE8;--indigo:#23165C;--violet:#6750E8;--cyan:#00C2FF;--yellow:#F6E36A;--teal:#00D4B4;--green:#39E58C;--magenta:#C04DFF;--pink:#FF5FA2;--gray:#8190A5;--brown:#765347}
-html{scroll-padding-top:64px}body{background:var(--paper);color:var(--ink);font-family:"Aptos","Segoe UI",Arial,sans-serif;font-size:16px;line-height:1.68}main{max-width:1240px;padding:44px 34px 110px}nav{background:rgba(248,251,255,.96);border-bottom:1px solid #D7DEE8;box-shadow:0 6px 20px rgba(35,22,92,.045)}nav a{color:#23165C;font-size:13px;letter-spacing:.01em}nav a:hover{color:#6750E8}header{max-width:1030px;padding:48px 0 34px;border-bottom:4px solid #23165C}h1,h2,h3,h4{font-family:Georgia,"Times New Roman",serif;color:#161923;letter-spacing:-.018em}h1{font-size:43px;line-height:1.1;max-width:940px}h2{font-size:31px;line-height:1.22;max-width:1020px}h3{font-size:22px;line-height:1.3;margin-top:36px}.eyebrow{color:#6750E8}.lead{color:#3F4A5A;max-width:82ch}.meta{color:#8190A5}section{padding:58px 0;border-bottom:1px solid #D7DEE8}p{max-width:92ch}.small,figcaption{color:#64748B}figure,.figure-block{background:#FFFFFF;border-color:#D7DEE8;border-radius:10px}figure{box-shadow:0 12px 32px rgba(35,22,92,.045)}figcaption{padding-top:4px;line-height:1.6}.callout,.conclusion{background:#FFFFFF;border-left-color:#00D4B4;box-shadow:0 8px 24px rgba(35,22,92,.035)}.conclusion strong:first-child{color:#23165C}.warning{border-left-color:#F6E36A}.equation,.formula-line{background:#F0F6FF;border-color:#C9D7E8;color:#23165C}.study-preface{border-top-color:#6750E8;border-bottom-color:#D7DEE8}.study-preface strong{color:#23165C}.paper-table td:first-child,.paper-wording strong,.test-card h4,.plain-protocol h4{color:#23165C}details.data-table,.test-card,.plain-protocol,.paper-wording{background:#FFFFFF;border-color:#D7DEE8;border-radius:8px}details.data-table summary{color:#23165C}th{background:#EEF1FF;color:#23165C}th,td{border-bottom-color:#E3E8F0}tbody tr:hover{background:#F1FAFF}code{background:#EEF1FF;color:#23165C}.baseline-strip>div{background:#FFFFFF;border-color:#D7DEE8}.baseline-strip strong{color:#6750E8}.evidence.descriptive{background:#EEEAFE;color:#23165C}.evidence.functional{background:#E4F9FF;color:#07546E}.evidence.confirmed,.sig-yes{background:#DFFAF1;color:#075A48}.evidence.supported{background:#FFF9D6;color:#765A00}.evidence.rejected,.sig-no{background:#FFE7F1;color:#7D204D}.plot-shell,.mechanism-canvas-wrap{background:#23165C;border-color:#3D2E7A}.prompt-block{background:#23165C;border-color:#6750E8;color:#F8FBFF}.controls select,.controls button,.switcher button,.mechanism-paper-controls button,.mechanism-controls button,.running-controls button,.step-dots button{background:#FFFFFF;border-color:#B7C2D3;color:#23165C}.controls button:hover,.switcher button:hover,.mechanism-paper-controls button:hover,.mechanism-controls button:hover,.running-controls button:hover{background:#EEF1FF}.switcher button[aria-pressed="true"],.mechanism-paper-dots button[aria-current="step"],.step-dots button[aria-current="step"]{background:#6750E8;border-color:#6750E8;color:#FFFFFF}.mechanism-main,.mechanism-clear{background:#FFFFFF;border:1px solid #D7DEE8;border-top:5px solid #23165C;border-radius:12px;box-shadow:0 18px 44px rgba(35,22,92,.06)}.main-figure-kicker,.mechanism-clear .main-figure-kicker{color:#6750E8}.model-mechanism,.positive-mechanism-model{border-top-color:#6750E8}.model-mechanism.gemma,.positive-mechanism-model.gemma{border-top-color:#00D4B4}.mechanism-step-number,.scope-line .status{color:#6750E8}.gemma .mechanism-step-number{color:#00A98F}.mechanism-step-evidence{color:#087A67}.mechanism-paper-svg{background:#F8FBFF;border-color:#D7DEE8}.mechanism-paper-svg .paper-node rect{fill:#F3F0FF;stroke:#6750E8}.mechanism-paper-svg .paper-node.is-complete rect{fill:#E3FBF5;stroke:#00D4B4}.mechanism-paper-svg .paper-edge.is-complete{stroke:#00D4B4}.mechanism-paper-svg .paper-node.is-active rect{fill:#EAE5FF;stroke:#6750E8;filter:none}.mechanism-paper-svg .gemma-node.is-active rect{fill:#E1FCF6;stroke:#00D4B4;filter:none}.mechanism-paper-svg .paper-edge.is-active{stroke:#6750E8}.mechanism-paper-svg .gemma-edge.is-active{stroke:#00D4B4}.mechanism-live-grid{border-color:#D7DEE8}.mechanism-live-grid>div+div{border-color:#D7DEE8}.ov-short-flow .ov-box{border-top-color:#6750E8;background:#F8FBFF;border-bottom-color:#D7DEE8}.ov-short-flow .ov-arrow{color:#6750E8}.ov-data-strip{border-left-color:#6750E8;background:#F6F4FF}.ov-data-strip.gemma{border-left-color:#00D4B4;background:#EEFCF8}.step-result{border-left-color:#6750E8;background:#F3F0FF}.running-controls,.running-status{background:#F8FBFF;border-color:#D7DEE8}.paper-wording{background:#F6F4FF}.integrated-forest .grid,.write-trace .grid,.layer-curve-svg .grid{stroke:#E0E6EF}.integrated-forest .zero{stroke:#161923}.integrated-forest .dot{stroke:#FFFFFF}.integrated-forest .tick,.write-trace .tick,.layer-curve-svg .tick{fill:#64748B}.integrated-forest .row-label,.integrated-forest .axis-label,.write-trace .axis-label,.layer-curve-svg .axis-label,.layer-curve-svg .panel-title{fill:#161923}.write-trace .trace-line,.write-trace .trace-ci{stroke:#6750E8}.write-trace .trace-dot{fill:#6750E8;stroke:#FFFFFF}.gate-svg .gate-box{fill:#F8FBFF;stroke:#B9C5D5}.gate-svg .gate-heading{fill:#23165C}.gate-svg .gate-check{fill:#00D4B4}.relay-svg .relay-pass{fill:#E3FBF5;stroke:#00D4B4}.relay-svg .relay-fail{fill:#FFE7F1;stroke:#FF5FA2}.all-token-scatter rect{fill:#23165C}.provenance-note{color:#8190A5}
+html{scroll-padding-top:64px}body{background:var(--paper);color:var(--ink);font-family:"Aptos","Segoe UI",Arial,sans-serif;font-size:16px;line-height:1.68}main{max-width:1240px;padding:44px 34px 110px}nav{background:rgba(248,251,255,.96);border-bottom:1px solid #D7DEE8;box-shadow:0 6px 20px rgba(35,22,92,.045)}nav a{color:#23165C;font-size:13px;letter-spacing:.01em}nav a:hover{color:#6750E8}header{max-width:1030px;padding:48px 0 34px;border-bottom:4px solid #23165C}h1,h2,h3,h4{font-family:Georgia,"Times New Roman",serif;color:#161923;letter-spacing:-.018em}h1{font-size:43px;line-height:1.1;max-width:940px}h2{font-size:31px;line-height:1.22;max-width:1020px}h3{font-size:22px;line-height:1.3;margin-top:36px}.eyebrow{color:#6750E8}.lead{color:#3F4A5A;max-width:82ch}.meta{color:#8190A5}section{padding:58px 0;border-bottom:1px solid #D7DEE8}p{max-width:92ch}.small,figcaption{color:#64748B}figure,.figure-block{background:#FFFFFF;border-color:#D7DEE8;border-radius:10px}figure{box-shadow:0 12px 32px rgba(35,22,92,.045)}figcaption{padding-top:4px;line-height:1.6}.callout,.conclusion{background:#FFFFFF;border-left-color:#00D4B4;box-shadow:0 8px 24px rgba(35,22,92,.035)}.conclusion strong:first-child{color:#23165C}.warning{border-left-color:#F6E36A}.study-preface{border-top-color:#6750E8;border-bottom-color:#D7DEE8}.study-preface strong{color:#23165C}.paper-table td:first-child,.paper-wording strong,.test-card h4,.plain-protocol h4{color:#23165C}details.data-table,.test-card,.plain-protocol,.paper-wording{background:#FFFFFF;border-color:#D7DEE8;border-radius:8px}details.data-table summary{color:#23165C}th{background:#EEF1FF;color:#23165C}th,td{border-bottom-color:#E3E8F0}tbody tr:hover{background:#F1FAFF}code{background:#EEF1FF;color:#23165C}.baseline-strip>div{background:#FFFFFF;border-color:#D7DEE8}.baseline-strip strong{color:#6750E8}.evidence.descriptive{background:#EEEAFE;color:#23165C}.evidence.functional{background:#E4F9FF;color:#07546E}.evidence.confirmed,.sig-yes{background:#DFFAF1;color:#075A48}.evidence.supported{background:#FFF9D6;color:#765A00}.evidence.rejected,.sig-no{background:#FFE7F1;color:#7D204D}.plot-shell,.mechanism-canvas-wrap{background:#23165C;border-color:#3D2E7A}.prompt-block{background:#23165C;border-color:#6750E8;color:#F8FBFF}.controls select,.controls button,.switcher button,.mechanism-paper-controls button,.mechanism-controls button,.running-controls button,.step-dots button{background:#FFFFFF;border-color:#B7C2D3;color:#23165C}.controls button:hover,.switcher button:hover,.mechanism-paper-controls button:hover,.mechanism-controls button:hover,.running-controls button:hover{background:#EEF1FF}.switcher button[aria-pressed="true"],.mechanism-paper-dots button[aria-current="step"],.step-dots button[aria-current="step"]{background:#6750E8;border-color:#6750E8;color:#FFFFFF}.mechanism-main,.mechanism-clear{background:#FFFFFF;border:1px solid #D7DEE8;border-top:5px solid #23165C;border-radius:12px;box-shadow:0 18px 44px rgba(35,22,92,.06)}.main-figure-kicker,.mechanism-clear .main-figure-kicker{color:#6750E8}.model-mechanism,.positive-mechanism-model{border-top-color:#6750E8}.model-mechanism.gemma,.positive-mechanism-model.gemma{border-top-color:#00D4B4}.mechanism-step-number,.scope-line .status{color:#6750E8}.gemma .mechanism-step-number{color:#00A98F}.mechanism-step-evidence{color:#087A67}.mechanism-paper-svg{background:#F8FBFF;border-color:#D7DEE8}.mechanism-paper-svg .paper-node rect{fill:#F3F0FF;stroke:#6750E8}.mechanism-paper-svg .paper-node.is-complete rect{fill:#E3FBF5;stroke:#00D4B4}.mechanism-paper-svg .paper-edge.is-complete{stroke:#00D4B4}.mechanism-paper-svg .paper-node.is-active rect{fill:#EAE5FF;stroke:#6750E8;filter:none}.mechanism-paper-svg .gemma-node.is-active rect{fill:#E1FCF6;stroke:#00D4B4;filter:none}.mechanism-paper-svg .paper-edge.is-active{stroke:#6750E8}.mechanism-paper-svg .gemma-edge.is-active{stroke:#00D4B4}.mechanism-live-grid{border-color:#D7DEE8}.mechanism-live-grid>div+div{border-color:#D7DEE8}.ov-short-flow .ov-box{border-top-color:#6750E8;background:#F8FBFF;border-bottom-color:#D7DEE8}.ov-short-flow .ov-arrow{color:#6750E8}.ov-data-strip{border-left-color:#6750E8;background:#F6F4FF}.ov-data-strip.gemma{border-left-color:#00D4B4;background:#EEFCF8}.step-result{border-left-color:#6750E8;background:#F3F0FF}.running-controls,.running-status{background:#F8FBFF;border-color:#D7DEE8}.paper-wording{background:#F6F4FF}.integrated-forest .grid,.write-trace .grid,.layer-curve-svg .grid{stroke:#E0E6EF}.integrated-forest .zero{stroke:#161923}.integrated-forest .dot{stroke:#FFFFFF}.integrated-forest .tick,.write-trace .tick,.layer-curve-svg .tick{fill:#64748B}.integrated-forest .row-label,.integrated-forest .axis-label,.write-trace .axis-label,.layer-curve-svg .axis-label,.layer-curve-svg .panel-title{fill:#161923}.write-trace .trace-line,.write-trace .trace-ci{stroke:#6750E8}.write-trace .trace-dot{fill:#6750E8;stroke:#FFFFFF}.gate-svg .gate-box{fill:#F8FBFF;stroke:#B9C5D5}.gate-svg .gate-heading{fill:#23165C}.gate-svg .gate-check{fill:#00D4B4}.relay-svg .relay-pass{fill:#E3FBF5;stroke:#00D4B4}.relay-svg .relay-fail{fill:#FFE7F1;stroke:#FF5FA2}.all-token-scatter rect{fill:#23165C}.provenance-note{color:#8190A5}
 .gemma .mechanism-step-number{color:#00D4B4}.mechanism-step-evidence{color:#23165C}.plot-shell,.mechanism-canvas-wrap{border-color:#6750E8}.controls select,.controls button,.switcher button,.mechanism-paper-controls button,.mechanism-controls button,.running-controls button,.step-dots button{border-color:#8190A5}.evidence.functional,.evidence.confirmed,.evidence.supported,.evidence.rejected,.sig-yes,.sig-no{color:#23165C}.mechanism-paper-svg #mechanism-arrow-q path{fill:#6750E8}.mechanism-paper-svg #mechanism-arrow-g path{fill:#00D4B4}.mechanism-paper-svg .qwen-edge{stroke:#6750E8}.mechanism-paper-svg .gemma-edge{stroke:#00D4B4}.mechanism-paper-svg .window-s{fill:#F8FBFF;stroke:#8190A5}.mechanism-paper-svg .window-f{fill:#00D4B4;stroke:#23165C}.mechanism-paper-svg .window-label{fill:#161923}
 @media(max-width:760px){main{padding:28px 16px 72px}header{padding-top:30px}h1{font-size:34px}h2{font-size:27px}section{padding:44px 0}}
+"""
+
+
+PAPER_TYPOGRAPHY_CSS = r"""
+:root{--math-font:"Cambria Math","STIX Two Math","STIXGeneral","DejaVu Math TeX Gyre","Times New Roman",serif}
+.math-inline,.equation,.formula-line{font-family:var(--math-font);font-weight:400;font-style:normal;letter-spacing:0;color:#111318;font-variant-numeric:lining-nums tabular-nums}
+.math-inline{display:inline;padding:0 .06em;margin:0 .015em;background:transparent;border:0;border-radius:0;white-space:nowrap;font-size:1.045em}
+.math-inline sub,.math-inline sup,.equation sub,.equation sup,.formula-line sub,.formula-line sup{font-size:.72em;line-height:0}
+.equation,.formula-line{display:block;width:100%;max-width:100%;margin:14px auto 18px;padding:4px 18px;border:0;border-radius:0;background:transparent;text-align:center;font-size:1.08em;line-height:1.9;overflow-x:auto;overflow-y:hidden;white-space:nowrap}
+.formula-line{margin:9px 0 12px}
+.mechanism-step-action>.formula-line,.test-card dd>.formula-line{font-family:var(--math-font);font-size:1.035em;font-weight:400;font-style:normal;line-height:1.9;color:#111318;border-top:1px solid #E3E8F0;border-bottom:1px solid #E3E8F0;padding-top:8px;padding-bottom:8px}
+.mechanism-definition-grid .math-inline{font-size:1.055em}
+.mechanism-definition-grid code{font-family:"Aptos Mono","Cascadia Mono",Consolas,monospace;background:#F4F5FA;color:#31394A}
+.model-mechanism-header{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:36px;align-items:start;min-height:0}
+.model-mechanism-header>h3,.model-mechanism-header>p{min-width:0}
+.mechanism-clear>.conclusion{max-width:92ch}
+@media(max-width:1180px){nav{position:relative;top:auto}html{scroll-padding-top:12px}}
+@media(max-width:820px){.model-mechanism-header{grid-template-columns:1fr;gap:10px}.equation,.formula-line{text-align:left;padding-left:2px;padding-right:2px}}
+@media print{nav{display:none}.equation,.formula-line{overflow:visible;white-space:normal;break-inside:avoid}.math-inline{color:#000}figure,.conclusion,.test-card{box-shadow:none}}
 """
 
 
@@ -9240,7 +9296,12 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
         raise RuntimeError("Base report has no style terminator")
     base = base.replace(
         "</style>",
-        EXTRA_CSS + CLEAR_CSS + REPORT_REFINEMENT_CSS + AURORA_CSS + "\n</style>",
+        EXTRA_CSS
+        + CLEAR_CSS
+        + REPORT_REFINEMENT_CSS
+        + AURORA_CSS
+        + PAPER_TYPOGRAPHY_CSS
+        + "\n</style>",
         1,
     )
     base, count_palette_replacements = re.subn(
@@ -9538,6 +9599,7 @@ def build_report_clear(repo_root: Path, output: Path) -> None:
     base = merge_transport_into_section_5_4(base)
     base = make_secondary_content_collapsible(base)
     base = apply_publication_editorial_pass(base)
+    base = apply_paper_math_typesetting(base)
 
     required_sections = [
         "mechanism-overview",
