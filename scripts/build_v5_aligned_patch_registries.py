@@ -55,9 +55,22 @@ def marker_seed_key(row: Mapping[str, Any]) -> tuple[str, int, int, int]:
 
 
 def freeze_marker(
-    paths: Mapping[str, Path], transitions: tuple[tuple[int, int], ...], per_stratum: int
+    paths: Mapping[str, Path],
+    transitions: tuple[tuple[int, int], ...],
+    per_stratum: int,
+    constructability_paths: Mapping[str, Path] | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
     rows = {model: read_jsonl(path) for model, path in paths.items()}
+    allowed_pair_ids: dict[str, set[str]] | None = None
+    if constructability_paths is not None:
+        allowed_pair_ids = {
+            model: {
+                str(row["pair_id"])
+                for row in read_jsonl(constructability_paths[model])
+                if bool(row["all_required_constructible"])
+            }
+            for model in MODELS
+        }
     selected: dict[str, list[dict[str, Any]]] = {model: [] for model in MODELS}
     availability: dict[str, dict[str, int]] = {model: {} for model in MODELS}
     exact_seed_matches = 0
@@ -66,7 +79,15 @@ def freeze_marker(
             key = (split, low, high)
             candidates = {
                 model: sorted(
-                    (row for row in rows[model] if marker_key(row) == key),
+                    (
+                        row
+                        for row in rows[model]
+                        if marker_key(row) == key
+                        and (
+                            allowed_pair_ids is None
+                            or str(row["pair_id"]) in allowed_pair_ids[model]
+                        )
+                    ),
                     key=lambda row: (int(row["seed"]), str(row["pair_id"])),
                 )
                 for model in MODELS
@@ -121,6 +142,11 @@ def freeze_marker(
             "same transition strata, split and pair count per model; prefer exact "
             "cross-model seed matches, otherwise use deterministic model-specific "
             "correct strict-one-to-one pairs"
+        ),
+        "query_constructability_filter": (
+            "pre_city_d1/pre_city_d2/pre_city_anchor all required"
+            if allowed_pair_ids is not None
+            else "not supplied"
         ),
     }
     return selected, audit
@@ -200,6 +226,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--qwen-marker", type=Path, required=True)
     parser.add_argument("--gemma-marker", type=Path, required=True)
+    parser.add_argument("--qwen-marker-query-audit", type=Path)
+    parser.add_argument("--gemma-marker-query-audit", type=Path)
     parser.add_argument("--qwen-answer", type=Path, required=True)
     parser.add_argument("--gemma-answer", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -209,10 +237,19 @@ def main() -> None:
     parser.add_argument("--answer-max-per-signed-gap", type=int)
     args = parser.parse_args()
 
+    query_audits = None
+    if args.qwen_marker_query_audit or args.gemma_marker_query_audit:
+        if not args.qwen_marker_query_audit or not args.gemma_marker_query_audit:
+            raise ValueError("Both marker query audits must be supplied together")
+        query_audits = {
+            MODELS[0]: args.qwen_marker_query_audit,
+            MODELS[1]: args.gemma_marker_query_audit,
+        }
     marker, marker_audit = freeze_marker(
         {MODELS[0]: args.qwen_marker, MODELS[1]: args.gemma_marker},
         args.marker_transitions,
         args.marker_per_stratum,
+        query_audits,
     )
     answer, answer_audit = freeze_answer(
         {MODELS[0]: args.qwen_answer, MODELS[1]: args.gemma_answer},
