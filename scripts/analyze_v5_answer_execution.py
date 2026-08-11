@@ -43,6 +43,35 @@ def bootstrap(values: np.ndarray, *, label: str) -> tuple[float, float]:
     return tuple(float(value) for value in np.quantile(draws, [0.025, 0.975]))
 
 
+def sign_flip(values: np.ndarray) -> tuple[float, str, int]:
+    values = values[np.isfinite(values)]
+    observed = abs(float(values.mean()))
+    if len(values) <= 20:
+        total = 1 << len(values)
+        extreme = 0
+        bits = np.arange(len(values), dtype=np.uint64)
+        for start in range(0, total, 65_536):
+            stop = min(total, start + 65_536)
+            masks = np.arange(start, stop, dtype=np.uint64)[:, None]
+            signs = np.where(((masks >> bits) & 1) == 0, -1.0, 1.0)
+            draws = np.abs((signs * values).mean(axis=1))
+            extreme += int(np.count_nonzero(draws >= observed - 1e-15))
+        return float(extreme / total), "exact_enumeration", total
+    repetitions = 1_000_000
+    seed = int.from_bytes(hashlib.sha256(values.tobytes()).digest()[:8], "little")
+    rng = np.random.default_rng(seed)
+    extreme = 0
+    for _ in range(100):
+        signs = rng.choice((-1.0, 1.0), size=(10_000, len(values)))
+        draws = np.abs((signs * values).mean(axis=1))
+        extreme += int(np.count_nonzero(draws >= observed - 1e-15))
+    return (
+        float((extreme + 1) / (repetitions + 1)),
+        "deterministic_monte_carlo",
+        repetitions,
+    )
+
+
 def analyze(trials: Path, pairs_path: Path, output_dir: Path) -> dict[str, Any]:
     rows = read_jsonl(trials)
     pairs = read_jsonl(pairs_path)
@@ -131,6 +160,14 @@ def analyze(trials: Path, pairs_path: Path, output_dir: Path) -> dict[str, Any]:
         wide["strict_normalized_transport__full_donor_patch"]
         - wide["strict_normalized_transport__orthogonal_norm_matched"]
     )
+    wide["projected_minus_orthogonal_adoption"] = (
+        wide["donor_adoption__projected_donor_patch"].astype(float)
+        - wide["donor_adoption__orthogonal_norm_matched"].astype(float)
+    )
+    wide["full_minus_orthogonal_adoption"] = (
+        wide["donor_adoption__full_donor_patch"].astype(float)
+        - wide["donor_adoption__orthogonal_norm_matched"].astype(float)
+    )
     seed = (
         wide.groupby(["model_label", "seed"], as_index=False)
         .agg(
@@ -142,6 +179,9 @@ def analyze(trials: Path, pairs_path: Path, output_dir: Path) -> dict[str, Any]:
             projected_specificity=("projected_minus_orthogonal_transport", "mean"),
             full_donor_adoption=("donor_adoption__full_donor_patch", "mean"),
             projected_donor_adoption=("donor_adoption__projected_donor_patch", "mean"),
+            orthogonal_donor_adoption=("donor_adoption__orthogonal_norm_matched", "mean"),
+            full_adoption_specificity=("full_minus_orthogonal_adoption", "mean"),
+            projected_adoption_specificity=("projected_minus_orthogonal_adoption", "mean"),
         )
     )
     statistics_rows = []
@@ -153,9 +193,12 @@ def analyze(trials: Path, pairs_path: Path, output_dir: Path) -> dict[str, Any]:
             "projected_specificity",
             "full_donor_adoption",
             "projected_donor_adoption",
+            "full_adoption_specificity",
+            "projected_adoption_specificity",
         ):
             values = frame[metric].to_numpy(dtype=float)
             low, high = bootstrap(values, label=f"v5-answer-execution:{model}:{metric}")
+            p_value, method, assignments = sign_flip(values)
             statistics_rows.append(
                 {
                     "model_label": model,
@@ -165,10 +208,29 @@ def analyze(trials: Path, pairs_path: Path, output_dir: Path) -> dict[str, Any]:
                     "ci95_low": low,
                     "ci95_high": high,
                     "positive_seed_fraction": float(np.mean(values > 0)),
+                    "sign_flip_p": p_value,
+                    "sign_flip_method": method,
+                    "sign_flip_assignments": assignments,
                     "bootstrap_repetitions": 10_000,
                 }
             )
     statistics = pd.DataFrame(statistics_rows)
+    statistics["holm_p_within_model"] = np.nan
+    for _model, indices in statistics.groupby("model_label").groups.items():
+        ordered = sorted(
+            indices, key=lambda index: statistics.loc[index, "sign_flip_p"]
+        )
+        running = 0.0
+        for rank, index in enumerate(ordered):
+            running = max(
+                running,
+                min(
+                    1.0,
+                    (len(ordered) - rank)
+                    * float(statistics.loc[index, "sign_flip_p"]),
+                ),
+            )
+            statistics.loc[index, "holm_p_within_model"] = running
     output_dir.mkdir(parents=True, exist_ok=True)
     detail_path = output_dir / "detail.csv"
     pair_path = output_dir / "paired_effects.csv"
@@ -191,6 +253,10 @@ def analyze(trials: Path, pairs_path: Path, output_dir: Path) -> dict[str, Any]:
         ),
         "behavioral_endpoint": "strict greedy generated numeric answer",
         "strict_invalid_policy": "invalid patched numeric generation has zero transport and zero adoption",
+        "primary_specificity_controls": (
+            "full/projected donor effects are each contrasted with the "
+            "norm-matched orthogonal control; p values use seed-level sign flips"
+        ),
         "registered_pairs": len(pairs),
         "completed_pairs": len(wide),
         "conditions_per_pair": 4,

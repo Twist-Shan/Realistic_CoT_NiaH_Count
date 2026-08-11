@@ -203,6 +203,9 @@ def analyze(paths: list[Path], output_dir: Path) -> dict[str, Any]:
                 **base,
                 "random_predictions": json.dumps(random_predictions),
                 "random_valid_rate": float(np.mean([value is not None for value in random_predictions])),
+                "random_exact_rate": float(
+                    np.mean([bool(row.get("exact_count")) for row in random])
+                ),
                 "absolute_count_shift_specificity": ranked_shift - float(np.mean(random_shifts)),
                 "correct_to_wrong_specificity": ranked_failure - float(np.mean(random_failures)),
                 "mae_specificity": ranked_mae - float(np.mean(random_maes)),
@@ -276,15 +279,87 @@ def analyze(paths: list[Path], output_dir: Path) -> dict[str, Any]:
                 }
             )
     statistics = pd.DataFrame(statistic_rows)
+    statistics["holm_p_within_model"] = np.nan
+    for _model, indices in statistics.groupby("model_label").groups.items():
+        ordered = sorted(
+            indices, key=lambda index: statistics.loc[index, "sign_flip_p"]
+        )
+        running = 0.0
+        for rank, index in enumerate(ordered):
+            running = max(
+                running,
+                min(
+                    1.0,
+                    (len(ordered) - rank)
+                    * float(statistics.loc[index, "sign_flip_p"]),
+                ),
+            )
+            statistics.loc[index, "holm_p_within_model"] = running
+
+    answer_families = (
+        "answer_prompt_aggregation",
+        "answer_trace_aggregation",
+        "answer_prompt_and_trace_aggregation",
+    )
+    answer_frames = []
+    answer = paired.loc[paired["family"].isin(answer_families)].copy()
+    common = [
+        "model_label",
+        "bank_size",
+        "request_id",
+        "seed",
+        "gold_count",
+        "clean_prediction",
+        "clean_exact_count",
+    ]
+    for family in answer_families:
+        active = answer.loc[answer["family"].eq(family)].copy()
+        if active.empty:
+            continue
+        suffix = {
+            "answer_prompt_aggregation": "prompt_ablation",
+            "answer_trace_aggregation": "trace_ablation",
+            "answer_prompt_and_trace_aggregation": "joint_ablation",
+        }[family]
+        active = active[
+            common
+            + [
+                "ranked_prediction",
+                "ranked_exact_count",
+                "random_exact_rate",
+                "correct_to_wrong_specificity",
+                "absolute_count_shift_specificity",
+            ]
+        ].rename(
+            columns={
+                "ranked_prediction": f"{suffix}_prediction",
+                "ranked_exact_count": f"{suffix}_exact_count",
+                "random_exact_rate": f"{suffix}_random_exact_rate",
+                "correct_to_wrong_specificity": (
+                    f"{suffix}_correct_to_wrong_specificity"
+                ),
+                "absolute_count_shift_specificity": (
+                    f"{suffix}_absolute_count_shift_specificity"
+                ),
+            }
+        )
+        answer_frames.append(active)
+    factorial = pd.DataFrame()
+    if len(answer_frames) == len(answer_families):
+        factorial = answer_frames[0]
+        for active in answer_frames[1:]:
+            factorial = factorial.merge(active, on=common, how="inner", validate="one_to_one")
     output_dir.mkdir(parents=True, exist_ok=True)
     paired_path = output_dir / "paired_request_effects.csv"
     seed_path = output_dir / "seed_effects.csv"
     stats_path = output_dir / "statistics.csv"
     unmatched_path = output_dir / "unmatched_ranked_treatments.csv"
+    factorial_path = output_dir / "answer_aggregation_four_conditions.csv"
     paired.to_csv(paired_path, index=False)
     seed_effects.to_csv(seed_path, index=False)
     statistics.to_csv(stats_path, index=False)
     unmatched.to_csv(unmatched_path, index=False)
+    factorial.to_csv(factorial_path, index=False)
     audit = {
         "schema_version": SCHEMA,
         "status": "passed",
@@ -304,11 +379,19 @@ def analyze(paths: list[Path], output_dir: Path) -> dict[str, Any]:
         "paired_requests": int(len(paired)),
         "unmatched_ranked_treatments": int(len(unmatched)),
         "families": sorted(paired["family"].astype(str).unique()),
+        "answer_aggregation_four_condition_rows": int(len(factorial)),
+        "answer_aggregation_conditions": [
+            "clean",
+            "prompt_aggregation_ablation",
+            "trace_aggregation_ablation",
+            "joint_prompt_and_trace_aggregation_ablation",
+        ],
         "outputs": {
             "paired": str(paired_path.resolve()),
             "seed_effects": str(seed_path.resolve()),
             "statistics": str(stats_path.resolve()),
             "unmatched": str(unmatched_path.resolve()),
+            "answer_aggregation_four_conditions": str(factorial_path.resolve()),
         },
     }
     audit_path = output_dir / "audit.json"

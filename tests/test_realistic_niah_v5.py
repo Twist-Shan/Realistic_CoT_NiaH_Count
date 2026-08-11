@@ -9,6 +9,7 @@ import pytest
 from realistic_niah_v5.causal import (
     analyze_paired_causal_results,
     bootstrap_seed_mean_ci,
+    build_answer_query_causal_plan,
     build_causal_plan,
     fit_centroid_subspace,
     layer_matched_random_controls,
@@ -30,6 +31,7 @@ from realistic_niah_v5.parsing import (
 )
 from realistic_niah_v5.pre_city import (
     build_pre_city_causal_plan,
+    orthogonal_norm_matched_patch_state,
     pre_city_token_queries,
     rank_pre_city_heads,
 )
@@ -358,6 +360,66 @@ def test_pre_city_queries_use_real_baseline_tokens_and_keep_variants_separate() 
     assert by_variant["pre_city_d2"].token_distance_before_city == 2
     assert by_variant["pre_city_d1"].query_output_token_count < by_variant["pre_city_d1"].city_after_token
     assert by_variant["pre_city_anchor"].anchor_kind == "marker_end_left_token_boundary"
+
+
+def test_marker_orthogonal_control_matches_delta_norm() -> None:
+    import torch
+
+    receiver = torch.arange(16, dtype=torch.float32)
+    donor = receiver + torch.linspace(-2.0, 3.0, 16)
+    control = orthogonal_norm_matched_patch_state(
+        receiver, donor, seed_text="unit-test"
+    )
+    donor_delta = donor - receiver
+    control_delta = control - receiver
+    assert torch.linalg.vector_norm(control_delta).item() == pytest.approx(
+        torch.linalg.vector_norm(donor_delta).item(), rel=1e-6
+    )
+    assert torch.dot(control_delta, donor_delta).item() == pytest.approx(
+        0.0, abs=1e-5
+    )
+
+
+def test_answer_query_plan_contains_factorial_joint_bank(tmp_path) -> None:
+    rows = []
+    for split in ("discovery", "confirmation"):
+        for head in range(8):
+            rows.append(
+                {
+                    "model_label": "Qwen3-8B",
+                    "split": split,
+                    "trace_one_to_one": True,
+                    "layer": 0,
+                    "head": head,
+                    "target_needle_raw_mass": 1.0 - head * 0.01,
+                    "target_needle_relative_mass": 0.5 - head * 0.005,
+                    "trace_item_raw_mass": 1.0 - abs(head - 2) * 0.01,
+                    "trace_item_relative_mass": 0.5 - abs(head - 2) * 0.005,
+                }
+            )
+    attention = tmp_path / "answer_attention.csv"
+    pd.DataFrame(rows).to_csv(attention, index=False)
+    paths = build_answer_query_causal_plan(
+        attention,
+        tmp_path / "answer_plan",
+        config=V5Config(causal_head_bank_sizes=(1,), causal_random_controls=3),
+    )
+    plan = pd.read_csv(paths["plan"])
+    mechanisms = set(plan["mechanism"])
+    assert mechanisms == {
+        "answer_prompt_aggregation",
+        "answer_trace_aggregation",
+        "answer_prompt_and_trace_aggregation",
+    }
+    joint = plan.loc[
+        plan["condition"].eq("answer_prompt_and_trace_aggregation_ranked")
+    ].iloc[0]
+    assert int(joint["prompt_bank_size"]) == 1
+    assert int(joint["trace_bank_size"]) == 1
+    assert int(joint["selected_head_count"]) == 2
+    audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
+    assert audit["confirmation_used_for_selection"] is False
+    assert len(audit["reported_behavioral_conditions"]) == 4
 
 
 def test_v5_config_freezes_sites_and_disjoint_seed_splits() -> None:

@@ -560,12 +560,29 @@ def command_causal_pre_city_heads(args: argparse.Namespace) -> None:
 
     config = _config(args)
     model, tokenizer, adapter = _model(args)
-    rows = registered_records(
-        read_jsonl(args.generations), config, model_label=args.model
+    raw_rows = read_jsonl(args.generations)
+    rows = (
+        [
+            row
+            for row in raw_rows
+            if str(row.get("model_label", row.get("model"))) == args.model
+        ]
+        if args.allow_unregistered
+        else registered_records(raw_rows, config, model_label=args.model)
     )
-    if not args.include_discovery:
-        rows = [row for row in rows if row["split"] == "confirmation"]
+    split = "all" if args.include_discovery else args.split
+    rows = _split_rows(rows, split)
     rows = _parser_cohort_rows(rows, args.cohort)
+    if args.gold_count is not None:
+        from realistic_niah_v5.parsing import parse_trace_record
+
+        rows = [
+            row
+            for row in rows
+            if int(parse_trace_record(row)["gold_count"]) == int(args.gold_count)
+        ]
+    if args.max_rows is not None:
+        rows = rows[: int(args.max_rows)]
     plan = pd.read_csv(args.plan)
     plan = plan.loc[plan["model_label"].eq(args.model)].reset_index(drop=True)
     if args.plan_rows:
@@ -577,10 +594,15 @@ def command_causal_pre_city_heads(args: argparse.Namespace) -> None:
             f"Selected plan rows have variants={sorted(variants)}; "
             f"expected only {args.query_variant}"
         )
-    output_rows = []
+    shard_root = args.output.parent / f"{args.output.stem}_shards"
+    shard_root.mkdir(parents=True, exist_ok=True)
+    shard_paths = []
     for row_index, row in enumerate(rows, start=1):
-        output_rows.extend(
-            run_pre_city_head_ablation_trials(
+        request_id = str(row.get("request_id", row.get("stimulus_id", row_index)))
+        safe_id = request_id.replace("/", "__").replace("\\", "__")
+        shard_path = shard_root / f"{row_index:05d}__{safe_id}.jsonl"
+        if args.overwrite or not shard_path.exists():
+            trial_rows = run_pre_city_head_ablation_trials(
                 model,
                 tokenizer,
                 adapter,
@@ -589,51 +611,63 @@ def command_causal_pre_city_heads(args: argparse.Namespace) -> None:
                 heads=[],
                 condition="clean",
             )
-        )
-        for plan_row in plan.itertuples(index=True):
-            results = run_pre_city_head_ablation_trials(
-                model,
-                tokenizer,
-                adapter,
-                row,
-                query_variant=args.query_variant,
-                heads=_parse_heads(plan_row.heads),
-                condition=str(plan_row.condition),
-            )
-            for result in results:
-                result["plan_row"] = int(plan_row.Index)
-                result["repeat"] = int(plan_row.repeat)
-                result["mechanism"] = str(plan_row.mechanism)
-                for field in (
-                    "target_needle_raw_mass",
-                    "target_needle_relative_mass",
-                    "confirmation_target_needle_raw_mass",
-                    "confirmation_target_needle_relative_mass",
-                ):
-                    result[field] = float(getattr(plan_row, field))
-                for field in (
-                    "relative_mass_defined_heads",
-                    "raw_mass_defined_heads",
-                    "confirmation_raw_mass_defined_heads",
-                    "confirmation_relative_mass_defined_heads",
-                ):
-                    result[field] = int(getattr(plan_row, field))
-                result["attention_mass_split"] = str(
-                    plan_row.attention_mass_split
+            for plan_row in plan.itertuples(index=True):
+                results = run_pre_city_head_ablation_trials(
+                    model,
+                    tokenizer,
+                    adapter,
+                    row,
+                    query_variant=args.query_variant,
+                    heads=_parse_heads(plan_row.heads),
+                    condition=str(plan_row.condition),
                 )
-                result["confirmation_mass_split"] = str(
-                    plan_row.confirmation_mass_split
-                )
-                result["attention_mass_aggregation"] = str(
-                    plan_row.attention_mass_aggregation
-                )
-            output_rows.extend(results)
+                for result in results:
+                    result["plan_row"] = int(plan_row.Index)
+                    result["repeat"] = int(plan_row.repeat)
+                    result["mechanism"] = str(plan_row.mechanism)
+                    for field in (
+                        "target_needle_raw_mass",
+                        "target_needle_relative_mass",
+                        "confirmation_target_needle_raw_mass",
+                        "confirmation_target_needle_relative_mass",
+                    ):
+                        result[field] = float(getattr(plan_row, field))
+                    for field in (
+                        "relative_mass_defined_heads",
+                        "raw_mass_defined_heads",
+                        "confirmation_raw_mass_defined_heads",
+                        "confirmation_relative_mass_defined_heads",
+                    ):
+                        result[field] = int(getattr(plan_row, field))
+                    result["attention_mass_split"] = str(
+                        plan_row.attention_mass_split
+                    )
+                    result["confirmation_mass_split"] = str(
+                        plan_row.confirmation_mass_split
+                    )
+                    result["attention_mass_aggregation"] = str(
+                        plan_row.attention_mass_aggregation
+                    )
+                trial_rows.extend(results)
+            _atomic_write_jsonl(shard_path, trial_rows)
+            action = "captured"
+        else:
+            action = "reused"
+        shard_paths.append(shard_path)
         print(
             f"[v5 causal-pre-city-heads] {row_index}/{len(rows)} "
-            f"variant={args.query_variant}",
+            f"{action} request={request_id} variant={args.query_variant}",
             flush=True,
         )
-    write_jsonl(args.output, output_rows)
+    output_rows = []
+    for shard_path in shard_paths:
+        output_rows.extend(read_jsonl(shard_path))
+    _atomic_write_jsonl(args.output, output_rows)
+    print(
+        f"[v5 causal-pre-city-heads] requests={len(rows)} "
+        f"rows={len(output_rows)} output={args.output}",
+        flush=True,
+    )
 
 
 def command_causal_pre_city_all_sites(args: argparse.Namespace) -> None:
@@ -820,6 +854,143 @@ def command_causal_pre_city_all_sites(args: argparse.Namespace) -> None:
     )
 
 
+def command_causal_marker_needle_patch(args: argparse.Namespace) -> None:
+    from realistic_niah_v5.pre_city import (
+        pre_city_token_queries,
+        run_marker_needle_patch_trials,
+    )
+
+    model, tokenizer, adapter = _model(args)
+    generations: dict[str, dict[str, Any]] = {}
+    for path in args.generations:
+        for row in read_jsonl(path):
+            if str(row.get("model_label", row.get("model"))) != args.model:
+                continue
+            request_id = str(row.get("request_id", row.get("stimulus_id")))
+            if request_id in generations:
+                prior = generations[request_id]
+                if int(prior["seed"]) != int(row["seed"]):
+                    raise ValueError(f"Conflicting generation row: {request_id}")
+                continue
+            generations[request_id] = row
+    pairs = [
+        row
+        for row in read_jsonl(args.pairs)
+        if str(row["model_label"]) == args.model
+        and (args.split == "all" or str(row["split"]) == args.split)
+    ]
+    if args.max_pairs is not None:
+        pairs = pairs[: int(args.max_pairs)]
+    if not pairs:
+        raise ValueError("No marker-needle patch pairs matched the request")
+    shard_root = args.output.parent / f"{args.output.stem}_shards"
+    shard_root.mkdir(parents=True, exist_ok=True)
+    tasks = []
+    for pair_index, pair in enumerate(pairs, start=1):
+        full_id = str(pair["full_request_id"])
+        counterfactual_id = str(pair["counterfactual_request_id"])
+        if full_id not in generations or counterfactual_id not in generations:
+            raise ValueError(
+                "Marker pair rows missing from generations: "
+                f"{full_id}/{counterfactual_id}"
+            )
+        for variant in args.query_variants:
+            for layer in args.layers:
+                safe_pair = str(pair["pair_id"]).replace("/", "__").replace("\\", "__")
+                shard = (
+                    shard_root
+                    / f"{pair_index:05d}__{safe_pair}__{variant}__L{int(layer):03d}.jsonl"
+                )
+                tasks.append((pair, variant, int(layer), shard))
+    if args.overwrite:
+        for _pair, _variant, _layer, shard in tasks:
+            shard.unlink(missing_ok=True)
+    completed = 0
+    alias_cache: dict[tuple[str, int, int], list[dict[str, Any]]] = {}
+    for task_index, (pair, variant, layer, shard) in enumerate(tasks, start=1):
+        full_id = str(pair["full_request_id"])
+        query_candidates, _query_exclusions = pre_city_token_queries(
+            generations[full_id], tokenizer
+        )
+        query_matches = [
+            query
+            for query in query_candidates
+            if query.query_variant == variant
+            and int(query.occurrence) == int(pair["occurrence"])
+        ]
+        if len(query_matches) != 1:
+            raise ValueError(
+                f"Cannot resolve marker alias for {pair['pair_id']}/{variant}"
+            )
+        alias_key = (
+            str(pair["pair_id"]),
+            int(layer),
+            int(query_matches[0].query_output_token_count),
+        )
+        if shard.exists():
+            rows = read_jsonl(shard)
+            if len(rows) != 6:
+                raise ValueError(f"Incomplete marker patch shard: {shard}")
+            alias_cache.setdefault(alias_key, rows)
+            action = "reused"
+        elif alias_key in alias_cache:
+            source_rows = alias_cache[alias_key]
+            source_variant = str(source_rows[0]["query_variant"])
+            rows = []
+            for source in source_rows:
+                row = dict(source)
+                row["query_variant"] = variant
+                row["query_alias_forward_reused"] = True
+                row["query_alias_reused_from_variant"] = source_variant
+                rows.append(row)
+            _atomic_write_jsonl(shard, rows)
+            completed += 1
+            action = f"alias_reused_from_{source_variant}"
+        else:
+            counterfactual_id = str(pair["counterfactual_request_id"])
+            rows = run_marker_needle_patch_trials(
+                model,
+                tokenizer,
+                adapter,
+                generations[full_id],
+                generations[counterfactual_id],
+                query_variant=variant,
+                occurrence=int(pair["occurrence"]),
+                layer=layer,
+            )
+            for row in rows:
+                row["pair_id"] = str(pair["pair_id"])
+                row["pair_eligibility"] = str(pair["pair_eligibility"])
+                row["full_exact_count"] = bool(pair["full_exact_count"])
+                row["counterfactual_exact_count"] = bool(
+                    pair["counterfactual_exact_count"]
+                )
+                row["query_alias_forward_reused"] = False
+                row["query_alias_reused_from_variant"] = None
+            _atomic_write_jsonl(shard, rows)
+            alias_cache[alias_key] = rows
+            completed += 1
+            action = "captured"
+        print(
+            f"[v5 causal-marker-needle-patch] {task_index}/{len(tasks)} "
+            f"{action} variant={variant} L{layer} pair={pair['pair_id']}",
+            flush=True,
+        )
+    output_rows = []
+    for _pair, _variant, _layer, shard in tasks:
+        shard_rows = read_jsonl(shard)
+        if len(shard_rows) != 6:
+            raise ValueError(f"Marker patch shard must contain six rows: {shard}")
+        output_rows.extend(shard_rows)
+    _atomic_write_jsonl(args.output, output_rows)
+    print(
+        f"[v5 causal-marker-needle-patch] pairs={len(pairs)} "
+        f"tasks={len(tasks)} rows={len(output_rows)} completed_here={completed} "
+        f"output={args.output}",
+        flush=True,
+    )
+
+
 def command_causal_answer_query_heads(args: argparse.Namespace) -> None:
     import pandas as pd
 
@@ -885,6 +1056,32 @@ def command_causal_answer_query_heads(args: argparse.Namespace) -> None:
                     "confirmation_selected_aggregation_relative_mass",
                 ):
                     result[field] = float(getattr(plan_row, field))
+                for field in (
+                    "selected_head_count",
+                    "prompt_bank_size",
+                    "trace_bank_size",
+                    "prompt_trace_head_overlap",
+                    "prompt_aggregation_raw_mass",
+                    "prompt_aggregation_relative_mass",
+                    "trace_aggregation_raw_mass",
+                    "trace_aggregation_relative_mass",
+                    "confirmation_prompt_aggregation_raw_mass",
+                    "confirmation_prompt_aggregation_relative_mass",
+                    "confirmation_trace_aggregation_raw_mass",
+                    "confirmation_trace_aggregation_relative_mass",
+                ):
+                    if hasattr(plan_row, field):
+                        value = getattr(plan_row, field)
+                        result[field] = (
+                            int(value)
+                            if field in {
+                                "selected_head_count",
+                                "prompt_bank_size",
+                                "trace_bank_size",
+                                "prompt_trace_head_overlap",
+                            }
+                            else float(value)
+                        )
                 result["attention_mass_split"] = str(
                     plan_row.attention_mass_split
                 )
@@ -1517,6 +1714,15 @@ def build_parser() -> argparse.ArgumentParser:
         default="one_to_one",
     )
     causal_pre_city_heads.add_argument("--include-discovery", action="store_true")
+    causal_pre_city_heads.add_argument(
+        "--split",
+        choices=["all", "discovery", "confirmation"],
+        default="confirmation",
+    )
+    causal_pre_city_heads.add_argument("--gold-count", type=int)
+    causal_pre_city_heads.add_argument("--max-rows", type=int)
+    causal_pre_city_heads.add_argument("--allow-unregistered", action="store_true")
+    causal_pre_city_heads.add_argument("--overwrite", action="store_true")
     causal_pre_city_heads.set_defaults(func=command_causal_pre_city_heads)
 
     causal_pre_city_all_sites = subparsers.add_parser(
@@ -1578,6 +1784,29 @@ def build_parser() -> argparse.ArgumentParser:
     causal_pre_city_all_sites.set_defaults(
         func=command_causal_pre_city_all_sites
     )
+
+    marker_needle_patch = subparsers.add_parser(
+        "causal-marker-needle-patch"
+    )
+    _add_model(marker_needle_patch)
+    marker_needle_patch.add_argument(
+        "--generations", type=Path, nargs="+", required=True
+    )
+    marker_needle_patch.add_argument("--pairs", type=Path, required=True)
+    marker_needle_patch.add_argument("--output", type=Path, required=True)
+    marker_needle_patch.add_argument(
+        "--query-variants",
+        nargs="+",
+        choices=["pre_city_d1", "pre_city_d2", "pre_city_anchor"],
+        default=["pre_city_d1", "pre_city_d2", "pre_city_anchor"],
+    )
+    marker_needle_patch.add_argument("--layers", type=int, nargs="+", required=True)
+    marker_needle_patch.add_argument(
+        "--split", choices=["all", "discovery", "confirmation"], default="all"
+    )
+    marker_needle_patch.add_argument("--max-pairs", type=int)
+    marker_needle_patch.add_argument("--overwrite", action="store_true")
+    marker_needle_patch.set_defaults(func=command_causal_marker_needle_patch)
 
     causal_answer_query_heads = subparsers.add_parser(
         "causal-answer-query-heads"

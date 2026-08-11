@@ -671,7 +671,7 @@ def build_answer_query_causal_plan(
                 "model_label": model_label,
                 "mechanism": mechanism,
                 "query_site_kind": "answer_query_v3",
-                "experiment_id": "answer_query_head_ablation_v3",
+                "experiment_id": "answer_query_head_ablation_v4_factorial",
                 "condition": condition,
                 "bank_size": int(bank_size),
                 "repeat": int(repeat),
@@ -745,6 +745,202 @@ def build_answer_query_causal_plan(
                         repeat=repeat,
                     )
                 )
+
+    # The answer readout has two potentially redundant routes: direct prompt
+    # aggregation and aggregation over the generated reasoning trace.  Report
+    # their joint intervention as a third frozen treatment rather than asking
+    # readers to infer it from two independent runs.
+    for model_label, model_ranking in ranking.groupby("model_label", sort=True):
+        mechanism_frames = {
+            str(mechanism): frame.sort_values("discovery_rank").reset_index(
+                drop=True
+            )
+            for mechanism, frame in model_ranking.groupby("mechanism", sort=True)
+        }
+        if set(mechanism_frames) != set(answer_mechanisms):
+            raise ValueError(
+                f"Answer aggregation mechanisms are incomplete for {model_label}: "
+                f"{sorted(mechanism_frames)}"
+            )
+        prompt_frame = mechanism_frames["answer_prompt_aggregation"]
+        trace_frame = mechanism_frames["answer_trace_aggregation"]
+        prompt_ordered = [
+            (int(row.layer), int(row.head))
+            for row in prompt_frame.itertuples(index=False)
+        ]
+        trace_ordered = [
+            (int(row.layer), int(row.head))
+            for row in trace_frame.itertuples(index=False)
+        ]
+        confirmation_lookup = {}
+        if not confirmation_ranking.empty:
+            active_confirmation = confirmation_ranking.loc[
+                confirmation_ranking["model_label"].astype(str).eq(
+                    str(model_label)
+                )
+            ]
+            confirmation_lookup = {
+                (int(row.layer), int(row.head)): (
+                    float(row.confirmation_target_raw_mass),
+                    float(row.confirmation_target_relative_mass),
+                    float(row.confirmation_trace_raw_mass),
+                    float(row.confirmation_trace_relative_mass),
+                )
+                for row in active_confirmation.itertuples(index=False)
+            }
+
+        def joint_row(
+            active_heads: Sequence[tuple[int, int]],
+            *,
+            condition: str,
+            bank_size: int,
+            repeat: int,
+            prompt_heads: Sequence[tuple[int, int]],
+            trace_heads: Sequence[tuple[int, int]],
+        ) -> dict[str, Any]:
+            generic_mass = _bank_attention_mass(prompt_frame, active_heads)
+            prompt_mass = _bank_answer_selection_mass(
+                prompt_frame, active_heads
+            )
+            trace_mass = _bank_answer_selection_mass(trace_frame, active_heads)
+            confirmation_values = [
+                confirmation_lookup.get(
+                    (int(layer), int(head)),
+                    (np.nan, np.nan, np.nan, np.nan),
+                )
+                for layer, head in active_heads
+            ]
+            confirmation_array = np.asarray(confirmation_values, dtype=float)
+            prompt_set = set(prompt_heads)
+            trace_set = set(trace_heads)
+            return {
+                "model_label": model_label,
+                "mechanism": "answer_prompt_and_trace_aggregation",
+                "query_site_kind": "answer_query_v3",
+                "experiment_id": "answer_query_head_ablation_v4_factorial",
+                "condition": condition,
+                "bank_size": int(bank_size),
+                "repeat": int(repeat),
+                "heads": json.dumps(list(active_heads)),
+                "selected_head_count": int(len(active_heads)),
+                "prompt_bank_size": int(len(prompt_heads)),
+                "trace_bank_size": int(len(trace_heads)),
+                "prompt_trace_head_overlap": int(len(prompt_set & trace_set)),
+                "prompt_bank_heads": json.dumps(list(prompt_heads)),
+                "trace_bank_heads": json.dumps(list(trace_heads)),
+                **generic_mass,
+                "selected_aggregation_raw_mass": np.nan,
+                "selected_aggregation_relative_mass": np.nan,
+                "selected_aggregation_relative_defined_heads": 0,
+                "selected_aggregation_metric": (
+                    "joint_prompt_and_trace_reported_separately"
+                ),
+                "prompt_aggregation_raw_mass": prompt_mass[
+                    "selected_aggregation_raw_mass"
+                ],
+                "prompt_aggregation_relative_mass": prompt_mass[
+                    "selected_aggregation_relative_mass"
+                ],
+                "trace_aggregation_raw_mass": trace_mass[
+                    "selected_aggregation_raw_mass"
+                ],
+                "trace_aggregation_relative_mass": trace_mass[
+                    "selected_aggregation_relative_mass"
+                ],
+                "confirmation_target_needle_raw_mass": (
+                    float(np.nanmean(confirmation_array[:, 0]))
+                    if confirmation_array.size
+                    and np.isfinite(confirmation_array[:, 0]).any()
+                    else np.nan
+                ),
+                "confirmation_target_needle_relative_mass": (
+                    float(np.nanmean(confirmation_array[:, 1]))
+                    if confirmation_array.size
+                    and np.isfinite(confirmation_array[:, 1]).any()
+                    else np.nan
+                ),
+                "confirmation_selected_aggregation_raw_mass": np.nan,
+                "confirmation_selected_aggregation_relative_mass": np.nan,
+                "confirmation_prompt_aggregation_raw_mass": (
+                    float(np.nanmean(confirmation_array[:, 0]))
+                    if confirmation_array.size
+                    and np.isfinite(confirmation_array[:, 0]).any()
+                    else np.nan
+                ),
+                "confirmation_prompt_aggregation_relative_mass": (
+                    float(np.nanmean(confirmation_array[:, 1]))
+                    if confirmation_array.size
+                    and np.isfinite(confirmation_array[:, 1]).any()
+                    else np.nan
+                ),
+                "confirmation_trace_aggregation_raw_mass": (
+                    float(np.nanmean(confirmation_array[:, 2]))
+                    if confirmation_array.size
+                    and np.isfinite(confirmation_array[:, 2]).any()
+                    else np.nan
+                ),
+                "confirmation_trace_aggregation_relative_mass": (
+                    float(np.nanmean(confirmation_array[:, 3]))
+                    if confirmation_array.size
+                    and np.isfinite(confirmation_array[:, 3]).any()
+                    else np.nan
+                ),
+                "confirmation_mass_split": "confirmation_descriptive_only",
+            }
+
+        for bank_size in config.causal_head_bank_sizes:
+            if bank_size > len(prompt_ordered) or bank_size > len(trace_ordered):
+                continue
+            prompt_heads = prompt_ordered[:bank_size]
+            trace_heads = trace_ordered[:bank_size]
+            joint_heads = list(dict.fromkeys([*prompt_heads, *trace_heads]))
+            plan_rows.append(
+                joint_row(
+                    joint_heads,
+                    condition="answer_prompt_and_trace_aggregation_ranked",
+                    bank_size=int(bank_size),
+                    repeat=0,
+                    prompt_heads=prompt_heads,
+                    trace_heads=trace_heads,
+                )
+            )
+            try:
+                controls = layer_matched_random_controls(
+                    prompt_frame,
+                    joint_heads,
+                    repeats=config.causal_random_controls,
+                    seed_text=(
+                        f"v5-answer-query:{model_label}:joint:K{bank_size}"
+                    ),
+                )
+            except ValueError as error:
+                skipped_banks.append(
+                    {
+                        "model_label": str(model_label),
+                        "mechanism": "answer_prompt_and_trace_aggregation",
+                        "bank_size": int(bank_size),
+                        "ranked_treatment_included": True,
+                        "control_status": (
+                            "not_constructible_disjoint_exact_layer_match"
+                        ),
+                        "reason": str(error),
+                    }
+                )
+                continue
+            for repeat, control in enumerate(controls, start=1):
+                plan_rows.append(
+                    joint_row(
+                        control,
+                        condition=(
+                            "answer_prompt_and_trace_aggregation_"
+                            "layer_matched_random"
+                        ),
+                        bank_size=int(bank_size),
+                        repeat=repeat,
+                        prompt_heads=prompt_heads,
+                        trace_heads=trace_heads,
+                    )
+                )
     paths = {
         "ranking": output / "discovery_answer_query_head_ranking.csv",
         "plan": output / "answer_query_causal_plan.csv",
@@ -756,13 +952,22 @@ def build_answer_query_causal_plan(
         json.dumps(
             {
                 "schema_version": CAUSAL_SCHEMA_VERSION,
-                "experiment_id": "answer_query_head_ablation_v3",
+                "experiment_id": "answer_query_head_ablation_v4_factorial",
                 "site_id": "answer_query_v3",
                 "query_definition": (
                     "literal baseline token immediately before the first "
                     "numeric answer token"
                 ),
-                "mechanisms": list(answer_mechanisms),
+                "mechanisms": [
+                    *answer_mechanisms,
+                    "answer_prompt_and_trace_aggregation",
+                ],
+                "reported_behavioral_conditions": [
+                    "clean",
+                    "answer_prompt_aggregation_ranked",
+                    "answer_trace_aggregation_ranked",
+                    "answer_prompt_and_trace_aggregation_ranked",
+                ],
                 "selection_split": "discovery",
                 "confirmation_used_for_selection": False,
                 "selection_cohort": "one_to_one",
@@ -1698,7 +1903,7 @@ def run_answer_query_head_ablation_trial(
     )
     return {
         "schema_version": CAUSAL_SCHEMA_VERSION,
-        "experiment_id": "answer_query_head_ablation_v3",
+        "experiment_id": "answer_query_head_ablation_v4_factorial",
         "condition": condition,
         "request_id": encoding.request_id,
         "stimulus_id": encoding.stimulus_id,

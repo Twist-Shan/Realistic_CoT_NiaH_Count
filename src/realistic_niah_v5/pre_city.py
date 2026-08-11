@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -12,7 +14,12 @@ import torch
 from realistic_niah_v3.city_list_termination import (
     find_first_terminated_gold_city_list,
 )
-from realistic_niah_v4.modeling import DecoderAdapter, position_attention_outputs
+from realistic_niah_v4.modeling import (
+    DecoderAdapter,
+    capture_post_block_states,
+    generate_with_residual_interventions,
+    position_attention_outputs,
+)
 
 from .encoding import (
     NativeTraceEncoding,
@@ -24,6 +31,7 @@ from .parsing import (
     gold_records,
     infer_model_family,
     output_token_ids,
+    parse_trace_record,
     prompt_token_ids,
     raw_output_text,
     trace_char_sites,
@@ -728,12 +736,18 @@ def run_pre_city_head_ablation_trials(
     heads: Sequence[tuple[int, int]],
     condition: str,
 ) -> list[dict[str, Any]]:
-    """Ablate a frozen bank at true pre-city tokens and score the city continuation."""
+    """Ablate a frozen bank and greedily generate only the next city.
+
+    The primary endpoint is an actual greedy token-sequence match for the city
+    immediately following the registered query.  Teacher-forced likelihood is
+    retained as a diagnostic, but no final-answer/count endpoint is computed.
+    """
 
     from .causal import (
         CAUSAL_SCHEMA_VERSION,
         _continuation_metrics,
         _local_head_ablation_logits,
+        generate_with_head_ablation_at_positions,
     )
 
     allowed = {"pre_city_d1", "pre_city_d2", "pre_city_anchor"}
@@ -756,7 +770,7 @@ def run_pre_city_head_ablation_trials(
     request_id = row.get("request_id", row.get("stimulus_id"))
     common = {
         "schema_version": CAUSAL_SCHEMA_VERSION,
-        "experiment_id": "pre_city_targeted_retrieval_head_ablation",
+        "experiment_id": "pre_city_next_needle_head_ablation_v2",
         "condition": condition,
         "request_id": request_id,
         "model_label": row.get("model_label"),
@@ -769,6 +783,8 @@ def run_pre_city_head_ablation_trials(
         "transition_phase": "retrieve",
         "heads": [[int(layer), int(head)] for layer, head in heads],
         "bank_size": len(heads),
+        "behavioral_endpoint": "actual_greedy_next_needle_token_sequence",
+        "final_count_evaluated": False,
     }
     output = [{**common, **value} for value in exclusions]
     baseline_ids = output_token_ids(row)
@@ -800,6 +816,29 @@ def run_pre_city_head_ablation_trials(
             hook_position=prompt_count + query_count - 1,
             target_token_count=len(target_ids),
         )
+        generation_encoding = baseline_prefix_encoding(
+            row,
+            tokenizer,
+            query,
+            prefix_output_token_count=query_count,
+        )
+        generation = generate_with_head_ablation_at_positions(
+            model,
+            tokenizer,
+            adapter,
+            generation_encoding,
+            heads,
+            hook_positions=[generation_encoding.query_position],
+            max_new_tokens=len(target_ids),
+        )
+        generated_ids = tuple(
+            int(value) for value in generation["generated_token_ids"]
+        )
+        target_tuple = tuple(int(value) for value in target_ids)
+        matched_tokens = sum(
+            int(index < len(generated_ids) and generated_ids[index] == token_id)
+            for index, token_id in enumerate(target_tuple)
+        )
         output.append(
             {
                 **common,
@@ -811,7 +850,335 @@ def run_pre_city_head_ablation_trials(
                     skip_special_tokens=False,
                     clean_up_tokenization_spaces=False,
                 ),
+                "generated_next_needle_token_ids": list(generated_ids),
+                "generated_next_needle_text": tokenizer.decode(
+                    list(generated_ids),
+                    skip_special_tokens=False,
+                    clean_up_tokenization_spaces=False,
+                ),
+                "next_needle_exact": bool(generated_ids == target_tuple),
+                "next_needle_first_token_exact": bool(
+                    generated_ids and generated_ids[0] == target_tuple[0]
+                ),
+                "next_needle_token_accuracy": float(
+                    matched_tokens / len(target_tuple)
+                ),
+                "next_needle_generated_token_count": len(generated_ids),
+                "head_ablation_hook_audit": generation[
+                    "head_ablation_hook_audit"
+                ],
                 **_continuation_metrics(logits, target_ids),
+            }
+        )
+    return output
+
+
+def _capture_query_state_from_encoding(
+    model: Any,
+    adapter: DecoderAdapter,
+    encoding: NativeTraceEncoding,
+    *,
+    layer: int,
+) -> torch.Tensor:
+    _logits, captured = capture_post_block_states(
+        model,
+        adapter,
+        encoding,
+        [encoding.query_position],
+        layers=[int(layer)],
+    )
+    return captured[int(layer)][0]
+
+
+def orthogonal_norm_matched_patch_state(
+    receiver_state: torch.Tensor,
+    donor_state: torch.Tensor,
+    *,
+    seed_text: str,
+) -> torch.Tensor:
+    """Construct ``receiver + delta_control`` orthogonal to the donor delta."""
+
+    receiver = receiver_state.detach().float().cpu().reshape(-1)
+    donor = donor_state.detach().float().cpu().reshape(-1)
+    if receiver.shape != donor.shape:
+        raise ValueError("Receiver and donor marker states have different shapes")
+    delta = donor - receiver
+    norm = torch.linalg.vector_norm(delta)
+    if not torch.isfinite(norm) or float(norm) <= 0:
+        raise ValueError("Donor-minus-receiver marker delta has zero/invalid norm")
+    seed = int.from_bytes(
+        hashlib.sha256(seed_text.encode("utf-8")).digest()[:8], "little"
+    )
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(seed % (2**63 - 1))
+    random = torch.randn(delta.shape, generator=generator, dtype=torch.float32)
+    random = random - torch.dot(random, delta) / torch.dot(delta, delta) * delta
+    random_norm = torch.linalg.vector_norm(random)
+    if not torch.isfinite(random_norm) or float(random_norm) <= 0:
+        raise RuntimeError("Could not construct an orthogonal marker control")
+    return receiver + random * (norm / random_norm)
+
+
+def _next_needle_generation_metrics(
+    result: Mapping[str, Any],
+    *,
+    target_ids: Sequence[int],
+    wrong_ids: Sequence[int],
+    tokenizer: Any,
+) -> dict[str, Any]:
+    generated = tuple(int(value) for value in result["generated_token_ids"])
+    target = tuple(int(value) for value in target_ids)
+    wrong = tuple(int(value) for value in wrong_ids)
+
+    def prefix_exact(reference: tuple[int, ...]) -> bool:
+        return bool(
+            reference
+            and len(generated) >= len(reference)
+            and generated[: len(reference)] == reference
+        )
+
+    matched = sum(
+        int(index < len(generated) and generated[index] == token_id)
+        for index, token_id in enumerate(target)
+    )
+    return {
+        "generated_next_needle_token_ids": list(generated),
+        "generated_next_needle_text": tokenizer.decode(
+            list(generated),
+            skip_special_tokens=False,
+            clean_up_tokenization_spaces=False,
+        ),
+        "target_needle_exact": prefix_exact(target),
+        "wrong_donor_needle_exact": prefix_exact(wrong),
+        "target_needle_first_token_exact": bool(
+            generated and target and generated[0] == target[0]
+        ),
+        "target_needle_token_accuracy": float(matched / len(target)),
+        "generated_token_count": len(generated),
+    }
+
+
+def run_marker_needle_patch_trials(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    full_row: Mapping[str, Any],
+    counterfactual_row: Mapping[str, Any],
+    *,
+    query_variant: str,
+    occurrence: int,
+    layer: int,
+) -> list[dict[str, Any]]:
+    """Bidirectionally patch a marker state across adjacent count prompts.
+
+    This mirrors the non-thinking counterfactual construction: the full N=k
+    prompt and same-seed N=k-1 prompt must have equal token length and an
+    identical prefix of k-1 oracle records.  Both receive the *same* N=k trace
+    prefix up to the marker immediately before the added kth needle.  Only the
+    prompt differs, so patching the query residual tests whether that state
+    carries the missing needle into subsequent trace generation.
+    """
+
+    from .causal import CAUSAL_SCHEMA_VERSION
+
+    full_parsed = parse_trace_record(full_row)
+    counterfactual_parsed = parse_trace_record(counterfactual_row)
+    for label, parsed in (
+        ("full", full_parsed),
+        ("counterfactual", counterfactual_parsed),
+    ):
+        if not bool(parsed["parser"].get("trace_one_to_one")) or not bool(
+            parsed.get("exact_count")
+        ):
+            raise ValueError(f"{label} marker-patch row is not correct one-to-one")
+    if str(full_row.get("model_label")) != str(counterfactual_row.get("model_label")):
+        raise ValueError("Marker-patch prompts have different model labels")
+    if int(full_row["seed"]) != int(counterfactual_row["seed"]):
+        raise ValueError("Marker-patch prompts must share a seed")
+    if str(full_row["split"]) != str(counterfactual_row["split"]):
+        raise ValueError("Marker-patch prompts must share a split")
+    full_records = gold_records(full_row)
+    counterfactual_records = gold_records(counterfactual_row)
+    if len(full_records) != len(counterfactual_records) + 1:
+        raise ValueError("Marker-patch prompts must be adjacent counts N=k/N=k-1")
+    full_prefix = [str(row["city"]).casefold() for row in full_records[:-1]]
+    counterfactual_cities = [
+        str(row["city"]).casefold() for row in counterfactual_records
+    ]
+    if full_prefix != counterfactual_cities:
+        raise ValueError("Adjacent prompts do not share the first k-1 needles")
+    if int(occurrence) != len(full_records):
+        raise ValueError("Marker patch occurrence must be the added kth needle")
+    full_prompt_ids = prompt_token_ids(full_row)
+    counterfactual_prompt_ids = prompt_token_ids(counterfactual_row)
+    if len(full_prompt_ids) != len(counterfactual_prompt_ids):
+        raise ValueError("Adjacent prompt pair is not token-length matched")
+    changed_prompt_tokens = [
+        index
+        for index, (left, right) in enumerate(
+            zip(full_prompt_ids, counterfactual_prompt_ids)
+        )
+        if int(left) != int(right)
+    ]
+    if not changed_prompt_tokens:
+        raise ValueError("Adjacent prompts have no counterfactual token change")
+    target_city = str(full_records[-1]["city"])
+    target_spans = [
+        span
+        for span in _prompt_spans(full_row)
+        if span.city.casefold() == target_city.casefold()
+    ]
+    if len(target_spans) != 1 or not all(
+        target_spans[0].start <= index < target_spans[0].end
+        for index in changed_prompt_tokens
+    ):
+        raise ValueError(
+            "Adjacent prompt changes are not confined to the added kth record"
+        )
+
+    full_queries, query_exclusions = pre_city_token_queries(
+        full_row, tokenizer, depths=(1, 2), include_anchor=True
+    )
+    matches = [
+        query
+        for query in full_queries
+        if query.query_variant == query_variant
+        and int(query.occurrence) == int(occurrence)
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            "Marker patch query is not uniquely constructible: "
+            f"matches={len(matches)} exclusions={query_exclusions}"
+        )
+    query = matches[0]
+    full_output_ids = output_token_ids(full_row)
+    target_ids = tuple(
+        int(value)
+        for value in full_output_ids[
+            query.query_output_token_count : query.city_after_token
+        ]
+    )
+    if not target_ids:
+        raise ValueError("Marker patch has an empty city continuation")
+
+    full_encoding = baseline_prefix_encoding(
+        full_row,
+        tokenizer,
+        query,
+        prefix_output_token_count=query.query_output_token_count,
+    )
+    counterfactual_context = copy.deepcopy(dict(counterfactual_row))
+    counterfactual_context["output_token_ids"] = list(full_output_ids)
+    counterfactual_context["raw_output_text"] = full_row.get("raw_output_text")
+    counterfactual_context["request_id"] = (
+        f"{counterfactual_row.get('request_id')}__teacher_forced_from__"
+        f"{full_row.get('request_id')}"
+    )
+    counterfactual_encoding = baseline_prefix_encoding(
+        counterfactual_context,
+        tokenizer,
+        query,
+        prefix_output_token_count=query.query_output_token_count,
+    )
+    if full_encoding.sequence_length != counterfactual_encoding.sequence_length:
+        raise ValueError("Counterfactual shifted the semantic marker query")
+    if full_encoding.query_position != counterfactual_encoding.query_position:
+        raise ValueError("Counterfactual marker query positions are not aligned")
+    full_state = _capture_query_state_from_encoding(
+        model, adapter, full_encoding, layer=layer
+    )
+    counterfactual_state = _capture_query_state_from_encoding(
+        model, adapter, counterfactual_encoding, layer=layer
+    )
+    counterfactual_orthogonal = orthogonal_norm_matched_patch_state(
+        counterfactual_state,
+        full_state,
+        seed_text=(
+            f"v5-marker-adjacent:cf:{full_encoding.request_id}:"
+            f"{counterfactual_encoding.request_id}:{query_variant}:L{layer}"
+        ),
+    )
+    full_orthogonal = orthogonal_norm_matched_patch_state(
+        full_state,
+        counterfactual_state,
+        seed_text=(
+            f"v5-marker-adjacent:full:{full_encoding.request_id}:"
+            f"{counterfactual_encoding.request_id}:{query_variant}:L{layer}"
+        ),
+    )
+    conditions = (
+        ("full_self_patch", full_encoding, full_state),
+        (
+            "counterfactual_self_patch",
+            counterfactual_encoding,
+            counterfactual_state,
+        ),
+        (
+            "counterfactual_from_full_patch",
+            counterfactual_encoding,
+            full_state,
+        ),
+        ("full_from_counterfactual_patch", full_encoding, counterfactual_state),
+        (
+            "counterfactual_from_orthogonal_patch",
+            counterfactual_encoding,
+            counterfactual_orthogonal,
+        ),
+        ("full_from_orthogonal_patch", full_encoding, full_orthogonal),
+    )
+    output: list[dict[str, Any]] = []
+    for condition, encoding, state in conditions:
+        result = generate_with_residual_interventions(
+            model,
+            tokenizer,
+            adapter,
+            encoding,
+            {int(layer): ([encoding.query_position], state)},
+            max_new_tokens=len(target_ids),
+        )
+        output.append(
+            {
+                "schema_version": CAUSAL_SCHEMA_VERSION,
+                "experiment_id": "marker_adjacent_count_interchange_patch_v1",
+                "condition": condition,
+                "request_id": full_encoding.request_id,
+                "counterfactual_request_id": str(
+                    counterfactual_row.get("request_id")
+                ),
+                "model_label": full_encoding.model_label,
+                "seed": full_encoding.seed,
+                "split": full_encoding.split,
+                "full_count": full_encoding.count,
+                "counterfactual_count": counterfactual_encoding.count,
+                "query_variant": query_variant,
+                "occurrence": int(occurrence),
+                "query_output_token_count": int(query.query_output_token_count),
+                "query_position": int(encoding.query_position),
+                "query_alias_key": (
+                    f"occ{int(occurrence)}__q{int(query.query_output_token_count)}"
+                ),
+                "layer": int(layer),
+                "target_city": query.city,
+                "target_needle_token_ids": list(target_ids),
+                "counterfactual_construction": (
+                    "same_seed_adjacent_count_nonthinking_matched_prompt"
+                ),
+                "prompt_token_count": len(full_prompt_ids),
+                "prompt_changed_token_count": len(changed_prompt_tokens),
+                "prompt_changed_token_indices": changed_prompt_tokens,
+                "prompt_length_match_audit": "PASS_EQUAL_TOKEN_LENGTH",
+                "prompt_counterfactual_locality_audit": (
+                    "PASS_CHANGED_TOKENS_INSIDE_ADDED_RECORD_ONLY"
+                ),
+                "trace_prefix_identity_audit": "PASS_SAME_TEACHER_FORCED_PREFIX",
+                "semantic_query_alignment_audit": "PASS_SAME_QUERY_POSITION",
+                "behavioral_endpoint": "actual_greedy_next_needle_token_sequence",
+                **_next_needle_generation_metrics(
+                    result,
+                    target_ids=target_ids,
+                    wrong_ids=(),
+                    tokenizer=tokenizer,
+                ),
             }
         )
     return output
