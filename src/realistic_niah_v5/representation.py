@@ -34,6 +34,9 @@ from .spec import REGISTERED_COHORTS, V5Config
 
 
 REPRESENTATION_SCHEMA_VERSION = "realistic_niah_v5_representation_v1"
+ANSWER_QUERY_SITE_KINDS = frozenset(
+    {"answer_query", "answer_query_v2", "answer_query_v3"}
+)
 
 
 @dataclass(frozen=True)
@@ -503,7 +506,7 @@ def analyze_representation(
             group_meta = metadata.loc[row_indices].reset_index(drop=True)
             group_states = states[row_indices]
             model_label, site_kind, layer = key
-            if site_kind != "answer_query":
+            if site_kind not in ANSWER_QUERY_SITE_KINDS:
                 finite_label = group_meta["occurrence"].notna().to_numpy()
                 group_meta = group_meta.loc[finite_label].reset_index(drop=True)
                 group_states = group_states[finite_label]
@@ -512,7 +515,10 @@ def analyze_representation(
             else:
                 labels = group_meta["gold_count"].astype(int).to_numpy()
                 label_name = "gold_count"
-            if config.representation_n10_only and site_kind != "answer_query":
+            if (
+                config.representation_n10_only
+                and site_kind not in ANSWER_QUERY_SITE_KINDS
+            ):
                 keep = group_meta["gold_count"].astype(int).eq(10).to_numpy()
                 group_meta = group_meta.loc[keep].reset_index(drop=True)
                 group_states = group_states[keep]
@@ -563,6 +569,7 @@ def analyze_representation(
             "capture_index": str(Path(capture_index).resolve()),
             "primary_site": config.primary_trace_site,
             "sensitivity_sites": list(config.sensitivity_trace_sites),
+            "observed_sites": sorted(metadata["site_kind"].astype(str).unique()),
             "cohorts": list(cohorts),
             "representation_n10_only": config.representation_n10_only,
             "selection_policy": (
@@ -575,4 +582,3 @@ def analyze_representation(
         },
     )
     return paths
-

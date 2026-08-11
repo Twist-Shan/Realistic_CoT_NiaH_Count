@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from realistic_niah_v5.causal import (
+    analyze_paired_causal_results,
     bootstrap_seed_mean_ci,
     build_causal_plan,
     fit_centroid_subspace,
@@ -26,6 +27,11 @@ from realistic_niah_v5.parsing import (
     PARSER_UPSTREAM_COMMIT,
     parse_and_align_record,
     parse_trace_record,
+)
+from realistic_niah_v5.pre_city import (
+    build_pre_city_causal_plan,
+    pre_city_token_queries,
+    rank_pre_city_heads,
 )
 from realistic_niah_v5.representation import (
     analyze_representation,
@@ -164,6 +170,52 @@ def test_answer_query_candidates_include_chat_termination() -> None:
     assert len(scored[2]) > len(answers[2])
 
 
+def test_answer_query_v2_recovers_gemma_channel_prefixed_total() -> None:
+    row = _row("gemma4")
+    raw = str(row["raw_output_text"]).replace(
+        "<channel|>\nTotal: 2", "<channel|>Total: 2"
+    )
+    row["raw_output_text"] = raw
+    row["output_token_ids"] = [ord(value) for value in raw]
+    parsed = parse_and_align_record(row, CharacterTokenizer())
+    ids = {site["site_id"] for site in parsed["token_sites"]}
+    assert "answer_query" not in ids
+    assert "answer_query_v2" in ids
+    encoding = build_native_trace_encoding(
+        row,
+        CharacterTokenizer(),
+        site_id="answer_query_v2",
+        candidate_counts=tuple(range(1, 11)),
+    )
+    assert encoding.raw_prefix_text.endswith("Total:")
+    assert encoding.selected_site["alignment_strategy"] == (
+        "literal_baseline_token_prefix"
+    )
+    assert dict(encoding.count_candidate_answer_token_ids)[2] == (ord("2"),)
+
+
+@pytest.mark.parametrize("family", ["qwen3", "gemma4"])
+def test_answer_query_v3_uses_literal_token_before_numeric_answer(
+    family: str,
+) -> None:
+    row = _row(family)
+    parsed = parse_and_align_record(row, CharacterTokenizer())
+    site = next(
+        site for site in parsed["token_sites"]
+        if site["site_id"] == "answer_query_v3"
+    )
+    assert site["alignment_strategy"] == "literal_baseline_token_prefix"
+    encoding = build_native_trace_encoding(
+        row,
+        CharacterTokenizer(),
+        site_id="answer_query_v3",
+        candidate_counts=tuple(range(1, 11)),
+    )
+    assert encoding.raw_prefix_text.endswith("Total: ")
+    assert encoding.input_ids[-1] == ord(" ")
+    assert dict(encoding.count_candidate_answer_token_ids)[2] == (ord("2"),)
+
+
 def test_native_generation_registers_exact_prompt_record_spans() -> None:
     passage = "Chicago received a score of 72. Noise. Baku received a score of 98."
     records = []
@@ -238,6 +290,76 @@ def test_parser_boundaries_define_targeted_and_progress_causal_continuations() -
     ]
 
 
+def test_item_end_fallback_policy_is_explicit_and_audited(monkeypatch) -> None:
+    import realistic_niah_v5.causal as causal_module
+
+    original_trace_char_sites = causal_module.trace_char_sites
+
+    def trace_sites_without_first_city_end(raw_text, parser):
+        return [
+            site
+            for site in original_trace_char_sites(raw_text, parser)
+            if site.site_id != "city_end:1"
+        ]
+
+    monkeypatch.setattr(
+        causal_module, "trace_char_sites", trace_sites_without_first_city_end
+    )
+    targeted, targeted_excluded = mechanism_continuations(
+        _row(),
+        CharacterTokenizer(),
+        mechanism="targeted_retrieval",
+        boundary_policy="item_end_fallback_v2",
+    )
+    progress, progress_excluded = mechanism_continuations(
+        _row(),
+        CharacterTokenizer(),
+        mechanism="progress_transition",
+        boundary_policy="item_end_fallback_v2",
+    )
+    assert not targeted_excluded
+    assert not progress_excluded
+    assert all(
+        row["target_boundary_policy"] == "item_end_fallback_v2"
+        for row in targeted + progress
+    )
+    assert targeted[0]["target_site_candidates"] == ["city_end:1", "item_end:1"]
+    assert progress[0]["target_site_candidates"] == ["marker_end:2", "item_end:2"]
+    assert targeted[0]["target_site_id"] == "item_end:1"
+    assert targeted[0]["target_boundary_variant"] == "item_end_fallback"
+    assert targeted[0]["target_site_fallback"] is True
+    assert targeted[0]["target_candidate_audit"] == [
+        {"site_id": "city_end:1", "status": "missing_registered_boundary"},
+        {"site_id": "item_end:1", "status": "selected"},
+    ]
+    assert targeted[1]["target_boundary_variant"] == "primary"
+    assert targeted[1]["target_site_fallback"] is False
+
+
+def test_unknown_causal_boundary_policy_is_rejected() -> None:
+    with pytest.raises(ValueError, match="Unknown causal boundary policy"):
+        mechanism_continuations(
+            _row(),
+            CharacterTokenizer(),
+            mechanism="targeted_retrieval",
+            boundary_policy="silent_unregistered_fallback",
+        )
+
+
+def test_pre_city_queries_use_real_baseline_tokens_and_keep_variants_separate() -> None:
+    queries, exclusions = pre_city_token_queries(
+        _row(), CharacterTokenizer(), depths=(1, 2), include_anchor=True
+    )
+    assert not [row for row in exclusions if row["status"].startswith("raw_")]
+    first = [row for row in queries if row.occurrence == 1]
+    by_variant = {row.query_variant: row for row in first}
+    assert {"pre_city_d1", "pre_city_d2", "pre_city_anchor"} <= set(by_variant)
+    assert by_variant["pre_city_d1"].token_distance_before_city == 1
+    assert by_variant["pre_city_d2"].token_distance_before_city == 2
+    assert by_variant["pre_city_d1"].query_output_token_count < by_variant["pre_city_d1"].city_after_token
+    assert by_variant["pre_city_anchor"].anchor_kind == "marker_end_left_token_boundary"
+
+
 def test_v5_config_freezes_sites_and_disjoint_seed_splits() -> None:
     config = V5Config()
     config.validate()
@@ -285,11 +407,11 @@ def test_discovery_head_ranking_and_layer_matched_controls() -> None:
                         "trace_one_to_one": True,
                         "layer": layer,
                         "head": head,
-                        "target_prompt_record_mass": (
+                        "target_needle_raw_mass": (
                             1.0 - 0.1 * layer - 0.01 * head
                         ),
-                        "target_within_records_fraction": 0.8,
-                        "target_record_top1": True,
+                        "target_needle_relative_mass": 0.8,
+                        "target_needle_top1": True,
                         "seed": seed,
                     }
                 )
@@ -302,9 +424,9 @@ def test_discovery_head_ranking_and_layer_matched_controls() -> None:
             "trace_one_to_one": False,
             "layer": 0,
             "head": 3,
-            "target_prompt_record_mass": 100.0,
-            "target_within_records_fraction": 1.0,
-            "target_record_top1": True,
+            "target_needle_raw_mass": 100.0,
+            "target_needle_relative_mass": 1.0,
+            "target_needle_top1": True,
             "seed": 98,
         }
     )
@@ -317,9 +439,9 @@ def test_discovery_head_ranking_and_layer_matched_controls() -> None:
             "trace_one_to_one": True,
             "layer": 0,
             "head": 3,
-            "target_prompt_record_mass": 100.0,
-            "target_within_records_fraction": 1.0,
-            "target_record_top1": True,
+            "target_needle_raw_mass": 100.0,
+            "target_needle_relative_mass": 1.0,
+            "target_needle_top1": True,
             "seed": 99,
         }
     )
@@ -340,7 +462,7 @@ def test_discovery_head_ranking_and_layer_matched_controls() -> None:
     assert all((0, 0) not in bank and (1, 0) not in bank for bank in controls)
 
 
-def test_causal_plan_audits_unmatched_banks_instead_of_scheduling_them(
+def test_causal_plan_keeps_treatment_and_audits_unmatched_controls(
     tmp_path,
 ) -> None:
     attention_rows = [
@@ -352,9 +474,9 @@ def test_causal_plan_audits_unmatched_banks_instead_of_scheduling_them(
                 "trace_one_to_one": True,
                 "layer": 0,
                 "head": head,
-                "target_prompt_record_mass": 1.0 - head / 10,
-                "target_within_records_fraction": 0.8,
-                "target_record_top1": True,
+                "target_needle_raw_mass": 1.0 - head / 10,
+                "target_needle_relative_mass": 0.8,
+                "target_needle_top1": True,
             }
             for mechanism in ("targeted_retrieval", "progress_transition")
             for head in range(4)
@@ -366,12 +488,24 @@ def test_causal_plan_audits_unmatched_banks_instead_of_scheduling_them(
     paths = build_causal_plan(source, tmp_path / "plan", config=config)
     plan = pd.read_csv(paths["plan"])
     audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
-    assert plan.empty
+    assert len(plan) == 2
+    assert set(plan["condition"]) == {
+        "targeted_retrieval_ranked",
+        "progress_transition_ranked",
+    }
+    assert set(plan["bank_size"]) == {4}
+    assert set(plan["repeat"]) == {0}
     assert {row["mechanism"] for row in audit["skipped_banks"]} == {
         "targeted_retrieval",
         "progress_transition",
     }
     assert audit["skipped_banks"][0]["bank_size"] == 4
+    assert all(
+        row["ranked_treatment_included"] is True
+        and row["control_status"]
+        == "not_constructible_disjoint_exact_layer_match"
+        for row in audit["skipped_banks"]
+    )
     assert "Not enough non-selected heads" in audit["skipped_banks"][0]["reason"]
 
 
@@ -404,6 +538,67 @@ def test_causal_query_rows_are_averaged_before_seed_inference() -> None:
         trials, treatment="ranked", control="random", outcome="y"
     )
     assert effects.loc[0, "mean_effect"] == pytest.approx(-2.0)
+
+
+def test_causal_analysis_retains_clean_k0_baseline_for_selected_bank(
+    tmp_path,
+) -> None:
+    rows = []
+    for seed in (1254, 1255):
+        rows.extend(
+            [
+                {
+                    "model_label": "Qwen3-8B",
+                    "seed": seed,
+                    "condition": "clean",
+                    "status": "ok",
+                    "mechanism": "targeted_retrieval",
+                    "bank_size": 0,
+                    "transition_phase": "retrieve",
+                    "score": 3.0,
+                },
+                {
+                    "model_label": "Qwen3-8B",
+                    "seed": seed,
+                    "condition": "targeted_retrieval_ranked",
+                    "status": "ok",
+                    "mechanism": "targeted_retrieval",
+                    "bank_size": 4,
+                    "transition_phase": "retrieve",
+                    "score": 1.0,
+                },
+            ]
+        )
+    # Real head-causal JSONL contains boundary-exclusion rows without a K,
+    # which promotes the loaded bank_size column from int to float.
+    rows.append(
+        {
+            "model_label": "Qwen3-8B",
+            "seed": 1254,
+            "condition": "clean",
+            "status": "missing_registered_boundary",
+            "mechanism": "targeted_retrieval",
+            "transition_phase": "retrieve",
+            "score": None,
+        }
+    )
+    source = tmp_path / "trials.jsonl"
+    source.write_text(
+        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
+    )
+    result = analyze_paired_causal_results(
+        source,
+        tmp_path / "analysis.csv",
+        treatment="targeted_retrieval_ranked",
+        control="clean",
+        outcome="score",
+        config=V5Config(bootstrap_samples=100),
+        mechanism="targeted_retrieval",
+        bank_size=4,
+        transition_phase="retrieve",
+    )
+    assert result.loc[0, "mean_effect"] == pytest.approx(-2.0)
+    assert result.loc[0, "n_seeds"] == 2
 
 
 def test_capture_shards_feed_end_to_end_representation_analysis(tmp_path) -> None:
@@ -479,3 +674,60 @@ def test_capture_shards_feed_end_to_end_representation_analysis(tmp_path) -> Non
     audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
     assert audit["primary_site"] == "item_end"
     assert audit["groups_completed"] == 3
+
+
+def test_pre_city_plan_freezes_each_variant_on_discovery_only(tmp_path) -> None:
+    variants = {
+        "pre_city_d1": 1,
+        "pre_city_d2": 2,
+        "pre_city_anchor": 3,
+    }
+    rows = []
+    for split in ("discovery", "confirmation"):
+        for variant, preferred_head in variants.items():
+            for head in range(8):
+                raw = 1.0 if head == preferred_head else 0.1 - head * 0.001
+                if split == "confirmation":
+                    raw += 0.01
+                rows.append(
+                    {
+                        "model_label": "Qwen3-8B",
+                        "split": split,
+                        "query_variant": variant,
+                        "layer": 0,
+                        "head": head,
+                        "target_needle_raw_mass": raw,
+                        "target_needle_relative_mass": raw / 2,
+                        "target_needle_top1": head == preferred_head,
+                    }
+                )
+    attention = pd.DataFrame(rows)
+    ranking = rank_pre_city_heads(attention)
+    top = ranking.loc[ranking["discovery_rank"].eq(1)]
+    assert {
+        str(row.query_variant): int(row.head)
+        for row in top.itertuples(index=False)
+    } == variants
+
+    source = tmp_path / "attention.csv"
+    attention.to_csv(source, index=False)
+    paths = build_pre_city_causal_plan(
+        source,
+        tmp_path / "plan",
+        config=V5Config(
+            causal_head_bank_sizes=(1, 2, 4),
+            causal_random_controls=1,
+        ),
+    )
+    plan = pd.read_csv(paths["plan"])
+    ranked = plan.loc[
+        plan["condition"].eq("pre_city_targeted_retrieval_ranked")
+    ]
+    assert set(ranked["query_variant"]) == set(variants)
+    assert set(ranked["bank_size"]) == {1, 2, 4}
+    assert ranked["confirmation_target_needle_raw_mass"].notna().all()
+    assert ranked["confirmation_target_needle_relative_mass"].notna().all()
+    audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
+    assert audit["confirmation_used_for_selection"] is False
+    assert audit["variant_specific_discovery_selection"] is True
+    assert audit["broad_aggregation_used"] is False

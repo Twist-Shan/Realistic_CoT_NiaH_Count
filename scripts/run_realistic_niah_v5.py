@@ -4,7 +4,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import socket
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -86,8 +89,15 @@ def command_capture(args: argparse.Namespace) -> None:
 
     config = _config(args)
     model, tokenizer, adapter = _model(args)
-    rows = registered_records(
-        read_jsonl(args.generations), config, model_label=args.model
+    raw_rows = read_jsonl(args.generations)
+    rows = (
+        [
+            row
+            for row in raw_rows
+            if str(row.get("model_label", row.get("model"))) == args.model
+        ]
+        if args.allow_unregistered
+        else registered_records(raw_rows, config, model_label=args.model)
     )
     index = capture_trace_shards(
         model,
@@ -98,6 +108,7 @@ def command_capture(args: argparse.Namespace) -> None:
         output_dir=args.output,
         layers=args.layers,
         overwrite=args.overwrite,
+        site_ids=args.site_ids,
     )
     print(f"[v5 capture] index: {index}")
 
@@ -131,6 +142,145 @@ def command_attention(args: argparse.Namespace) -> None:
     print(f"[v5 attention] wrote {len(output)} rows to {args.output}")
 
 
+def command_attention_pre_city(args: argparse.Namespace) -> None:
+    import pandas as pd
+
+    from realistic_niah_v5.pre_city import (
+        capture_pre_city_attention_metrics,
+        write_pre_city_audit,
+    )
+
+    config = _config(args)
+    model, tokenizer, adapter = _model(args)
+    rows = registered_records(
+        read_jsonl(args.generations), config, model_label=args.model
+    )
+    rows = _parser_cohort_rows(rows, "one_to_one")
+    rows = _split_rows(rows, args.split)
+    if args.max_rows is not None:
+        rows = rows[: int(args.max_rows)]
+    shard_root = args.output.parent / f"{args.output.stem}_shards"
+    shard_root.mkdir(parents=True, exist_ok=True)
+    shard_paths = []
+    exclusion_paths = []
+    for index, row in enumerate(rows, start=1):
+        request_id = str(row.get("request_id", row.get("stimulus_id", index)))
+        safe_id = request_id.replace("/", "__").replace("\\", "__")
+        shard_path = shard_root / f"{index:04d}__{safe_id}.csv.gz"
+        exclusion_path = shard_root / f"{index:04d}__{safe_id}.exclusions.jsonl"
+        if args.overwrite or not shard_path.exists():
+            frame, row_exclusions = capture_pre_city_attention_metrics(
+                model,
+                adapter,
+                tokenizer,
+                row,
+                depths=tuple(args.depths),
+                include_anchor=not args.no_anchor,
+            )
+            temporary = shard_path.with_suffix(shard_path.suffix + ".tmp")
+            frame.to_csv(temporary, index=False, compression="gzip")
+            temporary.replace(shard_path)
+            write_jsonl(exclusion_path, row_exclusions)
+            action = "captured"
+        else:
+            action = "reused"
+        shard_paths.append(shard_path)
+        exclusion_paths.append(exclusion_path)
+        print(
+            f"[v5 attention-pre-city] {index}/{len(rows)} {action} {request_id}",
+            flush=True,
+        )
+    frames = [pd.read_csv(path) for path in shard_paths]
+    output = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    exclusions = []
+    for path in exclusion_paths:
+        if path.exists():
+            exclusions.extend(read_jsonl(path))
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    output.to_csv(args.output, index=False)
+    exclusion_path = args.output.with_suffix(".exclusions.jsonl")
+    write_jsonl(exclusion_path, exclusions)
+    audit_path = args.output.with_suffix(".audit.json")
+    write_pre_city_audit(output, exclusions, audit_path)
+    print(
+        f"[v5 attention-pre-city] wrote rows={len(output)} "
+        f"exclusions={len(exclusions)} output={args.output}",
+        flush=True,
+    )
+
+
+def command_attention_answer_query(args: argparse.Namespace) -> None:
+    import pandas as pd
+
+    from realistic_niah_v5.capture import (
+        capture_answer_query_attention_metrics,
+    )
+
+    model, tokenizer, adapter = _model(args)
+    rows = [
+        row
+        for row in read_jsonl(args.generations)
+        if str(row.get("model_label", row.get("model"))) == args.model
+    ]
+    rows = _parser_cohort_rows(rows, args.cohort)
+    rows = _split_rows(rows, args.split)
+    if args.max_rows is not None:
+        rows = rows[: int(args.max_rows)]
+    shard_root = args.output.parent / f"{args.output.stem}_shards"
+    shard_root.mkdir(parents=True, exist_ok=True)
+    shard_paths = []
+    for index, row in enumerate(rows, start=1):
+        request_id = str(row.get("request_id", row.get("stimulus_id", index)))
+        safe_id = request_id.replace("/", "__").replace("\\", "__")
+        shard_path = shard_root / f"{index:04d}__{safe_id}.csv.gz"
+        if args.overwrite or not shard_path.exists():
+            frame = capture_answer_query_attention_metrics(
+                model,
+                adapter,
+                tokenizer,
+                row,
+                site_id=args.site_id,
+            )
+            temporary = shard_path.with_suffix(shard_path.suffix + ".tmp")
+            frame.to_csv(temporary, index=False, compression="gzip")
+            temporary.replace(shard_path)
+            action = "captured"
+        else:
+            action = "reused"
+        shard_paths.append(shard_path)
+        print(
+            f"[v5 attention-answer-query] {index}/{len(rows)} "
+            f"{action} {request_id}",
+            flush=True,
+        )
+    frames = [pd.read_csv(path) for path in shard_paths]
+    output = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    output.to_csv(args.output, index=False)
+    audit = {
+        "schema_version": "realistic_niah_v5_answer_query_extension_v1",
+        "site_id": args.site_id,
+        "query_definition": (
+            "last literal Total: prefix before the first numeric answer token"
+        ),
+        "cohort": args.cohort,
+        "split": args.split,
+        "requests": len(rows),
+        "rows": len(output),
+        "restartable_shards": True,
+        "confirmation_used_for_selection": False,
+    }
+    args.output.with_suffix(".audit.json").write_text(
+        json.dumps(audit, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(
+        f"[v5 attention-answer-query] wrote requests={len(rows)} "
+        f"rows={len(output)} output={args.output}",
+        flush=True,
+    )
+
+
 def command_representation(args: argparse.Namespace) -> None:
     from realistic_niah_v5.representation import analyze_representation
 
@@ -147,6 +297,28 @@ def command_causal_plan(args: argparse.Namespace) -> None:
     from realistic_niah_v5.causal import build_causal_plan
 
     paths = build_causal_plan(args.attention, args.output, config=_config(args))
+    print(json.dumps({key: str(path) for key, path in paths.items()}, indent=2))
+
+
+def command_answer_query_causal_plan(args: argparse.Namespace) -> None:
+    from realistic_niah_v5.causal import build_answer_query_causal_plan
+
+    paths = build_answer_query_causal_plan(
+        args.attention,
+        args.output,
+        config=_config(args),
+    )
+    print(json.dumps({key: str(path) for key, path in paths.items()}, indent=2))
+
+
+def command_pre_city_causal_plan(args: argparse.Namespace) -> None:
+    from realistic_niah_v5.pre_city import build_pre_city_causal_plan
+
+    paths = build_pre_city_causal_plan(
+        args.attention,
+        args.output,
+        config=_config(args),
+    )
     print(json.dumps({key: str(path) for key, path in paths.items()}, indent=2))
 
 
@@ -213,6 +385,69 @@ def _atomic_npz(path: Path, **arrays: Any) -> None:
     temporary.replace(path)
 
 
+def _atomic_write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(
+        f"{path.name}.{socket.gethostname()}.{os.getpid()}.tmp"
+    )
+    write_jsonl(temporary, rows)
+    temporary.replace(path)
+
+
+def _claim_restartable_task(
+    shard_path: Path,
+    *,
+    worker_id: str,
+    stale_seconds: float,
+) -> Path | None:
+    if shard_path.exists():
+        return None
+    claim = shard_path.with_suffix(shard_path.suffix + ".claim")
+    if claim.exists():
+        try:
+            age = time.time() - claim.stat().st_mtime
+            owner_dead = False
+            try:
+                owner = json.loads(claim.read_text(encoding="utf-8"))
+                if str(owner.get("hostname")) == socket.gethostname():
+                    owner_pid = int(owner["pid"])
+                    try:
+                        os.kill(owner_pid, 0)
+                    except ProcessLookupError:
+                        owner_dead = True
+                    except PermissionError:
+                        owner_dead = False
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                owner_dead = False
+            if (
+                (owner_dead or age > float(stale_seconds))
+                and not shard_path.exists()
+            ):
+                claim.unlink()
+        except FileNotFoundError:
+            pass
+    try:
+        with claim.open("x", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "worker_id": worker_id,
+                    "hostname": socket.gethostname(),
+                    "pid": os.getpid(),
+                    "claimed_unix": time.time(),
+                    "target": str(shard_path),
+                },
+                handle,
+                sort_keys=True,
+            )
+            handle.write("\n")
+    except FileExistsError:
+        return None
+    if shard_path.exists():
+        claim.unlink(missing_ok=True)
+        return None
+    return claim
+
+
 def _load_layer_bases(path: Path) -> dict[int, Any]:
     import numpy as np
 
@@ -277,6 +512,7 @@ def command_causal_heads(args: argparse.Namespace) -> None:
                     mechanism=mechanism,
                     heads=[],
                     condition="clean",
+                    boundary_policy=args.boundary_policy,
                 )
             )
         for plan_row in plan.itertuples(index=True):
@@ -288,13 +524,399 @@ def command_causal_heads(args: argparse.Namespace) -> None:
                 mechanism=str(plan_row.mechanism),
                 heads=_parse_heads(plan_row.heads),
                 condition=str(plan_row.condition),
+                boundary_policy=args.boundary_policy,
             )
             for result in results:
                 result["plan_row"] = int(plan_row.Index)
                 result["repeat"] = int(plan_row.repeat)
+                # Preserve the exact semantic needle-span attention evidence
+                # for the discovery-frozen bank directly in every causal head
+                # trial row.  These fields describe the bank selection, not a
+                # post-intervention attention remeasurement.
+                result["target_needle_raw_mass"] = float(
+                    plan_row.target_needle_raw_mass
+                )
+                result["target_needle_relative_mass"] = float(
+                    plan_row.target_needle_relative_mass
+                )
+                result["relative_mass_defined_heads"] = int(
+                    plan_row.relative_mass_defined_heads
+                )
+                result["attention_mass_split"] = str(
+                    plan_row.attention_mass_split
+                )
+                result["attention_mass_aggregation"] = str(
+                    plan_row.attention_mass_aggregation
+                )
             output_rows.extend(results)
         print(f"[v5 causal-heads] {row_index}/{len(rows)}", flush=True)
     write_jsonl(args.output, output_rows)
+
+
+def command_causal_pre_city_heads(args: argparse.Namespace) -> None:
+    import pandas as pd
+
+    from realistic_niah_v5.pre_city import run_pre_city_head_ablation_trials
+
+    config = _config(args)
+    model, tokenizer, adapter = _model(args)
+    rows = registered_records(
+        read_jsonl(args.generations), config, model_label=args.model
+    )
+    if not args.include_discovery:
+        rows = [row for row in rows if row["split"] == "confirmation"]
+    rows = _parser_cohort_rows(rows, args.cohort)
+    plan = pd.read_csv(args.plan)
+    plan = plan.loc[plan["model_label"].eq(args.model)].reset_index(drop=True)
+    if args.plan_rows:
+        selected = {int(value) for value in args.plan_rows}
+        plan = plan.loc[plan.index.isin(selected)]
+    variants = set(plan["query_variant"].astype(str))
+    if variants != {args.query_variant}:
+        raise ValueError(
+            f"Selected plan rows have variants={sorted(variants)}; "
+            f"expected only {args.query_variant}"
+        )
+    output_rows = []
+    for row_index, row in enumerate(rows, start=1):
+        output_rows.extend(
+            run_pre_city_head_ablation_trials(
+                model,
+                tokenizer,
+                adapter,
+                row,
+                query_variant=args.query_variant,
+                heads=[],
+                condition="clean",
+            )
+        )
+        for plan_row in plan.itertuples(index=True):
+            results = run_pre_city_head_ablation_trials(
+                model,
+                tokenizer,
+                adapter,
+                row,
+                query_variant=args.query_variant,
+                heads=_parse_heads(plan_row.heads),
+                condition=str(plan_row.condition),
+            )
+            for result in results:
+                result["plan_row"] = int(plan_row.Index)
+                result["repeat"] = int(plan_row.repeat)
+                result["mechanism"] = str(plan_row.mechanism)
+                for field in (
+                    "target_needle_raw_mass",
+                    "target_needle_relative_mass",
+                    "confirmation_target_needle_raw_mass",
+                    "confirmation_target_needle_relative_mass",
+                ):
+                    result[field] = float(getattr(plan_row, field))
+                for field in (
+                    "relative_mass_defined_heads",
+                    "raw_mass_defined_heads",
+                    "confirmation_raw_mass_defined_heads",
+                    "confirmation_relative_mass_defined_heads",
+                ):
+                    result[field] = int(getattr(plan_row, field))
+                result["attention_mass_split"] = str(
+                    plan_row.attention_mass_split
+                )
+                result["confirmation_mass_split"] = str(
+                    plan_row.confirmation_mass_split
+                )
+                result["attention_mass_aggregation"] = str(
+                    plan_row.attention_mass_aggregation
+                )
+            output_rows.extend(results)
+        print(
+            f"[v5 causal-pre-city-heads] {row_index}/{len(rows)} "
+            f"variant={args.query_variant}",
+            flush=True,
+        )
+    write_jsonl(args.output, output_rows)
+
+
+def command_causal_pre_city_all_sites(args: argparse.Namespace) -> None:
+    import pandas as pd
+
+    from realistic_niah_v5.pre_city import (
+        run_all_site_pre_city_damage_trial,
+    )
+
+    config = _config(args)
+    model, tokenizer, adapter = _model(args)
+    raw_rows = read_jsonl(args.generations)
+    if args.allow_unregistered:
+        rows = [
+            row
+            for row in raw_rows
+            if str(row.get("model_label", row.get("model"))) == args.model
+        ]
+    else:
+        rows = registered_records(raw_rows, config, model_label=args.model)
+    if not args.include_discovery:
+        rows = [row for row in rows if row["split"] == "confirmation"]
+    rows = _parser_cohort_rows(rows, args.cohort)
+    if args.gold_count is not None:
+        from realistic_niah_v5.parsing import gold_records
+
+        rows = [
+            row
+            for row in rows
+            if len(gold_records(row)) == int(args.gold_count)
+        ]
+    if args.max_rows is not None:
+        rows = rows[: int(args.max_rows)]
+    plan = pd.read_csv(args.plan)
+    plan = plan.loc[plan["model_label"].eq(args.model)].reset_index(drop=True)
+    if args.plan_rows:
+        selected_rows = {int(value) for value in args.plan_rows}
+        plan = plan.loc[plan.index.isin(selected_rows)]
+    else:
+        plan = plan.loc[
+            plan["query_variant"].astype(str).eq(args.query_variant)
+        ]
+    variants = set(plan["query_variant"].astype(str))
+    if variants != {args.query_variant}:
+        raise ValueError(
+            f"Selected plan rows have variants={sorted(variants)}; "
+            f"expected only {args.query_variant}"
+        )
+    worker_id = str(args.worker_id or f"{socket.gethostname()}-{os.getpid()}")
+    shard_root = args.output.parent / f"{args.output.stem}_shards_v2"
+    shard_root.mkdir(parents=True, exist_ok=True)
+    tasks: list[dict[str, Any]] = []
+    for row_index, row in enumerate(rows, start=1):
+        request_id = str(
+            row.get("request_id", row.get("stimulus_id", row_index))
+        )
+        safe_id = request_id.replace("/", "__").replace("\\", "__")
+        row_root = shard_root / f"{row_index:04d}__{safe_id}"
+        tasks.append(
+            {
+                "task_id": f"{row_index:04d}:clean",
+                "row_index": row_index,
+                "request_id": request_id,
+                "row": row,
+                "plan": None,
+                "shard": row_root / "clean.jsonl",
+            }
+        )
+        for plan_index, plan_row in plan.iterrows():
+            tasks.append(
+                {
+                    "task_id": f"{row_index:04d}:plan:{int(plan_index):04d}",
+                    "row_index": row_index,
+                    "request_id": request_id,
+                    "row": row,
+                    "plan": {**plan_row.to_dict(), "plan_row": int(plan_index)},
+                    "shard": row_root / f"plan_{int(plan_index):04d}.jsonl",
+                }
+            )
+    if args.overwrite:
+        if worker_id != "primary":
+            raise ValueError("Only worker_id=primary may initialize --overwrite")
+        for task in tasks:
+            Path(task["shard"]).unlink(missing_ok=True)
+            Path(task["shard"]).with_suffix(".jsonl.claim").unlink(
+                missing_ok=True
+            )
+
+    deadline = time.time() + float(args.worker_wait_timeout)
+    completed_here = 0
+    while True:
+        missing = [task for task in tasks if not Path(task["shard"]).exists()]
+        if not missing:
+            break
+        claimed_any = False
+        for task in missing:
+            shard_path = Path(task["shard"])
+            shard_path.parent.mkdir(parents=True, exist_ok=True)
+            claim = _claim_restartable_task(
+                shard_path,
+                worker_id=worker_id,
+                stale_seconds=float(args.claim_stale_seconds),
+            )
+            if claim is None:
+                continue
+            claimed_any = True
+            try:
+                plan_row = task["plan"]
+                if plan_row is None:
+                    result = run_all_site_pre_city_damage_trial(
+                        model,
+                        tokenizer,
+                        adapter,
+                        task["row"],
+                        query_variant=args.query_variant,
+                        heads=[],
+                        condition="clean",
+                    )
+                else:
+                    result = run_all_site_pre_city_damage_trial(
+                        model,
+                        tokenizer,
+                        adapter,
+                        task["row"],
+                        query_variant=args.query_variant,
+                        heads=_parse_heads(str(plan_row["heads"])),
+                        condition=str(plan_row["condition"]),
+                    )
+                    result["plan_row"] = int(plan_row["plan_row"])
+                    result["repeat"] = int(plan_row["repeat"])
+                    for field in (
+                        "target_needle_raw_mass",
+                        "target_needle_relative_mass",
+                        "confirmation_target_needle_raw_mass",
+                        "confirmation_target_needle_relative_mass",
+                    ):
+                        result[field] = float(plan_row[field])
+                    result["attention_mass_split"] = str(
+                        plan_row["attention_mass_split"]
+                    )
+                    result["confirmation_mass_split"] = str(
+                        plan_row["confirmation_mass_split"]
+                    )
+                    result["attention_mass_aggregation"] = str(
+                        plan_row["attention_mass_aggregation"]
+                    )
+                result["restartable_task_id"] = str(task["task_id"])
+                result["execution_worker_id"] = worker_id
+                _atomic_write_jsonl(shard_path, [result])
+                completed_here += 1
+                print(
+                    "[v5 causal-pre-city-all-sites] "
+                    f"worker={worker_id} completed={completed_here} "
+                    f"task={task['task_id']} request={task['request_id']} "
+                    f"variant={args.query_variant}",
+                    flush=True,
+                )
+            finally:
+                claim.unlink(missing_ok=True)
+        if all(Path(task["shard"]).exists() for task in tasks):
+            break
+        if time.time() > deadline:
+            remaining = sum(
+                not Path(task["shard"]).exists() for task in tasks
+            )
+            raise TimeoutError(
+                f"Timed out waiting for {remaining}/{len(tasks)} shared tasks"
+            )
+        if not claimed_any:
+            time.sleep(float(args.worker_poll_seconds))
+
+    output_rows = []
+    for task in tasks:
+        shard_rows = read_jsonl(Path(task["shard"]))
+        if len(shard_rows) != 1:
+            raise ValueError(f"Task shard must contain one row: {task['shard']}")
+        output_rows.extend(shard_rows)
+    _atomic_write_jsonl(args.output, output_rows)
+    print(
+        f"[v5 causal-pre-city-all-sites] wrote requests={len(rows)} "
+        f"rows={len(output_rows)} worker={worker_id} "
+        f"completed_here={completed_here} output={args.output}",
+        flush=True,
+    )
+
+
+def command_causal_answer_query_heads(args: argparse.Namespace) -> None:
+    import pandas as pd
+
+    from realistic_niah_v5.causal import run_answer_query_head_ablation_trial
+
+    model, tokenizer, adapter = _model(args)
+    rows = [
+        row
+        for row in read_jsonl(args.generations)
+        if str(row.get("model_label", row.get("model"))) == args.model
+    ]
+    rows = _parser_cohort_rows(rows, args.cohort)
+    rows = _split_rows(rows, args.split)
+    if args.max_rows is not None:
+        rows = rows[: int(args.max_rows)]
+    plan = pd.read_csv(args.plan)
+    plan = plan.loc[plan["model_label"].astype(str).eq(args.model)].reset_index(
+        drop=True
+    )
+    if args.plan_rows:
+        selected = {int(value) for value in args.plan_rows}
+        plan = plan.loc[plan.index.isin(selected)]
+    shard_root = args.output.parent / f"{args.output.stem}_shards"
+    shard_root.mkdir(parents=True, exist_ok=True)
+    shard_paths = []
+    for index, row in enumerate(rows, start=1):
+        request_id = str(row.get("request_id", row.get("stimulus_id", index)))
+        safe_id = request_id.replace("/", "__").replace("\\", "__")
+        shard_path = shard_root / f"{index:04d}__{safe_id}.jsonl"
+        if args.overwrite or not shard_path.exists():
+            trial_rows = [
+                run_answer_query_head_ablation_trial(
+                    model,
+                    tokenizer,
+                    adapter,
+                    row,
+                    heads=[],
+                    condition="clean",
+                    site_id=args.site_id,
+                )
+            ]
+            for plan_row in plan.itertuples(index=True):
+                result = run_answer_query_head_ablation_trial(
+                    model,
+                    tokenizer,
+                    adapter,
+                    row,
+                    heads=_parse_heads(plan_row.heads),
+                    condition=str(plan_row.condition),
+                    site_id=args.site_id,
+                )
+                result["plan_row"] = int(plan_row.Index)
+                result["mechanism"] = str(plan_row.mechanism)
+                result["repeat"] = int(plan_row.repeat)
+                for field in (
+                    "target_needle_raw_mass",
+                    "target_needle_relative_mass",
+                    "selected_aggregation_raw_mass",
+                    "selected_aggregation_relative_mass",
+                    "confirmation_target_needle_raw_mass",
+                    "confirmation_target_needle_relative_mass",
+                    "confirmation_selected_aggregation_raw_mass",
+                    "confirmation_selected_aggregation_relative_mass",
+                ):
+                    result[field] = float(getattr(plan_row, field))
+                result["attention_mass_split"] = str(
+                    plan_row.attention_mass_split
+                )
+                result["confirmation_mass_split"] = str(
+                    plan_row.confirmation_mass_split
+                )
+                result["attention_mass_aggregation"] = str(
+                    plan_row.attention_mass_aggregation
+                )
+                result["selected_aggregation_metric"] = str(
+                    plan_row.selected_aggregation_metric
+                )
+                trial_rows.append(result)
+            write_jsonl(shard_path, trial_rows)
+            action = "captured"
+        else:
+            action = "reused"
+        shard_paths.append(shard_path)
+        print(
+            f"[v5 causal-answer-query-heads] {index}/{len(rows)} "
+            f"{action} {request_id}",
+            flush=True,
+        )
+    output_rows = []
+    for path in shard_paths:
+        output_rows.extend(read_jsonl(path))
+    write_jsonl(args.output, output_rows)
+    print(
+        f"[v5 causal-answer-query-heads] wrote requests={len(rows)} "
+        f"rows={len(output_rows)} output={args.output}",
+        flush=True,
+    )
 
 
 def command_causal_tokens(args: argparse.Namespace) -> None:
@@ -439,7 +1061,10 @@ def command_causal_subspace_fit(args: argparse.Namespace) -> None:
     mask &= metadata["split"].astype(str).eq("discovery").to_numpy()
     if args.site_id:
         mask &= metadata["site_id"].astype(str).eq(args.site_id).to_numpy()
-    if args.site_kind != "answer_query" and config.representation_n10_only:
+    if (
+        args.site_kind not in {"answer_query", "answer_query_v2", "answer_query_v3"}
+        and config.representation_n10_only
+    ):
         mask &= metadata["gold_count"].astype(int).eq(10).to_numpy()
     available_layers = sorted(
         int(value) for value in metadata.loc[mask, "layer"].unique()
@@ -453,7 +1078,11 @@ def command_causal_subspace_fit(args: argparse.Namespace) -> None:
     for layer in layers:
         layer_mask = mask & metadata["layer"].astype(int).eq(layer).to_numpy()
         states = dataset.states[layer_mask]
-        label_column = "gold_count" if args.site_kind == "answer_query" else "occurrence"
+        label_column = (
+            "gold_count"
+            if args.site_kind in {"answer_query", "answer_query_v2", "answer_query_v3"}
+            else "occurrence"
+        )
         labels = metadata.loc[layer_mask, label_column].to_numpy(dtype=int)
         center, basis = fit_centroid_subspace(states, labels, rank=args.rank)
         arrays[f"center_L{layer}"] = center
@@ -475,7 +1104,11 @@ def command_causal_subspace_fit(args: argparse.Namespace) -> None:
         "cohort": args.cohort,
         "site_kind": args.site_kind,
         "site_id": args.site_id,
-        "label": "gold_count" if args.site_kind == "answer_query" else "occurrence",
+        "label": (
+            "gold_count"
+            if args.site_kind in {"answer_query", "answer_query_v2", "answer_query_v3"}
+            else "occurrence"
+        ),
         "basis_orientation": (
             "each component is signed toward increasing label when its linear "
             "label association is nonzero"
@@ -541,7 +1174,12 @@ def command_causal_subspace(args: argparse.Namespace) -> None:
 
 
 def command_causal_patch(args: argparse.Namespace) -> None:
-    from realistic_niah_v5.causal import run_projected_patch_trials
+    from realistic_niah_v4.modeling import generate_with_residual_interventions
+    from realistic_niah_v5.causal import (
+        capture_site_state,
+        run_projected_patch_trials_from_states,
+    )
+    from realistic_niah_v5.parsing import parse_trace_record
 
     config = _config(args)
     model, tokenizer, adapter = _model(args)
@@ -554,35 +1192,126 @@ def command_causal_patch(args: argparse.Namespace) -> None:
     bases = _load_layer_bases(args.basis)
     output_rows = []
     pairs = read_jsonl(args.pairs)
+    shard_root = args.output.parent / f"{args.output.stem}_shards"
+    if args.restartable:
+        shard_root.mkdir(parents=True, exist_ok=True)
+    state_cache: dict[tuple[str, str, int], tuple[Any, Any]] = {}
+    self_patch_cache: dict[tuple[str, str, int], dict[str, Any]] = {}
+
+    def cached_state(
+        request_id: str,
+        site_id: str,
+        layer: int,
+    ) -> tuple[Any, Any]:
+        key = (request_id, site_id, int(layer))
+        if key not in state_cache:
+            state_cache[key] = capture_site_state(
+                model,
+                adapter,
+                tokenizer,
+                row_by_id[request_id],
+                site_id=site_id,
+                layer=int(layer),
+            )
+        return state_cache[key]
+
     for pair_index, pair in enumerate(pairs, start=1):
+        shard_path = shard_root / f"{pair_index:05d}.jsonl"
+        if args.restartable and shard_path.exists() and not args.overwrite:
+            output_rows.extend(read_jsonl(shard_path))
+            print(
+                f"[v5 causal-patch] {pair_index}/{len(pairs)} reused",
+                flush=True,
+            )
+            continue
         receiver_id = str(pair["receiver_request_id"])
         donor_id = str(pair["donor_request_id"])
+        if not bool(pair.get("receiver_exact_count")) or not bool(
+            pair.get("donor_exact_count")
+        ):
+            raise ValueError(
+                "Answer execution is correct-only: both receiver and donor "
+                f"must be clean-correct ({receiver_id}/{donor_id})"
+            )
         if receiver_id not in row_by_id or donor_id not in row_by_id:
             raise KeyError(f"Unknown receiver/donor pair: {receiver_id}/{donor_id}")
+        receiver_parsed = parse_trace_record(row_by_id[receiver_id])
+        donor_parsed = parse_trace_record(row_by_id[donor_id])
+        if (
+            not bool(receiver_parsed["parser"].get("trace_one_to_one"))
+            or not bool(donor_parsed["parser"].get("trace_one_to_one"))
+            or not bool(receiver_parsed.get("exact_count"))
+            or not bool(donor_parsed.get("exact_count"))
+        ):
+            raise ValueError(
+                "Answer execution runtime revalidation failed: receiver and "
+                "donor must both be strict one-to-one and baseline-final-answer "
+                f"correct ({receiver_id}/{donor_id})"
+            )
+        if int(receiver_parsed["gold_count"]) != int(pair["receiver_count"]):
+            raise ValueError(f"Receiver count mismatch for {receiver_id}")
+        if int(donor_parsed["gold_count"]) != int(pair["donor_count"]):
+            raise ValueError(f"Donor count mismatch for {donor_id}")
         layer = int(pair.get("layer", args.layer))
         if layer not in bases:
             raise ValueError(f"Patch basis has no layer {layer}")
         receiver_site = str(pair.get("receiver_site_id", args.receiver_site_id))
         donor_site = str(pair.get("donor_site_id", args.donor_site_id))
-        trial_rows = run_projected_patch_trials(
+        receiver, receiver_state = cached_state(
+            receiver_id,
+            receiver_site,
+            layer,
+        )
+        donor, donor_state = cached_state(
+            donor_id,
+            donor_site,
+            layer,
+        )
+        self_key = (receiver_id, receiver_site, int(layer))
+        if self_key not in self_patch_cache:
+            self_patch_cache[self_key] = generate_with_residual_interventions(
+                model,
+                tokenizer,
+                adapter,
+                receiver,
+                {int(layer): ([receiver.query_position], receiver_state)},
+                max_new_tokens=args.max_new_tokens,
+            )
+        trial_rows = run_projected_patch_trials_from_states(
             model,
             tokenizer,
             adapter,
-            row_by_id[receiver_id],
-            row_by_id[donor_id],
+            receiver,
+            receiver_state,
+            donor,
+            donor_state,
             receiver_site_id=receiver_site,
             donor_site_id=donor_site,
             layer=layer,
             basis=bases[layer],
             max_new_tokens=args.max_new_tokens,
+            self_patch_result=self_patch_cache[self_key],
         )
         for result in trial_rows:
             result["pair_id"] = pair.get("pair_id", pair_index)
             result["donor_role"] = pair.get("donor_role", "registered")
+            for field in (
+                "pair_direction",
+                "receiver_exact_count",
+                "donor_exact_count",
+                "pair_eligibility",
+            ):
+                if field in pair:
+                    result[field] = pair[field]
+        if args.restartable:
+            write_jsonl(shard_path, trial_rows)
         output_rows.extend(trial_rows)
         print(f"[v5 causal-patch] {pair_index}/{len(pairs)}", flush=True)
     write_jsonl(args.output, output_rows)
-    print(f"[v5 causal-patch] wrote {len(output_rows)} trials to {args.output}")
+    print(
+        f"[v5 causal-patch] wrote {len(output_rows)} trials to {args.output}; "
+        f"cached_states={len(state_cache)} cached_self_patches={len(self_patch_cache)}"
+    )
 
 
 def command_causal_analyze(args: argparse.Namespace) -> None:
@@ -648,6 +1377,22 @@ def build_parser() -> argparse.ArgumentParser:
     capture.add_argument("--output", type=Path, required=True)
     capture.add_argument("--layers", type=int, nargs="+")
     capture.add_argument("--overwrite", action="store_true")
+    capture.add_argument(
+        "--site-ids",
+        nargs="+",
+        help=(
+            "Explicit registered site IDs for an isolated extension capture; "
+            "omitting this preserves the frozen main-site configuration."
+        ),
+    )
+    capture.add_argument(
+        "--allow-unregistered",
+        action="store_true",
+        help=(
+            "Allow isolated supplement rows outside the primary 300-seed "
+            "registry; rows are still model-filtered and never merged in place."
+        ),
+    )
     capture.set_defaults(func=command_capture)
 
     attention = subparsers.add_parser("attention")
@@ -662,6 +1407,43 @@ def build_parser() -> argparse.ArgumentParser:
         default=["targeted_retrieval", "progress_transition"],
     )
     attention.set_defaults(func=command_attention)
+
+    attention_pre_city = subparsers.add_parser("attention-pre-city")
+    _add_config(attention_pre_city)
+    _add_model(attention_pre_city)
+    attention_pre_city.add_argument("--generations", type=Path, required=True)
+    attention_pre_city.add_argument("--output", type=Path, required=True)
+    attention_pre_city.add_argument("--depths", type=int, nargs="+", default=[1, 2])
+    attention_pre_city.add_argument("--no-anchor", action="store_true")
+    attention_pre_city.add_argument(
+        "--split", choices=["all", "discovery", "confirmation"], default="all"
+    )
+    attention_pre_city.add_argument("--max-rows", type=int)
+    attention_pre_city.add_argument("--overwrite", action="store_true")
+    attention_pre_city.set_defaults(func=command_attention_pre_city)
+
+    attention_answer_query = subparsers.add_parser("attention-answer-query")
+    _add_model(attention_answer_query)
+    attention_answer_query.add_argument(
+        "--generations", type=Path, required=True
+    )
+    attention_answer_query.add_argument("--output", type=Path, required=True)
+    attention_answer_query.add_argument(
+        "--site-id", default="answer_query_v3"
+    )
+    attention_answer_query.add_argument(
+        "--cohort",
+        choices=["parser_hit", "one_to_one", "one_to_one_correct"],
+        default="one_to_one",
+    )
+    attention_answer_query.add_argument(
+        "--split",
+        choices=["all", "discovery", "confirmation"],
+        default="all",
+    )
+    attention_answer_query.add_argument("--max-rows", type=int)
+    attention_answer_query.add_argument("--overwrite", action="store_true")
+    attention_answer_query.set_defaults(func=command_attention_answer_query)
 
     representation = subparsers.add_parser("representation")
     _add_config(representation)
@@ -680,6 +1462,18 @@ def build_parser() -> argparse.ArgumentParser:
     causal_plan.add_argument("--output", type=Path, required=True)
     causal_plan.set_defaults(func=command_causal_plan)
 
+    answer_query_plan = subparsers.add_parser("answer-query-causal-plan")
+    _add_config(answer_query_plan)
+    answer_query_plan.add_argument("--attention", type=Path, required=True)
+    answer_query_plan.add_argument("--output", type=Path, required=True)
+    answer_query_plan.set_defaults(func=command_answer_query_causal_plan)
+
+    pre_city_causal_plan = subparsers.add_parser("pre-city-causal-plan")
+    _add_config(pre_city_causal_plan)
+    pre_city_causal_plan.add_argument("--attention", type=Path, required=True)
+    pre_city_causal_plan.add_argument("--output", type=Path, required=True)
+    pre_city_causal_plan.set_defaults(func=command_pre_city_causal_plan)
+
     causal_heads = subparsers.add_parser("causal-heads")
     _add_config(causal_heads)
     _add_model(causal_heads)
@@ -693,7 +1487,128 @@ def build_parser() -> argparse.ArgumentParser:
         default="one_to_one",
     )
     causal_heads.add_argument("--include-discovery", action="store_true")
+    causal_heads.add_argument(
+        "--boundary-policy",
+        choices=["strict_registered", "item_end_fallback_v2"],
+        default="strict_registered",
+        help=(
+            "Registered target-boundary policy. item_end_fallback_v2 preserves "
+            "the primary boundary and deterministically uses item_end only when "
+            "the primary boundary is not literal-token aligned."
+        ),
+    )
     causal_heads.set_defaults(func=command_causal_heads)
+
+    causal_pre_city_heads = subparsers.add_parser("causal-pre-city-heads")
+    _add_config(causal_pre_city_heads)
+    _add_model(causal_pre_city_heads)
+    causal_pre_city_heads.add_argument("--generations", type=Path, required=True)
+    causal_pre_city_heads.add_argument("--plan", type=Path, required=True)
+    causal_pre_city_heads.add_argument("--output", type=Path, required=True)
+    causal_pre_city_heads.add_argument("--plan-rows", type=int, nargs="+")
+    causal_pre_city_heads.add_argument(
+        "--query-variant",
+        choices=["pre_city_d1", "pre_city_d2", "pre_city_anchor"],
+        required=True,
+    )
+    causal_pre_city_heads.add_argument(
+        "--cohort",
+        choices=["parser_hit", "one_to_one", "one_to_one_correct"],
+        default="one_to_one",
+    )
+    causal_pre_city_heads.add_argument("--include-discovery", action="store_true")
+    causal_pre_city_heads.set_defaults(func=command_causal_pre_city_heads)
+
+    causal_pre_city_all_sites = subparsers.add_parser(
+        "causal-pre-city-all-sites"
+    )
+    _add_config(causal_pre_city_all_sites)
+    _add_model(causal_pre_city_all_sites)
+    causal_pre_city_all_sites.add_argument(
+        "--generations", type=Path, required=True
+    )
+    causal_pre_city_all_sites.add_argument("--plan", type=Path, required=True)
+    causal_pre_city_all_sites.add_argument(
+        "--output", type=Path, required=True
+    )
+    causal_pre_city_all_sites.add_argument("--plan-rows", type=int, nargs="+")
+    causal_pre_city_all_sites.add_argument(
+        "--query-variant",
+        choices=["pre_city_d1", "pre_city_d2", "pre_city_anchor"],
+        required=True,
+    )
+    causal_pre_city_all_sites.add_argument(
+        "--cohort",
+        choices=["parser_hit", "one_to_one", "one_to_one_correct"],
+        default="one_to_one",
+    )
+    causal_pre_city_all_sites.add_argument(
+        "--include-discovery", action="store_true"
+    )
+    causal_pre_city_all_sites.add_argument("--max-rows", type=int)
+    causal_pre_city_all_sites.add_argument(
+        "--gold-count",
+        type=int,
+        choices=range(1, 11),
+        help="Optional N filter used for exact all-site smoke/audit runs.",
+    )
+    causal_pre_city_all_sites.add_argument("--overwrite", action="store_true")
+    causal_pre_city_all_sites.add_argument(
+        "--worker-id",
+        default="primary",
+        help="Audit label for a cooperative shared-shard worker.",
+    )
+    causal_pre_city_all_sites.add_argument(
+        "--worker-poll-seconds", type=float, default=5.0
+    )
+    causal_pre_city_all_sites.add_argument(
+        "--worker-wait-timeout", type=float, default=86400.0
+    )
+    causal_pre_city_all_sites.add_argument(
+        "--claim-stale-seconds", type=float, default=21600.0
+    )
+    causal_pre_city_all_sites.add_argument(
+        "--allow-unregistered",
+        action="store_true",
+        help=(
+            "Allow isolated supplement seeds outside the primary registry; "
+            "outputs remain in a separate caller-provided path."
+        ),
+    )
+    causal_pre_city_all_sites.set_defaults(
+        func=command_causal_pre_city_all_sites
+    )
+
+    causal_answer_query_heads = subparsers.add_parser(
+        "causal-answer-query-heads"
+    )
+    _add_model(causal_answer_query_heads)
+    causal_answer_query_heads.add_argument(
+        "--generations", type=Path, required=True
+    )
+    causal_answer_query_heads.add_argument("--plan", type=Path, required=True)
+    causal_answer_query_heads.add_argument(
+        "--output", type=Path, required=True
+    )
+    causal_answer_query_heads.add_argument(
+        "--site-id", default="answer_query_v3"
+    )
+    causal_answer_query_heads.add_argument(
+        "--cohort",
+        choices=["parser_hit", "one_to_one", "one_to_one_correct"],
+        default="one_to_one",
+    )
+    causal_answer_query_heads.add_argument(
+        "--split",
+        choices=["all", "discovery", "confirmation"],
+        default="confirmation",
+    )
+    causal_answer_query_heads.add_argument("--plan-rows", type=int, nargs="+")
+    causal_answer_query_heads.add_argument("--max-rows", type=int)
+    causal_answer_query_heads.add_argument("--overwrite", action="store_true")
+    causal_answer_query_heads.set_defaults(
+        func=command_causal_answer_query_heads
+    )
 
     causal_tokens = subparsers.add_parser("causal-tokens")
     _add_config(causal_tokens)
@@ -775,6 +1690,8 @@ def build_parser() -> argparse.ArgumentParser:
     causal_patch.add_argument("--receiver-site-id", default="answer_query")
     causal_patch.add_argument("--donor-site-id", default="answer_query")
     causal_patch.add_argument("--max-new-tokens", type=int, default=16)
+    causal_patch.add_argument("--restartable", action="store_true")
+    causal_patch.add_argument("--overwrite", action="store_true")
     causal_patch.set_defaults(func=command_causal_patch)
 
     causal_analyze = subparsers.add_parser("causal-analyze")

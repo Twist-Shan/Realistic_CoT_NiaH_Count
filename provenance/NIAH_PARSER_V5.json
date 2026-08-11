@@ -20,7 +20,7 @@
       "targeted_retrieval",
       "progress_transition"
     ],
-    "causal_head_ranking": "query_weighted_mean_target_prompt_record_mass",
+    "causal_head_ranking": "query_weighted_mean_target_needle_raw_mass",
     "broad_aggregation_used_for_causal_head_selection": false
   }
 }

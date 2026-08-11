@@ -333,9 +333,10 @@ def build_native_trace_encoding(
         row, prompt_token_count=len(prompt_ids)
     )
     raw_prefix = raw_output_text(row)[: selected.char_site.char_end]
+    answer_query_kinds = {"answer_query", "answer_query_v2", "answer_query_v3"}
     candidate_builder = (
         _candidate_sequences
-        if selected.char_site.site_kind == "answer_query"
+        if selected.char_site.site_kind in answer_query_kinds
         else _unscored_candidate_sequences
     )
     candidate_kwargs: dict[str, Any] = {
@@ -343,7 +344,7 @@ def build_native_trace_encoding(
         "prefix_ids": prefix_ids,
         "candidate_counts": candidate_counts,
     }
-    if selected.char_site.site_kind == "answer_query":
+    if selected.char_site.site_kind in answer_query_kinds:
         candidate_kwargs.update(
             {"row": row, "model_family": family}
         )

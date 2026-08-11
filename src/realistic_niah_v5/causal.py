@@ -37,6 +37,7 @@ from .parsing import (
     infer_model_family,
     output_token_ids,
     prompt_token_ids,
+    parse_trace_record,
     raw_output_text,
     trace_char_sites,
 )
@@ -164,9 +165,9 @@ def rank_mechanism_heads(
         "trace_one_to_one",
         "layer",
         "head",
-        "target_prompt_record_mass",
-        "target_within_records_fraction",
-        "target_record_top1",
+        "target_needle_raw_mass",
+        "target_needle_relative_mass",
+        "target_needle_top1",
     }
     missing = sorted(needed - set(attention.columns))
     if missing:
@@ -188,13 +189,13 @@ def rank_mechanism_heads(
     grouped = (
         selected.groupby(["model_label", "layer", "head"], as_index=False)
         .agg(
-            discovery_target_mass=("target_prompt_record_mass", "mean"),
-            discovery_target_fraction=("target_within_records_fraction", "mean"),
-            discovery_target_top1=("target_record_top1", "mean"),
-            n_queries=("target_prompt_record_mass", "size"),
+            discovery_target_raw_mass=("target_needle_raw_mass", "mean"),
+            discovery_target_relative_mass=("target_needle_relative_mass", "mean"),
+            discovery_target_top1=("target_needle_top1", "mean"),
+            n_queries=("target_needle_raw_mass", "size"),
         )
         .sort_values(
-            ["model_label", "discovery_target_mass", "layer", "head"],
+            ["model_label", "discovery_target_raw_mass", "layer", "head"],
             ascending=[True, False, True, True],
         )
     )
@@ -205,7 +206,7 @@ def rank_mechanism_heads(
     grouped["query_site_kind"] = (
         "marker_end" if mechanism == "targeted_retrieval" else "item_end"
     )
-    grouped["selection_metric"] = "query_weighted_mean_target_prompt_record_mass"
+    grouped["selection_metric"] = "query_weighted_mean_target_needle_raw_mass"
     grouped["selection_split"] = split
     grouped["selection_cohort"] = "one_to_one"
     grouped["selection_counts"] = "1-10"
@@ -220,6 +221,92 @@ def rank_retrieval_heads(
     return rank_mechanism_heads(
         attention, mechanism="targeted_retrieval", split=split
     )
+
+
+def rank_answer_query_heads(
+    attention: pd.DataFrame,
+    *,
+    mechanism: str = "answer_prompt_aggregation",
+    split: str = "discovery",
+) -> pd.DataFrame:
+    """Freeze prompt- and trace-aggregation answer-query heads separately.
+
+    Confirmation rows are retained only for later descriptive bank-mass
+    evaluation; they never influence ordering or membership.
+    """
+
+    mechanisms = {
+        "answer_prompt_aggregation": (
+            "target_needle_raw_mass",
+            "target_needle_relative_mass",
+            "exact_prompt_needle_span_raw_mass",
+        ),
+        "answer_trace_aggregation": (
+            "trace_item_raw_mass",
+            "trace_item_relative_mass",
+            "registered_trace_item_span_raw_mass",
+        ),
+    }
+    if mechanism not in mechanisms:
+        raise ValueError(f"Unsupported answer-query mechanism: {mechanism}")
+    selection_raw, selection_relative, selection_name = mechanisms[mechanism]
+    needed = {
+        "model_label",
+        "split",
+        "trace_one_to_one",
+        "layer",
+        "head",
+        "target_needle_raw_mass",
+        "target_needle_relative_mass",
+        "trace_item_raw_mass",
+        "trace_item_relative_mass",
+    }
+    missing = sorted(needed - set(attention.columns))
+    if missing:
+        raise ValueError(f"Answer-query attention table is missing {missing}")
+    selected = attention.copy()
+    mask = selected["split"].astype(str).str.lower().eq(split.lower())
+    one_to_one = selected["trace_one_to_one"]
+    if one_to_one.dtype == bool:
+        mask &= one_to_one
+    else:
+        mask &= one_to_one.astype(str).str.lower().isin({"true", "1"})
+    selected = selected.loc[mask]
+    if selected.empty:
+        raise ValueError(f"No answer-query attention rows matched {split}")
+    grouped = (
+        selected.groupby(["model_label", "layer", "head"], as_index=False)
+        .agg(
+            discovery_target_raw_mass=("target_needle_raw_mass", "mean"),
+            discovery_target_relative_mass=(
+                "target_needle_relative_mass", "mean"
+            ),
+            discovery_trace_raw_mass=("trace_item_raw_mass", "mean"),
+            discovery_trace_relative_mass=("trace_item_relative_mass", "mean"),
+            n_queries=("target_needle_raw_mass", "size"),
+        )
+    )
+    grouped["discovery_selection_raw_mass"] = grouped[
+        "discovery_target_raw_mass"
+        if selection_raw == "target_needle_raw_mass"
+        else "discovery_trace_raw_mass"
+    ]
+    grouped["discovery_selection_relative_mass"] = grouped[
+        "discovery_target_relative_mass"
+        if selection_relative == "target_needle_relative_mass"
+        else "discovery_trace_relative_mass"
+    ]
+    grouped = grouped.sort_values(
+        ["model_label", "discovery_selection_raw_mass", "layer", "head"],
+        ascending=[True, False, True, True],
+    ).reset_index(drop=True)
+    grouped["discovery_rank"] = grouped.groupby("model_label").cumcount() + 1
+    grouped["mechanism"] = mechanism
+    grouped["query_site_kind"] = "answer_query_v3"
+    grouped["selection_metric"] = f"query_weighted_mean_{selection_name}"
+    grouped["selection_split"] = split
+    grouped["selection_cohort"] = "one_to_one"
+    return grouped
 
 
 def layer_matched_random_controls(
@@ -258,6 +345,65 @@ def layer_matched_random_controls(
     return controls
 
 
+def _bank_attention_mass(
+    head_ranking: pd.DataFrame,
+    heads: Sequence[tuple[int, int]],
+) -> dict[str, Any]:
+    """Summarize the frozen discovery exact-span mass for one head bank."""
+
+    lookup = {
+        (int(row.layer), int(row.head)): (
+            float(row.discovery_target_raw_mass),
+            float(row.discovery_target_relative_mass),
+        )
+        for row in head_ranking.itertuples(index=False)
+    }
+    values = [lookup[(int(layer), int(head))] for layer, head in heads]
+    raw = np.asarray([value[0] for value in values], dtype=float)
+    relative = np.asarray([value[1] for value in values], dtype=float)
+    finite_relative = relative[np.isfinite(relative)]
+    return {
+        "target_needle_raw_mass": float(raw.mean()),
+        "target_needle_relative_mass": (
+            float(finite_relative.mean()) if len(finite_relative) else float("nan")
+        ),
+        "relative_mass_defined_heads": int(len(finite_relative)),
+        "attention_mass_split": "discovery",
+        "attention_mass_aggregation": (
+            "mean_across_head_query_weighted_exact_span_scores"
+        ),
+    }
+
+
+def _bank_answer_selection_mass(
+    head_ranking: pd.DataFrame,
+    heads: Sequence[tuple[int, int]],
+) -> dict[str, Any]:
+    """Summarize the mechanism-specific frozen answer-query ranking mass."""
+
+    lookup = {
+        (int(row.layer), int(row.head)): (
+            float(row.discovery_selection_raw_mass),
+            float(row.discovery_selection_relative_mass),
+        )
+        for row in head_ranking.itertuples(index=False)
+    }
+    values = [lookup[(int(layer), int(head))] for layer, head in heads]
+    raw = np.asarray([value[0] for value in values], dtype=float)
+    relative = np.asarray([value[1] for value in values], dtype=float)
+    finite_relative = relative[np.isfinite(relative)]
+    return {
+        "selected_aggregation_raw_mass": float(raw.mean()),
+        "selected_aggregation_relative_mass": (
+            float(finite_relative.mean()) if len(finite_relative) else float("nan")
+        ),
+        "selected_aggregation_relative_defined_heads": int(len(finite_relative)),
+        "selected_aggregation_metric": str(
+            head_ranking["selection_metric"].iloc[0]
+        ),
+    }
+
+
 def build_causal_plan(
     attention_csv: str | Path,
     output_dir: str | Path,
@@ -288,6 +434,25 @@ def build_causal_plan(
             if bank_size > len(ordered):
                 continue
             chosen = ordered[:bank_size]
+            # The registered ranked treatment is scientifically meaningful at
+            # every available K even when a disjoint, exactly layer-matched
+            # random bank is combinatorially impossible.  Do not silently
+            # discard the treatment together with an unavailable control.
+            plan_rows.append(
+                {
+                    "model_label": model_label,
+                    "mechanism": mechanism,
+                    "query_site_kind": str(
+                        model_frame["query_site_kind"].iloc[0]
+                    ),
+                    "experiment_id": f"{mechanism}_head_ablation",
+                    "condition": f"{mechanism}_ranked",
+                    "bank_size": bank_size,
+                    "repeat": 0,
+                    "heads": json.dumps(chosen),
+                    **_bank_attention_mass(model_frame, chosen),
+                }
+            )
             try:
                 controls = layer_matched_random_controls(
                     model_frame,
@@ -301,24 +466,14 @@ def build_causal_plan(
                         "model_label": str(model_label),
                         "mechanism": str(mechanism),
                         "bank_size": int(bank_size),
+                        "ranked_treatment_included": True,
+                        "control_status": (
+                            "not_constructible_disjoint_exact_layer_match"
+                        ),
                         "reason": str(error),
                     }
                 )
                 continue
-            plan_rows.append(
-                {
-                    "model_label": model_label,
-                    "mechanism": mechanism,
-                    "query_site_kind": str(
-                        model_frame["query_site_kind"].iloc[0]
-                    ),
-                    "experiment_id": f"{mechanism}_head_ablation",
-                    "condition": f"{mechanism}_ranked",
-                    "bank_size": bank_size,
-                    "repeat": 0,
-                    "heads": json.dumps(chosen),
-                }
-            )
             for repeat, control in enumerate(controls, start=1):
                 plan_rows.append(
                     {
@@ -332,6 +487,7 @@ def build_causal_plan(
                         "bank_size": bank_size,
                         "repeat": repeat,
                         "heads": json.dumps(control),
+                        **_bank_attention_mass(model_frame, control),
                     }
                 )
     paths = {
@@ -352,6 +508,11 @@ def build_causal_plan(
             "bank_size",
             "repeat",
             "heads",
+            "target_needle_raw_mass",
+            "target_needle_relative_mass",
+            "relative_mass_defined_heads",
+            "attention_mass_split",
+            "attention_mass_aggregation",
         ],
     ).to_csv(paths["plan"], index=False)
     causal_ledger_frame().to_csv(paths["ledger"], index=False)
@@ -378,7 +539,247 @@ def build_causal_plan(
                     },
                 },
                 "primary_ablation_scope": "mechanism query position only",
-                "random_control": "same selected-head count in every layer",
+                "registered_bank_sizes": list(config.causal_head_bank_sizes),
+                "ranked_treatment_policy": (
+                    "include every registered K with enough ranked heads"
+                ),
+                "random_control": (
+                    "disjoint random heads with the same selected-head count "
+                    "in every layer; audited as structurally unavailable "
+                    "rather than replaced by overlapping controls"
+                ),
+                "skipped_banks": skipped_banks,
+                "attention_source": str(Path(attention_csv).resolve()),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return paths
+
+
+def build_answer_query_causal_plan(
+    attention_csv: str | Path,
+    output_dir: str | Path,
+    *,
+    config: V5Config,
+) -> dict[str, Path]:
+    """Build discovery-frozen answer-query banks and exact controls."""
+
+    config.validate()
+    attention = pd.read_csv(attention_csv)
+    answer_mechanisms = (
+        "answer_prompt_aggregation",
+        "answer_trace_aggregation",
+    )
+    ranking = pd.concat(
+        [
+            rank_answer_query_heads(
+                attention, mechanism=mechanism, split="discovery"
+            )
+            for mechanism in answer_mechanisms
+        ],
+        ignore_index=True,
+    )
+    confirmation = attention.loc[
+        attention["split"].astype(str).str.lower().eq("confirmation")
+    ].copy()
+    confirmation_ranking = (
+        confirmation.groupby(["model_label", "layer", "head"], as_index=False)
+        .agg(
+            confirmation_target_raw_mass=("target_needle_raw_mass", "mean"),
+            confirmation_target_relative_mass=(
+                "target_needle_relative_mass", "mean"
+            ),
+            confirmation_trace_raw_mass=("trace_item_raw_mass", "mean"),
+            confirmation_trace_relative_mass=("trace_item_relative_mass", "mean"),
+            confirmation_queries=("target_needle_raw_mass", "size"),
+        )
+        if not confirmation.empty
+        else pd.DataFrame()
+    )
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    plan_rows: list[dict[str, Any]] = []
+    skipped_banks: list[dict[str, Any]] = []
+    for (model_label, mechanism), model_frame in ranking.groupby(
+        ["model_label", "mechanism"], sort=True
+    ):
+        ordered = [
+            (int(row.layer), int(row.head))
+            for row in model_frame.sort_values("discovery_rank").itertuples()
+        ]
+        confirmation_lookup: dict[
+            tuple[int, int], tuple[float, float, float, float]
+        ] = {}
+        if not confirmation_ranking.empty:
+            model_confirmation = confirmation_ranking.loc[
+                confirmation_ranking["model_label"].astype(str).eq(
+                    str(model_label)
+                )
+            ]
+            confirmation_lookup = {
+                (int(row.layer), int(row.head)): (
+                    float(row.confirmation_target_raw_mass),
+                    float(row.confirmation_target_relative_mass),
+                    float(row.confirmation_trace_raw_mass),
+                    float(row.confirmation_trace_relative_mass),
+                )
+                for row in model_confirmation.itertuples(index=False)
+            }
+
+        def bank_row(
+            heads: Sequence[tuple[int, int]],
+            *,
+            condition: str,
+            bank_size: int,
+            repeat: int,
+        ) -> dict[str, Any]:
+            discovery_mass = _bank_attention_mass(model_frame, heads)
+            confirmation_values = [
+                confirmation_lookup.get(
+                    (int(layer), int(head)),
+                    (np.nan, np.nan, np.nan, np.nan),
+                )
+                for layer, head in heads
+            ]
+            confirmation_raw = np.asarray(
+                [value[0] for value in confirmation_values], dtype=float
+            )
+            confirmation_relative = np.asarray(
+                [value[1] for value in confirmation_values], dtype=float
+            )
+            confirmation_trace_raw = np.asarray(
+                [value[2] for value in confirmation_values], dtype=float
+            )
+            confirmation_trace_relative = np.asarray(
+                [value[3] for value in confirmation_values], dtype=float
+            )
+            selection_confirmation_raw = (
+                confirmation_raw
+                if mechanism == "answer_prompt_aggregation"
+                else confirmation_trace_raw
+            )
+            selection_confirmation_relative = (
+                confirmation_relative
+                if mechanism == "answer_prompt_aggregation"
+                else confirmation_trace_relative
+            )
+            return {
+                "model_label": model_label,
+                "mechanism": mechanism,
+                "query_site_kind": "answer_query_v3",
+                "experiment_id": "answer_query_head_ablation_v3",
+                "condition": condition,
+                "bank_size": int(bank_size),
+                "repeat": int(repeat),
+                "heads": json.dumps(heads),
+                **discovery_mass,
+                **_bank_answer_selection_mass(model_frame, heads),
+                "confirmation_target_needle_raw_mass": (
+                    float(np.nanmean(confirmation_raw))
+                    if np.isfinite(confirmation_raw).any()
+                    else np.nan
+                ),
+                "confirmation_target_needle_relative_mass": (
+                    float(np.nanmean(confirmation_relative))
+                    if np.isfinite(confirmation_relative).any()
+                    else np.nan
+                ),
+                "confirmation_mass_split": "confirmation_descriptive_only",
+                "confirmation_selected_aggregation_raw_mass": (
+                    float(np.nanmean(selection_confirmation_raw))
+                    if np.isfinite(selection_confirmation_raw).any()
+                    else np.nan
+                ),
+                "confirmation_selected_aggregation_relative_mass": (
+                    float(np.nanmean(selection_confirmation_relative))
+                    if np.isfinite(selection_confirmation_relative).any()
+                    else np.nan
+                ),
+            }
+
+        for bank_size in config.causal_head_bank_sizes:
+            if bank_size > len(ordered):
+                continue
+            chosen = ordered[:bank_size]
+            plan_rows.append(
+                bank_row(
+                    chosen,
+                    condition=f"{mechanism}_ranked",
+                    bank_size=bank_size,
+                    repeat=0,
+                )
+            )
+            try:
+                controls = layer_matched_random_controls(
+                    model_frame,
+                    chosen,
+                    repeats=config.causal_random_controls,
+                    seed_text=(
+                        f"v5-answer-query:{model_label}:{mechanism}:K{bank_size}"
+                    ),
+                )
+            except ValueError as error:
+                skipped_banks.append(
+                    {
+                        "model_label": str(model_label),
+                        "mechanism": str(mechanism),
+                        "bank_size": int(bank_size),
+                        "ranked_treatment_included": True,
+                        "control_status": (
+                            "not_constructible_disjoint_exact_layer_match"
+                        ),
+                        "reason": str(error),
+                    }
+                )
+                continue
+            for repeat, control in enumerate(controls, start=1):
+                plan_rows.append(
+                    bank_row(
+                        control,
+                        condition=f"{mechanism}_layer_matched_random",
+                        bank_size=bank_size,
+                        repeat=repeat,
+                    )
+                )
+    paths = {
+        "ranking": output / "discovery_answer_query_head_ranking.csv",
+        "plan": output / "answer_query_causal_plan.csv",
+        "audit": output / "answer_query_causal_plan_audit.json",
+    }
+    ranking.to_csv(paths["ranking"], index=False)
+    pd.DataFrame(plan_rows).to_csv(paths["plan"], index=False)
+    paths["audit"].write_text(
+        json.dumps(
+            {
+                "schema_version": CAUSAL_SCHEMA_VERSION,
+                "experiment_id": "answer_query_head_ablation_v3",
+                "site_id": "answer_query_v3",
+                "query_definition": (
+                    "literal baseline token immediately before the first "
+                    "numeric answer token"
+                ),
+                "mechanisms": list(answer_mechanisms),
+                "selection_split": "discovery",
+                "confirmation_used_for_selection": False,
+                "selection_cohort": "one_to_one",
+                "selection_metrics": {
+                    "answer_prompt_aggregation": (
+                        "mean exact full active-needle-span raw attention mass"
+                    ),
+                    "answer_trace_aggregation": (
+                        "mean registered reasoning-item-span raw attention mass"
+                    ),
+                },
+                "relative_mass_denominator": "all_prompt_attention_mass",
+                "registered_bank_sizes": list(config.causal_head_bank_sizes),
+                "random_control": (
+                    "disjoint exact layer-matched random heads; structural "
+                    "unavailability is reported, never silently substituted"
+                ),
                 "skipped_banks": skipped_banks,
                 "attention_source": str(Path(attention_csv).resolve()),
             },
@@ -561,8 +962,14 @@ def capture_natural_head_writes(
 
 
 def mechanism_continuations(
-    row: Mapping[str, Any], tokenizer: Any, *, mechanism: str
+    row: Mapping[str, Any],
+    tokenizer: Any,
+    *,
+    mechanism: str,
+    boundary_policy: str = "strict_registered",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if boundary_policy not in {"strict_registered", "item_end_fallback_v2"}:
+        raise ValueError(f"Unknown causal boundary policy: {boundary_policy}")
     family = infer_model_family(row)
     parser = find_first_terminated_gold_city_list(
         raw_output_text(row),
@@ -577,17 +984,33 @@ def mechanism_continuations(
     )
     by_id = {site.char_site.site_id: site for site in token_sites}
     cities = [str(value) for value in parser.item_gold_cities]
-    specifications: list[tuple[str, str, int, str, str | None]] = []
+    specifications: list[
+        tuple[str, tuple[str, ...], int, str, str | None]
+    ] = []
     if mechanism == "targeted_retrieval":
         specifications = [
-            (f"marker_end:{k}", f"city_end:{k}", k, "retrieve", city)
+            (
+                f"marker_end:{k}",
+                (
+                    (f"city_end:{k}", f"item_end:{k}")
+                    if boundary_policy == "item_end_fallback_v2"
+                    else (f"city_end:{k}",)
+                ),
+                k,
+                "retrieve",
+                city,
+            )
             for k, city in enumerate(cities, start=1)
         ]
     elif mechanism == "progress_transition":
         specifications = [
             (
                 f"item_end:{k}",
-                f"marker_end:{k + 1}",
+                (
+                    (f"marker_end:{k + 1}", f"item_end:{k + 1}")
+                    if boundary_policy == "item_end_fallback_v2"
+                    else (f"marker_end:{k + 1}",)
+                ),
                 k,
                 "continue",
                 cities[k],
@@ -598,7 +1021,7 @@ def mechanism_continuations(
             specifications.append(
                 (
                     f"item_end:{len(cities)}",
-                    "answer_query",
+                    ("answer_query",),
                     len(cities),
                     "stop",
                     None,
@@ -608,29 +1031,73 @@ def mechanism_continuations(
         raise ValueError(f"Unknown head mechanism: {mechanism}")
     eligible: list[dict[str, Any]] = []
     excluded: list[dict[str, Any]] = []
-    for query_id, target_id, occurrence, phase, target_city in specifications:
+    for query_id, target_ids, occurrence, phase, target_city in specifications:
         query = by_id.get(query_id)
-        target = by_id.get(target_id)
+        primary_target_id = target_ids[0]
         reason = None
-        if query is None or target is None:
+        if query is None:
             reason = "missing_registered_boundary"
-        elif not query.alignment_eligible or not target.alignment_eligible:
+        elif not query.alignment_eligible:
             reason = "ineligible_text_exact_alignment"
-        elif (
-            query.alignment_strategy != "literal_baseline_token_prefix"
-            or target.alignment_strategy != "literal_baseline_token_prefix"
-        ):
+        elif query.alignment_strategy != "literal_baseline_token_prefix":
             reason = "local_causal_trial_requires_literal_baseline_alignment"
-        elif (
-            query.prefix_token_count is None
-            or target.prefix_token_count is None
-            or int(target.prefix_token_count) <= int(query.prefix_token_count)
-        ):
+        elif query.prefix_token_count is None:
             reason = "empty_or_reversed_target_continuation"
+
+        candidate_audit: list[dict[str, str]] = []
+        selected_target_id: str | None = None
+        target = None
+        if reason is None:
+            for target_id in target_ids:
+                candidate = by_id.get(target_id)
+                candidate_reason = None
+                if candidate is None:
+                    candidate_reason = "missing_registered_boundary"
+                elif not candidate.alignment_eligible:
+                    candidate_reason = "ineligible_text_exact_alignment"
+                elif candidate.alignment_strategy != "literal_baseline_token_prefix":
+                    candidate_reason = (
+                        "local_causal_trial_requires_literal_baseline_alignment"
+                    )
+                elif (
+                    candidate.prefix_token_count is None
+                    or int(candidate.prefix_token_count)
+                    <= int(query.prefix_token_count)
+                ):
+                    candidate_reason = "empty_or_reversed_target_continuation"
+                candidate_audit.append(
+                    {
+                        "site_id": target_id,
+                        "status": candidate_reason or "selected",
+                    }
+                )
+                if candidate_reason is None:
+                    selected_target_id = target_id
+                    target = candidate
+                    break
+            if selected_target_id is None:
+                if boundary_policy == "strict_registered":
+                    reason = candidate_audit[0]["status"]
+                else:
+                    reason = "no_eligible_registered_target_boundary"
         payload = {
             "mechanism": mechanism,
             "query_site_id": query_id,
-            "target_site_id": target_id,
+            "target_site_id": selected_target_id or primary_target_id,
+            "primary_target_site_id": primary_target_id,
+            "target_site_candidates": list(target_ids),
+            "target_boundary_policy": boundary_policy,
+            "target_boundary_variant": (
+                "item_end_fallback"
+                if selected_target_id is not None
+                and selected_target_id != primary_target_id
+                else "primary"
+            ),
+            "target_site_fallback": bool(
+                selected_target_id is not None
+                and selected_target_id != primary_target_id
+            ),
+            "target_candidate_audit": candidate_audit,
             "occurrence": int(occurrence),
             "transition_phase": phase,
             "target_city": target_city,
@@ -720,6 +1187,311 @@ def _local_head_ablation_logits(
     return selected.detach().float().cpu()
 
 
+@torch.inference_mode()
+def _scheduled_head_ablation_logits(
+    model: Any,
+    adapter: DecoderAdapter,
+    encoding: NativeTraceEncoding,
+    heads: Sequence[tuple[int, int]],
+    *,
+    hook_positions: Sequence[int],
+    score_positions: Sequence[int],
+) -> torch.Tensor:
+    """Jointly ablate one bank at many baseline positions in one prefill.
+
+    ``score_positions`` are autoregressive predictor positions (the token at
+    position ``p`` predicts the target token at ``p + 1``).  Returning only
+    those vocabulary rows avoids copying the full trace-by-vocabulary tensor
+    to CPU while preserving exact teacher-forced downstream scoring.
+    """
+
+    scheduled = tuple(sorted({int(value) for value in hook_positions}))
+    scored = tuple(int(value) for value in score_positions)
+    if not scheduled:
+        raise ValueError("Scheduled head ablation needs at least one query")
+    if not scored:
+        raise ValueError("Scheduled head ablation needs at least one endpoint")
+    sequence_length = int(encoding.sequence_length)
+    if any(value < 0 or value >= sequence_length for value in scheduled):
+        raise ValueError("A scheduled query is outside the teacher-forced trace")
+    if any(value < 0 or value >= sequence_length for value in scored):
+        raise ValueError("A score position is outside the teacher-forced trace")
+    by_layer: dict[int, list[int]] = {}
+    for raw_layer, raw_head in heads:
+        layer = int(raw_layer)
+        head = int(raw_head)
+        if not 0 <= layer < int(adapter.num_layers):
+            raise ValueError(f"Invalid ablation layer: {layer}")
+        if not 0 <= head < int(adapter.num_heads[layer]):
+            raise ValueError(f"Invalid head L{layer}H{head}")
+        by_layer.setdefault(layer, []).append(head)
+    handles = []
+    for layer, layer_heads in by_layer.items():
+        head_dim = int(adapter.head_dims[layer])
+
+        def hook(
+            _module: Any,
+            args: tuple[Any, ...],
+            *,
+            layer_heads: tuple[int, ...] = tuple(sorted(set(layer_heads))),
+            head_dim: int = head_dim,
+        ) -> tuple[Any, ...]:
+            if not args or not isinstance(args[0], torch.Tensor):
+                raise RuntimeError("Attention projection received no head tensor")
+            value = args[0]
+            if value.ndim != 3 or int(value.shape[1]) != sequence_length:
+                raise RuntimeError(
+                    "Scheduled damage requires one full teacher-forced prefill"
+                )
+            patched = value.clone()
+            for head in layer_heads:
+                left = int(head) * head_dim
+                right = left + head_dim
+                patched[:, scheduled, left:right] = 0
+            return (patched, *args[1:])
+
+        handles.append(
+            adapter.output_projections[layer].register_forward_pre_hook(hook)
+        )
+    input_ids, attention_mask = _encoding_tensors(model, encoding)
+    try:
+        output = model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            use_cache=False,
+        )
+    finally:
+        for handle in handles:
+            handle.remove()
+    logits = getattr(output, "logits", None)
+    if not isinstance(logits, torch.Tensor) or logits.ndim != 3:
+        raise RuntimeError("Scheduled damage returned no sequence logits")
+    if int(logits.shape[1]) != sequence_length:
+        raise RuntimeError("Scheduled damage did not return full-sequence logits")
+    position_tensor = torch.as_tensor(scored, dtype=torch.long, device=logits.device)
+    return logits[0].index_select(0, position_tensor).detach().float().cpu()
+
+
+@torch.inference_mode()
+def generate_with_head_ablation_at_positions(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    encoding: NativeTraceEncoding,
+    heads: Sequence[tuple[int, int]],
+    *,
+    hook_positions: Sequence[int],
+    max_new_tokens: int = 16,
+    score_positions: Sequence[int] | None = None,
+) -> dict[str, Any]:
+    """Greedily decode after damaging registered positions in the prefill.
+
+    Generation is the primary behavioral count endpoint.  Hooks apply during
+    the initial teacher-forced prefill only; the patched KV/residual history is
+    then carried through ordinary greedy decoding.
+    """
+
+    scheduled = tuple(sorted({int(value) for value in hook_positions}))
+    if not scheduled:
+        raise ValueError("Head-ablation generation needs at least one position")
+    if any(value < 0 or value >= int(encoding.sequence_length) for value in scheduled):
+        raise ValueError("A generation hook position is outside the input prefix")
+    by_layer: dict[int, list[int]] = {}
+    for raw_layer, raw_head in heads:
+        layer = int(raw_layer)
+        head = int(raw_head)
+        if not 0 <= layer < int(adapter.num_layers):
+            raise ValueError(f"Invalid ablation layer: {layer}")
+        if not 0 <= head < int(adapter.num_heads[layer]):
+            raise ValueError(f"Invalid head L{layer}H{head}")
+        by_layer.setdefault(layer, []).append(head)
+    applied: dict[int, set[int]] = {layer: set() for layer in by_layer}
+    handles = []
+    for layer, layer_heads in by_layer.items():
+        head_dim = int(adapter.head_dims[layer])
+
+        def hook(
+            _module: Any,
+            args: tuple[Any, ...],
+            *,
+            layer: int = layer,
+            layer_heads: tuple[int, ...] = tuple(sorted(set(layer_heads))),
+            head_dim: int = head_dim,
+        ) -> tuple[Any, ...]:
+            if not args or not isinstance(args[0], torch.Tensor):
+                raise RuntimeError("Attention projection received no head tensor")
+            value = args[0]
+            if value.ndim != 3:
+                raise RuntimeError("Expected [batch,time,heads*head_dim]")
+            active = [position for position in scheduled if position < value.shape[1]]
+            if not active:
+                return args
+            patched = value.clone()
+            for head in layer_heads:
+                left = int(head) * head_dim
+                right = left + head_dim
+                patched[:, active, left:right] = 0
+            applied[layer].update(active)
+            return (patched, *args[1:])
+
+        handles.append(
+            adapter.output_projections[layer].register_forward_pre_hook(hook)
+        )
+    scored = tuple(int(value) for value in (score_positions or ()))
+    if any(
+        value < 0 or value >= int(encoding.sequence_length)
+        for value in scored
+    ):
+        raise ValueError("A generation score position is outside the input prefix")
+    captured_prefill_logits: list[torch.Tensor] = []
+    capture_handle = None
+    if scored:
+        sequence_length = int(encoding.sequence_length)
+
+        def capture_prefill_logits(
+            _module: Any,
+            _args: tuple[Any, ...],
+            output: Any,
+        ) -> None:
+            logits = getattr(output, "logits", None)
+            if (
+                captured_prefill_logits
+                or not isinstance(logits, torch.Tensor)
+                or logits.ndim != 3
+                or int(logits.shape[0]) != 1
+                or int(logits.shape[1]) != sequence_length
+            ):
+                return
+            positions = torch.as_tensor(
+                scored,
+                dtype=torch.long,
+                device=logits.device,
+            )
+            captured_prefill_logits.append(
+                logits[0]
+                .index_select(0, positions)
+                .detach()
+                .float()
+                .cpu()
+            )
+
+        capture_handle = model.register_forward_hook(capture_prefill_logits)
+    try:
+        if not scored:
+            result = generate_answer_completion(
+                model,
+                tokenizer,
+                encoding,
+                max_new_tokens=max_new_tokens,
+            )
+        else:
+            # A single generate() prefill now supplies both the frozen-trace
+            # diagnostic rows and the KV cache used for actual greedy answer
+            # generation.  ``logits_to_keep=0`` is required on architectures
+            # that otherwise retain only the final prefill logit.
+            if int(max_new_tokens) < 1:
+                raise ValueError("max_new_tokens must be positive")
+            input_ids, attention_mask = _encoding_tensors(model, encoding)
+            generation_config = getattr(model, "generation_config", None)
+            eos_value = (
+                getattr(generation_config, "eos_token_id", None)
+                if generation_config is not None
+                else None
+            )
+            if eos_value is None:
+                eos_value = getattr(tokenizer, "eos_token_id", None)
+            if eos_value is None:
+                eos_ids: list[int] = []
+            elif isinstance(eos_value, (tuple, list, set)):
+                eos_ids = [int(value) for value in eos_value]
+            else:
+                eos_ids = [int(eos_value)]
+            pad_token_id = getattr(tokenizer, "pad_token_id", None)
+            if pad_token_id is None and eos_ids:
+                pad_token_id = eos_ids[0]
+            generation_kwargs: dict[str, Any] = {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "do_sample": False,
+                "max_new_tokens": int(max_new_tokens),
+                "use_cache": True,
+            }
+            if pad_token_id is not None:
+                generation_kwargs["pad_token_id"] = int(pad_token_id)
+            if _accepts_keyword(model, "logits_to_keep"):
+                generation_kwargs["logits_to_keep"] = 0
+            generated = model.generate(**generation_kwargs)
+            if not isinstance(generated, torch.Tensor) or generated.ndim != 2:
+                sequences = getattr(generated, "sequences", None)
+                if not isinstance(sequences, torch.Tensor) or sequences.ndim != 2:
+                    raise RuntimeError(
+                        "Model.generate did not return [batch, time] sequences"
+                    )
+                generated = sequences
+            if generated.shape[0] != 1 or generated.shape[1] < input_ids.shape[1]:
+                raise RuntimeError("Unexpected generated sequence shape")
+            continuation = [
+                int(value)
+                for value in generated[
+                    0, input_ids.shape[1] :
+                ].detach().cpu().tolist()
+            ]
+            if not continuation:
+                raise RuntimeError("Greedy V5 generation returned an empty continuation")
+            eos_set = set(eos_ids)
+            stopped_on_eos = bool(eos_set and continuation[-1] in eos_set)
+            raw_text = tokenizer.decode(
+                continuation,
+                skip_special_tokens=False,
+                clean_up_tokenization_spaces=False,
+            )
+            clean_text = tokenizer.decode(
+                continuation,
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=False,
+            )
+            result = {
+                "generated_token_ids": continuation,
+                "generated_token_count": len(continuation),
+                "generation_eos_token_ids": eos_ids,
+                "stopped_on_eos": stopped_on_eos,
+                "generation_truncated": bool(
+                    len(continuation) >= int(max_new_tokens)
+                    and not stopped_on_eos
+                ),
+                "completion_text_raw": str(raw_text),
+                "completion_text": str(clean_text),
+                "full_answer_text": "Total:" + str(clean_text),
+            }
+    finally:
+        if capture_handle is not None:
+            capture_handle.remove()
+        for handle in handles:
+            handle.remove()
+    missed = {
+        int(layer): sorted(set(scheduled) - positions)
+        for layer, positions in applied.items()
+        if set(scheduled) - positions
+    }
+    if missed:
+        raise RuntimeError(f"Generation head hooks missed positions: {missed}")
+    if scored and len(captured_prefill_logits) != 1:
+        raise RuntimeError(
+            "Fused generation did not capture exactly one full prefill logit tensor"
+        )
+    combined = {
+        **result,
+        "head_ablation_prefill_positions": list(scheduled),
+        "head_ablation_prefill_position_count": len(scheduled),
+        "head_ablation_layers": sorted(by_layer),
+        "head_ablation_hook_audit": "PASS",
+    }
+    if scored:
+        combined["prefill_selected_logits"] = captured_prefill_logits[0]
+        combined["prefill_reuse_audit"] = "PASS_SINGLE_PREFILL"
+    return combined
+
+
 def _continuation_metrics(
     logits: torch.Tensor, target_ids: Sequence[int]
 ) -> dict[str, Any]:
@@ -731,6 +1503,11 @@ def _continuation_metrics(
         torch.arange(len(targets), dtype=torch.long), targets
     ]
     predictions = logits.argmax(dim=-1)
+    first_target = int(targets[0])
+    competing = logits[0].clone()
+    competing[first_target] = -torch.inf
+    top_competing_logit = float(competing.max())
+    target_first_logit = float(logits[0, first_target])
     first_rank = int(
         1
         + torch.count_nonzero(
@@ -745,6 +1522,11 @@ def _continuation_metrics(
         ),
         "target_first_token_exact": bool(predictions[0] == targets[0]),
         "target_first_token_rank": first_rank,
+        "target_first_token_logit": target_first_logit,
+        "top_non_target_first_token_logit": top_competing_logit,
+        "target_first_token_logit_margin": (
+            target_first_logit - top_competing_logit
+        ),
     }
 
 
@@ -758,11 +1540,15 @@ def run_mechanism_head_ablation_trials(
     mechanism: str,
     heads: Sequence[tuple[int, int]],
     condition: str,
+    boundary_policy: str = "strict_registered",
 ) -> list[dict[str, Any]]:
     """Run position-local targeted/progress teacher-forced necessity tests."""
 
     specifications, excluded = mechanism_continuations(
-        row, tokenizer, mechanism=mechanism
+        row,
+        tokenizer,
+        mechanism=mechanism,
+        boundary_policy=boundary_policy,
     )
     output: list[dict[str, Any]] = []
     for exclusion in excluded:
@@ -828,6 +1614,143 @@ def run_mechanism_head_ablation_trials(
 
 
 @torch.inference_mode()
+def run_answer_query_head_ablation_trial(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    row: Mapping[str, Any],
+    *,
+    heads: Sequence[tuple[int, int]],
+    condition: str,
+    site_id: str = "answer_query_v3",
+) -> dict[str, Any]:
+    """Test one frozen head bank at the true final answer-query token."""
+
+    encoding = build_native_trace_encoding(
+        row,
+        tokenizer,
+        site_id=site_id,
+        candidate_counts=tuple(range(1, 11)),
+    )
+    answer_ids = dict(encoding.count_candidate_answer_token_ids)[encoding.count]
+    # ``_local_head_ablation_logits`` expects the teacher-forced target tokens
+    # to be present after the query position.  Without this extension,
+    # ``logits_to_keep=target_count+1`` returns the query's predecessor as the
+    # first kept position for a prefix-only answer encoding, silently scoring
+    # an off-by-one logit.  Keep ``query_position`` fixed at the literal token
+    # immediately before the numeric answer and append only the frozen gold
+    # continuation used for scoring.
+    scoring_encoding = replace(
+        encoding,
+        input_ids=encoding.input_ids + tuple(int(value) for value in answer_ids),
+        attention_mask=encoding.attention_mask + (1,) * len(answer_ids),
+    )
+    logits = _local_head_ablation_logits(
+        model,
+        adapter,
+        scoring_encoding,
+        heads,
+        hook_position=encoding.query_position,
+        target_token_count=len(answer_ids),
+    )
+    metrics = _continuation_metrics(logits, answer_ids)
+    generation = generate_with_head_ablation_at_positions(
+        model,
+        tokenizer,
+        adapter,
+        encoding,
+        heads,
+        hook_positions=[int(encoding.query_position)],
+        max_new_tokens=16,
+    )
+    behavior = completion_metrics(generation, gold_count=encoding.count)
+    probabilities = torch.softmax(logits[0], dim=-1)
+    first_id = int(answer_ids[0])
+    candidate_first_ids = {
+        int(count): int(ids[0])
+        for count, ids in encoding.count_candidate_answer_token_ids
+    }
+    candidate_logits = {
+        count: float(logits[0, token_id])
+        for count, token_id in candidate_first_ids.items()
+    }
+    competing_counts = {
+        count: value
+        for count, value in candidate_logits.items()
+        if int(candidate_first_ids[count]) != first_id
+    }
+    best_candidate_logit = max(candidate_logits.values())
+    candidate_argmax_counts = sorted(
+        count
+        for count, value in candidate_logits.items()
+        if value == best_candidate_logit
+    )
+    target_token_alias_counts = sorted(
+        count
+        for count, token_id in candidate_first_ids.items()
+        if int(token_id) == first_id
+    )
+    candidate_margin = (
+        float(candidate_logits[encoding.count])
+        - float(max(competing_counts.values()))
+        if competing_counts
+        else float("nan")
+    )
+    return {
+        "schema_version": CAUSAL_SCHEMA_VERSION,
+        "experiment_id": "answer_query_head_ablation_v3",
+        "condition": condition,
+        "request_id": encoding.request_id,
+        "stimulus_id": encoding.stimulus_id,
+        "model_label": encoding.model_label,
+        "seed": encoding.seed,
+        "split": encoding.split,
+        "gold_count": encoding.count,
+        "baseline_exact_count": bool(parse_trace_record(row)["exact_count"]),
+        "site_id": site_id,
+        "query_position": int(encoding.query_position),
+        "query_definition": (
+            "literal baseline token immediately before the first numeric "
+            "answer token"
+        ),
+        "heads": [[int(layer), int(head)] for layer, head in heads],
+        "bank_size": int(len(heads)),
+        "status": "ok",
+        "target_token_count": int(len(answer_ids)),
+        "target_text": tokenizer.decode(
+            list(answer_ids),
+            skip_special_tokens=False,
+            clean_up_tokenization_spaces=False,
+        ),
+        "target_first_token_probability": float(probabilities[first_id]),
+        "behavioral_endpoint": "greedy_generated_numeric_answer",
+        "prediction": behavior["prediction"],
+        "exact_count": behavior["exact_count"],
+        "signed_error": behavior["signed_error"],
+        "absolute_error": behavior["absolute_error"],
+        "completion_text_raw": behavior["completion_text_raw"],
+        "generated_token_count": behavior["generated_token_count"],
+        "generation_truncated": behavior["generation_truncated"],
+        "head_ablation_hook_audit": generation[
+            "head_ablation_hook_audit"
+        ],
+        "answer_candidate_argmax_counts": candidate_argmax_counts,
+        "answer_candidate_argmax_contains_gold": bool(
+            int(encoding.count) in candidate_argmax_counts
+        ),
+        "answer_gold_first_token_alias_counts": target_token_alias_counts,
+        "answer_gold_first_token_identifies_unique_count": bool(
+            len(target_token_alias_counts) == 1
+        ),
+        "answer_candidate_first_token_logits": candidate_logits,
+        "answer_gold_vs_best_distinct_count_token_logit_margin": (
+            candidate_margin
+        ),
+        **metrics,
+    }
+
+
+@torch.inference_mode()
 def run_projected_patch_trials(
     model: Any,
     tokenizer: Any,
@@ -859,6 +1782,41 @@ def run_projected_patch_trials(
         site_id=donor_site_id,
         layer=layer,
     )
+    return run_projected_patch_trials_from_states(
+        model,
+        tokenizer,
+        adapter,
+        receiver,
+        receiver_state,
+        donor,
+        donor_state,
+        receiver_site_id=receiver_site_id,
+        donor_site_id=donor_site_id,
+        layer=layer,
+        basis=basis,
+        max_new_tokens=max_new_tokens,
+    )
+
+
+@torch.inference_mode()
+def run_projected_patch_trials_from_states(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    receiver: NativeTraceEncoding,
+    receiver_state: torch.Tensor,
+    donor: NativeTraceEncoding,
+    donor_state: torch.Tensor,
+    *,
+    receiver_site_id: str,
+    donor_site_id: str,
+    layer: int,
+    basis: np.ndarray | torch.Tensor,
+    max_new_tokens: int = 16,
+    self_patch_result: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Run registered patch conditions from reusable captured site states."""
+
     if receiver.model_label != donor.model_label:
         raise ValueError("Receiver and donor must use the same registered model")
     if receiver.count == donor.count:
@@ -869,12 +1827,25 @@ def run_projected_patch_trials(
     basis_tensor = torch.as_tensor(basis, dtype=torch.float32)
     if basis_tensor.ndim != 2 or basis_tensor.shape[0] != receiver_state.numel():
         raise ValueError("Patch basis must have shape [hidden, rank]")
-    clean = generate_with_residual_interventions(
+    reused_self_patch = self_patch_result is not None
+    clean = (
+        dict(self_patch_result)
+        if self_patch_result is not None
+        else generate_with_residual_interventions(
+            model,
+            tokenizer,
+            adapter,
+            receiver,
+            {int(layer): ([receiver.query_position], receiver_state)},
+            max_new_tokens=max_new_tokens,
+        )
+    )
+    full_donor = generate_with_residual_interventions(
         model,
         tokenizer,
         adapter,
         receiver,
-        {int(layer): ([receiver.query_position], receiver_state)},
+        {int(layer): ([receiver.query_position], donor_state)},
         max_new_tokens=max_new_tokens,
     )
     conditions = run_counter_subspace_conditions(
@@ -897,6 +1868,7 @@ def run_projected_patch_trials(
     result_rows: list[dict[str, Any]] = []
     for condition, result in (
         ("self_patch", clean),
+        ("full_donor_patch", full_donor),
         ("projected_donor_patch", conditions["projected_patch"]),
         ("orthogonal_norm_matched", conditions["orthogonal_norm_matched"]),
     ):
@@ -916,6 +1888,8 @@ def run_projected_patch_trials(
                 "donor_site_id": donor_site_id,
                 "layer": int(layer),
                 "rank": int(basis_tensor.shape[1]),
+                "captured_state_cache_audit": "PASS_REUSED_SITE_STATE",
+                "self_patch_cache_reused": bool(reused_self_patch),
                 **audit,
                 **completion_metrics(result, gold_count=receiver.count),
             }
@@ -1444,7 +2418,23 @@ def analyze_paired_causal_results(
             continue
         if column not in trials:
             raise ValueError(f"Causal trials have no filter column {column}")
-        trials = trials.loc[trials[column].astype(str).eq(str(value))]
+        if column == "bank_size":
+            # JSONL exclusion rows omit bank_size, so pandas promotes the
+            # otherwise integral column to float (for example 4 -> 4.0).
+            # Numeric comparison avoids silently dropping every treatment.
+            value_mask = pd.to_numeric(
+                trials[column], errors="coerce"
+            ).eq(float(value))
+            # Clean head-ablation rows are evaluated once per mechanism and
+            # therefore have K=0.  Retain that shared baseline when selecting
+            # a registered treatment K; otherwise treatment-vs-clean analyses
+            # are structurally impossible and only random-control contrasts
+            # survive the filter.
+            clean_mask = trials["condition"].astype(str).eq("clean")
+            value_mask |= clean_mask
+        else:
+            value_mask = trials[column].astype(str).eq(str(value))
+        trials = trials.loc[value_mask]
     if trials.empty:
         raise ValueError("No causal trial rows remain after registered filters")
     seed_frame = paired_seed_effects(

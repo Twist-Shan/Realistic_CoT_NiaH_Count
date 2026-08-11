@@ -60,8 +60,13 @@ prompt token span for city record `c`, recovered from V4.4
   as a separate stop-phase causal outcome and does not enter this attention
   ranking because no next prompt record exists.
 
-Raw target mass is the only ranking variable. Target-within-record fraction
-and target top-1 are diagnostics. The two families are ranked and intervened
+Every result table must retain `target_needle_raw_mass`,
+`all_active_needles_raw_mass`, and `target_needle_relative_mass`, where the
+relative mass is the target raw mass divided by the summed raw mass over all
+active frozen needle spans at that query. A zero denominator is reported as
+undefined (`NaN`), not silently converted to zero. Raw target mass is the only
+ranking variable; relative mass and target top-1 are required diagnostics.
+The two families are ranked and intervened
 on independently because retrieval of the current record and transition to
 the next progress state may share heads without sharing the same top-K set.
 
@@ -129,6 +134,24 @@ before inference. Layer-matched random repeats are therefore controls, not
 independent samples. Bootstrap intervals and sign-flip tests use seed as the
 inference unit; mechanism, K, and transition phase must be selected rather
 than pooled.
+
+## Frozen paired input dataset
+
+The exact V4.4 input backbone used by V4 non-thinking is frozen at
+[`stwistzz/realistic-niah-count-mechanism-analysis`](https://huggingface.co/datasets/stwistzz/realistic-niah-count-mechanism-analysis).
+It exposes `non_thinking` and `native_thinking` configurations, each with 200
+discovery rows and 100 confirmation rows. The 300 pairs have identical
+passages, gold records, slots, active needle spans, hard negatives, and design
+metadata; only the user prompt and chat-template thinking control differ.
+
+The local reproducible builder is
+`scripts/build_realistic_niah_mechanism_dataset.py`. Its source full-grid
+stimulus SHA-256 is
+`da4dd86142eb8a07f9a7e53497efd3375184c8e68367d4db994370fcb331f090`,
+and its paired V4.4 backbone audit SHA-256 is
+`f70a62c0a9cb10d4f80f950566aa321f84fb96df67479b2f60c424f6c300238e`.
+The Hub repository contains inputs and provenance only—no generations,
+hidden states, attention tables, representation outputs, or causal results.
 
 ## Pipeline
 
