@@ -112,6 +112,18 @@ def analyze(
             for row in frame
         ):
             raise ValueError(f"Interchange construction audit failed: {pair_id}")
+        control_audits = {
+            str(row.get("orthogonal_control_audit")) for row in frame
+        }
+        allowed_control_audits = {
+            "PASS_NORM_MATCHED_ORTHOGONAL_CONTROL",
+            "PASS_DEGENERATE_ZERO_NORM_IDENTITY_CONTROL",
+        }
+        if not control_audits <= allowed_control_audits:
+            raise ValueError(
+                f"Interchange orthogonal audit failed: {pair_id}: "
+                f"{sorted(control_audits)}"
+            )
         exact = {
             condition: float(bool(row["target_needle_exact"]))
             for condition, row in conditions.items()
@@ -145,6 +157,12 @@ def analyze(
                 "query_variant": variant,
                 "query_alias_key": str(first["query_alias_key"]),
                 "layer": int(layer),
+                "donor_receiver_delta_norm": float(
+                    first["donor_receiver_delta_norm"]
+                ),
+                "zero_delta_state": bool(
+                    float(first["donor_receiver_delta_norm"]) == 0.0
+                ),
                 **{f"exact__{key}": value for key, value in exact.items()},
                 "restoration": restoration,
                 "suppression": suppression,
@@ -334,6 +352,7 @@ def analyze(
         "equal_prompt_token_length_required": True,
         "identical_teacher_forced_trace_prefix_required": True,
         "groups": len(detail),
+        "zero_delta_groups": int(detail["zero_delta_state"].sum()),
         "selected_model_variants": len(selection),
         "confirmation_complete": bool(not confirmation.empty),
         "outputs": {key: str(path.resolve()) for key, path in outputs.items()},

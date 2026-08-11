@@ -380,6 +380,16 @@ def test_marker_orthogonal_control_matches_delta_norm() -> None:
     )
 
 
+def test_marker_orthogonal_zero_delta_is_identity() -> None:
+    import torch
+
+    receiver = torch.tensor([1.0, -2.0, 3.0])
+    control = orthogonal_norm_matched_patch_state(
+        receiver, receiver.clone(), seed_text="zero-delta"
+    )
+    assert torch.equal(control, receiver)
+
+
 def test_answer_query_plan_contains_factorial_joint_bank(tmp_path) -> None:
     rows = []
     for split in ("discovery", "confirmation"):

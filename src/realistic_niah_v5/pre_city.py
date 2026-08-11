@@ -904,8 +904,13 @@ def orthogonal_norm_matched_patch_state(
         raise ValueError("Receiver and donor marker states have different shapes")
     delta = donor - receiver
     norm = torch.linalg.vector_norm(delta)
-    if not torch.isfinite(norm) or float(norm) <= 0:
-        raise ValueError("Donor-minus-receiver marker delta has zero/invalid norm")
+    if not torch.isfinite(norm):
+        raise ValueError("Donor-minus-receiver marker delta has invalid norm")
+    # In local-attention early layers the added distant prompt record may be
+    # causally unreachable, making the two semantic query states identical.
+    # The exact norm-matched control then has zero norm: the identity patch.
+    if float(norm) == 0.0:
+        return receiver.clone()
     seed = int.from_bytes(
         hashlib.sha256(seed_text.encode("utf-8")).digest()[:8], "little"
     )
@@ -1090,6 +1095,19 @@ def run_marker_needle_patch_trials(
     counterfactual_state = _capture_query_state_from_encoding(
         model, adapter, counterfactual_encoding, layer=layer
     )
+    donor_receiver_delta_norm = float(
+        torch.linalg.vector_norm(
+            full_state.detach().float().cpu()
+            - counterfactual_state.detach().float().cpu()
+        )
+    )
+    if not np.isfinite(donor_receiver_delta_norm):
+        raise ValueError("Marker donor-receiver state delta has invalid norm")
+    orthogonal_control_audit = (
+        "PASS_DEGENERATE_ZERO_NORM_IDENTITY_CONTROL"
+        if donor_receiver_delta_norm == 0.0
+        else "PASS_NORM_MATCHED_ORTHOGONAL_CONTROL"
+    )
     counterfactual_orthogonal = orthogonal_norm_matched_patch_state(
         counterfactual_state,
         full_state,
@@ -1172,6 +1190,8 @@ def run_marker_needle_patch_trials(
                 ),
                 "trace_prefix_identity_audit": "PASS_SAME_TEACHER_FORCED_PREFIX",
                 "semantic_query_alignment_audit": "PASS_SAME_QUERY_POSITION",
+                "donor_receiver_delta_norm": donor_receiver_delta_norm,
+                "orthogonal_control_audit": orthogonal_control_audit,
                 "behavioral_endpoint": "actual_greedy_next_needle_token_sequence",
                 **_next_needle_generation_metrics(
                     result,
