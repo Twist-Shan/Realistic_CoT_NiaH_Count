@@ -16,6 +16,7 @@ MARKER=$ROOT/marker_adjacent_patch
 NEXT=$ROOT/next_needle_ablation
 ANSWER=$ROOT/answer_aggregation_factorial
 EXECUTION=$ROOT/answer_execution_reanalysis
+ALIGN=$RUN/patch_alignment_v1
 CACHE=$FS/cache/huggingface
 LOG=$ROOT/logs
 E4_PLAN=$MODEL_RUN/causal/pre_city_token/plan/causal_plan.csv
@@ -64,17 +65,24 @@ run_gpu() {
   echo "[$(date -Is)] DONE $name" | tee -a "$LOG/supervisor.log"
 }
 
-# Marker/pre-city patching mirrors the non-thinking adjacent-count
-# counterfactual construction.  Discovery alone selects the residual layer;
-# confirmation is then run at the frozen layer for each semantic query.
-run_cpu marker_adjacent_plan \
-  scripts/build_v5_marker_needle_patch_plan.py \
-  --generations "$GEN" --model "$MODEL" --output-dir "$MARKER/plan"
-
-PAIR_PLAN=$MARKER/plan/${MODEL}__marker_adjacent_pairs.jsonl
+# Marker/pre-city patching uses exactly one correct strict-one-to-one pair per
+# model, split, and frozen transition: 1->2, 3->4, 5->6, 7->8, 9->10.  The
+# cross-model alignment registry is built before either GPU supervisor starts.
+PAIR_PLAN=$ALIGN/marker/${MODEL}__marker_aligned_pairs.jsonl
+test -f "$ALIGN/alignment_audit.json"
+test -f "$PAIR_PLAN"
+MARKER_GENERATIONS=("$GEN")
+if [[ -f "$RUN/marker_pair_supplement/$MODEL/generations.jsonl" ]]; then
+  MARKER_GENERATIONS+=("$RUN/marker_pair_supplement/$MODEL/generations.jsonl")
+fi
+if [[ -d "$RUN/one_to_one_supplement/$MODEL/batches" ]]; then
+  while IFS= read -r source; do
+    MARKER_GENERATIONS+=("$source")
+  done < <(find "$RUN/one_to_one_supplement/$MODEL/batches" -type f -name generations.jsonl | sort)
+fi
 run_gpu marker_patch_discovery \
   scripts/run_realistic_niah_v5.py causal-marker-needle-patch \
-  --model "$MODEL" --generations "$GEN" --pairs "$PAIR_PLAN" \
+  --model "$MODEL" --generations "${MARKER_GENERATIONS[@]}" --pairs "$PAIR_PLAN" \
   --output "$MARKER/discovery/trials.jsonl" \
   --query-variants pre_city_d1 pre_city_d2 pre_city_anchor \
   --layers "${MARKER_LAYERS[@]}" --split discovery \
@@ -93,7 +101,7 @@ for variant in pre_city_d1 pre_city_d2 pre_city_anchor; do
   output=$MARKER/confirmation/${variant}__L${layer}.jsonl
   run_gpu "marker_patch_confirmation_${variant}" \
     scripts/run_realistic_niah_v5.py causal-marker-needle-patch \
-    --model "$MODEL" --generations "$GEN" --pairs "$PAIR_PLAN" \
+    --model "$MODEL" --generations "${MARKER_GENERATIONS[@]}" --pairs "$PAIR_PLAN" \
     --output "$output" --query-variants "$variant" --layers "$layer" \
     --split confirmation --cache-dir "$CACHE" --device-map auto \
     --torch-dtype bfloat16 --attention-backend sdpa
@@ -173,12 +181,20 @@ run_cpu answer_factorial_analysis \
   --output-dir "$ANSWER/analysis"
 
 # Answer execution patching already used actual greedy count and correct-only
-# receiver/donor pairs.  Reanalysis adds donor-vs-orthogonal specificity and
-# Holm adjustment without mutating the registered trials.
-run_cpu answer_execution_reanalysis \
-  scripts/analyze_v5_answer_execution.py \
+# receiver/donor pairs.  Reuse the immutable GPU trials, but freeze equal
+# Qwen/Gemma sample counts at each common signed gap (+/-1, +/-2, +/-3) and
+# report count transport separately for every signed gap.
+ALIGNED_EXECUTION_PAIRS=$ALIGN/answer/${MODEL}__answer_aligned_pairs.jsonl
+ALIGNED_EXECUTION_TRIALS=$EXECUTION/trials_confirmation_aligned.jsonl
+run_cpu answer_execution_aligned_trial_filter \
+  scripts/filter_v5_patch_trials_to_registry.py \
   --trials "$OLD_EXT/answer_execution/trials_confirmation.jsonl" \
-  --pairs "$OLD_EXT/answer_execution/plan/${MODEL}__answer_execution_pairs.jsonl" \
+  --pairs "$ALIGNED_EXECUTION_PAIRS" --output "$ALIGNED_EXECUTION_TRIALS"
+
+run_cpu answer_execution_aligned_reanalysis \
+  scripts/analyze_v5_answer_execution.py \
+  --trials "$ALIGNED_EXECUTION_TRIALS" \
+  --pairs "$ALIGNED_EXECUTION_PAIRS" \
   --output-dir "$EXECUTION/analysis"
 
 printf 'complete\n' > "$STATUS"

@@ -126,6 +126,8 @@ def analyze(trials: Path, pairs_path: Path, output_dir: Path) -> dict[str, Any]:
                     "seed": int(row["seed"]),
                     "receiver_count": receiver,
                     "donor_count": donor,
+                    "signed_count_gap": gap,
+                    "absolute_count_gap": abs(gap),
                     "pair_direction": str(pair["pair_direction"]),
                     "condition": condition,
                     "prediction": prediction,
@@ -145,6 +147,8 @@ def analyze(trials: Path, pairs_path: Path, output_dir: Path) -> dict[str, Any]:
             "seed",
             "receiver_count",
             "donor_count",
+            "signed_count_gap",
+            "absolute_count_gap",
             "pair_direction",
         ],
         columns="condition",
@@ -184,8 +188,34 @@ def analyze(trials: Path, pairs_path: Path, output_dir: Path) -> dict[str, Any]:
             projected_adoption_specificity=("projected_minus_orthogonal_adoption", "mean"),
         )
     )
+    gap_seed = (
+        wide.groupby(["model_label", "signed_count_gap", "seed"], as_index=False)
+        .agg(
+            pairs=("pair_id", "size"),
+            full_transport=("strict_normalized_transport__full_donor_patch", "mean"),
+            projected_transport=("strict_normalized_transport__projected_donor_patch", "mean"),
+            orthogonal_transport=("strict_normalized_transport__orthogonal_norm_matched", "mean"),
+            full_specificity=("full_minus_orthogonal_transport", "mean"),
+            projected_specificity=("projected_minus_orthogonal_transport", "mean"),
+            full_donor_adoption=("donor_adoption__full_donor_patch", "mean"),
+            projected_donor_adoption=("donor_adoption__projected_donor_patch", "mean"),
+            orthogonal_donor_adoption=("donor_adoption__orthogonal_norm_matched", "mean"),
+            full_adoption_specificity=("full_minus_orthogonal_adoption", "mean"),
+            projected_adoption_specificity=("projected_minus_orthogonal_adoption", "mean"),
+        )
+    )
     statistics_rows = []
-    for model, frame in seed.groupby("model_label", sort=True):
+    analysis_frames = [
+        ("overall", None, model, frame)
+        for model, frame in seed.groupby("model_label", sort=True)
+    ]
+    analysis_frames.extend(
+        ("signed_gap", int(gap), model, frame)
+        for (model, gap), frame in gap_seed.groupby(
+            ["model_label", "signed_count_gap"], sort=True
+        )
+    )
+    for scope, gap, model, frame in analysis_frames:
         for metric in (
             "full_transport",
             "projected_transport",
@@ -197,11 +227,16 @@ def analyze(trials: Path, pairs_path: Path, output_dir: Path) -> dict[str, Any]:
             "projected_adoption_specificity",
         ):
             values = frame[metric].to_numpy(dtype=float)
-            low, high = bootstrap(values, label=f"v5-answer-execution:{model}:{metric}")
+            low, high = bootstrap(
+                values,
+                label=f"v5-answer-execution:{scope}:{gap}:{model}:{metric}",
+            )
             p_value, method, assignments = sign_flip(values)
             statistics_rows.append(
                 {
                     "model_label": model,
+                    "scope": scope,
+                    "signed_count_gap": gap,
                     "metric": metric,
                     "seed_clusters": len(values),
                     "effect": float(values.mean()),
@@ -235,10 +270,12 @@ def analyze(trials: Path, pairs_path: Path, output_dir: Path) -> dict[str, Any]:
     detail_path = output_dir / "detail.csv"
     pair_path = output_dir / "paired_effects.csv"
     seed_path = output_dir / "seed_effects.csv"
+    gap_seed_path = output_dir / "signed_gap_seed_effects.csv"
     stats_path = output_dir / "statistics.csv"
     detail.to_csv(detail_path, index=False)
     wide.to_csv(pair_path, index=False)
     seed.to_csv(seed_path, index=False)
+    gap_seed.to_csv(gap_seed_path, index=False)
     statistics.to_csv(stats_path, index=False)
     audit = {
         "schema_version": SCHEMA,
@@ -252,6 +289,10 @@ def analyze(trials: Path, pairs_path: Path, output_dir: Path) -> dict[str, Any]:
             "must regenerate receiver gold"
         ),
         "behavioral_endpoint": "strict greedy generated numeric answer",
+        "count_gap_policy": (
+            "signed_count_gap=donor_count-receiver_count; effects are reported "
+            "both overall and separately for every frozen signed gap"
+        ),
         "strict_invalid_policy": "invalid patched numeric generation has zero transport and zero adoption",
         "primary_specificity_controls": (
             "full/projected donor effects are each contrasted with the "
@@ -264,6 +305,7 @@ def analyze(trials: Path, pairs_path: Path, output_dir: Path) -> dict[str, Any]:
             "detail": str(detail_path.resolve()),
             "paired": str(pair_path.resolve()),
             "seed_effects": str(seed_path.resolve()),
+            "signed_gap_seed_effects": str(gap_seed_path.resolve()),
             "statistics": str(stats_path.resolve()),
         },
     }
