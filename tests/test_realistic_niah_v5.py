@@ -497,6 +497,48 @@ def test_answer_query_plan_contains_factorial_joint_bank(tmp_path) -> None:
     assert len(audit["reported_behavioral_conditions"]) == 4
 
 
+def test_answer_query_plan_constrains_ranked_banks_for_exact_controls(
+    tmp_path,
+) -> None:
+    rows = []
+    for split in ("discovery", "confirmation"):
+        for head in range(8):
+            rows.append(
+                {
+                    "model_label": "Gemma4-E4B",
+                    "split": split,
+                    "trace_one_to_one": True,
+                    "layer": 0,
+                    "head": head,
+                    "target_needle_raw_mass": 1.0 - head * 0.01,
+                    "target_needle_relative_mass": 0.5,
+                    "trace_item_raw_mass": 1.0 - abs(head - 2) * 0.01,
+                    "trace_item_relative_mass": 0.5,
+                    "prompt_broad_score": 1.0 - head * 0.01,
+                    "prompt_broad_coverage": 0.9,
+                    "trace_broad_score": 1.0 - abs(head - 2) * 0.01,
+                    "trace_broad_coverage": 0.9,
+                }
+            )
+    attention = tmp_path / "answer_attention.csv"
+    pd.DataFrame(rows).to_csv(attention, index=False)
+    paths = build_answer_query_causal_plan(
+        attention,
+        tmp_path / "answer_plan",
+        config=V5Config(causal_head_bank_sizes=(4,), causal_random_controls=3),
+    )
+    plan = pd.read_csv(paths["plan"])
+    audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
+    assert audit["skipped_banks"] == []
+    assert len(plan) == 12
+    assert set(plan.groupby("mechanism").size()) == {4}
+    assert set(plan.loc[plan["repeat"].eq(0), "bank_size"]) == {4}
+    assert all(
+        len(json.loads(heads)) == 4
+        for heads in plan.loc[plan["repeat"].gt(0), "heads"]
+    )
+
+
 def test_v5_config_freezes_sites_and_disjoint_seed_splits() -> None:
     config = V5Config()
     config.validate()

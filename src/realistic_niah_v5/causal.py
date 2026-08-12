@@ -379,6 +379,95 @@ def layer_matched_random_controls(
     return controls
 
 
+def _control_constructible_ranked_heads(
+    head_ranking: pd.DataFrame,
+    ordered_heads: Sequence[tuple[int, int]],
+    *,
+    bank_size: int,
+) -> list[tuple[int, int]]:
+    """Greedily preserve discovery rank while keeping exact controls feasible.
+
+    A layer-matched control must draw distinct heads from the complement of the
+    ranked bank.  Consequently no ranked bank may occupy more than half of the
+    available heads in any layer.  This constraint is architectural (not a
+    post-hoc outcome filter), so it belongs in the frozen discovery plan.
+    """
+
+    available_by_layer: dict[int, int] = {}
+    for row in head_ranking.itertuples(index=False):
+        layer = int(row.layer)
+        available_by_layer[layer] = available_by_layer.get(layer, 0) + 1
+    layer_counts: dict[int, int] = {}
+    selected: list[tuple[int, int]] = []
+    for raw_layer, raw_head in ordered_heads:
+        layer, head = int(raw_layer), int(raw_head)
+        capacity = available_by_layer.get(layer, 0) // 2
+        if layer_counts.get(layer, 0) >= capacity:
+            continue
+        selected.append((layer, head))
+        layer_counts[layer] = layer_counts.get(layer, 0) + 1
+        if len(selected) == int(bank_size):
+            return selected
+    raise ValueError(
+        f"Cannot construct ranked bank K={bank_size} under exact-control "
+        "per-layer capacity"
+    )
+
+
+def _control_constructible_joint_ranked_heads(
+    head_ranking: pd.DataFrame,
+    prompt_ordered: Sequence[tuple[int, int]],
+    trace_ordered: Sequence[tuple[int, int]],
+    *,
+    bank_size: int,
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
+    """Select equal-weight prompt/trace banks whose union admits controls."""
+
+    available_by_layer: dict[int, int] = {}
+    for row in head_ranking.itertuples(index=False):
+        layer = int(row.layer)
+        available_by_layer[layer] = available_by_layer.get(layer, 0) + 1
+    prompt: list[tuple[int, int]] = []
+    trace: list[tuple[int, int]] = []
+    union: set[tuple[int, int]] = set()
+    layer_counts: dict[int, int] = {}
+
+    def add_next(
+        ordered: Sequence[tuple[int, int]],
+        selected: list[tuple[int, int]],
+    ) -> bool:
+        selected_set = set(selected)
+        for raw_layer, raw_head in ordered:
+            head = (int(raw_layer), int(raw_head))
+            if head in selected_set:
+                continue
+            layer = head[0]
+            capacity = available_by_layer.get(layer, 0) // 2
+            if head not in union and layer_counts.get(layer, 0) >= capacity:
+                continue
+            selected.append(head)
+            if head not in union:
+                union.add(head)
+                layer_counts[layer] = layer_counts.get(layer, 0) + 1
+            return True
+        return False
+
+    # Alternating additions give the two independently ranked mechanisms equal
+    # weight in the joint bank while allowing a shared head to count for both.
+    while len(prompt) < int(bank_size) or len(trace) < int(bank_size):
+        progressed = False
+        if len(prompt) < int(bank_size):
+            progressed = add_next(prompt_ordered, prompt) or progressed
+        if len(trace) < int(bank_size):
+            progressed = add_next(trace_ordered, trace) or progressed
+        if not progressed:
+            raise ValueError(
+                f"Cannot construct joint ranked banks K={bank_size} under "
+                "exact-control per-layer capacity"
+            )
+    return prompt, trace
+
+
 def _bank_attention_mass(
     head_ranking: pd.DataFrame,
     heads: Sequence[tuple[int, int]],
@@ -473,7 +562,11 @@ def build_causal_plan(
         for bank_size in config.causal_head_bank_sizes:
             if bank_size > len(ordered):
                 continue
-            chosen = ordered[:bank_size]
+            chosen = _control_constructible_ranked_heads(
+                model_frame,
+                ordered,
+                bank_size=int(bank_size),
+            )
             # The registered ranked treatment is scientifically meaningful at
             # every available K even when a disjoint, exactly layer-matched
             # random bank is combinatorially impossible.  Do not silently
@@ -1021,8 +1114,12 @@ def build_answer_query_causal_plan(
         for bank_size in config.causal_head_bank_sizes:
             if bank_size > len(prompt_ordered) or bank_size > len(trace_ordered):
                 continue
-            prompt_heads = prompt_ordered[:bank_size]
-            trace_heads = trace_ordered[:bank_size]
+            prompt_heads, trace_heads = _control_constructible_joint_ranked_heads(
+                prompt_frame,
+                prompt_ordered,
+                trace_ordered,
+                bank_size=int(bank_size),
+            )
             joint_heads = list(dict.fromkeys([*prompt_heads, *trace_heads]))
             plan_rows.append(
                 joint_row(
@@ -1101,6 +1198,16 @@ def build_answer_query_causal_plan(
                 "selection_split": "discovery",
                 "confirmation_used_for_selection": False,
                 "selection_cohort": "one_to_one",
+                "ranked_treatment_policy": (
+                    "preserve discovery rank subject to per-layer occupancy "
+                    "<= floor(available_heads/2), guaranteeing a disjoint "
+                    "exact layer-matched control bank"
+                ),
+                "joint_ranked_treatment_policy": (
+                    "equal-weight alternating greedy selection over the "
+                    "independent prompt and trace discovery rankings under "
+                    "the same control-constructability constraint"
+                ),
                 "selection_metrics": {
                     "answer_prompt_aggregation": (
                         "mean(prompt exact-span total mass * normalized "
