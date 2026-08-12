@@ -40,6 +40,7 @@ from realistic_niah_v5.response_reference import (
     REFERENCE_TYPES,
     parse_response_reference_sites,
     response_reference_queries,
+    targeted_retrieval_queries,
 )
 from realistic_niah_v5.representation import (
     analyze_representation,
@@ -910,3 +911,96 @@ def test_pre_city_plan_freezes_each_variant_on_discovery_only(tmp_path) -> None:
     assert audit["confirmation_used_for_selection"] is False
     assert audit["variant_specific_discovery_selection"] is True
     assert audit["broad_aggregation_used"] is False
+
+
+def test_response_reference_position_consensus_separates_query_positions(
+    tmp_path,
+) -> None:
+    from realistic_niah_v5.response_reference import (
+        build_response_reference_causal_plan,
+    )
+
+    rows = []
+    preferred = {"pre_city_d1": 0, "pre_city_d2": 1, "pre_city_anchor": 2}
+    for split in ("discovery", "confirmation"):
+        for response_type in REFERENCE_TYPES:
+            for position, preferred_head in preferred.items():
+                for head in range(8):
+                    raw = 1.0 if head == preferred_head else 0.01
+                    rows.append(
+                        {
+                            "model_label": "Qwen3-8B",
+                            "request_id": f"{split}-{response_type}",
+                            "split": split,
+                            "response_type": response_type,
+                            "position_variant": position,
+                            "layer": 0,
+                            "head": head,
+                            "target_needle_raw_mass": raw,
+                            "target_needle_relative_mass": raw / 2,
+                            "target_needle_top1": head == preferred_head,
+                        }
+                    )
+    attention = tmp_path / "response_attention.csv"
+    pd.DataFrame(rows).to_csv(attention, index=False)
+    paths = build_response_reference_causal_plan(
+        attention,
+        tmp_path / "response_plan",
+        config=V5Config(causal_head_bank_sizes=(1,), causal_random_controls=3),
+    )
+    plan = pd.read_csv(paths["plan"])
+    primary = plan.loc[
+        plan["bank_scope"].eq("position_consensus")
+        & plan["condition"].eq("response_reference_position_consensus_ranked")
+    ]
+    assert len(primary) == 9
+    for position, preferred_head in preferred.items():
+        heads = {
+            json.loads(value)[0][1]
+            for value in primary.loc[
+                primary["position_variant"].eq(position), "heads"
+            ]
+        }
+        assert heads == {preferred_head}
+    audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
+    assert audit["primary_bank_scope"] == "position_consensus"
+
+
+def test_targeted_retrieval_parser_registers_each_pre_citation_k_to_k() -> None:
+    row = _row("qwen3")
+    raw = str(row["raw_output_text"])
+    queries, exclusions = targeted_retrieval_queries(row, CharacterTokenizer())
+    assert not exclusions
+    assert [query.base.occurrence for query in queries] == [1, 2]
+    for query in queries:
+        city_start = raw.index(query.base.city, query.site.item_start_char)
+        assert query.site.citation_start_kind == "exact_city_fallback"
+        assert query.site.citation_start_char == city_start
+        assert query.base.query_output_token_count == city_start
+        assert query.to_dict()["token_distance_before_citation"] == 1
+        assert query.target_after_token == query.site.item_end_char
+
+
+def test_targeted_retrieval_parser_starts_at_exact_record_not_list_scaffold() -> None:
+    raw = (
+        "<think>\nI will enumerate.\n"
+        "1. Found: In the 2024 city score audit, Chicago received a score of 72.\n"
+        "2. Excerpt: In the 2024 city score audit, Baku received a score of 98.\n"
+        "Therefore there are two.\n</think>\nTotal: 2"
+    )
+    row = _row("qwen3")
+    row["raw_output_text"] = raw
+    row["output_token_ids"] = [ord(value) for value in raw]
+    queries, exclusions = targeted_retrieval_queries(row, CharacterTokenizer())
+    assert not exclusions
+    assert len(queries) == 2
+    for query in queries:
+        expected = raw.index(
+            "In the 2024 city score audit", query.site.item_start_char
+        )
+        assert query.site.citation_start_kind == "exact_record_prefix"
+        assert query.site.citation_start_char == expected
+        assert query.base.query_output_token_count == expected
+        assert raw[query.site.item_start_char : expected].strip().endswith(
+            ("Found:", "Excerpt:")
+        )

@@ -378,6 +378,114 @@ def command_response_reference_attention(args: argparse.Namespace) -> None:
     print(json.dumps(audit, indent=2, sort_keys=True))
 
 
+def command_attention_targeted_reference(args: argparse.Namespace) -> None:
+    """Capture dedicated k-to-k attention at parser-registered citations."""
+
+    import pandas as pd
+
+    from realistic_niah_v5.response_reference import (
+        RESPONSE_REFERENCE_SCHEMA_VERSION,
+        capture_targeted_retrieval_attention_metrics,
+    )
+
+    config = _config(args)
+    model, tokenizer, adapter = _model(args)
+    rows = registered_records(
+        read_jsonl(args.generations), config, model_label=args.model
+    )
+    rows = _parser_cohort_rows(rows, "one_to_one")
+    rows = _split_rows(rows, args.split)
+    if args.max_rows is not None:
+        rows = rows[: int(args.max_rows)]
+    shard_root = args.output.parent / f"{args.output.stem}_shards"
+    shard_root.mkdir(parents=True, exist_ok=True)
+    shard_paths = []
+    exclusion_paths = []
+    for index, row in enumerate(rows, start=1):
+        request_id = str(row.get("request_id", row.get("stimulus_id", index)))
+        safe_id = request_id.replace("/", "__").replace("\\", "__")
+        shard_path = shard_root / f"{index:04d}__{safe_id}.csv.gz"
+        exclusion_path = shard_root / f"{index:04d}__{safe_id}.exclusions.jsonl"
+        if args.overwrite or not shard_path.exists():
+            frame, row_exclusions = capture_targeted_retrieval_attention_metrics(
+                model, adapter, tokenizer, row
+            )
+            temporary = shard_path.with_suffix(shard_path.suffix + ".tmp")
+            frame.to_csv(temporary, index=False, compression="gzip")
+            temporary.replace(shard_path)
+            write_jsonl(exclusion_path, row_exclusions)
+            action = "captured"
+        else:
+            action = "reused"
+        shard_paths.append(shard_path)
+        exclusion_paths.append(exclusion_path)
+        print(
+            f"[v5 attention-targeted-reference] {index}/{len(rows)} "
+            f"{action} {request_id}",
+            flush=True,
+        )
+    frames = [pd.read_csv(path) for path in shard_paths]
+    output = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    exclusions = []
+    for path in exclusion_paths:
+        if path.exists():
+            exclusions.extend(read_jsonl(path))
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    output.to_csv(args.output, index=False)
+    write_jsonl(args.output.with_suffix(".exclusions.jsonl"), exclusions)
+    registry = (
+        output[
+            [
+                "request_id",
+                "occurrence",
+                "target_city",
+                "response_type",
+                "citation_start_kind",
+                "query_output_token_count",
+                "target_after_token",
+            ]
+        ].drop_duplicates()
+        if not output.empty
+        else pd.DataFrame()
+    )
+    audit = {
+        "schema_version": RESPONSE_REFERENCE_SCHEMA_VERSION,
+        "experiment_id": "trace_pre_reference_k_to_k_targeted_retrieval_v1",
+        "model_label": args.model,
+        "query_variant": "pre_reference_d1",
+        "query_definition": (
+            "one real baseline token immediately before each deterministic "
+            "parser-registered citation start"
+        ),
+        "k_to_k_definition": (
+            "response occurrence k targets the unique exact-city prompt needle "
+            "span registered for that occurrence"
+        ),
+        "response_types": sorted(registry["response_type"].unique().tolist())
+        if not registry.empty
+        else [],
+        "citation_start_counts": (
+            registry["citation_start_kind"].value_counts().sort_index().to_dict()
+            if not registry.empty
+            else {}
+        ),
+        "requests": len(rows),
+        "registered_occurrences": len(registry),
+        "attention_rows": len(output),
+        "exclusions": len(exclusions),
+        "restartable_shards": True,
+        "confirmation_used_for_selection": False,
+        "reported_attention_metrics": [
+            "target_needle_raw_mass",
+            "target_needle_relative_mass",
+        ],
+    }
+    args.output.with_suffix(".audit.json").write_text(
+        json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(json.dumps(audit, indent=2, sort_keys=True))
+
+
 def command_response_reference_causal_plan(args: argparse.Namespace) -> None:
     from realistic_niah_v5.response_reference import (
         build_response_reference_causal_plan,
@@ -1840,6 +1948,24 @@ def build_parser() -> argparse.ArgumentParser:
         func=command_response_reference_attention
     )
 
+    targeted_reference_attention = subparsers.add_parser(
+        "attention-targeted-reference"
+    )
+    _add_config(targeted_reference_attention)
+    _add_model(targeted_reference_attention)
+    targeted_reference_attention.add_argument(
+        "--generations", type=Path, required=True
+    )
+    targeted_reference_attention.add_argument("--output", type=Path, required=True)
+    targeted_reference_attention.add_argument(
+        "--split", choices=["all", "discovery", "confirmation"], default="all"
+    )
+    targeted_reference_attention.add_argument("--max-rows", type=int)
+    targeted_reference_attention.add_argument("--overwrite", action="store_true")
+    targeted_reference_attention.set_defaults(
+        func=command_attention_targeted_reference
+    )
+
     attention_answer_query = subparsers.add_parser("attention-answer-query")
     _add_model(attention_answer_query)
     attention_answer_query.add_argument(
@@ -2095,12 +2221,21 @@ def build_parser() -> argparse.ArgumentParser:
     causal_response_reference.add_argument(
         "--position-variants",
         nargs="+",
-        choices=["pre_city_d1", "pre_city_d2", "pre_city_anchor"],
+        choices=[
+            "pre_reference_d1",
+            "pre_city_d1",
+            "pre_city_d2",
+            "pre_city_anchor",
+        ],
     )
     causal_response_reference.add_argument(
         "--bank-scopes",
         nargs="+",
-        choices=["unified_consensus", "response_type_and_position_specific"],
+        choices=[
+            "position_consensus",
+            "unified_consensus",
+            "response_type_and_position_specific",
+        ],
     )
     causal_response_reference.add_argument("--plan-rows", type=int, nargs="+")
     causal_response_reference.add_argument("--max-rows", type=int)

@@ -202,6 +202,31 @@ def analyze(paths: list[Path], output_dir: Path) -> dict[str, Any]:
             token_accuracy_specificity=("token_accuracy_specificity", "mean"),
         )
     )
+    # The primary position test pools response formats while retaining the
+    # equal-weight seed as the independent unit.  Per-format rows remain in the
+    # table as a heterogeneity/robustness audit rather than defining separate
+    # head banks.
+    pooled_seed = (
+        seed.groupby(
+            ["model_label", "query_variant", "bank_size", "seed"],
+            as_index=False,
+        )
+        .agg(
+            occurrences=("occurrences", "sum"),
+            clean_accuracy=("clean_exact", "mean"),
+            ranked_accuracy=("ranked_exact", "mean"),
+            random_accuracy=("random_exact_mean", "mean"),
+            all_accuracy_damage_specificity=(
+                "all_accuracy_damage_specificity", "mean"
+            ),
+            clean_correct_to_wrong_specificity=(
+                "clean_correct_to_wrong_specificity", "mean"
+            ),
+            token_accuracy_specificity=("token_accuracy_specificity", "mean"),
+        )
+    )
+    pooled_seed["response_type"] = "pooled_cross_response_types"
+    seed = pd.concat([seed, pooled_seed], ignore_index=True, sort=False)
     stats_rows = []
     for (model, variant, response_type, bank_size), frame in seed.groupby(
         ["model_label", "query_variant", "response_type", "bank_size"],
@@ -261,6 +286,24 @@ def analyze(paths: list[Path], output_dir: Path) -> dict[str, Any]:
                 ),
             )
             statistics.loc[index, "holm_p_within_model"] = running
+    statistics["holm_p_pooled_primary_family"] = np.nan
+    pooled_family = statistics.loc[
+        statistics["response_type"].eq("pooled_cross_response_types")
+        & statistics["primary_endpoint"].astype(bool)
+    ]
+    for _model, indices in pooled_family.groupby("model_label").groups.items():
+        ordered = sorted(indices, key=lambda index: statistics.loc[index, "sign_flip_p"])
+        running = 0.0
+        for rank, index in enumerate(ordered):
+            running = max(
+                running,
+                min(
+                    1.0,
+                    (len(ordered) - rank)
+                    * float(statistics.loc[index, "sign_flip_p"]),
+                ),
+            )
+            statistics.loc[index, "holm_p_pooled_primary_family"] = running
     output_dir.mkdir(parents=True, exist_ok=True)
     detail_path = output_dir / "paired_occurrence_effects.csv"
     seed_path = output_dir / "seed_effects.csv"
@@ -285,6 +328,11 @@ def analyze(paths: list[Path], output_dir: Path) -> dict[str, Any]:
             "clean_correct_to_wrong_specificity",
         ],
         "independent_unit": "equal-weight seed cluster",
+        "primary_cross_response_type_inference": (
+            "response types are equal-weighted within seed; Holm family spans "
+            "all registered K, supplied query positions, and both exact primary "
+            "endpoints within model"
+        ),
         "paired_occurrences": len(detail),
         "unmatched": len(unmatched),
         "outputs": {

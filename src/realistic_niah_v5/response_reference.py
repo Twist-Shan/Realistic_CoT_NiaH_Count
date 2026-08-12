@@ -16,10 +16,19 @@ from realistic_niah_v3.city_list_termination import (
 from .parsing import (
     gold_records,
     infer_model_family,
+    output_token_ids,
+    prompt_token_ids,
     raw_output_text,
     trace_char_sites,
 )
-from .pre_city import PreCityQuery, pre_city_token_queries
+from .pre_city import (
+    PreCityQuery,
+    _flat_ints,
+    _flat_offsets,
+    _span_mass,
+    baseline_prefix_encoding,
+    pre_city_token_queries,
+)
 
 
 RESPONSE_REFERENCE_SCHEMA_VERSION = (
@@ -27,6 +36,7 @@ RESPONSE_REFERENCE_SCHEMA_VERSION = (
 )
 REFERENCE_TYPES = ("bare_or_list", "record_template", "semantic_cue")
 POSITION_VARIANTS = ("pre_city_d1", "pre_city_d2", "pre_city_anchor")
+TARGETED_REFERENCE_VARIANT = "pre_reference_d1"
 
 
 @dataclass(frozen=True)
@@ -35,8 +45,11 @@ class ResponseReferenceSite:
     city: str
     response_type: str
     item_start_char: int
+    item_end_char: int
     city_start_char: int
     city_end_char: int
+    citation_start_char: int
+    citation_start_kind: str
     raw_prefix: str
     parser_name: str
 
@@ -46,8 +59,11 @@ class ResponseReferenceSite:
             "target_city": self.city,
             "response_type": self.response_type,
             "item_start_char": int(self.item_start_char),
+            "item_end_char": int(self.item_end_char),
             "city_start_char": int(self.city_start_char),
             "city_end_char": int(self.city_end_char),
+            "citation_start_char": int(self.citation_start_char),
+            "citation_start_kind": self.citation_start_kind,
             "reference_prefix": self.raw_prefix,
             "response_reference_parser": self.parser_name,
             "response_reference_parser_schema": RESPONSE_REFERENCE_SCHEMA_VERSION,
@@ -58,6 +74,7 @@ class ResponseReferenceSite:
 class ResponseReferenceQuery:
     base: PreCityQuery
     site: ResponseReferenceSite
+    target_after_token: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result = self.base.to_dict()
@@ -65,9 +82,19 @@ class ResponseReferenceQuery:
         result["position_variant"] = self.base.query_variant
         result["query_variant"] = f"response_reference_{self.base.query_variant}"
         result["source_query_variant"] = self.base.query_variant
+        result["target_after_token"] = int(
+            self.base.city_after_token
+            if self.target_after_token is None
+            else self.target_after_token
+        )
+        if self.base.query_variant == TARGETED_REFERENCE_VARIANT:
+            result["citation_first_token"] = int(
+                self.base.query_output_token_count
+            )
+            result["token_distance_before_citation"] = 1
         result["query_definition"] = (
             "registered real baseline generation token before the exact "
-            "parser-registered city citation"
+            "parser-registered citation span"
         )
         return result
 
@@ -78,6 +105,32 @@ _AUDIT_TEMPLATE_END = re.compile(
     r"city\s+score\s+audit\s*[,;:]?\s*[\"'\u201c\u2018]?\s*\Z",
     re.IGNORECASE,
 )
+_EXACT_NEEDLE_PREFIX = re.compile(
+    r"\bIn\s+the\s+2024\s+city\s+score\s+audit\b",
+    re.IGNORECASE,
+)
+
+
+def _citation_start(
+    raw: str,
+    *,
+    item_start: int,
+    city_start: int,
+) -> tuple[int, str]:
+    """Locate the semantic start of one cited needle in the trace.
+
+    A copied prompt record begins at its canonical record prefix.  List
+    numbering, bullets, ``Found:``, ``Excerpt:``, and quotation punctuation are
+    response scaffolding and are not part of the cited needle.  When the model
+    does not copy the record template, the exact city span is the only stable
+    citation identity and therefore defines the citation start.
+    """
+
+    prefix = raw[int(item_start) : int(city_start)]
+    matches = list(_EXACT_NEEDLE_PREFIX.finditer(prefix))
+    if matches:
+        return int(item_start) + int(matches[-1].start()), "exact_record_prefix"
+    return int(city_start), "exact_city_fallback"
 
 
 def _parse_qwen_reference_type(prefix: str) -> str:
@@ -147,19 +200,240 @@ def parse_response_reference_sites(
         response_type = classifier(prefix)
         if response_type not in REFERENCE_TYPES:
             raise AssertionError(f"Unregistered response type: {response_type}")
+        citation_start, citation_start_kind = _citation_start(
+            raw,
+            item_start=int(item_site.char_start),
+            city_start=int(city_site.char_start),
+        )
         sites.append(
             ResponseReferenceSite(
                 occurrence=int(occurrence),
                 city=str(city),
                 response_type=response_type,
                 item_start_char=int(item_site.char_start),
+                item_end_char=int(item_site.char_end),
                 city_start_char=int(city_site.char_start),
                 city_end_char=int(city_site.char_end),
+                citation_start_char=citation_start,
+                citation_start_kind=citation_start_kind,
                 raw_prefix=prefix,
                 parser_name=parser_name,
             )
         )
     return sites, exclusions
+
+
+def targeted_retrieval_queries(
+    row: Mapping[str, Any], tokenizer: Any
+) -> tuple[list[ResponseReferenceQuery], list[dict[str, Any]]]:
+    """Register a separate pre-citation query for every k-to-k retrieval.
+
+    The query is the real baseline token immediately before the first token
+    overlapping the parser-registered citation.  The target prompt needle is
+    still resolved by exact city identity; the occurrence index records the
+    response-side ``k`` and the prompt slot records its matched needle.
+    """
+
+    raw = raw_output_text(row)
+    baseline = output_token_ids(row)
+    encoded = tokenizer(raw, add_special_tokens=False, return_offsets_mapping=True)
+    retokenized = _flat_ints(encoded["input_ids"])
+    offsets = _flat_offsets(encoded["offset_mapping"])
+    if len(retokenized) != len(offsets):
+        raise RuntimeError("Tokenizer IDs and offset mapping have different lengths")
+    if baseline[: len(retokenized)] != retokenized:
+        return [], [
+            {
+                "status": "raw_retokenization_not_baseline_prefix",
+                "baseline_token_count": len(baseline),
+                "retokenized_token_count": len(retokenized),
+            }
+        ]
+
+    sites, exclusions = parse_response_reference_sites(row)
+    queries: list[ResponseReferenceQuery] = []
+    for site in sites:
+        citation_tokens = [
+            index
+            for index, (left, right) in enumerate(offsets)
+            if right > int(site.citation_start_char)
+            and left < int(site.city_end_char)
+            and right > left
+        ]
+        city_tokens = [
+            index
+            for index, (left, right) in enumerate(offsets)
+            if right > int(site.city_start_char)
+            and left < int(site.city_end_char)
+            and right > left
+        ]
+        target_tokens = [
+            index
+            for index, (left, right) in enumerate(offsets)
+            if right > int(site.citation_start_char)
+            and left < int(site.item_end_char)
+            and right > left
+        ]
+        if not citation_tokens or not city_tokens or not target_tokens:
+            exclusions.append(
+                {
+                    "occurrence": int(site.occurrence),
+                    "target_city": site.city,
+                    "query_variant": TARGETED_REFERENCE_VARIANT,
+                    "status": "no_baseline_token_overlaps_registered_citation",
+                    "citation_start_kind": site.citation_start_kind,
+                }
+            )
+            continue
+        citation_first = min(citation_tokens)
+        city_first = min(city_tokens)
+        city_after = max(city_tokens) + 1
+        if citation_first < 1:
+            exclusions.append(
+                {
+                    "occurrence": int(site.occurrence),
+                    "target_city": site.city,
+                    "query_variant": TARGETED_REFERENCE_VARIANT,
+                    "status": "registered_citation_has_no_previous_baseline_token",
+                    "citation_start_kind": site.citation_start_kind,
+                }
+            )
+            continue
+        base = PreCityQuery(
+            occurrence=int(site.occurrence),
+            city=site.city,
+            query_variant=TARGETED_REFERENCE_VARIANT,
+            query_output_token_count=int(citation_first),
+            city_first_token=int(city_first),
+            city_after_token=int(city_after),
+            item_start_char=int(site.item_start_char),
+            marker_end_char=None,
+            anchor_kind=f"parser_{site.citation_start_kind}_left_token",
+        )
+        queries.append(
+            ResponseReferenceQuery(
+                base=base,
+                site=site,
+                target_after_token=max(target_tokens) + 1,
+            )
+        )
+    return queries, exclusions
+
+
+def capture_targeted_retrieval_attention_metrics(
+    model: Any,
+    adapter: Any,
+    tokenizer: Any,
+    row: Mapping[str, Any],
+) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+    """Capture exact k-to-k prompt-needle mass at every pre-citation query."""
+
+    from realistic_niah_v4.modeling import position_attention_outputs
+
+    queries, exclusions = targeted_retrieval_queries(row, tokenizer)
+    rows: list[dict[str, Any]] = []
+    query_cache: dict[int, tuple[Any, Any, Any]] = {}
+    for query in queries:
+        base = query.base
+        cached = query_cache.get(int(base.query_output_token_count))
+        if cached is None:
+            encoding = baseline_prefix_encoding(row, tokenizer, base)
+            attention_rows, key_starts, _ = position_attention_outputs(
+                model, adapter, encoding, encoding.query_position
+            )
+            cached = (encoding, attention_rows, key_starts)
+            query_cache[int(base.query_output_token_count)] = cached
+        encoding, attention_rows, key_starts = cached
+        matching_spans = [
+            span
+            for span in encoding.prompt_record_spans
+            if span.city.casefold() == base.city.casefold()
+        ]
+        if len(matching_spans) != 1:
+            exclusions.append(
+                {
+                    "occurrence": int(base.occurrence),
+                    "target_city": base.city,
+                    "query_variant": TARGETED_REFERENCE_VARIANT,
+                    "status": "prompt_exact_needle_identity_not_unique",
+                    "prompt_span_matches": len(matching_spans),
+                }
+            )
+            continue
+        target_span = matching_spans[0]
+        for layer, (attention, key_start) in enumerate(
+            zip(attention_rows, key_starts)
+        ):
+            for head in range(attention.shape[0]):
+                head_row = attention[head]
+                record_masses = [
+                    _span_mass(head_row, key_start=key_start, span=span)
+                    for span in encoding.prompt_record_spans
+                ]
+                total = float(sum(record_masses))
+                target = _span_mass(
+                    head_row, key_start=key_start, span=target_span
+                )
+                rows.append(
+                    {
+                        "schema_version": RESPONSE_REFERENCE_SCHEMA_VERSION,
+                        "experiment_id": (
+                            "trace_pre_reference_k_to_k_targeted_retrieval_v1"
+                        ),
+                        "request_id": encoding.request_id,
+                        "stimulus_id": encoding.stimulus_id,
+                        "model_label": encoding.model_label,
+                        "model_family": encoding.model_family,
+                        "seed": encoding.seed,
+                        "split": encoding.split,
+                        "gold_count": encoding.count,
+                        "mechanism": "targeted_retrieval",
+                        "site_kind": "pre_reference_token",
+                        **query.to_dict(),
+                        "position_variant": TARGETED_REFERENCE_VARIANT,
+                        "query_variant": TARGETED_REFERENCE_VARIANT,
+                        "query_position": int(encoding.query_position),
+                        "causal_target_token_count": int(
+                            int(query.target_after_token)
+                            - base.query_output_token_count
+                        ),
+                        "city_token_count": int(
+                            base.city_after_token - base.city_first_token
+                        ),
+                        "layer": int(layer),
+                        "head": int(head),
+                        "key_start": int(key_start),
+                        "target_slot_index": int(target_span.slot_index),
+                        "target_needle_raw_mass": target,
+                        "all_active_needles_raw_mass": total,
+                        "target_needle_relative_mass": (
+                            target / total if total > 0 else float("nan")
+                        ),
+                        "target_needle_top1": bool(
+                            total > 0
+                            and record_masses
+                            and int(np.argmax(record_masses))
+                            == list(encoding.prompt_record_spans).index(target_span)
+                        ),
+                        "row_sum": float(head_row.sum().item()),
+                        "k_to_k_registry_audit": (
+                            "PASS_RESPONSE_OCCURRENCE_TO_EXACT_CITY_PROMPT_SPAN"
+                        ),
+                    }
+                )
+    request_id = str(row.get("request_id", row.get("stimulus_id", "unknown")))
+    enriched_exclusions = [
+        {
+            "schema_version": RESPONSE_REFERENCE_SCHEMA_VERSION,
+            "request_id": request_id,
+            "model_label": row.get("model_label", row.get("model")),
+            "seed": row.get("seed"),
+            "split": row.get("split"),
+            **value,
+        }
+        for value in exclusions
+    ]
+    return pd.DataFrame(rows), enriched_exclusions
 
 
 def response_reference_queries(
@@ -326,7 +600,9 @@ def rank_response_reference_consensus_heads(
 ) -> pd.DataFrame:
     """Equal-weight every response-type/position stratum for one common bank."""
 
-    stratum_count = len(REFERENCE_TYPES) * len(POSITION_VARIANTS)
+    stratum_count = len(REFERENCE_TYPES) * int(
+        stratum_ranking["position_variant"].nunique()
+    )
     consensus = (
         stratum_ranking.groupby(
             ["model_label", "layer", "head"], as_index=False
@@ -360,6 +636,56 @@ def rank_response_reference_consensus_heads(
     consensus["consensus_rank"] = consensus.groupby("model_label").cumcount() + 1
     consensus["selection_metric"] = (
         "equal_stratum_mean_k_to_k_exact_prompt_needle_raw_mass"
+    )
+    return consensus
+
+
+def rank_response_reference_position_consensus_heads(
+    stratum_ranking: pd.DataFrame,
+) -> pd.DataFrame:
+    """Build one cross-response-type bank independently for each query position."""
+
+    response_type_count = len(REFERENCE_TYPES)
+    consensus = (
+        stratum_ranking.groupby(
+            ["model_label", "position_variant", "layer", "head"],
+            as_index=False,
+        )
+        .agg(
+            consensus_target_raw_mass=("discovery_target_raw_mass", "mean"),
+            consensus_target_relative_mass=(
+                "discovery_target_relative_mass",
+                "mean",
+            ),
+            consensus_target_top1=("discovery_target_top1", "mean"),
+            consensus_worst_response_type_raw_mass=(
+                "discovery_target_raw_mass",
+                "min",
+            ),
+            consensus_response_types=("discovery_target_raw_mass", "size"),
+        )
+    )
+    if not consensus["consensus_response_types"].eq(response_type_count).all():
+        raise ValueError(
+            "Position-consensus targeted-retrieval ranking lacks all response types"
+        )
+    consensus = consensus.sort_values(
+        [
+            "model_label",
+            "position_variant",
+            "consensus_target_raw_mass",
+            "consensus_worst_response_type_raw_mass",
+            "layer",
+            "head",
+        ],
+        ascending=[True, True, False, False, True, True],
+    ).reset_index(drop=True)
+    consensus["consensus_rank"] = (
+        consensus.groupby(["model_label", "position_variant"]).cumcount() + 1
+    )
+    consensus["selection_metric"] = (
+        "equal_response_type_mean_k_to_k_exact_prompt_needle_raw_mass_"
+        "within_position"
     )
     return consensus
 
@@ -418,6 +744,7 @@ def build_response_reference_causal_plan(
     config.validate()
     attention = pd.read_csv(attention_csv)
     ranking = rank_response_reference_heads(attention)
+    position_consensus = rank_response_reference_position_consensus_heads(ranking)
     consensus = rank_response_reference_consensus_heads(ranking)
     confirmation = attention.loc[
         attention["split"].astype(str).str.lower().eq("confirmation")
@@ -463,10 +790,16 @@ def build_response_reference_causal_plan(
         .drop_duplicates()
         .itertuples(index=False)
     }
+    observed_positions = set(evaluation["position_variant"].astype(str))
+    allowed_positions = {*POSITION_VARIANTS, TARGETED_REFERENCE_VARIANT}
+    if not observed_positions or not observed_positions.issubset(allowed_positions):
+        raise ValueError(
+            f"Unsupported response-reference positions: {sorted(observed_positions)}"
+        )
     expected = {
         (response_type, position)
         for response_type in REFERENCE_TYPES
-        for position in POSITION_VARIANTS
+        for position in observed_positions
     }
     if observed != expected:
         raise ValueError(
@@ -541,7 +874,85 @@ def build_response_reference_causal_plan(
                     make_row(control, "layer_matched_random", repeat)
                 )
 
-    # A common k-to-k bank is scientifically preferable when it preserves
+    # Primary targeted-retrieval banks generalize across response formats but
+    # remain separate across query positions.  Each position-consensus ranking
+    # equal-weights the three response types in discovery; the frozen bank is
+    # then applied to all three types in confirmation.
+    for (model, position_variant), consensus_frame in position_consensus.groupby(
+        ["model_label", "position_variant"], sort=True
+    ):
+        consensus_frame = consensus_frame.sort_values("consensus_rank").reset_index(
+            drop=True
+        )
+        ordered = _constructible_rank_order(
+            consensus_frame, rank_column="consensus_rank"
+        )
+        applications = evaluation.loc[
+            evaluation["model_label"].astype(str).eq(str(model))
+            & evaluation["position_variant"].astype(str).eq(str(position_variant))
+        ]
+        for bank_size in config.causal_head_bank_sizes:
+            if int(bank_size) > len(ordered):
+                continue
+            ranked = ordered[: int(bank_size)]
+            controls = layer_matched_random_controls(
+                consensus_frame,
+                ranked,
+                repeats=config.causal_random_controls,
+                seed_text=(
+                    f"v5-response-reference:{model}:position-consensus:"
+                    f"{position_variant}:K{bank_size}"
+                ),
+            )
+            for response_type, stratum in applications.groupby(
+                "response_type", sort=True
+            ):
+                common = {
+                    "model_label": str(model),
+                    "mechanism": "targeted_retrieval",
+                    "response_type": str(response_type),
+                    "position_variant": str(position_variant),
+                    "query_variant": f"response_reference_{position_variant}",
+                    "bank_scope": "position_consensus",
+                    "experiment_id": (
+                        "response_typed_targeted_retrieval_ablation_v1"
+                    ),
+                    "bank_size": int(bank_size),
+                }
+
+                def position_row(
+                    heads: Sequence[tuple[int, int]],
+                    condition: str,
+                    repeat: int,
+                ) -> dict[str, Any]:
+                    discovery = _bank_metrics(stratum, heads, "discovery")
+                    return {
+                        **common,
+                        "condition": condition,
+                        "repeat": int(repeat),
+                        "heads": json.dumps(list(heads)),
+                        **discovery,
+                        **_bank_metrics(stratum, heads, "confirmation"),
+                        "target_needle_raw_mass": discovery[
+                            "discovery_target_needle_raw_mass"
+                        ],
+                        "target_needle_relative_mass": discovery[
+                            "discovery_target_needle_relative_mass"
+                        ],
+                    }
+
+                plan_rows.append(
+                    position_row(
+                        ranked, "response_reference_position_consensus_ranked", 0
+                    )
+                )
+                for repeat, control in enumerate(controls, start=1):
+                    plan_rows.append(
+                        position_row(control, "layer_matched_random", repeat)
+                    )
+
+    # The cross-position common bank is retained only as a supplementary
+    # robustness analysis; it is not used to choose the primary query position.
     # exact-span enrichment across response formats and token positions.  The
     # consensus ranking equal-weights all nine discovery strata; the same
     # frozen heads and the same control banks are then applied separately at
@@ -629,12 +1040,16 @@ def build_response_reference_causal_plan(
     output.mkdir(parents=True, exist_ok=True)
     paths = {
         "ranking": output / "discovery_head_ranking.csv",
+        "position_consensus_ranking": (
+            output / "discovery_position_consensus_head_ranking.csv"
+        ),
         "consensus_ranking": output / "discovery_consensus_head_ranking.csv",
         "confirmation": output / "confirmation_head_evaluation.csv",
         "plan": output / "causal_plan.csv",
         "audit": output / "causal_plan_audit.json",
     }
     ranking.to_csv(paths["ranking"], index=False)
+    position_consensus.to_csv(paths["position_consensus_ranking"], index=False)
     consensus.to_csv(paths["consensus_ranking"], index=False)
     evaluation.to_csv(paths["confirmation"], index=False)
     pd.DataFrame(plan_rows).to_csv(paths["plan"], index=False)
@@ -644,28 +1059,34 @@ def build_response_reference_causal_plan(
                 "schema_version": RESPONSE_REFERENCE_SCHEMA_VERSION,
                 "experiment_id": "response_typed_targeted_retrieval_ablation_v1",
                 "response_types": list(REFERENCE_TYPES),
-                "position_variants": list(POSITION_VARIANTS),
+                "position_variants": sorted(observed_positions),
                 "model_specific_parsers": {
                     "Qwen3-8B": "qwen3_response_reference_parser_v1",
                     "Gemma4-E4B": "gemma4_response_reference_parser_v1",
                 },
                 "query_definition": (
-                    "three registered real-token queries before each exact "
-                    "parser-registered city citation: d1, d2, and marker/cue anchor"
+                    "pre_reference_d1 is the real baseline token immediately "
+                    "before each parser-registered citation start; legacy pre-city "
+                    "positions remain supported for archived robustness runs"
                 ),
                 "source_forward_reuse": (
-                    "exact identity with pre_city_d1/d2/anchor forwards"
+                    "none for pre_reference_d1; its k-to-k attention is captured "
+                    "from the dedicated response-reference parser registry"
                 ),
                 "selection_split": "discovery",
                 "confirmation_used_for_selection": False,
                 "selection_metric": (
-                    "response-type/position-specific k-to-k exact prompt-needle "
-                    "raw mass"
+                    "primary: within each query position, equal-response-type "
+                    "mean k-to-k exact prompt-needle raw mass"
+                ),
+                "primary_bank_scope": "position_consensus",
+                "primary_position_policy": (
+                    "the trace pre-reference experiment pre-registers only "
+                    "pre_reference_d1 before ablation"
                 ),
                 "consensus_selection_metric": (
                     "equal-weight mean k-to-k mass across all nine "
-                    "response-type/position strata; reported before deciding "
-                    "whether one common bank is scientifically adequate"
+                    "response-type/position strata; supplementary robustness only"
                 ),
                 "registered_bank_sizes": list(config.causal_head_bank_sizes),
                 "constructibility_constraint": (
@@ -697,15 +1118,19 @@ def run_response_reference_head_ablation_trials(
     heads: Sequence[tuple[int, int]],
     condition: str,
 ) -> list[dict[str, Any]]:
-    """Ablate one frozen response-type bank only at matching city citations."""
+    """Ablate one frozen bank at parser-matched response citations."""
 
     from .pre_city import run_pre_city_head_ablation_trials
 
     if response_type not in REFERENCE_TYPES:
         raise ValueError(f"Unknown response-reference type: {response_type}")
-    if position_variant not in POSITION_VARIANTS:
+    if position_variant not in {*POSITION_VARIANTS, TARGETED_REFERENCE_VARIANT}:
         raise ValueError(f"Unknown response-reference position: {position_variant}")
-    queries, exclusions = response_reference_queries(row, tokenizer)
+    queries, exclusions = (
+        targeted_retrieval_queries(row, tokenizer)
+        if position_variant == TARGETED_REFERENCE_VARIANT
+        else response_reference_queries(row, tokenizer)
+    )
     active = [
         query
         for query in queries
@@ -734,16 +1159,27 @@ def run_response_reference_head_ablation_trials(
             }
         ]
     by_occurrence = {query.base.occurrence: query for query in active}
-    results = run_pre_city_head_ablation_trials(
-        model,
-        tokenizer,
-        adapter,
-        row,
-        query_variant=position_variant,
-        heads=heads,
-        condition=condition,
-        occurrences=tuple(by_occurrence),
-    )
+    if position_variant == TARGETED_REFERENCE_VARIANT:
+        results = _run_pre_reference_head_ablation_trials(
+            model,
+            tokenizer,
+            adapter,
+            row,
+            queries=tuple(by_occurrence.values()),
+            heads=heads,
+            condition=condition,
+        )
+    else:
+        results = run_pre_city_head_ablation_trials(
+            model,
+            tokenizer,
+            adapter,
+            row,
+            query_variant=position_variant,
+            heads=heads,
+            condition=condition,
+            occurrences=tuple(by_occurrence),
+        )
     enriched: list[dict[str, Any]] = []
     for result in results:
         occurrence = result.get("occurrence")
@@ -761,10 +1197,122 @@ def run_response_reference_head_ablation_trials(
                 "source_query_variant": position_variant,
                 "position_variant": position_variant,
                 "response_type": response_type,
-                "query_position_reuse_audit": "PASS_IDENTICAL_SOURCE_PRE_CITY",
+                "query_position_reuse_audit": (
+                    "NOT_REUSED_DEDICATED_PRE_REFERENCE_PARSER"
+                    if position_variant == TARGETED_REFERENCE_VARIANT
+                    else "PASS_IDENTICAL_SOURCE_PRE_CITY"
+                ),
             }
         )
         if query is not None:
             payload.update(query.to_dict())
         enriched.append(payload)
     return enriched
+
+
+def _run_pre_reference_head_ablation_trials(
+    model: Any,
+    tokenizer: Any,
+    adapter: Any,
+    row: Mapping[str, Any],
+    *,
+    queries: Sequence[ResponseReferenceQuery],
+    heads: Sequence[tuple[int, int]],
+    condition: str,
+) -> list[dict[str, Any]]:
+    """Generate the parser-registered citation after each pre-reference query."""
+
+    from .causal import (
+        _continuation_metrics,
+        _local_head_ablation_logits,
+        generate_with_head_ablation_at_positions,
+    )
+
+    baseline_ids = output_token_ids(row)
+    prompt_count = len(prompt_token_ids(row))
+    common = {
+        "schema_version": RESPONSE_REFERENCE_SCHEMA_VERSION,
+        "experiment_id": "trace_pre_reference_k_to_k_targeted_retrieval_v1",
+        "condition": condition,
+        "request_id": row.get("request_id", row.get("stimulus_id")),
+        "model_label": row.get("model_label", row.get("model")),
+        "seed": row.get("seed"),
+        "split": row.get("split"),
+        "gold_count": len(gold_records(row)),
+        "mechanism": "targeted_retrieval",
+        "query_variant": TARGETED_REFERENCE_VARIANT,
+        "query_site_kind": "pre_reference_token",
+        "transition_phase": "retrieve",
+        "heads": [[int(layer), int(head)] for layer, head in heads],
+        "bank_size": len(heads),
+        "behavioral_endpoint": "actual_greedy_next_needle_token_sequence",
+        "final_count_evaluated": False,
+    }
+    output: list[dict[str, Any]] = []
+    for query in queries:
+        start = int(query.base.query_output_token_count)
+        end = int(query.target_after_token or query.base.city_after_token)
+        target_ids = baseline_ids[start:end]
+        if not target_ids:
+            output.append(
+                {**common, **query.to_dict(), "status": "empty_citation_target"}
+            )
+            continue
+        target_encoding = baseline_prefix_encoding(
+            row, tokenizer, query.base, prefix_output_token_count=end
+        )
+        logits = _local_head_ablation_logits(
+            model,
+            adapter,
+            target_encoding,
+            heads,
+            hook_position=prompt_count + start - 1,
+            target_token_count=len(target_ids),
+        )
+        generation_encoding = baseline_prefix_encoding(row, tokenizer, query.base)
+        generation = generate_with_head_ablation_at_positions(
+            model,
+            tokenizer,
+            adapter,
+            generation_encoding,
+            heads,
+            hook_positions=[generation_encoding.query_position],
+            max_new_tokens=len(target_ids),
+        )
+        generated = tuple(int(value) for value in generation["generated_token_ids"])
+        target = tuple(int(value) for value in target_ids)
+        matched = sum(
+            int(index < len(generated) and generated[index] == token_id)
+            for index, token_id in enumerate(target)
+        )
+        output.append(
+            {
+                **common,
+                **query.to_dict(),
+                "status": "ok",
+                "target_token_count": len(target),
+                "target_text": tokenizer.decode(
+                    list(target),
+                    skip_special_tokens=False,
+                    clean_up_tokenization_spaces=False,
+                ),
+                "generated_next_needle_token_ids": list(generated),
+                "generated_next_needle_text": tokenizer.decode(
+                    list(generated),
+                    skip_special_tokens=False,
+                    clean_up_tokenization_spaces=False,
+                ),
+                "next_needle_exact": bool(generated == target),
+                "next_needle_first_token_exact": bool(
+                    generated and generated[0] == target[0]
+                ),
+                "next_needle_token_accuracy": float(matched / len(target)),
+                "next_needle_generated_token_count": len(generated),
+                "head_ablation_hook_audit": generation["head_ablation_hook_audit"],
+                "k_to_k_registry_audit": (
+                    "PASS_RESPONSE_OCCURRENCE_TO_EXACT_CITY_PROMPT_SPAN"
+                ),
+                **_continuation_metrics(logits, target_ids),
+            }
+        )
+    return output
