@@ -322,6 +322,72 @@ def command_pre_city_causal_plan(args: argparse.Namespace) -> None:
     print(json.dumps({key: str(path) for key, path in paths.items()}, indent=2))
 
 
+def command_response_reference_attention(args: argparse.Namespace) -> None:
+    """Attach model-specific response types to exact reused pre-city d1 maps."""
+
+    import pandas as pd
+
+    from realistic_niah_v5.response_reference import (
+        RESPONSE_REFERENCE_SCHEMA_VERSION,
+        attach_response_reference_types,
+    )
+
+    generations = [
+        row
+        for row in read_jsonl(args.generations)
+        if str(row.get("model_label", row.get("model"))) == args.model
+    ]
+    attention = pd.read_csv(args.pre_city_attention)
+    attention = attention.loc[
+        attention["model_label"].astype(str).eq(args.model)
+    ].copy()
+    enriched, exclusions = attach_response_reference_types(attention, generations)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    enriched.to_csv(args.output, index=False)
+    write_jsonl(args.output.with_suffix(".exclusions.jsonl"), exclusions)
+    counts = (
+        enriched[["request_id", "occurrence", "split", "response_type"]]
+        .drop_duplicates()
+        .groupby(["split", "response_type"])
+        .size()
+        .to_dict()
+    )
+    audit = {
+        "schema_version": RESPONSE_REFERENCE_SCHEMA_VERSION,
+        "model_label": args.model,
+        "source_attention": str(args.pre_city_attention.resolve()),
+        "source_query_variants": [
+            "pre_city_d1",
+            "pre_city_d2",
+            "pre_city_anchor",
+        ],
+        "query_position_reuse_audit": "PASS_IDENTICAL_SOURCE_PRE_CITY",
+        "requests_in_generation_source": len(generations),
+        "attention_rows": len(enriched),
+        "registered_query_counts": {
+            f"{split}:{response_type}": int(value)
+            for (split, response_type), value in sorted(counts.items())
+        },
+        "exclusions": len(exclusions),
+        "confirmation_used_for_selection": False,
+    }
+    args.output.with_suffix(".audit.json").write_text(
+        json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(json.dumps(audit, indent=2, sort_keys=True))
+
+
+def command_response_reference_causal_plan(args: argparse.Namespace) -> None:
+    from realistic_niah_v5.response_reference import (
+        build_response_reference_causal_plan,
+    )
+
+    paths = build_response_reference_causal_plan(
+        args.attention, args.output, config=_config(args)
+    )
+    print(json.dumps({key: str(path) for key, path in paths.items()}, indent=2))
+
+
 def _parse_heads(value: str) -> list[tuple[int, int]]:
     parsed = json.loads(value)
     return [(int(layer), int(head)) for layer, head in parsed]
@@ -1054,6 +1120,10 @@ def command_causal_answer_query_heads(args: argparse.Namespace) -> None:
                     "confirmation_target_needle_relative_mass",
                     "confirmation_selected_aggregation_raw_mass",
                     "confirmation_selected_aggregation_relative_mass",
+                    "selected_aggregation_broad_score",
+                    "selected_aggregation_broad_coverage",
+                    "confirmation_selected_aggregation_broad_score",
+                    "confirmation_selected_aggregation_broad_coverage",
                 ):
                     result[field] = float(getattr(plan_row, field))
                 for field in (
@@ -1065,10 +1135,18 @@ def command_causal_answer_query_heads(args: argparse.Namespace) -> None:
                     "prompt_aggregation_relative_mass",
                     "trace_aggregation_raw_mass",
                     "trace_aggregation_relative_mass",
+                    "prompt_aggregation_broad_score",
+                    "prompt_aggregation_broad_coverage",
+                    "trace_aggregation_broad_score",
+                    "trace_aggregation_broad_coverage",
                     "confirmation_prompt_aggregation_raw_mass",
                     "confirmation_prompt_aggregation_relative_mass",
                     "confirmation_trace_aggregation_raw_mass",
                     "confirmation_trace_aggregation_relative_mass",
+                    "confirmation_prompt_aggregation_broad_score",
+                    "confirmation_prompt_aggregation_broad_coverage",
+                    "confirmation_trace_aggregation_broad_score",
+                    "confirmation_trace_aggregation_broad_coverage",
                 ):
                     if hasattr(plan_row, field):
                         value = getattr(plan_row, field)
@@ -1111,6 +1189,119 @@ def command_causal_answer_query_heads(args: argparse.Namespace) -> None:
     write_jsonl(args.output, output_rows)
     print(
         f"[v5 causal-answer-query-heads] wrote requests={len(rows)} "
+        f"rows={len(output_rows)} output={args.output}",
+        flush=True,
+    )
+
+
+def command_causal_response_reference_heads(args: argparse.Namespace) -> None:
+    import pandas as pd
+
+    from realistic_niah_v5.response_reference import (
+        run_response_reference_head_ablation_trials,
+    )
+
+    model, tokenizer, adapter = _model(args)
+    rows = [
+        row
+        for row in read_jsonl(args.generations)
+        if str(row.get("model_label", row.get("model"))) == args.model
+    ]
+    rows = _parser_cohort_rows(rows, args.cohort)
+    rows = _split_rows(rows, args.split)
+    if args.max_rows is not None:
+        rows = rows[: int(args.max_rows)]
+    plan = pd.read_csv(args.plan)
+    plan = plan.loc[plan["model_label"].astype(str).eq(args.model)].reset_index(
+        drop=True
+    )
+    if args.response_types:
+        allowed = {str(value) for value in args.response_types}
+        plan = plan.loc[plan["response_type"].astype(str).isin(allowed)]
+    if args.position_variants:
+        allowed_positions = {str(value) for value in args.position_variants}
+        plan = plan.loc[
+            plan["position_variant"].astype(str).isin(allowed_positions)
+        ]
+    if args.bank_scopes:
+        allowed_scopes = {str(value) for value in args.bank_scopes}
+        plan = plan.loc[plan["bank_scope"].astype(str).isin(allowed_scopes)]
+    if args.plan_rows:
+        selected = {int(value) for value in args.plan_rows}
+        plan = plan.loc[plan.index.isin(selected)]
+    if plan.empty:
+        raise ValueError("No response-reference plan rows were selected")
+
+    shard_root = args.output.parent / f"{args.output.stem}_shards"
+    shard_root.mkdir(parents=True, exist_ok=True)
+    shard_paths = []
+    for index, row in enumerate(rows, start=1):
+        request_id = str(row.get("request_id", row.get("stimulus_id", index)))
+        safe_id = request_id.replace("/", "__").replace("\\", "__")
+        shard_path = shard_root / f"{index:04d}__{safe_id}.jsonl"
+        if args.overwrite or not shard_path.exists():
+            trial_rows: list[dict[str, Any]] = []
+            clean_strata = sorted(
+                {
+                    (str(plan_row.response_type), str(plan_row.position_variant))
+                    for plan_row in plan.itertuples(index=False)
+                }
+            )
+            for response_type, position_variant in clean_strata:
+                trial_rows.extend(
+                    run_response_reference_head_ablation_trials(
+                        model,
+                        tokenizer,
+                        adapter,
+                        row,
+                        response_type=response_type,
+                        position_variant=position_variant,
+                        heads=[],
+                        condition="clean",
+                    )
+                )
+            for plan_row in plan.itertuples(index=True):
+                result_rows = run_response_reference_head_ablation_trials(
+                    model,
+                    tokenizer,
+                    adapter,
+                    row,
+                    response_type=str(plan_row.response_type),
+                    position_variant=str(plan_row.position_variant),
+                    heads=_parse_heads(plan_row.heads),
+                    condition=str(plan_row.condition),
+                )
+                for result in result_rows:
+                    result["plan_row"] = int(plan_row.Index)
+                    result["repeat"] = int(plan_row.repeat)
+                    result["bank_scope"] = str(plan_row.bank_scope)
+                    for field in (
+                        "target_needle_raw_mass",
+                        "target_needle_relative_mass",
+                        "discovery_target_needle_raw_mass",
+                        "discovery_target_needle_relative_mass",
+                        "confirmation_target_needle_raw_mass",
+                        "confirmation_target_needle_relative_mass",
+                    ):
+                        if hasattr(plan_row, field):
+                            result[field] = float(getattr(plan_row, field))
+                trial_rows.extend(result_rows)
+            write_jsonl(shard_path, trial_rows)
+            action = "captured"
+        else:
+            action = "reused"
+        shard_paths.append(shard_path)
+        print(
+            f"[v5 causal-response-reference] {index}/{len(rows)} "
+            f"{action} {request_id}",
+            flush=True,
+        )
+    output_rows = []
+    for path in shard_paths:
+        output_rows.extend(read_jsonl(path))
+    write_jsonl(args.output, output_rows)
+    print(
+        f"[v5 causal-response-reference] requests={len(rows)} "
         f"rows={len(output_rows)} output={args.output}",
         flush=True,
     )
@@ -1619,6 +1810,21 @@ def build_parser() -> argparse.ArgumentParser:
     attention_pre_city.add_argument("--overwrite", action="store_true")
     attention_pre_city.set_defaults(func=command_attention_pre_city)
 
+    response_reference_attention = subparsers.add_parser(
+        "response-reference-attention"
+    )
+    response_reference_attention.add_argument("--model", required=True)
+    response_reference_attention.add_argument(
+        "--generations", type=Path, required=True
+    )
+    response_reference_attention.add_argument(
+        "--pre-city-attention", type=Path, required=True
+    )
+    response_reference_attention.add_argument("--output", type=Path, required=True)
+    response_reference_attention.set_defaults(
+        func=command_response_reference_attention
+    )
+
     attention_answer_query = subparsers.add_parser("attention-answer-query")
     _add_model(attention_answer_query)
     attention_answer_query.add_argument(
@@ -1670,6 +1876,16 @@ def build_parser() -> argparse.ArgumentParser:
     pre_city_causal_plan.add_argument("--attention", type=Path, required=True)
     pre_city_causal_plan.add_argument("--output", type=Path, required=True)
     pre_city_causal_plan.set_defaults(func=command_pre_city_causal_plan)
+
+    response_reference_plan = subparsers.add_parser(
+        "response-reference-causal-plan"
+    )
+    _add_config(response_reference_plan)
+    response_reference_plan.add_argument("--attention", type=Path, required=True)
+    response_reference_plan.add_argument("--output", type=Path, required=True)
+    response_reference_plan.set_defaults(
+        func=command_response_reference_causal_plan
+    )
 
     causal_heads = subparsers.add_parser("causal-heads")
     _add_config(causal_heads)
@@ -1837,6 +2053,45 @@ def build_parser() -> argparse.ArgumentParser:
     causal_answer_query_heads.add_argument("--overwrite", action="store_true")
     causal_answer_query_heads.set_defaults(
         func=command_causal_answer_query_heads
+    )
+
+    causal_response_reference = subparsers.add_parser(
+        "causal-response-reference-heads"
+    )
+    _add_model(causal_response_reference)
+    causal_response_reference.add_argument(
+        "--generations", type=Path, required=True
+    )
+    causal_response_reference.add_argument("--plan", type=Path, required=True)
+    causal_response_reference.add_argument("--output", type=Path, required=True)
+    causal_response_reference.add_argument(
+        "--cohort",
+        choices=["parser_hit", "one_to_one", "one_to_one_correct"],
+        default="one_to_one_correct",
+    )
+    causal_response_reference.add_argument(
+        "--split",
+        choices=["all", "discovery", "confirmation"],
+        default="confirmation",
+    )
+    causal_response_reference.add_argument(
+        "--response-types", nargs="+", choices=list(("bare_or_list", "record_template", "semantic_cue"))
+    )
+    causal_response_reference.add_argument(
+        "--position-variants",
+        nargs="+",
+        choices=["pre_city_d1", "pre_city_d2", "pre_city_anchor"],
+    )
+    causal_response_reference.add_argument(
+        "--bank-scopes",
+        nargs="+",
+        choices=["unified_consensus", "response_type_and_position_specific"],
+    )
+    causal_response_reference.add_argument("--plan-rows", type=int, nargs="+")
+    causal_response_reference.add_argument("--max-rows", type=int)
+    causal_response_reference.add_argument("--overwrite", action="store_true")
+    causal_response_reference.set_defaults(
+        func=command_causal_response_reference_heads
     )
 
     causal_tokens = subparsers.add_parser("causal-tokens")

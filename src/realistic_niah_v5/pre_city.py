@@ -735,6 +735,7 @@ def run_pre_city_head_ablation_trials(
     query_variant: str,
     heads: Sequence[tuple[int, int]],
     condition: str,
+    occurrences: Sequence[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Ablate a frozen bank and greedily generate only the next city.
 
@@ -762,10 +763,24 @@ def run_pre_city_head_ablation_trials(
     selected_queries = [
         query for query in queries if query.query_variant == query_variant
     ]
+    occurrence_filter = (
+        None if occurrences is None else {int(value) for value in occurrences}
+    )
+    if occurrence_filter is not None:
+        selected_queries = [
+            query
+            for query in selected_queries
+            if int(query.occurrence) in occurrence_filter
+        ]
     exclusions = [
         value
         for value in raw_exclusions
         if value.get("query_variant") in {None, query_variant}
+        and (
+            occurrence_filter is None
+            or value.get("occurrence") is None
+            or int(value["occurrence"]) in occurrence_filter
+        )
     ]
     request_id = row.get("request_id", row.get("stimulus_id"))
     common = {

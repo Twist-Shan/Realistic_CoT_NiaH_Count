@@ -88,12 +88,15 @@ def analyze(paths: list[Path], output_dir: Path) -> dict[str, Any]:
         and row.get("behavioral_endpoint")
         == "actual_greedy_next_needle_token_sequence"
     ]
-    clean: dict[tuple[str, str, str, int], dict[str, Any]] = {}
-    interventions: dict[tuple[str, str, str, int, int], list[dict[str, Any]]] = {}
+    clean: dict[tuple[str, str, str, str, int], dict[str, Any]] = {}
+    interventions: dict[
+        tuple[str, str, str, str, int, int], list[dict[str, Any]]
+    ] = {}
     for row in rows:
         key = (
             str(row["model_label"]),
             str(row["query_variant"]),
+            str(row.get("response_type", "all")),
             str(row.get("request_id", row.get("stimulus_id"))),
             int(row["occurrence"]),
         )
@@ -109,8 +112,8 @@ def analyze(paths: list[Path], output_dir: Path) -> dict[str, Any]:
     detail_rows = []
     unmatched = []
     for key, frame in sorted(interventions.items()):
-        base_key = key[:4]
-        bank_size = key[4]
+        base_key = key[:5]
+        bank_size = key[5]
         ranked = [row for row in frame if condition_kind(str(row["condition"])) == "ranked"]
         random = [row for row in frame if condition_kind(str(row["condition"])) == "random"]
         if len(ranked) != 1:
@@ -122,8 +125,9 @@ def analyze(paths: list[Path], output_dir: Path) -> dict[str, Any]:
                 {
                     "model_label": key[0],
                     "query_variant": key[1],
-                    "request_id": key[2],
-                    "occurrence": key[3],
+                    "response_type": key[2],
+                    "request_id": key[3],
+                    "occurrence": key[4],
                     "bank_size": bank_size,
                     "controls": len(random),
                 }
@@ -140,8 +144,9 @@ def analyze(paths: list[Path], output_dir: Path) -> dict[str, Any]:
             {
                 "model_label": key[0],
                 "query_variant": key[1],
-                "request_id": key[2],
-                "occurrence": key[3],
+                "response_type": key[2],
+                "request_id": key[3],
+                "occurrence": key[4],
                 "bank_size": bank_size,
                 "seed": int(treatment["seed"]),
                 "split": str(treatment["split"]),
@@ -174,7 +179,14 @@ def analyze(paths: list[Path], output_dir: Path) -> dict[str, Any]:
         raise ValueError("No next-needle ranked rows had three exact controls")
     seed = (
         detail.groupby(
-            ["model_label", "query_variant", "bank_size", "seed"], as_index=False
+            [
+                "model_label",
+                "query_variant",
+                "response_type",
+                "bank_size",
+                "seed",
+            ],
+            as_index=False,
         )
         .agg(
             occurrences=("request_id", "size"),
@@ -191,8 +203,9 @@ def analyze(paths: list[Path], output_dir: Path) -> dict[str, Any]:
         )
     )
     stats_rows = []
-    for (model, variant, bank_size), frame in seed.groupby(
-        ["model_label", "query_variant", "bank_size"], sort=True
+    for (model, variant, response_type, bank_size), frame in seed.groupby(
+        ["model_label", "query_variant", "response_type", "bank_size"],
+        sort=True,
     ):
         for metric in (
             "all_accuracy_damage_specificity",
@@ -205,13 +218,18 @@ def analyze(paths: list[Path], output_dir: Path) -> dict[str, Any]:
             if not len(values):
                 continue
             low, high = bootstrap(
-                values, label=f"next-needle:{model}:{variant}:K{bank_size}:{metric}"
+                values,
+                label=(
+                    f"next-needle:{model}:{variant}:{response_type}:"
+                    f"K{bank_size}:{metric}"
+                ),
             )
             p_value, method, assignments = sign_flip(values)
             stats_rows.append(
                 {
                     "model_label": model,
                     "query_variant": variant,
+                    "response_type": response_type,
                     "bank_size": int(bank_size),
                     "metric": metric,
                     "primary_endpoint": metric

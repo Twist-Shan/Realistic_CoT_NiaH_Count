@@ -16,6 +16,7 @@ from realistic_niah_v5.causal import (
     mechanism_continuations,
     paired_seed_effects,
     query_context_mask,
+    rank_answer_query_heads,
     rank_mechanism_heads,
     rank_retrieval_heads,
     sign_flip_pvalue,
@@ -34,6 +35,11 @@ from realistic_niah_v5.pre_city import (
     orthogonal_norm_matched_patch_state,
     pre_city_token_queries,
     rank_pre_city_heads,
+)
+from realistic_niah_v5.response_reference import (
+    REFERENCE_TYPES,
+    parse_response_reference_sites,
+    response_reference_queries,
 )
 from realistic_niah_v5.representation import (
     analyze_representation,
@@ -362,6 +368,61 @@ def test_pre_city_queries_use_real_baseline_tokens_and_keep_variants_separate() 
     assert by_variant["pre_city_anchor"].anchor_kind == "marker_end_left_token_boundary"
 
 
+@pytest.mark.parametrize("family", ["qwen3", "gemma4"])
+def test_response_reference_parser_registers_exact_pre_city_tokens(
+    family: str,
+) -> None:
+    row = _row(family)
+    sites, exclusions = parse_response_reference_sites(row)
+    assert not exclusions
+    assert [site.city for site in sites] == ["Chicago", "Baku"]
+    assert {site.response_type for site in sites} <= set(REFERENCE_TYPES)
+    queries, token_exclusions = response_reference_queries(row, CharacterTokenizer())
+    assert not token_exclusions
+    assert len(queries) >= 4
+    assert {query.base.query_variant for query in queries} == {
+        "pre_city_d1",
+        "pre_city_d2",
+        "pre_city_anchor",
+    }
+    assert all(
+        query.base.token_distance_before_city == 1
+        for query in queries
+        if query.base.query_variant == "pre_city_d1"
+    )
+    assert {
+        query.site.parser_name for query in queries
+    } == {f"{family}_response_reference_parser_v1"}
+
+
+def test_answer_query_ranking_uses_broad_score_not_total_mass() -> None:
+    rows = []
+    for head, raw, broad, coverage in (
+        (0, 0.90, 0.09, 0.10),
+        (1, 0.60, 0.54, 0.90),
+    ):
+        rows.append(
+            {
+                "model_label": "Qwen3-8B",
+                "split": "discovery",
+                "trace_one_to_one": True,
+                "layer": 0,
+                "head": head,
+                "target_needle_raw_mass": raw,
+                "target_needle_relative_mass": raw,
+                "trace_item_raw_mass": raw,
+                "trace_item_relative_mass": raw,
+                "prompt_broad_score": broad,
+                "prompt_broad_coverage": coverage,
+                "trace_broad_score": broad,
+                "trace_broad_coverage": coverage,
+            }
+        )
+    ranking = rank_answer_query_heads(pd.DataFrame(rows))
+    assert int(ranking.iloc[0]["head"]) == 1
+    assert ranking.iloc[0]["selection_metric"].endswith("broad_score")
+
+
 def test_marker_orthogonal_control_matches_delta_norm() -> None:
     import torch
 
@@ -405,6 +466,10 @@ def test_answer_query_plan_contains_factorial_joint_bank(tmp_path) -> None:
                     "target_needle_relative_mass": 0.5 - head * 0.005,
                     "trace_item_raw_mass": 1.0 - abs(head - 2) * 0.01,
                     "trace_item_relative_mass": 0.5 - abs(head - 2) * 0.005,
+                    "prompt_broad_score": 1.0 - head * 0.01,
+                    "prompt_broad_coverage": 0.9 - head * 0.01,
+                    "trace_broad_score": 1.0 - abs(head - 2) * 0.01,
+                    "trace_broad_coverage": 0.9 - abs(head - 2) * 0.01,
                 }
             )
     attention = tmp_path / "answer_attention.csv"

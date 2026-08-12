@@ -239,17 +239,27 @@ def rank_answer_query_heads(
         "answer_prompt_aggregation": (
             "target_needle_raw_mass",
             "target_needle_relative_mass",
-            "exact_prompt_needle_span_raw_mass",
+            "prompt_broad_score",
+            "prompt_broad_coverage",
+            "exact_prompt_needle_span_broad_score",
         ),
         "answer_trace_aggregation": (
             "trace_item_raw_mass",
             "trace_item_relative_mass",
-            "registered_trace_item_span_raw_mass",
+            "trace_broad_score",
+            "trace_broad_coverage",
+            "registered_trace_item_span_broad_score",
         ),
     }
     if mechanism not in mechanisms:
         raise ValueError(f"Unsupported answer-query mechanism: {mechanism}")
-    selection_raw, selection_relative, selection_name = mechanisms[mechanism]
+    (
+        selection_raw,
+        selection_relative,
+        selection_broad,
+        selection_coverage,
+        selection_name,
+    ) = mechanisms[mechanism]
     needed = {
         "model_label",
         "split",
@@ -260,6 +270,10 @@ def rank_answer_query_heads(
         "target_needle_relative_mass",
         "trace_item_raw_mass",
         "trace_item_relative_mass",
+        "prompt_broad_score",
+        "prompt_broad_coverage",
+        "trace_broad_score",
+        "trace_broad_coverage",
     }
     missing = sorted(needed - set(attention.columns))
     if missing:
@@ -283,6 +297,10 @@ def rank_answer_query_heads(
             ),
             discovery_trace_raw_mass=("trace_item_raw_mass", "mean"),
             discovery_trace_relative_mass=("trace_item_relative_mass", "mean"),
+            discovery_prompt_broad_score=("prompt_broad_score", "mean"),
+            discovery_prompt_broad_coverage=("prompt_broad_coverage", "mean"),
+            discovery_trace_broad_score=("trace_broad_score", "mean"),
+            discovery_trace_broad_coverage=("trace_broad_coverage", "mean"),
             n_queries=("target_needle_raw_mass", "size"),
         )
     )
@@ -296,9 +314,25 @@ def rank_answer_query_heads(
         if selection_relative == "target_needle_relative_mass"
         else "discovery_trace_relative_mass"
     ]
+    grouped["discovery_selection_broad_score"] = grouped[
+        "discovery_prompt_broad_score"
+        if selection_broad == "prompt_broad_score"
+        else "discovery_trace_broad_score"
+    ]
+    grouped["discovery_selection_broad_coverage"] = grouped[
+        "discovery_prompt_broad_coverage"
+        if selection_coverage == "prompt_broad_coverage"
+        else "discovery_trace_broad_coverage"
+    ]
     grouped = grouped.sort_values(
-        ["model_label", "discovery_selection_raw_mass", "layer", "head"],
-        ascending=[True, False, True, True],
+        [
+            "model_label",
+            "discovery_selection_broad_score",
+            "discovery_selection_raw_mass",
+            "layer",
+            "head",
+        ],
+        ascending=[True, False, False, True, True],
     ).reset_index(drop=True)
     grouped["discovery_rank"] = grouped.groupby("model_label").cumcount() + 1
     grouped["mechanism"] = mechanism
@@ -385,12 +419,16 @@ def _bank_answer_selection_mass(
         (int(row.layer), int(row.head)): (
             float(row.discovery_selection_raw_mass),
             float(row.discovery_selection_relative_mass),
+            float(row.discovery_selection_broad_score),
+            float(row.discovery_selection_broad_coverage),
         )
         for row in head_ranking.itertuples(index=False)
     }
     values = [lookup[(int(layer), int(head))] for layer, head in heads]
     raw = np.asarray([value[0] for value in values], dtype=float)
     relative = np.asarray([value[1] for value in values], dtype=float)
+    broad = np.asarray([value[2] for value in values], dtype=float)
+    coverage = np.asarray([value[3] for value in values], dtype=float)
     finite_relative = relative[np.isfinite(relative)]
     return {
         "selected_aggregation_raw_mass": float(raw.mean()),
@@ -398,6 +436,8 @@ def _bank_answer_selection_mass(
             float(finite_relative.mean()) if len(finite_relative) else float("nan")
         ),
         "selected_aggregation_relative_defined_heads": int(len(finite_relative)),
+        "selected_aggregation_broad_score": float(np.nanmean(broad)),
+        "selected_aggregation_broad_coverage": float(np.nanmean(coverage)),
         "selected_aggregation_metric": str(
             head_ranking["selection_metric"].iloc[0]
         ),
@@ -595,6 +635,16 @@ def build_answer_query_causal_plan(
             ),
             confirmation_trace_raw_mass=("trace_item_raw_mass", "mean"),
             confirmation_trace_relative_mass=("trace_item_relative_mass", "mean"),
+            confirmation_prompt_broad_score=("prompt_broad_score", "mean"),
+            confirmation_prompt_broad_coverage=(
+                "prompt_broad_coverage",
+                "mean",
+            ),
+            confirmation_trace_broad_score=("trace_broad_score", "mean"),
+            confirmation_trace_broad_coverage=(
+                "trace_broad_coverage",
+                "mean",
+            ),
             confirmation_queries=("target_needle_raw_mass", "size"),
         )
         if not confirmation.empty
@@ -612,7 +662,7 @@ def build_answer_query_causal_plan(
             for row in model_frame.sort_values("discovery_rank").itertuples()
         ]
         confirmation_lookup: dict[
-            tuple[int, int], tuple[float, float, float, float]
+            tuple[int, int], tuple[float, float, float, float, float, float, float, float]
         ] = {}
         if not confirmation_ranking.empty:
             model_confirmation = confirmation_ranking.loc[
@@ -626,6 +676,10 @@ def build_answer_query_causal_plan(
                     float(row.confirmation_target_relative_mass),
                     float(row.confirmation_trace_raw_mass),
                     float(row.confirmation_trace_relative_mass),
+                    float(row.confirmation_prompt_broad_score),
+                    float(row.confirmation_prompt_broad_coverage),
+                    float(row.confirmation_trace_broad_score),
+                    float(row.confirmation_trace_broad_coverage),
                 )
                 for row in model_confirmation.itertuples(index=False)
             }
@@ -641,7 +695,7 @@ def build_answer_query_causal_plan(
             confirmation_values = [
                 confirmation_lookup.get(
                     (int(layer), int(head)),
-                    (np.nan, np.nan, np.nan, np.nan),
+                    (np.nan,) * 8,
                 )
                 for layer, head in heads
             ]
@@ -657,6 +711,18 @@ def build_answer_query_causal_plan(
             confirmation_trace_relative = np.asarray(
                 [value[3] for value in confirmation_values], dtype=float
             )
+            confirmation_prompt_broad = np.asarray(
+                [value[4] for value in confirmation_values], dtype=float
+            )
+            confirmation_prompt_coverage = np.asarray(
+                [value[5] for value in confirmation_values], dtype=float
+            )
+            confirmation_trace_broad = np.asarray(
+                [value[6] for value in confirmation_values], dtype=float
+            )
+            confirmation_trace_coverage = np.asarray(
+                [value[7] for value in confirmation_values], dtype=float
+            )
             selection_confirmation_raw = (
                 confirmation_raw
                 if mechanism == "answer_prompt_aggregation"
@@ -667,11 +733,21 @@ def build_answer_query_causal_plan(
                 if mechanism == "answer_prompt_aggregation"
                 else confirmation_trace_relative
             )
+            selection_confirmation_broad = (
+                confirmation_prompt_broad
+                if mechanism == "answer_prompt_aggregation"
+                else confirmation_trace_broad
+            )
+            selection_confirmation_coverage = (
+                confirmation_prompt_coverage
+                if mechanism == "answer_prompt_aggregation"
+                else confirmation_trace_coverage
+            )
             return {
                 "model_label": model_label,
                 "mechanism": mechanism,
                 "query_site_kind": "answer_query_v3",
-                "experiment_id": "answer_query_head_ablation_v4_factorial",
+                "experiment_id": "answer_query_head_ablation_v5_broad_factorial",
                 "condition": condition,
                 "bank_size": int(bank_size),
                 "repeat": int(repeat),
@@ -697,6 +773,16 @@ def build_answer_query_causal_plan(
                 "confirmation_selected_aggregation_relative_mass": (
                     float(np.nanmean(selection_confirmation_relative))
                     if np.isfinite(selection_confirmation_relative).any()
+                    else np.nan
+                ),
+                "confirmation_selected_aggregation_broad_score": (
+                    float(np.nanmean(selection_confirmation_broad))
+                    if np.isfinite(selection_confirmation_broad).any()
+                    else np.nan
+                ),
+                "confirmation_selected_aggregation_broad_coverage": (
+                    float(np.nanmean(selection_confirmation_coverage))
+                    if np.isfinite(selection_confirmation_coverage).any()
                     else np.nan
                 ),
             }
@@ -785,6 +871,10 @@ def build_answer_query_causal_plan(
                     float(row.confirmation_target_relative_mass),
                     float(row.confirmation_trace_raw_mass),
                     float(row.confirmation_trace_relative_mass),
+                    float(row.confirmation_prompt_broad_score),
+                    float(row.confirmation_prompt_broad_coverage),
+                    float(row.confirmation_trace_broad_score),
+                    float(row.confirmation_trace_broad_coverage),
                 )
                 for row in active_confirmation.itertuples(index=False)
             }
@@ -806,7 +896,7 @@ def build_answer_query_causal_plan(
             confirmation_values = [
                 confirmation_lookup.get(
                     (int(layer), int(head)),
-                    (np.nan, np.nan, np.nan, np.nan),
+                    (np.nan,) * 8,
                 )
                 for layer, head in active_heads
             ]
@@ -817,7 +907,7 @@ def build_answer_query_causal_plan(
                 "model_label": model_label,
                 "mechanism": "answer_prompt_and_trace_aggregation",
                 "query_site_kind": "answer_query_v3",
-                "experiment_id": "answer_query_head_ablation_v4_factorial",
+                "experiment_id": "answer_query_head_ablation_v5_broad_factorial",
                 "condition": condition,
                 "bank_size": int(bank_size),
                 "repeat": int(repeat),
@@ -831,6 +921,8 @@ def build_answer_query_causal_plan(
                 **generic_mass,
                 "selected_aggregation_raw_mass": np.nan,
                 "selected_aggregation_relative_mass": np.nan,
+                "selected_aggregation_broad_score": np.nan,
+                "selected_aggregation_broad_coverage": np.nan,
                 "selected_aggregation_relative_defined_heads": 0,
                 "selected_aggregation_metric": (
                     "joint_prompt_and_trace_reported_separately"
@@ -841,11 +933,23 @@ def build_answer_query_causal_plan(
                 "prompt_aggregation_relative_mass": prompt_mass[
                     "selected_aggregation_relative_mass"
                 ],
+                "prompt_aggregation_broad_score": prompt_mass[
+                    "selected_aggregation_broad_score"
+                ],
+                "prompt_aggregation_broad_coverage": prompt_mass[
+                    "selected_aggregation_broad_coverage"
+                ],
                 "trace_aggregation_raw_mass": trace_mass[
                     "selected_aggregation_raw_mass"
                 ],
                 "trace_aggregation_relative_mass": trace_mass[
                     "selected_aggregation_relative_mass"
+                ],
+                "trace_aggregation_broad_score": trace_mass[
+                    "selected_aggregation_broad_score"
+                ],
+                "trace_aggregation_broad_coverage": trace_mass[
+                    "selected_aggregation_broad_coverage"
                 ],
                 "confirmation_target_needle_raw_mass": (
                     float(np.nanmean(confirmation_array[:, 0]))
@@ -861,6 +965,8 @@ def build_answer_query_causal_plan(
                 ),
                 "confirmation_selected_aggregation_raw_mass": np.nan,
                 "confirmation_selected_aggregation_relative_mass": np.nan,
+                "confirmation_selected_aggregation_broad_score": np.nan,
+                "confirmation_selected_aggregation_broad_coverage": np.nan,
                 "confirmation_prompt_aggregation_raw_mass": (
                     float(np.nanmean(confirmation_array[:, 0]))
                     if confirmation_array.size
@@ -883,6 +989,30 @@ def build_answer_query_causal_plan(
                     float(np.nanmean(confirmation_array[:, 3]))
                     if confirmation_array.size
                     and np.isfinite(confirmation_array[:, 3]).any()
+                    else np.nan
+                ),
+                "confirmation_prompt_aggregation_broad_score": (
+                    float(np.nanmean(confirmation_array[:, 4]))
+                    if confirmation_array.size
+                    and np.isfinite(confirmation_array[:, 4]).any()
+                    else np.nan
+                ),
+                "confirmation_prompt_aggregation_broad_coverage": (
+                    float(np.nanmean(confirmation_array[:, 5]))
+                    if confirmation_array.size
+                    and np.isfinite(confirmation_array[:, 5]).any()
+                    else np.nan
+                ),
+                "confirmation_trace_aggregation_broad_score": (
+                    float(np.nanmean(confirmation_array[:, 6]))
+                    if confirmation_array.size
+                    and np.isfinite(confirmation_array[:, 6]).any()
+                    else np.nan
+                ),
+                "confirmation_trace_aggregation_broad_coverage": (
+                    float(np.nanmean(confirmation_array[:, 7]))
+                    if confirmation_array.size
+                    and np.isfinite(confirmation_array[:, 7]).any()
                     else np.nan
                 ),
                 "confirmation_mass_split": "confirmation_descriptive_only",
@@ -952,7 +1082,7 @@ def build_answer_query_causal_plan(
         json.dumps(
             {
                 "schema_version": CAUSAL_SCHEMA_VERSION,
-                "experiment_id": "answer_query_head_ablation_v4_factorial",
+                "experiment_id": "answer_query_head_ablation_v5_broad_factorial",
                 "site_id": "answer_query_v3",
                 "query_definition": (
                     "literal baseline token immediately before the first "
@@ -973,10 +1103,14 @@ def build_answer_query_causal_plan(
                 "selection_cohort": "one_to_one",
                 "selection_metrics": {
                     "answer_prompt_aggregation": (
-                        "mean exact full active-needle-span raw attention mass"
+                        "mean(prompt exact-span total mass * normalized "
+                        "effective-span coverage), identical to non-thinking "
+                        "broad_primary"
                     ),
                     "answer_trace_aggregation": (
-                        "mean registered reasoning-item-span raw attention mass"
+                        "mean(trace registered-item total mass * normalized "
+                        "effective-span coverage), identical broad-primary "
+                        "definition applied independently to trace items"
                     ),
                 },
                 "relative_mass_denominator": "all_prompt_attention_mass",
@@ -1903,7 +2037,7 @@ def run_answer_query_head_ablation_trial(
     )
     return {
         "schema_version": CAUSAL_SCHEMA_VERSION,
-        "experiment_id": "answer_query_head_ablation_v4_factorial",
+        "experiment_id": "answer_query_head_ablation_v5_broad_factorial",
         "condition": condition,
         "request_id": encoding.request_id,
         "stimulus_id": encoding.stimulus_id,

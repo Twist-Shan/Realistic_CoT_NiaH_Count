@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -482,11 +483,14 @@ def capture_answer_query_attention_metrics(
 ) -> pd.DataFrame:
     """Measure prompt and registered-trace aggregation at the answer query.
 
-    Prompt aggregation is the union of the literal oracle needle-record spans.
-    Trace aggregation is the union of the frozen, parser-registered reasoning
-    item spans.  They are ranked separately downstream; neither is replaced by
-    an unregistered broad-context aggregate.  The table always preserves the
-    exact prompt needle raw/relative mass required by the V5 result contract.
+    Prompt aggregation is computed over the literal oracle needle-record spans.
+    Trace aggregation is computed independently over the frozen,
+    parser-registered reasoning item spans.  For each route we retain the full
+    per-span mass vector and the V4.4 non-thinking broad score
+    ``total_mass * exp(entropy(per_span_mass)) / span_count``.  The two routes
+    are ranked separately downstream; neither is replaced by an unregistered
+    broad-context aggregate.  The table always preserves the exact prompt
+    needle raw/relative mass required by the V5 result contract.
     """
 
     parsed = parse_trace_record(row)
@@ -575,10 +579,12 @@ def capture_answer_query_attention_metrics(
                 if generated_prior_mass > 0
                 else float("nan")
             )
+            prompt_broad = _broad_span_metrics(span_masses)
+            trace_broad = _broad_span_metrics(trace_span_masses)
             rows.append(
                 {
                     "schema_version": ATTENTION_SCHEMA_VERSION,
-                    "experiment_id": "answer_query_dual_aggregation_attention_v3",
+                    "experiment_id": "answer_query_dual_broad_aggregation_attention_v4",
                     "request_id": encoding.request_id,
                     "stimulus_id": encoding.stimulus_id,
                     "model_label": encoding.model_label,
@@ -607,9 +613,21 @@ def capture_answer_query_attention_metrics(
                     "target_needle_relative_mass": relative_mass,
                     "target_needle_relative_denominator": "all_prompt_attention_mass",
                     "all_active_needles_raw_mass": target_mass,
+                    "prompt_span_masses_json": json.dumps(span_masses),
+                    "prompt_broad_coverage": prompt_broad["coverage"],
+                    "prompt_broad_effective_spans": prompt_broad[
+                        "effective_spans"
+                    ],
+                    "prompt_broad_score": prompt_broad["score"],
                     "full_prompt_mass": prompt_mass,
                     "registered_trace_item_spans": int(len(trace_span_masses)),
                     "trace_item_raw_mass": trace_mass,
+                    "trace_span_masses_json": json.dumps(trace_span_masses),
+                    "trace_broad_coverage": trace_broad["coverage"],
+                    "trace_broad_effective_spans": trace_broad[
+                        "effective_spans"
+                    ],
+                    "trace_broad_score": trace_broad["score"],
                     "trace_item_relative_mass": trace_relative_mass,
                     "trace_item_relative_denominator": (
                         "all_prior_generated_trace_attention_mass"
@@ -622,6 +640,35 @@ def capture_answer_query_attention_metrics(
                 }
             )
     return pd.DataFrame(rows)
+
+
+def _broad_span_metrics(
+    masses: Sequence[float], *, epsilon: float = 1e-12
+) -> dict[str, float]:
+    """Return the frozen V4.4 broad-aggregation score for exact spans.
+
+    This is deliberately local to the V5 capture path because prompt record
+    spans and parser-registered trace item spans have different dataclasses
+    from the V4 attention atlas.  The numerical definition is identical.
+    """
+
+    values = np.asarray(tuple(float(value) for value in masses), dtype=float)
+    if values.size == 0:
+        return {"coverage": 0.0, "effective_spans": 0.0, "score": 0.0}
+    total = float(values.sum())
+    if total <= float(epsilon):
+        return {"coverage": 0.0, "effective_spans": 0.0, "score": 0.0}
+    probabilities = values / (total + float(epsilon))
+    entropy = float(
+        -np.sum(probabilities * np.log(probabilities + float(epsilon)))
+    )
+    effective = float(math.exp(entropy))
+    coverage = float(effective / len(values))
+    return {
+        "coverage": coverage,
+        "effective_spans": effective,
+        "score": float(total * coverage),
+    }
 
 
 def capture_trace_shards(
