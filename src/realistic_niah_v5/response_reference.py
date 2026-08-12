@@ -370,6 +370,19 @@ def _bank_metrics(
     lookup = {
         (int(row.layer), int(row.head)): row for row in frame.itertuples(index=False)
     }
+    selected = [lookup[(int(layer), int(head))] for layer, head in heads]
+    raw = np.asarray([getattr(row, f"{prefix}_target_raw_mass") for row in selected])
+    relative = np.asarray(
+        [getattr(row, f"{prefix}_target_relative_mass") for row in selected],
+        dtype=float,
+    )
+    finite = relative[np.isfinite(relative)]
+    return {
+        f"{prefix}_target_needle_raw_mass": float(raw.mean()),
+        f"{prefix}_target_needle_relative_mass": (
+            float(finite.mean()) if len(finite) else float("nan")
+        ),
+    }
 
 
 def _constructible_rank_order(
@@ -392,19 +405,6 @@ def _constructible_rank_order(
         ordered.append((layer, int(row.head)))
         selected_per_layer[layer] = selected_per_layer.get(layer, 0) + 1
     return ordered
-    selected = [lookup[(int(layer), int(head))] for layer, head in heads]
-    raw = np.asarray([getattr(row, f"{prefix}_target_raw_mass") for row in selected])
-    relative = np.asarray(
-        [getattr(row, f"{prefix}_target_relative_mass") for row in selected],
-        dtype=float,
-    )
-    finite = relative[np.isfinite(relative)]
-    return {
-        f"{prefix}_target_needle_raw_mass": float(raw.mean()),
-        f"{prefix}_target_needle_relative_mass": (
-            float(finite.mean()) if len(finite) else float("nan")
-        ),
-    }
 
 
 def build_response_reference_causal_plan(
