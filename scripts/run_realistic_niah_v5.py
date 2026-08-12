@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import socket
 import sys
@@ -1125,7 +1126,12 @@ def command_causal_answer_query_heads(args: argparse.Namespace) -> None:
                     "confirmation_selected_aggregation_broad_score",
                     "confirmation_selected_aggregation_broad_coverage",
                 ):
-                    result[field] = float(getattr(plan_row, field))
+                    value = getattr(plan_row, field)
+                    if value is None or (
+                        isinstance(value, float) and math.isnan(value)
+                    ):
+                        continue
+                    result[field] = float(value)
                 for field in (
                     "selected_head_count",
                     "prompt_bank_size",
@@ -1150,6 +1156,15 @@ def command_causal_answer_query_heads(args: argparse.Namespace) -> None:
                 ):
                     if hasattr(plan_row, field):
                         value = getattr(plan_row, field)
+                        # Prompt-only and trace-only plan rows intentionally
+                        # leave the joint-bank audit columns empty.  Pandas
+                        # represents those optional CSV cells as NaN; omit
+                        # them from the heterogeneous JSONL row instead of
+                        # attempting int(NaN) or emitting non-standard NaN.
+                        if value is None or (
+                            isinstance(value, float) and math.isnan(value)
+                        ):
+                            continue
                         result[field] = (
                             int(value)
                             if field in {
