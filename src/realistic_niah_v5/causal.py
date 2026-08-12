@@ -562,11 +562,7 @@ def build_causal_plan(
         for bank_size in config.causal_head_bank_sizes:
             if bank_size > len(ordered):
                 continue
-            chosen = _control_constructible_ranked_heads(
-                model_frame,
-                ordered,
-                bank_size=int(bank_size),
-            )
+            chosen = ordered[:bank_size]
             # The registered ranked treatment is scientifically meaningful at
             # every available K even when a disjoint, exactly layer-matched
             # random bank is combinatorially impossible.  Do not silently
@@ -883,7 +879,11 @@ def build_answer_query_causal_plan(
         for bank_size in config.causal_head_bank_sizes:
             if bank_size > len(ordered):
                 continue
-            chosen = ordered[:bank_size]
+            chosen = _control_constructible_ranked_heads(
+                model_frame,
+                ordered,
+                bank_size=int(bank_size),
+            )
             plan_rows.append(
                 bank_row(
                     chosen,
