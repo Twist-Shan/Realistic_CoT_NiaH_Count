@@ -213,9 +213,9 @@ def analyze(paths: list[Path], output_dir: Path) -> dict[str, Any]:
         )
         .agg(
             occurrences=("occurrences", "sum"),
-            clean_accuracy=("clean_exact", "mean"),
-            ranked_accuracy=("ranked_exact", "mean"),
-            random_accuracy=("random_exact_mean", "mean"),
+            clean_accuracy=("clean_accuracy", "mean"),
+            ranked_accuracy=("ranked_accuracy", "mean"),
+            random_accuracy=("random_accuracy", "mean"),
             all_accuracy_damage_specificity=(
                 "all_accuracy_damage_specificity", "mean"
             ),
