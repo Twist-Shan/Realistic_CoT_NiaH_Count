@@ -1,0 +1,14 @@
+{
+  "schema_version": "realistic_niah_v5_native_thinking_mechanism_report_v1",
+  "generated_at": "2026-08-13T01:28:15.475237+00:00",
+  "reference_design": "NiaH_Non-thinking_report.html",
+  "inputs": {
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Synthetic_NiaH_like_Count\\v5cc\\reports\\v5_response_aware_causal_v3_20260813\\combined_statistics_cross_model_holm.csv": "00ef8a7ae749a730f8862bd84a45dc180a16b7ef5b3f09f584d6176461e8e77a",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Synthetic_NiaH_like_Count\\v5cc\\reports\\v5_response_aware_causal_v3_20260813\\final_audit.json": "1ef2110c298e43eb99e4d705bb3d473a2ea6b0f863cf052da854b5ad09b1924d"
+  },
+  "audit_status": "passed",
+  "primary_targeted_retrieval": "parser-defined pre_reference_d1 position-consensus bank",
+  "behavioral_endpoint_policy": "parsed actual greedy generation only; no candidate-logit argmax",
+  "output": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Synthetic_NiaH_like_Count\\v5cc\\reports\\v5_native_thinking_mechanism_20260813\\NiaH_Native-Thinking_report.html",
+  "output_sha256": "abef09ab0abe22a109010720f638ed60c1bac2203f80adbf47033896dcd36138"
+}
