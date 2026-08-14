@@ -21,6 +21,7 @@ from realistic_niah_v4_4_3.geometry import (
 )
 from realistic_niah_v4_4_3.interventions import (
     align_attention_row_to_receiver,
+    candidate_logit_cache_distribution_diagnostics,
     candidate_logit_cache_deltas,
     scramble_attention_row,
 )
@@ -186,6 +187,21 @@ def test_cache_audit_ignores_only_a_common_candidate_logit_shift() -> None:
     cached[3] += 0.25
     _raw, centered = candidate_logit_cache_deltas(full, cached, (1, 2, 3))
     assert centered > 0
+
+
+def test_cache_distribution_diagnostic_reports_argmax_and_total_variation() -> None:
+    full = torch.tensor([0.0, 3.0, 1.0, -1.0])
+    cached = torch.tensor([0.0, 2.5, 1.1, -1.0])
+    agreement, total_variation = candidate_logit_cache_distribution_diagnostics(
+        full, cached, (1, 2, 3, 1)
+    )
+    assert agreement
+    assert 0 < total_variation < 0.2
+    cached[2] = 4.0
+    agreement, _ = candidate_logit_cache_distribution_diagnostics(
+        full, cached, (1, 2, 3)
+    )
+    assert not agreement
 
 
 def _encoding(lengths: tuple[int, int], *, query_position: int) -> PromptEncoding:

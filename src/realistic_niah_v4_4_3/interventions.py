@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import math
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any, Mapping, Sequence
 
 import numpy as np
@@ -14,6 +15,7 @@ from realistic_niah_v4.modeling import (
     _accepts_keyword,
     _bounded_logits_kwargs,
     _encoding_tensors,
+    query_attention_outputs,
 )
 from realistic_niah_v4.prompts import PromptEncoding
 
@@ -42,6 +44,10 @@ class QueryBundle:
     alpha_key_start_by_layer: dict[int, int]
     attention_cache_candidate_logit_max_abs_delta: float
     attention_cache_candidate_centered_logit_max_abs_delta: float
+    attention_cache_candidate_argmax_agreement: bool = True
+    attention_cache_candidate_probability_total_variation: float = 0.0
+    attention_cache_equivalence_audited: bool = True
+    reusable_prefill_output: Any | None = None
 
 
 def _output_logits(output: Any) -> torch.Tensor:
@@ -65,6 +71,50 @@ def _repeat_batch_tree(value: Any, repeats: int) -> Any:
             key: _repeat_batch_tree(item, repeats) for key, item in value.items()
         }
     return value
+
+
+def _clone_tensor_tree(value: Any) -> Any:
+    """Clone tensors in a small auxiliary-state tree without changing type."""
+
+    if isinstance(value, torch.Tensor):
+        return value.clone()
+    if isinstance(value, tuple):
+        return tuple(_clone_tensor_tree(item) for item in value)
+    if isinstance(value, list):
+        return [_clone_tensor_tree(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _clone_tensor_tree(item) for key, item in value.items()}
+    return copy.deepcopy(value)
+
+
+def clone_prefill_output_for_scoring(prefill_output: Any) -> Any:
+    """Return an isolated cache branch for destructive candidate scoring.
+
+    ``_score_candidate_sequences`` expands the cache batch from one prompt to
+    ten candidate continuations in place.  A retained batch-1 prompt cache can
+    therefore only be reused for strict generation when scoring receives a
+    deep-copied cache object.  Logits are read-only and remain shared.
+    """
+
+    past = getattr(prefill_output, "past_key_values", None)
+    if past is None:
+        raise RuntimeError("Reusable candidate prefill returned no KV cache")
+    try:
+        cloned_past = copy.deepcopy(past)
+    except Exception as exc:  # pragma: no cover - model/cache-version specific
+        raise RuntimeError(
+            "Transformers KV cache cannot be cloned for reusable prefill scoring"
+        ) from exc
+    if cloned_past is past:
+        raise RuntimeError("KV cache deepcopy unexpectedly returned the source object")
+    values: dict[str, Any] = {
+        "logits": _output_logits(prefill_output),
+        "past_key_values": cloned_past,
+    }
+    shared = getattr(prefill_output, "shared_kv_states", None)
+    if shared is not None:
+        values["shared_kv_states"] = _clone_tensor_tree(shared)
+    return SimpleNamespace(**values)
 
 
 @torch.inference_mode()
@@ -241,6 +291,32 @@ def candidate_logit_cache_deltas(
     return raw, centered
 
 
+def candidate_logit_cache_distribution_diagnostics(
+    full_logits: torch.Tensor,
+    cached_logits: torch.Tensor,
+    candidate_ids: Sequence[int],
+) -> tuple[bool, float]:
+    """Compare unique first-token candidate distributions after softmax.
+
+    This supplements the conservative max-logit audit with two scale-free
+    quantities. It is diagnostic only: the causal score still comes from the
+    full-prompt forward, never from the attention-reconstruction forward.
+    """
+
+    ids = sorted({int(value) for value in candidate_ids})
+    if not ids:
+        raise ValueError("Candidate distribution audit needs at least one token ID")
+    full = full_logits.detach().float().cpu()[ids]
+    cached = cached_logits.detach().float().cpu()[ids]
+    full_probability = torch.softmax(full, dim=0)
+    cached_probability = torch.softmax(cached, dim=0)
+    agreement = bool(int(torch.argmax(full)) == int(torch.argmax(cached)))
+    total_variation = float(
+        0.5 * torch.sum(torch.abs(full_probability - cached_probability))
+    )
+    return agreement, total_variation
+
+
 def _single_query_attention_row(value: Any) -> torch.Tensor:
     if isinstance(value, torch.Tensor):
         tensor = value
@@ -374,6 +450,10 @@ def capture_query_bundle(
     capture_attention: bool,
     capture_values: bool = True,
     cache_logit_tolerance: float = 0.5,
+    cache_probability_total_variation_tolerance: float | None = None,
+    require_cache_candidate_argmax_agreement: bool = False,
+    audit_cache_equivalence: bool = True,
+    retain_prefill_output: bool = False,
 ) -> QueryBundle:
     selected = tuple(sorted({int(layer) for layer in layers}))
     if not selected:
@@ -486,40 +566,80 @@ def capture_query_bundle(
     }
     if violations["z"] or violations["value"] or violations["attention_output"]:
         raise RuntimeError(f"Bundle hook application mismatch: {violations}")
-    causal_output = _score_candidate_sequences(model, encoding, prefill_output)
+    scoring_output = (
+        clone_prefill_output_for_scoring(prefill_output)
+        if retain_prefill_output
+        else prefill_output
+    )
+    causal_output = _score_candidate_sequences(model, encoding, scoring_output)
     logits = causal_output.logits
     alpha_by_layer: dict[int, torch.Tensor] = {}
     alpha_key_start: dict[int, int] = {}
     cache_logit_delta = 0.0
     cache_centered_logit_delta = 0.0
+    argmax_agreement = True
+    probability_total_variation = 0.0
     if capture_attention:
-        rows, key_starts, cached_logits = selective_query_attention_outputs(
-            model,
-            adapter,
-            encoding,
-            layers=selected,
-        )
-        candidate_ids = sorted(
-            {
-                int(token_ids[0])
-                for _count, token_ids in encoding.count_candidate_answer_token_ids
-            }
-        )
-        delta, centered_delta = candidate_logit_cache_deltas(
-            logits,
-            cached_logits,
-            candidate_ids,
-        )
-        cache_logit_delta = delta
-        cache_centered_logit_delta = centered_delta
-        if (
-            not math.isfinite(centered_delta)
-            or centered_delta > float(cache_logit_tolerance)
-        ):
-            raise RuntimeError(
-                "Full/cache relative candidate logits disagree before intervention: "
-                f"centered={centered_delta}, raw={delta}"
+        if audit_cache_equivalence:
+            rows, key_starts, cached_logits = selective_query_attention_outputs(
+                model,
+                adapter,
+                encoding,
+                layers=selected,
             )
+            candidate_ids = sorted(
+                {
+                    int(token_ids[0])
+                    for _count, token_ids in encoding.count_candidate_answer_token_ids
+                }
+            )
+            delta, centered_delta = candidate_logit_cache_deltas(
+                logits, cached_logits, candidate_ids
+            )
+            argmax_agreement, probability_total_variation = (
+                candidate_logit_cache_distribution_diagnostics(
+                    logits, cached_logits, candidate_ids
+                )
+            )
+            cache_logit_delta = delta
+            cache_centered_logit_delta = centered_delta
+            if (
+                not math.isfinite(centered_delta)
+                or centered_delta > float(cache_logit_tolerance)
+            ):
+                raise RuntimeError(
+                    "Full/cache relative candidate logits disagree before intervention: "
+                    f"centered={centered_delta}, raw={delta}"
+                )
+            if require_cache_candidate_argmax_agreement and not argmax_agreement:
+                raise RuntimeError(
+                    "Full/cache first-token candidate argmax disagrees before "
+                    f"intervention; total_variation={probability_total_variation}"
+                )
+            if (
+                cache_probability_total_variation_tolerance is not None
+                and (
+                    not math.isfinite(probability_total_variation)
+                    or probability_total_variation
+                    > float(cache_probability_total_variation_tolerance)
+                )
+            ):
+                raise RuntimeError(
+                    "Full/cache first-token candidate probability distributions "
+                    "disagree before intervention: "
+                    f"total_variation={probability_total_variation}, "
+                    f"tolerance={cache_probability_total_variation_tolerance}"
+                )
+        else:
+            # Match the original V4 attention atlas: evaluate the long prefix
+            # with the configured backend, run only the final answer-query
+            # token with eager attention, and use those cache-reconstructed
+            # query rows without comparing them with the causal full forward.
+            all_rows, all_key_starts, _query_logits = query_attention_outputs(
+                model, adapter, encoding
+            )
+            rows = {layer: all_rows[layer] for layer in selected}
+            key_starts = {layer: all_key_starts[layer] for layer in selected}
         for layer in selected:
             alpha_by_layer[layer] = rows[layer].detach().to(
                 device="cpu", dtype=torch.float32
@@ -537,6 +657,16 @@ def capture_query_bundle(
         attention_cache_candidate_centered_logit_max_abs_delta=(
             cache_centered_logit_delta
         ),
+        attention_cache_candidate_argmax_agreement=(
+            argmax_agreement if capture_attention else True
+        ),
+        attention_cache_candidate_probability_total_variation=(
+            probability_total_variation if capture_attention else 0.0
+        ),
+        attention_cache_equivalence_audited=(
+            bool(audit_cache_equivalence) if capture_attention else False
+        ),
+        reusable_prefill_output=(prefill_output if retain_prefill_output else None),
     )
 
 
