@@ -460,3 +460,69 @@ Because the experiment requires many long-context forward passes and repeated la
 - The original prelaunch auditor required current rows to equal the initial migration preseed exactly and therefore incorrectly refused any restart after valid new progress had accumulated. It was revised to an explicit `--allow-resume` mode that instead requires unique detail keys, membership in the frozen shard key set, row counts between frozen preseed and final expectation, complete state references, exact broad rows per completed detail key, disjoint seed panels, and the fixed GPU allocation. The original exact-preseed behavior remains the default.
 - The first resume audit detected one orphan `gemma_0` broad row at `(seed=1235,count=6,restore_needle_endpoint,L24)`, created because pausing landed between broad-row append and detail-row append. It had no corresponding detail key. The original 16,081-row broad file was preserved in the migration archive, then that single orphan row was atomically removed; no valid detail or state was changed. The repaired file has the required 16,080 unique broad keys for 2,010 completed details.
 - All eight resume audits then passed. The formal workers restarted with cache reuse enabled and each shard wrote new rows with `patch_hook_applications=2` and `strict_generation_reused_prefill=true`. The first post-restart gate observed 19,179 total rows, an increase of 107 from the pause point; Qwen used about 34.65 GB per GPU and Gemma 30.97--31.28 GB. A later live detail-key audit at 19,451 rows found exact row/key equality, zero duplicate keys, zero keys outside the frozen shard sets, cache reuse on every latest row, and no runtime-error matches. Migration evidence, old and new code/provenance/logs, and the pre-repair broad file are preserved under `/home/ubuntu/runs/nonthinking_v445_8gpu_20260813/optimization_migration_hook_cache_reuse_20260814`.
+
+### 2026-08-14 first audited dense-shard completion
+
+- `gemma_0` (GPU2; canonical seeds 1234--1238) reached its frozen expectation of 6,450 detail rows and exited normally. Its `complete.json` reports `status=complete`, model `Gemma4-E4B`, and 6,450 rows.
+- The post-completion coverage audit passed: 6,450 unique `(seed,gold_count,condition,patch_layer)` keys, exactly 51,600 unique broad keys (eight frozen broad heads per detail row), zero missing referenced state files, and no keys outside the frozen shard design. GPU2 was idle after completion; the other seven workers remained active with no runtime errors.
+- This is a shard-level execution milestone only. No model-level causal estimate is read out until all six Gemma shards and both Qwen shards pass their exact audits, merge coverage reaches 38,700 Gemma plus 33,300 Qwen keys, and the atomic canonical merge succeeds.
+
+### 2026-08-14 audited Gemma dense-model completion
+
+- All six Gemma shards reached 6,450/6,450 rows, wrote `complete.json`, exited normally, and released GPUs 2--7. Their disjoint canonical seed panels jointly cover seeds 1234--1263 and counts 1--10.
+- Every Gemma shard passed exact coverage: 6,450 unique detail keys, 51,600 unique broad keys, and zero missing referenced state files. The combined completed model therefore contains exactly 38,700 detail keys and 309,600 broad-head keys, with no overlap across seed shards.
+- The all-shard live auditor returned global `FAIL` once even though all six Gemma entries were `PASS`, because it sampled active `qwen_1` between the broad append and the corresponding detail append: 14,262 detail rows versus broad coverage for 14,263 rows. A subsequent read found 14,279 detail rows and 456,928 broad rows, exactly $14{,}279\times32$, establishing an in-flight read race rather than a duplicate, orphan, missing-state, or persistent coverage failure. No output was edited or recomputed.
+- Gemma is execution-complete but is not merged or analyzed yet. Qwen GPUs 0--1 continue the frozen dense sweep; downstream GPU work remains blocked until both Qwen shards complete and the atomic two-model merge audit passes.
+
+### 2026-08-14 first audited Qwen dense-shard completion
+
+- `qwen_0` (GPU0; canonical seeds 1234--1248) reached 16,650/16,650 detail rows, wrote a `complete.json` with `status=complete`, exited normally, and released GPU0.
+- Exact coverage passed: 16,650 unique detail keys, 532,800 unique broad-head keys (32 frozen broad heads per detail row), zero missing referenced state files, and no key outside the frozen shard design.
+- The all-shard live auditor again sampled active `qwen_1` between its broad append and detail append, temporarily observing 15,474 detail rows versus broad coverage for 15,475 rows. The follow-up read found 15,489 detail rows and 495,648 broad rows, exactly $15{,}489\times32$. This confirms the same harmless live-read race; no output was modified or recomputed.
+- Only `qwen_1` remains active on GPU1. Canonical merge and all downstream analysis remain blocked until it reaches 16,650 rows and passes the final all-shard audit.
+
+### 2026-08-14 canonical dense completion, merge, and layerwise analysis
+
+- Both Qwen shards and all six Gemma shards completed. Exact per-shard audits found 33,300 unique Qwen detail keys, 1,065,600 unique Qwen broad-head keys, 38,700 unique Gemma detail keys, 309,600 unique Gemma broad-head keys, and no missing referenced state file. The total canonical intervention table therefore contains exactly 72,000 rows.
+- The atomic merge into `/home/ubuntu/runs/nonthinking_v445_8gpu_20260813/canonical_merged` passed its stimulus-hash, unique-key, broad-coverage, and state-coverage checks. State tensors are hard-linked rather than duplicated.
+- The span-restoration analysis passed on all 72,000 rows. Of 70,200 patched rows, 51,617 optimized rows correctly recorded two patch-hook applications with strict-generation prefill reuse, and 18,583 legacy rows correctly recorded three; mismatches were zero.
+- The discovery early-plateau specificity was 2.832 counts for Qwen and 2.880 for Gemma. The frozen half-plateau boundary was Qwen L19 and Gemma L17. On confirmation seeds, full-needle-minus-ordinary expected-error-reduction specificity at those boundaries was respectively 1.294 and -0.088 counts. The frozen near-zero boundary was Qwen L23 and Gemma L18; confirmation specificity there was -0.074 and -0.107 counts. These are descriptive registered boundaries, not standalone significance tests.
+
+### 2026-08-14 reused-state representation and retrieval geometry
+
+- Answer geometry reused the 300 clean natural forwards per model and passed with 23,400 saved layer-state rows. Bases and preprocessing were fit only on discovery seeds 1234--1253; all quoted prediction results use confirmation seeds 1254--1263.
+- The display-only three-dimensional answer layer is Qwen L28: confirmation nearest-centroid exact accuracy 61%, integer-count MAD 0.72, and discovery rank-3 all-state variance capture 0.734. Gemma's display layer is L37: 63% exact, MAD 0.43, and rank-3 capture 0.799. Layer choice maximizes confirmation three-PC nearest-centroid accuracy and is explicitly excluded from causal or layerwise inference.
+- Retrieval geometry passed on 3,000 answer-query broad-bank states and wrote rank-3 bases for all frozen intervention layers. At Qwen L21/L23/L24/L26/L27, confirmation exact-classifier accuracy was 49/54/39/44/39% and nearest-centroid accuracy was 51/53/38/45/40%; corresponding classifier MAD was 0.69/0.75/1.28/1.01/1.01. At Gemma L29/L35, exact accuracy was 38/38%, nearest-centroid accuracy 39/39%, and classifier MAD 1.13/1.45.
+- The centroid trajectories are strongly low-rank (rank-3 centroid capture 0.968--0.995 across the frozen layers), but individual-state separation is not clean: cosine silhouette ranges from -0.098 to 0.011, and bootstrap 95th-percentile maximum principal angles are roughly 60--87 degrees. Thus the rank-3 broad-bank geometry is decodable but not assumed to be a stable causal channel; the retrieval-subspace intervention is needed to test mediation.
+
+### 2026-08-14 seven-way retrieval-subspace launch
+
+- `scripts/supervise_realistic_niah_v4_4_5_8gpu_retrieval_subspace.sh` assigns one frozen model-layer combination per card: GPU0--4 run Qwen L21/L23/L24/L26/L27, GPU5--6 run Gemma L29/L35, and GPU7 remains unused for recovery. Each job has an independent lock, output tree, log, exact 400-key audit, and per-layer analysis audit. The combined requirement is 2,800 unique rows.
+- The first running audit found all seven exact model processes: Qwen used about 33.18 GiB per card and Gemma about 20.89 GiB, with GPU7 idle. Initial progress was 43--44/400 rows for each Qwen layer and 34/400 for each Gemma layer, 284/2,800 total, with no traceback, OOM, or runtime-error match.
+- A hardlink-preserving copy of the complete run root to `/lambda/nfs/CoT-Non-thinking-v4/runs/nonthinking_v445_8gpu_20260813` is running concurrently. Because geometry and retrieval outputs were created after the initial rsync file list, a final incremental rsync and source/destination audit are mandatory after the GPU stage.
+
+### 2026-08-14 retrieval-subspace completion and cross-layer causal result
+
+- All seven frozen model-layer jobs completed and passed their exact audits. Every layer contains 400 unique rows: ten confirmation seeds (1254--1263), ten counts, and four paired block conditions. Each per-layer analysis has 100 paired seed--count units, matched removal norm, and an orthogonal control with negligible overlap with the fitted rank-3 basis. The combined audit reports `status=PASS` and exactly 2,800 rows.
+- For a gold count $N$, natural direction specificity is
+  $|E_{\mathrm{clean+aligned}}-N|-|E_{\mathrm{clean+orthogonal}}-N|$.
+  Restoration mediation is defined analogously after full-span restoration:
+  $|E_{\mathrm{restored+aligned}}-N|-|E_{\mathrm{restored+orthogonal}}-N|$.
+  Positive values mean that removing the fitted count-aligned rank-3 component is more damaging than removing an equal-norm orthogonal component. For example, if $N=8$, aligned removal gives expected count 6.5 and orthogonal removal gives 7.5, the direction-specific damage is $|6.5-8|-|7.5-8|=1$ count.
+- The descriptive mediated fraction divides restoration-mediation damage by the unblocked full-span expected-error repair for the same seed--count unit. It is left unclipped and is not a probability. For example, losing 0.5 count of a 2-count restoration repair gives a fraction of 0.25. Units with small or negative denominators can produce values outside $[0,1]$, so both mean and median are retained.
+
+| Model/layer | Natural specificity, mean | Restoration mediation, mean | Mediated fraction, mean |
+|---|---:|---:|---:|
+| Qwen L21 | 0.198 | 0.166 | 0.117 |
+| Qwen L23 | 0.333 | 0.265 | 0.194 |
+| Qwen L24 | -0.008 | 0.002 | -0.004 |
+| Qwen L26 | 0.000 | 0.006 | 0.005 |
+| Qwen L27 | -0.001 | 0.008 | 0.002 |
+| Gemma L29 | 0.525 | 0.527 | 0.273 |
+| Gemma L35 | -0.010 | -0.048 | -0.082 |
+
+- Qwen therefore has a localized direction-specific causal window at L21--L23, peaking at L23; the effect is absent at L24/L26/L27. At L23 the median natural specificity is 0.171 count, median restoration mediation is 0.100 count, and median mediated fraction is 0.031. The corresponding strict-error and accuracy-damage specificities are 0.28 and 0.14 naturally, and 0.22 and 0.14 under restoration.
+- Gemma has a stronger localized effect at L29 and no positive effect at L35. At L29 the median natural specificity is 0.499 count, median restoration mediation is 0.523 count, and median mediated fraction is 0.170. Natural strict-error/accuracy-damage specificities are 0.49/0.09; restoration counterparts are 0.46/0.04.
+- The mean/median gap, especially for Qwen, shows heterogeneous mediation across seed--count units; these heads do not behave as a uniform independent counter. On the separately labeled clean-correct robustness subsets, Qwen has 44 units and Gemma 37. Qwen L23 restoration mediation is 0.267 count with mean fraction 0.417; Gemma L29 is 0.210 count with mean fraction 0.491. These conditioned values are descriptive robustness results, not the primary population.
+- The supported mechanism is therefore narrower than “the broad-bank rank-3 geometry is a persistent counter.” Count-aligned broad retrieval is causally used at a localized aggregation stage (Qwen L21--L23; Gemma L29), after which later residual processing no longer depends on that same fitted subspace. This agrees with the span-restoration boundary: early prompt evidence is causally reusable before/through aggregation, while late answer states consolidate the result in a different representation.
+- The audited cross-layer outputs are under `analysis/retrieval_subspace_cross_layer`: `cross_layer_primary.csv`, `cross_layer_effect_summary.csv`, `retrieval_subspace_cross_layer.png`, and `cross_layer_audit.json`. The audit fixes the seven expected layers, records hashes for all source audits/tables, and reports `status=PASS`.
