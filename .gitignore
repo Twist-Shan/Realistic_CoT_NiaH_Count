@@ -45,6 +45,23 @@ reports/v*_realistic_niah_analysis_*/
 /work/chtc_v31_operations_20260807/
 /work/realistic_v31_bundle_inspect/
 
+# Local mechanistic-analysis scratch trees and resumable GPU captures. Curated
+# summaries belong under reports/; raw states and temporary audits stay local.
+/work/e3_pytest_tmp_*/
+/work/v445_gemma_partial_analysis/
+/work/v445_gemma_partial_run/
+/work/v446_layerwise_subspace_20260809/
+/work/v5_position_geometry_inputs/
+/work/audit_confirmation_qwen_partial.jsonl
+/work/audit_pilot_*.jsonl
+/work/audit_v445_canonical_stimuli.py
+/work/audit_v445_paused_jsonl.py
+/work/*_detail_snapshot.jsonl
+/work/*_summary.csv
+/work/v445_dense_pause_snapshot_*.json
+/work/v445_gemma_pilot_*.jsonl
+/work/v445_qwen_pilot_*.csv
+
 # Local credentials and machine-specific configuration.
 .env
 .env.*

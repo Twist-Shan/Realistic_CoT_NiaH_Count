@@ -1,0 +1,152 @@
+{
+  "schema_version": "realistic_niah_v4_4_5_followup_campaign_summary_v1",
+  "status": "PASS",
+  "source_ledger": "plans/nonthinking-followup-experiment-log-20260813.md",
+  "source_ledger_date": "2026-08-14",
+  "frozen_cohort": {
+    "seeds": [1234, 1263],
+    "counts": [1, 10],
+    "stimulus_sha256": "da4dd86142eb8a07f9a7e53497efd3375184c8e68367d4db994370fcb331f090",
+    "discovery_seeds": [1234, 1253],
+    "confirmation_seeds": [1254, 1263]
+  },
+  "dense_span_restoration": {
+    "qwen_rows": 33300,
+    "gemma_rows": 38700,
+    "total_rows": 72000,
+    "patched_rows": 70200,
+    "optimized_two_hook_rows": 51617,
+    "legacy_three_hook_rows": 18583,
+    "hook_count_mismatches": 0,
+    "conditions": [
+      "clean",
+      "needle_corrupt",
+      "ordinary_corrupt",
+      "restore_needle_endpoint at every layer",
+      "restore_needle_full at every layer",
+      "restore_ordinary_full at every layer"
+    ],
+    "qwen_layers": [0, 35],
+    "gemma_layers": [0, 41],
+    "primary_definition": "S_restore(l) = (|E_needle-corrupt-N|-|E_needle-restored,l-N|) - (|E_ordinary-corrupt-N|-|E_ordinary-restored,l-N|)",
+    "formal_landmarks": [
+      {
+        "model_label": "Qwen3-8B",
+        "discovery_early_plateau": 2.832,
+        "half_boundary_layer": 19,
+        "half_boundary_confirmation_specificity": 1.294,
+        "near_zero_boundary_layer": 23,
+        "near_zero_confirmation_specificity": -0.074
+      },
+      {
+        "model_label": "Gemma4-E4B",
+        "discovery_early_plateau": 2.880,
+        "half_boundary_layer": 17,
+        "half_boundary_confirmation_specificity": -0.088,
+        "near_zero_boundary_layer": 18,
+        "near_zero_confirmation_specificity": -0.107
+      }
+    ],
+    "discovery_pilot": {
+      "seeds": [2000, 2003],
+      "counts": [3, 6, 9],
+      "qwen": {
+        "layers": [0, 4, 8, 12, 16, 20, 24, 28, 32, 35],
+        "full_span_normalized_recovery": [1.018, 0.997, 0.976, 0.982, 0.849, 0.198, -0.047, 0.0, 0.0, 0.0],
+        "endpoint_recovery_range": [-0.047, 0.032],
+        "full_span_expected_error_repair_summary": "2.920--3.052 at L0--L12; 2.613 at L16; 0.770 at L20; approximately zero or negative from L24",
+        "full_minus_ordinary_specificity_summary": "2.870--3.037 at L0--L12; 2.611 at L16; 0.745 at L20; no positive effect from L24",
+        "broad_score_layers": [0, 16, 20, 24, 28],
+        "broad_score_change": [0.337, 0.326, 0.239, 0.022, 0.0]
+      },
+      "gemma": {
+        "layers": [0, 4, 8, 12, 16, 20, 24],
+        "full_span_expected_error_repair": [3.233, 3.402, 3.337, 2.553, 2.271, -0.048, 0.0],
+        "full_minus_ordinary_specificity": [3.327, 3.497, 3.350, 2.618, 2.297, -0.032, 0.0],
+        "endpoint_repair_range": [-0.042, 0.062],
+        "broad_score_layers": [0, 16, 20, 24],
+        "broad_score_change": [0.231, 0.408, 0.127, 0.0]
+      },
+      "scope": "Discovery-only pilot used to establish endpoint-versus-full-span contrast and freeze the subsequent dense layerwise design; it is not pooled into canonical confirmation estimates."
+    }
+  },
+  "answer_geometry_reuse": {
+    "clean_forwards_per_model": 300,
+    "saved_layer_state_rows": 23400,
+    "fit_split": "discovery seeds 1234--1253",
+    "evaluation_split": "confirmation seeds 1254--1263",
+    "display_layer_selection": "post-hoc display only: maximum confirmation three-PC nearest-centroid accuracy; excluded from causal and layerwise inference",
+    "rows": [
+      {
+        "model_label": "Qwen3-8B",
+        "layer": 28,
+        "nearest_centroid_accuracy": 0.61,
+        "integer_mad": 0.72,
+        "discovery_rank3_all_state_capture": 0.734
+      },
+      {
+        "model_label": "Gemma4-E4B",
+        "layer": 37,
+        "nearest_centroid_accuracy": 0.63,
+        "integer_mad": 0.43,
+        "discovery_rank3_all_state_capture": 0.799
+      }
+    ]
+  },
+  "retrieval_geometry": {
+    "broad_bank_state_rows": 3000,
+    "fit_split": "discovery seeds 1234--1253",
+    "evaluation_split": "confirmation seeds 1254--1263",
+    "rank3_centroid_capture_range": [0.968, 0.995],
+    "cosine_silhouette_range": [-0.098, 0.011],
+    "bootstrap_max_principal_angle_95_range_degrees": [60, 87],
+    "rows": [
+      {"model_label": "Qwen3-8B", "layer": 21, "exact_classifier_accuracy": 0.49, "nearest_centroid_accuracy": 0.51, "classifier_mad": 0.69},
+      {"model_label": "Qwen3-8B", "layer": 23, "exact_classifier_accuracy": 0.54, "nearest_centroid_accuracy": 0.53, "classifier_mad": 0.75},
+      {"model_label": "Qwen3-8B", "layer": 24, "exact_classifier_accuracy": 0.39, "nearest_centroid_accuracy": 0.38, "classifier_mad": 1.28},
+      {"model_label": "Qwen3-8B", "layer": 26, "exact_classifier_accuracy": 0.44, "nearest_centroid_accuracy": 0.45, "classifier_mad": 1.01},
+      {"model_label": "Qwen3-8B", "layer": 27, "exact_classifier_accuracy": 0.39, "nearest_centroid_accuracy": 0.40, "classifier_mad": 1.01},
+      {"model_label": "Gemma4-E4B", "layer": 29, "exact_classifier_accuracy": 0.38, "nearest_centroid_accuracy": 0.39, "classifier_mad": 1.13},
+      {"model_label": "Gemma4-E4B", "layer": 35, "exact_classifier_accuracy": 0.38, "nearest_centroid_accuracy": 0.39, "classifier_mad": 1.45}
+    ]
+  },
+  "retrieval_subspace": {
+    "status": "PASS",
+    "total_rows": 2800,
+    "rows_per_layer": 400,
+    "paired_units_per_layer": 100,
+    "seeds": [1254, 1263],
+    "counts": [1, 10],
+    "conditions": [
+      "clean + aligned rank-3 removal",
+      "clean + equal-realized-norm orthogonal removal",
+      "full-span restored + aligned rank-3 removal",
+      "full-span restored + equal-realized-norm orthogonal removal"
+    ],
+    "natural_specificity_definition": "|E_clean+aligned-N|-|E_clean+orthogonal-N|",
+    "restoration_mediation_definition": "|E_restored+aligned-N|-|E_restored+orthogonal-N|",
+    "mediated_fraction_definition": "restoration mediation divided by the unblocked full-span expected-error repair for the same seed-count unit; unclipped and not a probability",
+    "rows": [
+      {"model_label": "Qwen3-8B", "layer": 21, "natural_specificity_mean": 0.198, "restoration_mediation_mean": 0.166, "mediated_fraction_mean": 0.117},
+      {"model_label": "Qwen3-8B", "layer": 23, "natural_specificity_mean": 0.333, "restoration_mediation_mean": 0.265, "mediated_fraction_mean": 0.194, "natural_specificity_median": 0.171, "restoration_mediation_median": 0.100, "mediated_fraction_median": 0.031, "natural_strict_error_specificity": 0.28, "natural_accuracy_damage_specificity": 0.14, "restoration_strict_error_specificity": 0.22, "restoration_accuracy_damage_specificity": 0.14},
+      {"model_label": "Qwen3-8B", "layer": 24, "natural_specificity_mean": -0.008, "restoration_mediation_mean": 0.002, "mediated_fraction_mean": -0.004},
+      {"model_label": "Qwen3-8B", "layer": 26, "natural_specificity_mean": 0.000, "restoration_mediation_mean": 0.006, "mediated_fraction_mean": 0.005},
+      {"model_label": "Qwen3-8B", "layer": 27, "natural_specificity_mean": -0.001, "restoration_mediation_mean": 0.008, "mediated_fraction_mean": 0.002},
+      {"model_label": "Gemma4-E4B", "layer": 29, "natural_specificity_mean": 0.525, "restoration_mediation_mean": 0.527, "mediated_fraction_mean": 0.273, "natural_specificity_median": 0.499, "restoration_mediation_median": 0.523, "mediated_fraction_median": 0.170, "natural_strict_error_specificity": 0.49, "natural_accuracy_damage_specificity": 0.09, "restoration_strict_error_specificity": 0.46, "restoration_accuracy_damage_specificity": 0.04},
+      {"model_label": "Gemma4-E4B", "layer": 35, "natural_specificity_mean": -0.010, "restoration_mediation_mean": -0.048, "mediated_fraction_mean": -0.082}
+    ],
+    "clean_correct_robustness": [
+      {"model_label": "Qwen3-8B", "layer": 23, "paired_units": 44, "restoration_mediation_mean": 0.267, "mediated_fraction_mean": 0.417},
+      {"model_label": "Gemma4-E4B", "layer": 29, "paired_units": 37, "restoration_mediation_mean": 0.210, "mediated_fraction_mean": 0.491}
+    ]
+  },
+  "persistent_copy": {
+    "status": "PASS",
+    "regular_files": 144214,
+    "apparent_bytes": 81025058941,
+    "hardlink_groups": 72000,
+    "hardlink_topology_sha256": "a51981c33b79683256d615884789931d37d8216440a5ea3401bdef761e3585c8",
+    "destination_root": "/lambda/nfs/CoT-Non-thinking-v4/runs/nonthinking_v445_8gpu_20260813",
+    "completion_audit_sha256": "b5bb0399e3dc2cc8745ae4297747d1a951a4ea8cdb189dd218f116b76d0f412f"
+  }
+}

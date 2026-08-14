@@ -3,7 +3,7 @@
 ## Scope and scientific translation
 
 V5 reproduces the evidence chain in
-`reports/niah_non_thinking_mechanism_report.html` on native-thinking traces.
+`reports/NiaH_Non-thinking_report.html` on native-thinking traces.
 It uses the frozen V4.4 stimuli and seed split, but it does **not** use V4.4.2
 or later native-thinking experiments as data, code dependencies, or sources of
 discovery choices. Only the pre-existing V4 generic decoder hooks are reused.

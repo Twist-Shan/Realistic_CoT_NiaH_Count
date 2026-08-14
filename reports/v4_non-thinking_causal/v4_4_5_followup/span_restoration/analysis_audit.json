@@ -1,0 +1,69 @@
+{
+  "all_patch_hooks_expected_applications": true,
+  "attention_protocol": "original V4 prefix-cache final-query eager rows",
+  "cache_equivalence_compared_rows": 0,
+  "cache_equivalence_is_not_a_final_validity_gate": true,
+  "cache_only_uncompared_rows": 72000,
+  "confirmation_seeds": [
+    1254,
+    1255,
+    1256,
+    1257,
+    1258,
+    1259,
+    1260,
+    1261,
+    1262,
+    1263
+  ],
+  "definition": {
+    "expected_absolute_error_reduction": "|E_corrupt-count - gold| minus |E_restored-count - gold|",
+    "layerwise_half_boundary": "first of three consecutive layers whose discovery needle-minus-ordinary expected-error-reduction specificity is at most half the median over the first quarter of layers",
+    "layerwise_near_zero_boundary": "first of three consecutive layers whose discovery specificity has absolute magnitude at most 0.10 count",
+    "normalized_recovery": "(E_restored - E_corrupt)/(E_clean - E_corrupt), left unclipped",
+    "specificity": "needle restoration effect minus ordinary restoration effect",
+    "strict_absolute_error_reduction": "|strict corrupt prediction - gold| minus |strict restored prediction - gold|; invalid prediction has error 10"
+  },
+  "detail_rows": 72000,
+  "discovery_seeds": [
+    1234,
+    1235,
+    1236,
+    1237,
+    1238,
+    1239,
+    1240,
+    1241,
+    1242,
+    1243,
+    1244,
+    1245,
+    1246,
+    1247,
+    1248,
+    1249,
+    1250,
+    1251,
+    1252,
+    1253
+  ],
+  "finite_expected_counts": true,
+  "historical_compared_max_centered_delta": NaN,
+  "historical_compared_max_probability_total_variation": NaN,
+  "models": [
+    "Qwen3-8B",
+    "Gemma4-E4B"
+  ],
+  "patch_hook_application_audit": {
+    "legacy_rows_expected_three": 18583,
+    "mismatched_rows": 0,
+    "observed_three": 18583,
+    "observed_two": 51617,
+    "patched_rows": 70200,
+    "reused_prefill_rows_expected_two": 51617,
+    "status": "PASS"
+  },
+  "restoration_rows": 70200,
+  "schema_version": "realistic_niah_v4_4_5_span_restoration_analysis_v2",
+  "status": "PASS"
+}

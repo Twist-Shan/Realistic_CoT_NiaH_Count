@@ -2,15 +2,18 @@
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then
-  echo "Usage: $0 RUN_ROOT GPU_ID" >&2
+  echo "Usage: $0 RUN_ROOT GPU_ID_OR_WORKER_SLOT" >&2
   exit 2
 fi
 
 run_root="$(readlink -f "$1")"
-gpu_id="$2"
+worker_slot="$2"
 repo="${REALISTIC_NIAH_REPO_ROOT:-/lambda/nfs/Twist-CoT-Count-Multi-Model-v3/code/Realistic_CoT_NiaH_Count}"
 cache="${REALISTIC_NIAH_HF_CACHE:-/lambda/nfs/Twist-CoT-Count-Multi-Model-v3/hf-cache}"
 python_bin="${REALISTIC_NIAH_PYTHON:-/home/ubuntu/venvs/realistic-niah-vllm/bin/python}"
+device_mode="${REALISTIC_NIAH_DEVICE_MODE:-explicit}"
+worker_id="${REALISTIC_NIAH_WORKER_ID:-gpu${worker_slot}}"
+stagger_slot="${REALISTIC_NIAH_STAGGER_SLOT:-${worker_slot}}"
 stimuli="${run_root}/dataset/stimuli.jsonl"
 plan_tsv="${run_root}/orchestration/formal_bundles.tsv"
 state_root="${run_root}/orchestration/shard_state"
@@ -19,9 +22,29 @@ case "${run_root}" in
   */runs/realistic_niah_v3_1/*) ;;
   *) echo "Refusing unexpected V3.1 run root: ${run_root}" >&2; exit 2 ;;
 esac
-[[ "${gpu_id}" =~ ^[0-9]+$ ]] || { echo "GPU_ID must be non-negative" >&2; exit 2; }
-nvidia-smi --query-gpu=index --format=csv,noheader \
-  | tr -d ' ' | grep -qx "${gpu_id}"
+[[ "${worker_slot}" =~ ^[0-9]+$ ]] \
+  || { echo "GPU_ID/worker slot must be non-negative" >&2; exit 2; }
+[[ "${worker_id}" =~ ^[A-Za-z0-9_.-]+$ ]] \
+  || { echo "REALISTIC_NIAH_WORKER_ID contains unsafe characters" >&2; exit 2; }
+[[ "${stagger_slot}" =~ ^[0-9]+$ ]] \
+  || { echo "REALISTIC_NIAH_STAGGER_SLOT must be non-negative" >&2; exit 2; }
+case "${device_mode}" in
+  explicit)
+    nvidia-smi --query-gpu=index --format=csv,noheader \
+      | tr -d ' ' | grep -qx "${worker_slot}"
+    ;;
+  allocated)
+    [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]] \
+      || { echo "Slurm did not bind a GPU to ${worker_id}" >&2; exit 2; }
+    [[ "${CUDA_VISIBLE_DEVICES}" != *,* ]] \
+      || { echo "Expected exactly one allocated GPU for ${worker_id}" >&2; exit 2; }
+    nvidia-smi -L >/dev/null
+    ;;
+  *)
+    echo "REALISTIC_NIAH_DEVICE_MODE must be explicit or allocated" >&2
+    exit 2
+    ;;
+esac
 test -s "${stimuli}"
 test -s "${plan_tsv}"
 test -d "${cache}"
@@ -53,29 +76,43 @@ archive_previous_attempt_if_safe() {
   local archive_root="${state_root}/failed_attempts/${bundle_id}"
   local prior_host=""
   local prior_pid=""
+  local prior_scheduler_job_id=""
   local stamp
 
   if [[ ! -d "${claim_dir}" ]]; then
     if [[ -s "${failed_file}" ]]; then
-      stamp="$(date -u +%Y%m%dT%H%M%SZ).gpu${gpu_id}.$RANDOM"
+      stamp="$(date -u +%Y%m%dT%H%M%SZ).${worker_id}.$RANDOM"
       mkdir -p "${archive_root}"
-      mv "${failed_file}" "${archive_root}/failed.${stamp}.tsv"
+      mv "${failed_file}" "${archive_root}/failed.${stamp}.tsv" 2>/dev/null \
+        || return 1
     fi
     return 0
   fi
   if [[ -s "${claim_dir}/claim.tsv" ]]; then
     prior_host="$(awk -F $'\t' 'NR==2 {print $4}' "${claim_dir}/claim.tsv")"
     prior_pid="$(awk -F $'\t' 'NR==2 {print $3}' "${claim_dir}/claim.tsv")"
+    prior_scheduler_job_id="$(awk -F $'\t' 'NR==2 {print $8}' "${claim_dir}/claim.tsv")"
   fi
   if [[ "${prior_host}" == "$(hostname)" ]] \
     && [[ "${prior_pid}" =~ ^[0-9]+$ ]] \
     && kill -0 "${prior_pid}" 2>/dev/null; then
     return 1
   fi
+  if [[ -n "${prior_scheduler_job_id}" ]] \
+    && command -v squeue >/dev/null 2>&1 \
+    && [[ -n "$(squeue -h -j "${prior_scheduler_job_id}" 2>/dev/null)" ]]; then
+    return 1
+  fi
+  if [[ "${prior_host}" != "$(hostname)" ]] \
+    && [[ -z "${prior_scheduler_job_id}" ]] \
+    && [[ ! -s "${failed_file}" ]]; then
+    # A legacy claim on another host cannot be proven stale safely.
+    return 1
+  fi
   if [[ ! -s "${failed_file}" && -z "${prior_host}" ]]; then
     return 1
   fi
-  stamp="$(date -u +%Y%m%dT%H%M%SZ).gpu${gpu_id}.$RANDOM"
+  stamp="$(date -u +%Y%m%dT%H%M%SZ).${worker_id}.$RANDOM"
   mkdir -p "${archive_root}"
   mv "${claim_dir}" "${archive_root}/claim.${stamp}" 2>/dev/null \
     || return 1
@@ -85,11 +122,11 @@ archive_previous_attempt_if_safe() {
   return 0
 }
 
-worker_file="${state_root}/workers/gpu${gpu_id}.tsv"
-printf "gpu_id\tpid\thostname\tstarted_at_utc\tstatus\n" > "${worker_file}"
-printf "%s\t%s\t%s\t%s\trunning\n" "${gpu_id}" "$$" "$(hostname)" \
+worker_file="${state_root}/workers/${worker_id}.tsv"
+printf "worker_id\tworker_slot\tpid\thostname\tstarted_at_utc\tstatus\n" > "${worker_file}"
+printf "%s\t%s\t%s\t%s\t%s\trunning\n" "${worker_id}" "${worker_slot}" "$$" "$(hostname)" \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${worker_file}"
-sleep "$((gpu_id * 5))"
+sleep "$((stagger_slot * 5))"
 
 while IFS=$'\t' read -r \
   bundle_id priority model expected_logical_shards expected_requests revision \
@@ -102,20 +139,29 @@ do
   [[ -s "${bundle_completed_file}" ]] && continue
   archive_previous_attempt_if_safe "${bundle_id}" || continue
   mkdir "${claim_dir}" 2>/dev/null || continue
-  attempt_id="$(date -u +%Y%m%dT%H%M%SZ).gpu${gpu_id}.$RANDOM"
-  printf "bundle_id\tgpu_id\tpid\thostname\tclaimed_at_utc\tattempt_id\n" \
+  attempt_id="$(date -u +%Y%m%dT%H%M%SZ).${worker_id}.$RANDOM"
+  printf "bundle_id\tworker_slot\tpid\thostname\tclaimed_at_utc\tattempt_id\tworker_id\tscheduler_job_id\n" \
     > "${claim_dir}/claim.tsv"
-  printf "%s\t%s\t%s\t%s\t%s\t%s\n" "${bundle_id}" "${gpu_id}" "$$" \
+  printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+    "${bundle_id}" "${worker_slot}" "$$" \
     "$(hostname)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${attempt_id}" \
+    "${worker_id}" "${SLURM_JOB_ID:-}" \
     >> "${claim_dir}/claim.tsv"
   read -r request_batch_size max_num_seqs gpu_utilization \
     < <(engine_settings_for "${model}")
   log_file="${run_root}/orchestration/logs/${bundle_id}.${attempt_id}.log"
+  inference_environment=(
+    env
+    "PATH=$(dirname "${python_bin}"):${PATH}"
+    "PYTHONPATH=src"
+    "TOKENIZERS_PARALLELISM=false"
+  )
+  if [[ "${device_mode}" == "explicit" ]]; then
+    inference_environment+=("CUDA_VISIBLE_DEVICES=${worker_slot}")
+  fi
   if (
     cd "${repo}"
-    env CUDA_VISIBLE_DEVICES="${gpu_id}" \
-      PATH="$(dirname "${python_bin}"):${PATH}" PYTHONPATH=src \
-      TOKENIZERS_PARALLELISM=false \
+    "${inference_environment[@]}" \
       "${python_bin}" scripts/run_realistic_niah_v3_1_model_bundle.py \
         --stimuli "${stimuli}" --run-root "${run_root}" \
         --model "${model}" --revision "${revision}" \
@@ -135,28 +181,28 @@ do
         "${output_dir}/run_manifest.json" 3360
       prompt_mode="${task_id##*__}"
       completed_file="${state_root}/completed/${task_id}.tsv"
-      printf "task_id\tmodel\tprompt_mode\tgpu_id\tattempt_id\tcompleted_at_utc\n" \
+      printf "task_id\tmodel\tprompt_mode\tworker_id\tattempt_id\tcompleted_at_utc\n" \
         > "${completed_file}"
       printf "%s\t%s\t%s\t%s\t%s\t%s\n" "${task_id}" "${model}" \
-        "${prompt_mode}" "${gpu_id}" "${attempt_id}" \
+        "${prompt_mode}" "${worker_id}" "${attempt_id}" \
         "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${completed_file}"
     done
-    printf "bundle_id\tmodel\tlogical_shards\trequests\tgpu_id\tattempt_id\tcompleted_at_utc\n" \
+    printf "bundle_id\tmodel\tlogical_shards\trequests\tworker_id\tattempt_id\tcompleted_at_utc\n" \
       > "${bundle_completed_file}"
     printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "${bundle_id}" "${model}" \
-      "${expected_logical_shards}" "${expected_requests}" "${gpu_id}" \
+      "${expected_logical_shards}" "${expected_requests}" "${worker_id}" \
       "${attempt_id}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       >> "${bundle_completed_file}"
   else
     exit_code=$?
-    printf "bundle_id\tmodel\tprompt_modes\tgpu_id\tattempt_id\texit_code\tlog\n" \
+    printf "bundle_id\tmodel\tprompt_modes\tworker_id\tattempt_id\texit_code\tlog\n" \
       > "${failed_file}"
     printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "${bundle_id}" "${model}" \
-      "${prompt_modes}" "${gpu_id}" "${attempt_id}" "${exit_code}" \
+      "${prompt_modes}" "${worker_id}" "${attempt_id}" "${exit_code}" \
       "${log_file}" >> "${failed_file}"
     exit "${exit_code}"
   fi
 done < "${plan_tsv}"
 
-printf "%s\t%s\t%s\t%s\tcompleted\n" "${gpu_id}" "$$" "$(hostname)" \
+printf "%s\t%s\t%s\t%s\t%s\tcompleted\n" "${worker_id}" "${worker_slot}" "$$" "$(hostname)" \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${worker_file}"

@@ -52,6 +52,12 @@ once and all of its registered modes run against that loaded engine. The
 finalizer still merges only after all 48 logical shards complete and requires
 exactly 161,280 unique request IDs.
 
+For Purdue Anvil, use the separate Slurm adapter in
+[`infra/anvil/realistic_niah_v3_1/`](../infra/anvil/realistic_niah_v3_1/README.md).
+Its default interface launches eight independent one-H100 workers across two
+four-GPU H100 nodes while preserving the same physical-bundle plan, atomic
+checkpoint resume, clean-worktree requirement, and canonical final audit.
+
 Individual stages can also be run with:
 
 ```bash

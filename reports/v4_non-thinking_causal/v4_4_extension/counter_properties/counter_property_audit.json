@@ -1,0 +1,31 @@
+{
+  "schema_version": "realistic_niah_v4_4_embedded_prompt_counter_properties_v1",
+  "status": "PASS",
+  "base_report": "reports\\v4_non-thinking_causal\\v4_4_3\\realistic_niah_v4_4_mechanism_report.html",
+  "all_token_projection_source": "reports\\v4_non-thinking_causal\\v4_4_extension\\all_token\\all_token_frozen_pca_projections.csv.gz",
+  "models": [
+    "Qwen3-8B",
+    "Gemma4-E4B"
+  ],
+  "metric_rows": 78,
+  "fit_split": "discovery seeds 1234--1253",
+  "evaluation_split": "confirmation seeds 1254--1263",
+  "projection_scope": "All geometry and decoding use the discovery-fitted frozen PC1--PC3 embedded in the V4.4 report; PCA is not refit.",
+  "position_control": "The all-token confirmation projection is evaluated by 5-fold GroupKFold over seed. Cubic absolute position is fit inside each training fold; PC1--PC3 are residualized against [1,p,p^2,p^3] using training-fold coefficients before ridge decoding.",
+  "interpretation_rule": "Decodability alone is not called a counter. Counter-like support additionally requires ordered centroid distances, approximately aligned adjacent updates, and discovery-confirmation stability.",
+  "scope_limits": [
+    "Projection-level representation analysis only; no causal necessity follows.",
+    "The full-hidden-state counter-property job did not complete on the released compute node.",
+    "All prompts have final count N=10; cross-final-count prefix invariance is untested.",
+    "Absolute token position is strongly coupled to running index; the grouped cubic residual is a robustness control, not a complete deconfounder."
+  ],
+  "selected_layers": {
+    "Qwen3-8B": 8,
+    "Gemma4-E4B": 9
+  },
+  "files": [
+    "counter_property_metrics_by_layer.csv",
+    "selected_layer_counter_properties.csv",
+    "counter_properties_by_layer.png"
+  ]
+}
