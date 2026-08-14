@@ -239,14 +239,16 @@ def main() -> None:
     destination_log.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(incremental_log, source_log)
     shutil.copy2(incremental_log, destination_log)
+    temporary_dry_run = Path("/tmp/nonthinking_v445_filestream_rsync_dry_run.txt")
+    rsync_dry_run(source, destination, temporary_dry_run)
     dry_run_path = source / "analysis" / "filestream_copy" / "rsync_dry_run.txt"
-    dry_run_path.parent.mkdir(parents=True, exist_ok=True)
-    rsync_dry_run(source, destination, dry_run_path)
     destination_dry_run_path = (
         destination / "analysis" / "filestream_copy" / "rsync_dry_run.txt"
     )
+    dry_run_path.parent.mkdir(parents=True, exist_ok=True)
     destination_dry_run_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(dry_run_path, destination_dry_run_path)
+    shutil.copy2(temporary_dry_run, dry_run_path)
+    shutil.copy2(temporary_dry_run, destination_dry_run_path)
 
     source_inventory = inventory(source)
     destination_inventory = inventory(destination)
