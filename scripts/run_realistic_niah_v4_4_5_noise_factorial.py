@@ -25,6 +25,7 @@ from realistic_niah_v4_4_5.followup_edges import (
     natural_edge_delta,
     registered_forbidden_positions,
     select_attention_mass_control,
+    select_control_feasible_candidates,
     select_deterministic_random_control,
 )
 from realistic_niah_v4_4_5.followup_runtime import (
@@ -242,7 +243,7 @@ def main() -> None:
 
     experiment_path = Path(args.experiment_config).resolve()
     experiment = json.loads(experiment_path.read_text(encoding="utf-8"))
-    if experiment.get("schema_version") != "realistic_niah_v4_4_5_noise_factorial_v1":
+    if experiment.get("schema_version") != "realistic_niah_v4_4_5_noise_factorial_v2":
         raise ValueError("Unexpected noise-factorial schema")
     stimuli_path = Path(args.stimuli).resolve()
     if sha256(stimuli_path) != str(experiment["stimulus_sha256"]):
@@ -370,11 +371,11 @@ def main() -> None:
     )
     source_layer, source_head = source
     registration = {
-        "schema_version": "realistic_niah_v4_4_5_outside_context_registration_v1",
+        "schema_version": "realistic_niah_v4_4_5_outside_context_registration_v2",
         "source_layer": source_layer,
         "source_head": source_head,
         "source_head_summary": source_summary,
-        "candidate_key_rule": "top natural attention keys in fixed-width ordinary halo around active needle spans",
+        "candidate_key_rule": "natural-attention ranked ordinary halo keys, capped per exact distance bin by unique nonhalo-control capacity, at most top_keys_per_head",
     }
     write_json(root / "outside_context_registration.json", registration)
 
@@ -420,14 +421,22 @@ def main() -> None:
             forbidden = registered_forbidden_positions(encoding)
             ordinary = set(range(int(encoding.query_position))) - forbidden
             nonhalo = ordinary - set(halo)
-            candidate_keys = tuple(
+            ranked_halo_keys = tuple(
                 sorted(
                     halo,
                     key=lambda key: (-float(row[int(key) - key_start]), int(key)),
-                )[: int(experiment["outside_context"]["top_keys_per_head"])]
+                )
             )
-            if not candidate_keys:
-                raise RuntimeError("No visible candidate halo keys")
+            eligible_nonhalo = tuple(
+                sorted(key for key in nonhalo if int(key) >= int(key_start))
+            )
+            candidate_keys, feasibility_audit = select_control_feasible_candidates(
+                query=int(encoding.query_position),
+                ranked_candidates=ranked_halo_keys,
+                allowed_controls=eligible_nonhalo,
+                bin_width=int(experiment["outside_context"]["distance_bin_width"]),
+                max_candidates=int(experiment["outside_context"]["top_keys_per_head"]),
+            )
             full_row = torch.zeros(int(encoding.query_position) + 1, dtype=torch.float32)
             full_row[key_start : key_start + len(row)] = row
             random_keys: list[int] = []
@@ -437,7 +446,7 @@ def main() -> None:
                 random_key, random_audit = select_deterministic_random_control(
                     query=int(encoding.query_position),
                     target_key=int(candidate_key),
-                    allowed=(key for key in nonhalo if key >= key_start),
+                    allowed=eligible_nonhalo,
                     excluded=set(candidate_keys) | set(random_keys),
                     bin_width=int(experiment["outside_context"]["distance_bin_width"]),
                     label=f"{model_label}:{seed}:{count}:{index}",
@@ -446,7 +455,7 @@ def main() -> None:
                     full_row,
                     query=int(encoding.query_position),
                     target_key=int(candidate_key),
-                    allowed=(key for key in nonhalo if key >= key_start),
+                    allowed=eligible_nonhalo,
                     excluded=set(candidate_keys) | set(mass_keys),
                     bin_width=int(experiment["outside_context"]["distance_bin_width"]),
                 )
@@ -500,9 +509,14 @@ def main() -> None:
             write_json(
                 edge_audit_path,
                 {
+                    "schema_version": "realistic_niah_v4_4_5_outside_context_edge_audit_v2",
                     "seed": int(seed),
                     "gold_count": int(count),
+                    "query_position": int(encoding.query_position),
+                    "distance_bin_width": int(experiment["outside_context"]["distance_bin_width"]),
                     "candidate_keys": list(candidate_keys),
+                    "ranked_halo_keys": list(ranked_halo_keys),
+                    "candidate_feasibility": feasibility_audit,
                     "random_keys": random_keys,
                     "mass_keys": mass_keys,
                     "candidate": candidate_audit,

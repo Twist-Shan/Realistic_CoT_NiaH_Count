@@ -12,6 +12,7 @@ from realistic_niah_v4_4_5.followup_edges import (
     natural_edge_delta,
     repeated_anchor_candidates,
     select_attention_mass_control,
+    select_control_feasible_candidates,
     select_deterministic_random_control,
 )
 from scripts.run_realistic_niah_v4_4_5_induction_circuit import (
@@ -156,6 +157,50 @@ def test_mass_and_random_controls_stay_in_distance_bin():
     assert random_audit["exact_distance_bin"]
     assert distance_bin(79, mass_key, width=16) == distance_bin(79, 50, width=16)
     assert distance_bin(79, random_key, width=16) == distance_bin(79, 50, width=16)
+
+
+def test_control_feasible_candidates_respect_per_bin_capacity_and_rank():
+    selected, audit = select_control_feasible_candidates(
+        query=128,
+        ranked_candidates=[95, 94, 93, 60, 59, 58],
+        allowed_controls=[90, 61, 57, 56],
+        bin_width=32,
+        max_candidates=5,
+    )
+    # Keys 95/94/93 share a bin with only one control (90), so rank keeps 95.
+    # The next bin has three controls and therefore retains 60/59/58.
+    assert selected == (95, 60, 59, 58)
+    assert audit["selected_candidate_count"] == 4
+    assert audit["omitted_exhausted_bin_capacity"] == 2
+    assert audit["all_selected_have_unique_exact_bin_capacity"] is True
+
+
+def test_control_feasible_candidates_skip_bins_without_controls():
+    selected, audit = select_control_feasible_candidates(
+        query=128,
+        ranked_candidates=[127, 95, 60],
+        allowed_controls=[90, 61],
+        bin_width=32,
+        max_candidates=2,
+    )
+    assert selected == (95, 60)
+    assert audit["omitted_no_exact_bin_capacity"] == 1
+
+
+def test_control_feasible_candidates_regress_qwen_first_unit_capacity_shape():
+    # The failed formal unit had 8 halo candidates in each of two bins, but
+    # only 48 and 2 distinct non-halo controls in those bins.  Exact matching
+    # therefore supports ten, not sixteen, candidate edges.
+    selected, audit = select_control_feasible_candidates(
+        query=10106,
+        ranked_candidates=list(range(1090, 1098)) + list(range(1051, 1059)),
+        allowed_controls=list(range(1098, 1146)) + [1018, 1019],
+        bin_width=64,
+        max_candidates=16,
+    )
+    assert len(selected) == 10
+    assert audit["selected_by_distance_bin"] == {"140": 8, "141": 2}
+    assert audit["omitted_exhausted_bin_capacity"] == 6
 
 
 def test_natural_edge_delta_obeys_gqa_mapping():

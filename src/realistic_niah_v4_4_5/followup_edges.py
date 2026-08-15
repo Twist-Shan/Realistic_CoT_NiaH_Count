@@ -203,6 +203,87 @@ def distance_bin(query: int, key: int, *, width: int) -> int:
     return (int(query) - int(key) - 1) // int(width)
 
 
+def select_control_feasible_candidates(
+    *,
+    query: int,
+    ranked_candidates: Iterable[int],
+    allowed_controls: Iterable[int],
+    bin_width: int,
+    max_candidates: int,
+) -> tuple[tuple[int, ...], dict[str, object]]:
+    """Keep the highest-ranked candidates admitting unique exact-bin controls.
+
+    Candidate rank is supplied by the caller and must be frozen without using
+    any intervention outcome.  The per-bin capacity is the number of eligible
+    ordinary control keys in that exact distance bin.  Capping selected
+    candidates at this capacity guarantees that both matched-control arms can
+    use distinct keys without falling back to another distance bin.
+    """
+
+    if int(max_candidates) <= 0:
+        raise ValueError("Maximum candidate count must be positive")
+    ranked = tuple(dict.fromkeys(int(value) for value in ranked_candidates))
+    if not ranked:
+        raise ValueError("No ranked candidate keys were supplied")
+    for key in ranked:
+        if not 0 <= key < int(query):
+            raise ValueError("A candidate key lies outside the causal prefix")
+    controls = tuple(
+        sorted(
+            {
+                int(value)
+                for value in allowed_controls
+                if 0 <= int(value) < int(query)
+            }
+        )
+    )
+    capacity_by_bin: dict[int, int] = {}
+    for key in controls:
+        index = distance_bin(int(query), key, width=int(bin_width))
+        capacity_by_bin[index] = capacity_by_bin.get(index, 0) + 1
+
+    selected: list[int] = []
+    selected_by_bin: dict[int, int] = {}
+    omitted_no_capacity = 0
+    omitted_capacity_exhausted = 0
+    for key in ranked:
+        if len(selected) >= int(max_candidates):
+            break
+        index = distance_bin(int(query), key, width=int(bin_width))
+        capacity = capacity_by_bin.get(index, 0)
+        used = selected_by_bin.get(index, 0)
+        if capacity == 0:
+            omitted_no_capacity += 1
+            continue
+        if used >= capacity:
+            omitted_capacity_exhausted += 1
+            continue
+        selected.append(key)
+        selected_by_bin[index] = used + 1
+
+    if not selected:
+        raise ValueError("No candidate key admits a unique exact-bin control")
+    audit: dict[str, object] = {
+        "policy": "natural-attention rank subject to unique exact-distance-bin control capacity",
+        "ranked_candidate_count": len(ranked),
+        "requested_max_candidates": int(max_candidates),
+        "selected_candidate_count": len(selected),
+        "omitted_no_exact_bin_capacity": omitted_no_capacity,
+        "omitted_exhausted_bin_capacity": omitted_capacity_exhausted,
+        "capacity_by_distance_bin": {
+            str(index): int(value) for index, value in sorted(capacity_by_bin.items())
+        },
+        "selected_by_distance_bin": {
+            str(index): int(value) for index, value in sorted(selected_by_bin.items())
+        },
+        "all_selected_have_unique_exact_bin_capacity": all(
+            selected_by_bin[index] <= capacity_by_bin[index]
+            for index in selected_by_bin
+        ),
+    }
+    return tuple(selected), audit
+
+
 def _candidate_pool(
     *,
     query: int,

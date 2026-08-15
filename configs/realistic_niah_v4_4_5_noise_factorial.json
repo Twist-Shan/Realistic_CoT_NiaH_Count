@@ -1,5 +1,5 @@
 {
-  "schema_version": "realistic_niah_v4_4_5_noise_factorial_v1",
+  "schema_version": "realistic_niah_v4_4_5_noise_factorial_v2",
   "stimulus_sha256": "da4dd86142eb8a07f9a7e53497efd3375184c8e68367d4db994370fcb331f090",
   "discovery_seeds": [1234, 1235, 1236, 1237, 1238, 1239, 1240, 1241, 1242, 1243, 1244, 1245, 1246, 1247, 1248, 1249, 1250, 1251, 1252, 1253],
   "confirmation_seeds": [1254, 1255, 1256, 1257, 1258, 1259, 1260, 1261, 1262, 1263],
@@ -17,6 +17,7 @@
     "halo_width": 8,
     "top_keys_per_head": 16,
     "distance_bin_width": 64,
+    "candidate_control_feasibility_policy": "natural-attention rank subject to unique exact-distance-bin nonhalo-control capacity; retain at most top_keys_per_head",
     "strict_generation_max_new_tokens": 8,
     "candidate_head_selection": "discovery mean halo attention density minus nonhalo ordinary density; canonical-rank tie break",
     "intervention": "subtract_frozen_natural_alpha_times_v_at_source_head_pre_o_answer_query",
