@@ -1,0 +1,36 @@
+{
+  "schema_version": "realistic_niah_v4_4_5_reporting_manifest_v1",
+  "destination": "/lambda/nfs/CoT-Non-thinking-v4/runs/nonthinking_v445_exp23_noise_factorial_v2_20260815/reporting",
+  "files": [
+    {
+      "source_path": "reports/NiaH_Non-thinking_report.html",
+      "destination_name": "NiaH_Non-thinking_report.html",
+      "bytes": 3708131,
+      "sha256": "fd4214a89053f84082bfe887e04aee374340d63f80d31f55ff32ddab1005e34e"
+    },
+    {
+      "source_path": "reports/non-thinking extension.md",
+      "destination_name": "non-thinking_extension.md",
+      "bytes": 39826,
+      "sha256": "70dee2d0bd00761a875900a2ecab0b24348703fba7f39652b4d80b8f1b733a4c"
+    },
+    {
+      "source_path": "reports/v4_non-thinking_causal/v4_4_5_followup/exp23_v2/combined_nonpooled_summary.json",
+      "destination_name": "exp23_v2_combined_nonpooled_summary.json",
+      "bytes": 6362,
+      "sha256": "5dd7390467f6dd69833e0b3997074e10cba1f5a3e46c4756a16f6741b10e4fcb"
+    },
+    {
+      "source_path": "reports/v4_non-thinking_causal/v4_4_5_followup/final_report_audit.json",
+      "destination_name": "final_report_audit.json",
+      "bytes": 1902,
+      "sha256": "c398c58a8582b2bbe57a079ff54aa8bf1d02b8cdc12bf618ce01940d50dac9ba"
+    },
+    {
+      "source_path": "plans/nonthinking-followup-experiment-log-20260813.md",
+      "destination_name": "nonthinking-followup-experiment-log-20260813.md",
+      "bytes": 111436,
+      "sha256": "6cf264c8e7775c8f809b5eb7ecd6525634ff5c77e4e3af96070f535f4efddd7b"
+    }
+  ]
+}

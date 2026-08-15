@@ -1,0 +1,78 @@
+{
+  "candidate_key_rule": "natural-attention ranked ordinary halo keys, capped per exact distance bin by unique nonhalo-control capacity, at most top_keys_per_head",
+  "schema_version": "realistic_niah_v4_4_5_outside_context_registration_v2",
+  "source_head": 13,
+  "source_head_summary": [
+    {
+      "canonical_rank": 1,
+      "discovery_seed_count": 20,
+      "head": 29,
+      "layer": 13,
+      "mean_halo_specificity": -8.8947947978113e-05
+    },
+    {
+      "canonical_rank": 2,
+      "discovery_seed_count": 20,
+      "head": 24,
+      "layer": 12,
+      "mean_halo_specificity": -6.625699656979123e-05
+    },
+    {
+      "canonical_rank": 3,
+      "discovery_seed_count": 20,
+      "head": 13,
+      "layer": 5,
+      "mean_halo_specificity": -2.967268310385407e-05
+    },
+    {
+      "canonical_rank": 4,
+      "discovery_seed_count": 20,
+      "head": 9,
+      "layer": 15,
+      "mean_halo_specificity": -0.00010369629783504308
+    },
+    {
+      "canonical_rank": 5,
+      "discovery_seed_count": 20,
+      "head": 9,
+      "layer": 11,
+      "mean_halo_specificity": -0.00010063074043955566
+    },
+    {
+      "canonical_rank": 6,
+      "discovery_seed_count": 20,
+      "head": 24,
+      "layer": 19,
+      "mean_halo_specificity": -5.6825522449344135e-05
+    },
+    {
+      "canonical_rank": 7,
+      "discovery_seed_count": 20,
+      "head": 11,
+      "layer": 15,
+      "mean_halo_specificity": -8.276184347550952e-05
+    },
+    {
+      "canonical_rank": 8,
+      "discovery_seed_count": 20,
+      "head": 7,
+      "layer": 7,
+      "mean_halo_specificity": -9.264718562462804e-05
+    },
+    {
+      "canonical_rank": 9,
+      "discovery_seed_count": 20,
+      "head": 29,
+      "layer": 9,
+      "mean_halo_specificity": -9.435509231252582e-05
+    },
+    {
+      "canonical_rank": 10,
+      "discovery_seed_count": 20,
+      "head": 20,
+      "layer": 12,
+      "mean_halo_specificity": -9.481784865670307e-05
+    }
+  ],
+  "source_layer": 5
+}

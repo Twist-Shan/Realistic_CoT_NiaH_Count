@@ -1,0 +1,135 @@
+{
+  "schema_version": "realistic_niah_v4_4_5_exp23_v2_nonpooled_summary_v1",
+  "status": "PASS",
+  "models_pooled": false,
+  "executable_git_sha": "d699e0754f9ebdaa07119cff80121ee3e6713a22",
+  "stimulus_sha256": "da4dd86142eb8a07f9a7e53497efd3375184c8e68367d4db994370fcb331f090",
+  "design": {
+    "factorial_rows_per_model": 240,
+    "factorial_discovery_rows_per_model": 160,
+    "factorial_confirmation_rows_per_model": 80,
+    "endpoint_states_per_model": 2400,
+    "outside_context_rows_per_model": 400,
+    "outside_context_paired_units_per_model": 100,
+    "bootstrap_draws": 10000
+  },
+  "secondary_analysis_note": "Strict-error contrasts below are descriptive seed-level 10000-draw bootstraps from the already audited strict_absolute_error field. The formal registered gate remains expected-count error against both controls. Late answer states were saved and audited for exact coverage and finiteness, but no additional post-hoc scalar late-state specificity statistic is introduced.",
+  "models": {
+    "Qwen3-8B": {
+      "source_head": [5, 13],
+      "factorial": {
+        "centroid_rank3_capture": 0.9880728096252429,
+        "confirmation_full_model_r2": -0.02212571403100161,
+        "incremental_delta_r2": {
+          "identity": -0.00010481465560707726,
+          "context": -0.00040844287449037786,
+          "position": 0.017461228007958463
+        }
+      },
+      "outside_context": {
+        "candidate_exceeds_both_controls": false,
+        "expected_error_candidate_minus_distance_random": {
+          "mean": 0.012274446321334563,
+          "ci95_low": -0.005435658741682592,
+          "ci95_high": 0.026460752193646554
+        },
+        "expected_error_candidate_minus_attention_mass": {
+          "mean": 0.003058164729922823,
+          "ci95_low": -0.00997060757702668,
+          "ci95_high": 0.016299945682873445
+        },
+        "strict_absolute_error_candidate_minus_distance_random": {
+          "mean": -0.01,
+          "ci95_low": -0.06000000000000001,
+          "ci95_high": 0.030000000000000006
+        },
+        "strict_absolute_error_candidate_minus_attention_mass": {
+          "mean": -0.02,
+          "ci95_low": -0.06000000000000001,
+          "ci95_high": 0.0
+        },
+        "broad_score_damage_candidate_minus_distance_random": {
+          "mean": 0.0003859965160168316,
+          "ci95_low": -0.00015299692813475793,
+          "ci95_high": 0.0009599813965177729
+        },
+        "broad_score_damage_candidate_minus_attention_mass": {
+          "mean": 0.0005122727208212066,
+          "ci95_low": 0.00011338507999568297,
+          "ci95_high": 0.000997084334205068
+        },
+        "correct_margin_damage_candidate_minus_distance_random": {
+          "mean": 0.01507832527160644,
+          "ci95_low": -0.08603427696228026,
+          "ci95_high": 0.09882236409187317
+        },
+        "correct_margin_damage_candidate_minus_attention_mass": {
+          "mean": -0.08855411529541016,
+          "ci95_low": -0.16118597984313965,
+          "ci95_high": -0.013429341793060308
+        },
+        "late_state_readout": "400 answer-state files present, finite, and exactly matched to the 400 registered rows; no post-hoc scalar specificity claim"
+      },
+      "scientific_decision": "registered_outside_context_specificity_not_supported"
+    },
+    "Gemma4-E4B": {
+      "source_head": [5, 1],
+      "factorial": {
+        "centroid_rank3_capture": 0.9790153646837871,
+        "confirmation_full_model_r2": -0.08931727913778253,
+        "incremental_delta_r2": {
+          "identity": 0.0031411747280536417,
+          "context": 0.00023133271129127664,
+          "position": -0.0007207058409135492
+        }
+      },
+      "outside_context": {
+        "candidate_exceeds_both_controls": false,
+        "expected_error_candidate_minus_distance_random": {
+          "mean": -0.0022157831451270213,
+          "ci95_low": -0.009880865333702032,
+          "ci95_high": 0.00557633508209274
+        },
+        "expected_error_candidate_minus_attention_mass": {
+          "mean": 0.0038614896314261363,
+          "ci95_low": -0.005775867904317585,
+          "ci95_high": 0.012923639284835614
+        },
+        "strict_absolute_error_candidate_minus_distance_random": {
+          "mean": -0.01,
+          "ci95_low": -0.030000000000000006,
+          "ci95_high": 0.0
+        },
+        "strict_absolute_error_candidate_minus_attention_mass": {
+          "mean": 0.0,
+          "ci95_low": 0.0,
+          "ci95_high": 0.0
+        },
+        "broad_score_damage_candidate_minus_distance_random": {
+          "mean": -0.00007332280362975271,
+          "ci95_low": -0.0004552744992077034,
+          "ci95_high": 0.0003128984308218786
+        },
+        "broad_score_damage_candidate_minus_attention_mass": {
+          "mean": -0.00022366203906739706,
+          "ci95_low": -0.00048756093977197384,
+          "ci95_high": 0.000015209698243110173
+        },
+        "correct_margin_damage_candidate_minus_distance_random": {
+          "mean": -0.009390273094177243,
+          "ci95_low": -0.0590741136074066,
+          "ci95_high": 0.031958912849426264
+        },
+        "correct_margin_damage_candidate_minus_attention_mass": {
+          "mean": 0.005601716041564944,
+          "ci95_low": -0.0648952784538269,
+          "ci95_high": 0.08005395877361296
+        },
+        "late_state_readout": "400 answer-state files present, finite, and exactly matched to the 400 registered rows; no post-hoc scalar specificity claim"
+      },
+      "scientific_decision": "registered_outside_context_specificity_not_supported"
+    }
+  },
+  "joint_conclusion": "The discovery-fitted rank-3 factorial models do not beat the confirmation intercept baseline in either model, so incremental delta-R2 values are controlled deformations rather than natural variance shares. Candidate halo-edge removal fails to exceed both exact-distance and attention-mass controls in expected-count error for both models. The registered privileged outside-context source claim is not supported.",
+  "scope_boundary": "The result does not reject distributed outside-context synergy, alternative source registries, or effects that require a fully renormalized QK counterfactual. The implemented intervention subtracts the frozen natural alpha-times-V contribution at the answer-query source-head pre-O slice and does not establish pathway uniqueness."
+}

@@ -1,0 +1,52 @@
+{
+  "schema_version": "realistic_niah_v4_4_5_final_report_audit_v1",
+  "status": "PASS",
+  "generated_at_utc": "2026-08-15T05:35:00Z",
+  "report": {
+    "path": "reports/NiaH_Non-thinking_report.html",
+    "bytes": 3708131,
+    "sha256": "fd4214a89053f84082bfe887e04aee374340d63f80d31f55ff32ddab1005e34e"
+  },
+  "extension_source": {
+    "path": "reports/non-thinking extension.md",
+    "bytes": 39826,
+    "sha256": "70dee2d0bd00761a875900a2ecab0b24348703fba7f39652b4d80b8f1b733a4c"
+  },
+  "exp23_nonpooled_summary": {
+    "path": "reports/v4_non-thinking_causal/v4_4_5_followup/exp23_v2/combined_nonpooled_summary.json",
+    "bytes": 6362,
+    "sha256": "5dd7390467f6dd69833e0b3997074e10cba1f5a3e46c4756a16f6741b10e4fcb"
+  },
+  "builder": {
+    "path": "scripts/build_niah_nonthinking_mechanism_report.py",
+    "sha256": "2c70aec555492cb0ab3bb1dd27bfe3c8f4ab7b49e04d049883aa770fb4fa0735"
+  },
+  "validation": {
+    "command": "python scripts/validate_niah_nonthinking_report.py reports/NiaH_Non-thinking_report.html",
+    "ids": 17,
+    "internal_anchor_links": 11,
+    "labeled_inline_svgs": 38,
+    "collapsible_details": 17,
+    "extension_audit_rows": 25,
+    "external_assets": 0,
+    "duplicate_ids": 0,
+    "missing_anchor_targets": 0,
+    "stale_planned_experiment_phrases": 0,
+    "status": "PASS",
+    "browser_visual_qa": "not_run_npx_unavailable"
+  },
+  "tests": {
+    "local_followup_edge_and_serial_tests": "PASS: 17 passed",
+    "remote_exp23_v2_prelaunch_tests": "PASS: 29/29 on each model host",
+    "broader_local_scientific_stack": "NOT RUNNABLE: local NumPy 2.2.6 is ABI-incompatible with installed SciPy/pyarrow binaries; failure occurs during import, before project tests",
+    "report_build_and_static_validation": "PASS"
+  },
+  "extension_partition": {
+    "verified": 12,
+    "falsified": 9,
+    "partially_answered": 3,
+    "open": 0,
+    "closed": 1,
+    "total": 25
+  }
+}

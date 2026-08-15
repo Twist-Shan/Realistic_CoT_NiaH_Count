@@ -1,0 +1,12 @@
+{
+  "experiment_config": "/home/ubuntu/Realistic_CoT_NiaH_Count/configs/realistic_niah_v4_4_5_noise_factorial.json",
+  "experiment_config_sha256": "7f36cbe685540ad134078a6e12a6aebdeab873aab835ce8a713ebadf08b77757",
+  "git_sha": "d699e0754f9ebdaa07119cff80121ee3e6713a22",
+  "model": "Gemma4-E4B",
+  "model_id": "google/gemma-4-E4B-it",
+  "model_revision": "ee0ef6023621cff504d758262d4e04895a5af4a2",
+  "schema_version": "realistic_niah_v4_4_5_noise_factorial_run_v1",
+  "scientific_boundary": "controlled token-level nuisance deformations and natural answer-query edge contributions; not a unique decomposition of observational prompt noise",
+  "stimuli": "/lambda/nfs/CoT-Non-thinking-v4/runs/nonthinking_v445_8gpu_20260813/dataset/canonical_run_20260731_v4_numeric_presentation_v3_stimuli.jsonl",
+  "stimuli_sha256": "da4dd86142eb8a07f9a7e53497efd3375184c8e68367d4db994370fcb331f090"
+}

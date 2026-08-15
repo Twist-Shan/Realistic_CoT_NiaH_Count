@@ -1,0 +1,137 @@
+{
+  "claim_scope": "ordered partial serial mediation; not pathway uniqueness",
+  "models": {
+    "Qwen3-8B": {
+      "accounted_fraction_unclipped": {
+        "ci95_high": 6.357227803859977,
+        "ci95_low": 1.1304181212798314,
+        "mean": 3.2043536050808528,
+        "median": 0.22160479438577246,
+        "undefined_units": 0,
+        "units": 100
+      },
+      "downstream_to_broad_invariance_max_abs": {
+        "ci95_high": 0.0,
+        "ci95_low": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "undefined_units": 0,
+        "units": 100
+      },
+      "joint_interaction": {
+        "ci95_high": -0.25704519436318807,
+        "ci95_low": -0.5129422345239709,
+        "mean": -0.382263520780494,
+        "median": -0.2217314131534316,
+        "undefined_units": 0,
+        "units": 100
+      },
+      "late_mediation": {
+        "ci95_high": 1.3829341034422207,
+        "ci95_low": 0.8631319478091928,
+        "mean": 1.1184970158226069,
+        "median": 0.9374240014282749,
+        "undefined_units": 0,
+        "units": 100
+      },
+      "late_strict_mediation": {
+        "ci95_high": 1.38,
+        "ci95_low": 0.81,
+        "mean": 1.09,
+        "median": 1.0,
+        "undefined_units": 0,
+        "units": 100
+      },
+      "late_to_retrieval_invariance_max_abs": {
+        "ci95_high": 0.0,
+        "ci95_low": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "undefined_units": 0,
+        "units": 100
+      },
+      "ordered_criterion_diagnostics": {
+        "i_source_changes_retrieval": {
+          "broad_change_mean": 0.38411901173862495,
+          "retrieval_shift_l2_mean": 20.338031364545774,
+          "source_repair_positive": true
+        },
+        "ii_retrieval_precedes_late": {
+          "late_radius_reduction_mean": 23.823526410634553,
+          "retrieval_mediation_positive": true
+        },
+        "iii_late_affects_output_not_earlier_readout": {
+          "late_mediation_positive": true,
+          "retrieval_invariance_max_over_units": 0.0
+        },
+        "note": "These are preregistered directional diagnostics, not a unique-pathway test."
+      },
+      "remaining_repair": {
+        "ci95_high": 1.9042388057000657,
+        "ci95_low": 1.0259099406732763,
+        "mean": 1.4770548899915683,
+        "median": 2.347175167211656,
+        "undefined_units": 0,
+        "units": 100
+      },
+      "retrieval_aligned_late_radius_reduction": {
+        "ci95_high": 27.969073364398643,
+        "ci95_low": 19.789451463633853,
+        "mean": 23.823526410634553,
+        "median": 19.04345811140924,
+        "undefined_units": 0,
+        "units": 100
+      },
+      "retrieval_mediation": {
+        "ci95_high": 0.41671157350466037,
+        "ci95_low": 0.24265351081730313,
+        "mean": 0.3268039948479123,
+        "median": 0.1701307035692916,
+        "undefined_units": 0,
+        "units": 100
+      },
+      "retrieval_strict_mediation": {
+        "ci95_high": 0.36,
+        "ci95_low": 0.15,
+        "mean": 0.25,
+        "median": 0.0,
+        "undefined_units": 0,
+        "units": 100
+      },
+      "source_broad_score_change": {
+        "ci95_high": 0.40893103656841917,
+        "ci95_low": 0.3580187418627429,
+        "mean": 0.38411901173862495,
+        "median": 0.4116866763116378,
+        "undefined_units": 0,
+        "units": 100
+      },
+      "source_repair": {
+        "ci95_high": 2.990634147151561,
+        "ci95_low": 2.358234928165456,
+        "mean": 2.6744300185255336,
+        "median": 2.752982377373773,
+        "undefined_units": 0,
+        "units": 100
+      },
+      "source_retrieval_coordinate_shift_l2": {
+        "ci95_high": 21.438391577425726,
+        "ci95_low": 19.116973191907796,
+        "mean": 20.338031364545774,
+        "median": 21.684566658190377,
+        "undefined_units": 0,
+        "units": 100
+      },
+      "source_strict_repair": {
+        "ci95_high": 9.1,
+        "ci95_low": 8.6,
+        "mean": 8.86,
+        "median": 9.0,
+        "undefined_units": 0,
+        "units": 100
+      }
+    }
+  },
+  "schema_version": "realistic_niah_v4_4_5_serial_mediation_summary_v1",
+  "status": "PASS"
+}

@@ -1,0 +1,139 @@
+{
+  "candidate_heads": 10,
+  "conditions": [
+    "repeated_consistent",
+    "unique_anchor",
+    "successor_reassignment",
+    "same_position_ordinary_repeat"
+  ],
+  "decision_rule": "canonical-rank-first among heads passing repeated and reassignment advantages plus unique/ordinary collapse; maximum one primary head",
+  "head_summaries": [
+    {
+      "canonical_rank": 1,
+      "collapse_reference": 0.0020836244026819868,
+      "head": 29,
+      "layer": 13,
+      "ordinary_repeat_abs_mean": 0.002940069635709127,
+      "passed": false,
+      "reassignment_follow_mean": 0.0031315694252649945,
+      "repeated_relation_mean": -0.0010356793800989786,
+      "unique_anchor_abs_mean": 0.012181975444157918
+    },
+    {
+      "canonical_rank": 2,
+      "collapse_reference": 0.006451229689021905,
+      "head": 24,
+      "layer": 12,
+      "ordinary_repeat_abs_mean": 0.020734932584067185,
+      "passed": false,
+      "reassignment_follow_mean": 0.009863025198380152,
+      "repeated_relation_mean": 0.0030394341796636582,
+      "unique_anchor_abs_mean": 0.0398457786689202
+    },
+    {
+      "canonical_rank": 3,
+      "collapse_reference": 0.02201203058163325,
+      "head": 13,
+      "layer": 5,
+      "ordinary_repeat_abs_mean": 0.0023615337908267976,
+      "passed": true,
+      "reassignment_follow_mean": 0.019140684604644777,
+      "repeated_relation_mean": 0.024883376558621724,
+      "unique_anchor_abs_mean": 0.0049150674293438595
+    },
+    {
+      "canonical_rank": 4,
+      "collapse_reference": 0.05675721565882365,
+      "head": 9,
+      "layer": 15,
+      "ordinary_repeat_abs_mean": 0.012008277575174968,
+      "passed": true,
+      "reassignment_follow_mean": 0.05102403958638509,
+      "repeated_relation_mean": 0.06249039173126221,
+      "unique_anchor_abs_mean": 0.012408701578776042
+    },
+    {
+      "canonical_rank": 5,
+      "collapse_reference": 0.00400142914004391,
+      "head": 9,
+      "layer": 11,
+      "ordinary_repeat_abs_mean": 0.0003856159213076656,
+      "passed": false,
+      "reassignment_follow_mean": 0.00039557758912754556,
+      "repeated_relation_mean": 0.007607280690960275,
+      "unique_anchor_abs_mean": 0.0011735767523835723
+    },
+    {
+      "canonical_rank": 6,
+      "collapse_reference": 0.0077280538156628605,
+      "head": 24,
+      "layer": 19,
+      "ordinary_repeat_abs_mean": 0.005319346417672932,
+      "passed": false,
+      "reassignment_follow_mean": 0.0038275407627224923,
+      "repeated_relation_mean": 0.01162856686860323,
+      "unique_anchor_abs_mean": 0.005439410855372747
+    },
+    {
+      "canonical_rank": 7,
+      "collapse_reference": 0.02378970980644226,
+      "head": 11,
+      "layer": 15,
+      "ordinary_repeat_abs_mean": 0.009057923158009847,
+      "passed": false,
+      "reassignment_follow_mean": 0.007662359873453776,
+      "repeated_relation_mean": 0.039917059739430744,
+      "unique_anchor_abs_mean": 0.008247840404510497
+    },
+    {
+      "canonical_rank": 8,
+      "collapse_reference": 1.9559167678077456e-06,
+      "head": 7,
+      "layer": 7,
+      "ordinary_repeat_abs_mean": 3.704243363245041e-06,
+      "passed": false,
+      "reassignment_follow_mean": -8.840314800787989e-07,
+      "repeated_relation_mean": 3.027802055536692e-06,
+      "unique_anchor_abs_mean": 4.744418401969597e-06
+    },
+    {
+      "canonical_rank": 9,
+      "collapse_reference": 0.003466888453112915,
+      "head": 29,
+      "layer": 9,
+      "ordinary_repeat_abs_mean": 0.001679628136722992,
+      "passed": false,
+      "reassignment_follow_mean": 0.002463434702561547,
+      "repeated_relation_mean": 0.004470342203664283,
+      "unique_anchor_abs_mean": 0.0019828065608938537
+    },
+    {
+      "canonical_rank": 10,
+      "collapse_reference": 0.006460710366566976,
+      "head": 20,
+      "layer": 12,
+      "ordinary_repeat_abs_mean": 0.016623655954996746,
+      "passed": false,
+      "reassignment_follow_mean": 0.011726816495259603,
+      "repeated_relation_mean": -0.001194604237874349,
+      "unique_anchor_abs_mean": 0.016489781936009727
+    }
+  ],
+  "retained_heads": [
+    {
+      "canonical_rank": 3,
+      "collapse_reference": 0.02201203058163325,
+      "head": 13,
+      "layer": 5,
+      "ordinary_repeat_abs_mean": 0.0023615337908267976,
+      "passed": true,
+      "reassignment_follow_mean": 0.019140684604644777,
+      "repeated_relation_mean": 0.024883376558621724,
+      "unique_anchor_abs_mean": 0.0049150674293438595
+    }
+  ],
+  "rows": 1200,
+  "schema_version": "realistic_niah_v4_4_5_induction_synthetic_audit_v1",
+  "sequences": 30,
+  "status": "PASS"
+}

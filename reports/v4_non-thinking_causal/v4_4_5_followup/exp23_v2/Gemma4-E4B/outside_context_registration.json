@@ -1,0 +1,78 @@
+{
+  "candidate_key_rule": "natural-attention ranked ordinary halo keys, capped per exact distance bin by unique nonhalo-control capacity, at most top_keys_per_head",
+  "schema_version": "realistic_niah_v4_4_5_outside_context_registration_v2",
+  "source_head": 1,
+  "source_head_summary": [
+    {
+      "canonical_rank": 1,
+      "discovery_seed_count": 20,
+      "head": 5,
+      "layer": 5,
+      "mean_halo_specificity": -7.68322252042708e-05
+    },
+    {
+      "canonical_rank": 2,
+      "discovery_seed_count": 20,
+      "head": 0,
+      "layer": 5,
+      "mean_halo_specificity": -5.335249761628802e-05
+    },
+    {
+      "canonical_rank": 3,
+      "discovery_seed_count": 20,
+      "head": 3,
+      "layer": 5,
+      "mean_halo_specificity": -5.9025244627264326e-05
+    },
+    {
+      "canonical_rank": 4,
+      "discovery_seed_count": 20,
+      "head": 3,
+      "layer": 11,
+      "mean_halo_specificity": -9.620848205713629e-05
+    },
+    {
+      "canonical_rank": 5,
+      "discovery_seed_count": 20,
+      "head": 2,
+      "layer": 11,
+      "mean_halo_specificity": -5.414210686467413e-05
+    },
+    {
+      "canonical_rank": 6,
+      "discovery_seed_count": 20,
+      "head": 1,
+      "layer": 17,
+      "mean_halo_specificity": -7.628146695424221e-05
+    },
+    {
+      "canonical_rank": 7,
+      "discovery_seed_count": 20,
+      "head": 3,
+      "layer": 17,
+      "mean_halo_specificity": -7.37492217581348e-05
+    },
+    {
+      "canonical_rank": 8,
+      "discovery_seed_count": 20,
+      "head": 1,
+      "layer": 5,
+      "mean_halo_specificity": 0.00013835603604093195
+    },
+    {
+      "canonical_rank": 9,
+      "discovery_seed_count": 20,
+      "head": 0,
+      "layer": 11,
+      "mean_halo_specificity": -9.137199220958792e-05
+    },
+    {
+      "canonical_rank": 10,
+      "discovery_seed_count": 20,
+      "head": 5,
+      "layer": 17,
+      "mean_halo_specificity": -9.238883596367487e-05
+    }
+  ],
+  "source_layer": 5
+}

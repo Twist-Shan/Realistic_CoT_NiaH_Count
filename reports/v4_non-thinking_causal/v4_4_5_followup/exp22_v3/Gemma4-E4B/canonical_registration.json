@@ -1,0 +1,10 @@
+{
+  "anchor_token_id": 236764,
+  "anchor_token_text": ",",
+  "mean_normalized_anchor_offset": 0.49685790679908315,
+  "schema_version": "realistic_niah_v4_4_5_induction_registration_v1",
+  "source_head": 0,
+  "source_layer": 5,
+  "stable_candidate_count": 13.0,
+  "unique_successor_token_count": 89.0
+}

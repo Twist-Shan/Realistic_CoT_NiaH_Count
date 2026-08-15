@@ -272,6 +272,92 @@ def svg_bar_chart(
     return "".join(parts)
 
 
+def svg_interval_chart(
+    title: str,
+    x_label: str,
+    rows: list[tuple[str, float, float, float, str]],
+    *,
+    domain: tuple[float, float] | None = None,
+    reference: tuple[float, str] = (0.0, "no matched-control advantage"),
+    width: int = 820,
+    row_height: int = 44,
+) -> str:
+    """Return a horizontal point-and-interval chart for paired contrasts."""
+
+    height = 78 + row_height * len(rows)
+    observed = [value for _, mean, low, high, _ in rows for value in (mean, low, high)]
+    observed.append(reference[0])
+    if domain is None:
+        lo, hi = min(observed), max(observed)
+        pad = max((hi - lo) * 0.12, 0.002)
+        lo, hi = lo - pad, hi + pad
+    else:
+        lo, hi = domain
+    left, right, top, bottom = 260, 62, 34, 46
+    plot_w = width - left - right
+
+    def sx(value: float) -> float:
+        return left + (value - lo) / max(hi - lo, 1e-9) * plot_w
+
+    parts = [
+        f'<svg class="interval-chart" viewBox="0 0 {width} {height}" role="img" '
+        f'aria-label="{html.escape(title)}">',
+        f"<title>{html.escape(title)}</title>",
+        f'<rect class="plot-bg" x="{left}" y="{top}" width="{plot_w}" height="{height-top-bottom}"/>',
+    ]
+    for tick in [lo + i * (hi - lo) / 4 for i in range(5)]:
+        x = sx(tick)
+        parts.append(
+            f'<line class="grid vertical" x1="{x:.2f}" y1="{top}" '
+            f'x2="{x:.2f}" y2="{height-bottom}"/>'
+        )
+        parts.append(
+            f'<text class="tick" x="{x:.2f}" y="{height-bottom+23}" '
+            f'text-anchor="middle">{tick:.3f}</text>'
+        )
+    reference_x = sx(reference[0])
+    parts.append(
+        f'<line class="reference" x1="{reference_x:.2f}" y1="{top}" '
+        f'x2="{reference_x:.2f}" y2="{height-bottom}"/>'
+    )
+    parts.append(
+        f'<text class="reference-label" x="{reference_x+5:.2f}" y="{top+14}">'
+        f'{html.escape(reference[1])}</text>'
+    )
+    for index, (label, mean, low, high, color) in enumerate(rows):
+        y = top + index * row_height + 24
+        parts.append(
+            f'<text class="bar-label" x="{left-12}" y="{y+5:.2f}" '
+            f'text-anchor="end">{html.escape(label)}</text>'
+        )
+        parts.append(
+            f'<line class="ci-whisker" x1="{sx(low):.2f}" y1="{y:.2f}" '
+            f'x2="{sx(high):.2f}" y2="{y:.2f}" stroke="{color}"/>'
+        )
+        for bound in (low, high):
+            x = sx(bound)
+            parts.append(
+                f'<line class="ci-whisker" x1="{x:.2f}" y1="{y-6:.2f}" '
+                f'x2="{x:.2f}" y2="{y+6:.2f}" stroke="{color}"/>'
+            )
+        parts.append(
+            f'<circle cx="{sx(mean):.2f}" cy="{y:.2f}" r="5.5" fill="{color}">'
+            f'<title>mean={mean:.6f}; 95% CI [{low:.6f}, {high:.6f}]</title></circle>'
+        )
+        anchor = "start" if sx(mean) < width - right - 66 else "end"
+        dx = 9 if anchor == "start" else -9
+        parts.append(
+            f'<text class="bar-value" x="{sx(mean)+dx:.2f}" y="{y+5:.2f}" '
+            f'text-anchor="{anchor}">{mean:+.3f}</text>'
+        )
+    parts.append(
+        f'<text class="axis-label" x="{left+plot_w/2:.2f}" y="{height-7}" '
+        f'text-anchor="middle">{html.escape(x_label)}</text>'
+    )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
 def svg_map_error_chart(
     model: str,
     rows: list[dict[str, str]],
@@ -662,11 +748,77 @@ def build(output: Path) -> None:
     gated_formula_rows = read_csv(
         extension / "all_token" / "gated_curve_formula_tests.csv"
     )
+    followup_root = REPORTS / "v4_4_5_followup"
     followup = json.loads(
-        (REPORTS / "v4_4_5_followup" / "campaign_summary.json").read_text(
-            encoding="utf-8"
-        )
+        (followup_root / "campaign_summary.json").read_text(encoding="utf-8")
     )
+    model_order = ("Qwen3-8B", "Gemma4-E4B")
+    exp19: dict[str, dict[str, Any]] = {}
+    exp22: dict[str, dict[str, Any]] = {}
+    exp22_registration: dict[str, dict[str, Any]] = {}
+    exp22_synthetic: dict[str, dict[str, Any]] = {}
+    exp23: dict[str, dict[str, Any]] = {}
+    exp23_registration: dict[str, dict[str, Any]] = {}
+    for model in model_order:
+        exp19_payload = json.loads(
+            (followup_root / "exp19" / model / "serial_summary.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        if exp19_payload.get("status") != "PASS" or set(exp19_payload.get("models", {})) != {model}:
+            raise RuntimeError(f"Experiment 19 summary failed audit for {model}")
+        exp19[model] = exp19_payload["models"][model]
+
+        exp22[model] = json.loads(
+            (followup_root / "exp22_v3" / model / "analysis_summary.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        exp22_registration[model] = json.loads(
+            (followup_root / "exp22_v3" / model / "canonical_registration.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        exp22_synthetic[model] = json.loads(
+            (followup_root / "exp22_v3" / model / "synthetic_audit.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        if (
+            exp22[model].get("status") != "PASS"
+            or exp22[model].get("model") != model
+            or exp22[model].get("scientific_decision") != "not_supported"
+            or not exp22[model].get("synthetic_relation_gate")
+            or exp22[model].get("canonical_matched_block_gate")
+        ):
+            raise RuntimeError(f"Unexpected experiment 22 verdict for {model}")
+
+        exp23[model] = json.loads(
+            (followup_root / "exp23_v2" / model / "analysis_summary.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        exp23_registration[model] = json.loads(
+            (followup_root / "exp23_v2" / model / "outside_context_registration.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        exp23_audit = json.loads(
+            (followup_root / "exp23_v2" / model / "analysis_audit.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        if (
+            exp23[model].get("status") != "PASS"
+            or exp23[model].get("model") != model
+            or exp23[model]["outside_context"].get("candidate_exceeds_both_controls")
+            or exp23_audit != {
+                "status": "PASS",
+                "factorial_rows": 240,
+                "outside_context_rows": 400,
+            }
+        ):
+            raise RuntimeError(f"Unexpected experiment 23 audit or verdict for {model}")
     span_layerwise = json.loads(
         (
             REPORTS
@@ -1824,6 +1976,120 @@ def build(output: Path) -> None:
             )
         )
 
+    exp19_chart = svg_bar_chart(
+        "Same-forward ordered partial serial mediation",
+        "direction-specific expected-count effect (counts)",
+        [
+            (
+                f"{model.replace('3-8B', '').replace('4-E4B', '')} · {label}",
+                float(exp19[model][metric]["mean"]),
+                color,
+            )
+            for model, color in (("Qwen3-8B", "#0f766e"), ("Gemma4-E4B", "#7c3aed"))
+            for label, metric in (
+                ("source repair", "source_repair"),
+                ("retrieval mediation", "retrieval_mediation"),
+                ("late mediation", "late_mediation"),
+            )
+        ],
+        domain=(0.0, 3.2),
+        references=[(0.0, "matched-control difference = 0")],
+        width=840,
+    )
+    exp19_rows = "".join(
+        f"""<tr><td>{model}</td>
+        <td>{f(values['source_repair']['mean'])} [{f(values['source_repair']['ci95_low'])}, {f(values['source_repair']['ci95_high'])}]</td>
+        <td>{f(values['retrieval_mediation']['mean'])} [{f(values['retrieval_mediation']['ci95_low'])}, {f(values['retrieval_mediation']['ci95_high'])}]</td>
+        <td>{f(values['late_mediation']['mean'])} [{f(values['late_mediation']['ci95_low'])}, {f(values['late_mediation']['ci95_high'])}]</td>
+        <td>{f(values['joint_interaction']['mean'])} [{f(values['joint_interaction']['ci95_low'])}, {f(values['joint_interaction']['ci95_high'])}]</td>
+        <td>{f(values['remaining_repair']['mean'])} [{f(values['remaining_repair']['ci95_low'])}, {f(values['remaining_repair']['ci95_high'])}]</td></tr>"""
+        for model, values in exp19.items()
+    )
+
+    exp22_selected: dict[str, dict[str, Any]] = {}
+    for model in model_order:
+        registration = exp22_registration[model]
+        exp22_selected[model] = next(
+            row
+            for row in exp22_synthetic[model]["head_summaries"]
+            if int(row["layer"]) == int(registration["source_layer"])
+            and int(row["head"]) == int(registration["source_head"])
+        )
+    exp22_chart = svg_interval_chart(
+        "Canonical test of the frozen induction-like edge registry",
+        "candidate minus attention/distance-matched control: expected absolute error (counts)",
+        [
+            (
+                model,
+                float(exp22[model]["metrics"]["expected_absolute_error_candidate_minus_control"]["mean"]),
+                float(exp22[model]["metrics"]["expected_absolute_error_candidate_minus_control"]["ci95_low"]),
+                float(exp22[model]["metrics"]["expected_absolute_error_candidate_minus_control"]["ci95_high"]),
+                color,
+            )
+            for model, color in (("Qwen3-8B", "#0f766e"), ("Gemma4-E4B", "#7c3aed"))
+        ],
+        domain=(-0.04, 0.012),
+        reference=(0.0, "registered specificity requires > 0"),
+        width=840,
+    )
+    exp22_rows = "".join(
+        f"""<tr><td>{model}</td><td>L{int(exp22_registration[model]['source_layer'])}H{int(exp22_registration[model]['source_head'])}</td>
+        <td>{f(exp22_selected[model]['repeated_relation_mean'], 5)}</td>
+        <td>{f(exp22_selected[model]['reassignment_follow_mean'], 5)}</td>
+        <td>{f(exp22_selected[model]['unique_anchor_abs_mean'], 5)} / {f(exp22_selected[model]['ordinary_repeat_abs_mean'], 5)}</td>
+        <td>{f(exp22[model]['metrics']['expected_absolute_error_candidate_minus_control']['mean'], 5)} [{f(exp22[model]['metrics']['expected_absolute_error_candidate_minus_control']['ci95_low'], 5)}, {f(exp22[model]['metrics']['expected_absolute_error_candidate_minus_control']['ci95_high'], 5)}]</td>
+        <td>not supported</td></tr>"""
+        for model in model_order
+    )
+
+    exp23_factor_chart = svg_bar_chart(
+        "Controlled identity/context/position deformation in the frozen rank-3 basis",
+        "confirmation held-out incremental ΔR²",
+        [
+            (
+                f"{model.replace('3-8B', '').replace('4-E4B', '')} · {factor}",
+                float(exp23[model]["factorial"]["confirmation_incremental_delta_r2"][factor]),
+                color,
+            )
+            for model, color in (("Qwen3-8B", "#0f766e"), ("Gemma4-E4B", "#7c3aed"))
+            for factor in ("identity", "context", "position")
+        ],
+        domain=(-0.005, 0.020),
+        references=[(0.0, "no incremental held-out prediction")],
+        width=840,
+    )
+    exp23_specificity_chart = svg_interval_chart(
+        "Outside-context halo-edge specificity",
+        "candidate removal minus matched control: expected absolute error (counts)",
+        [
+            (
+                f"{model.replace('3-8B', '').replace('4-E4B', '')} · {label}",
+                float(exp23[model]["outside_context"]["metrics"][metric]["mean"]),
+                float(exp23[model]["outside_context"]["metrics"][metric]["ci95_low"]),
+                float(exp23[model]["outside_context"]["metrics"][metric]["ci95_high"]),
+                color,
+            )
+            for model, color in (("Qwen3-8B", "#0f766e"), ("Gemma4-E4B", "#7c3aed"))
+            for label, metric in (
+                ("vs distance-random", "expected_error_candidate_minus_distance_random"),
+                ("vs attention-mass", "expected_error_candidate_minus_attention_mass"),
+            )
+        ],
+        domain=(-0.014, 0.030),
+        reference=(0.0, "registered specificity requires CI > 0"),
+        width=840,
+    )
+    exp23_rows = "".join(
+        f"""<tr><td>{model}</td>
+        <td>{f(exp23[model]['factorial']['confirmation_full_model_r2'], 4)}</td>
+        <td>{f(exp23[model]['factorial']['confirmation_incremental_delta_r2']['identity'], 4)} / {f(exp23[model]['factorial']['confirmation_incremental_delta_r2']['context'], 4)} / {f(exp23[model]['factorial']['confirmation_incremental_delta_r2']['position'], 4)}</td>
+        <td>L{int(exp23_registration[model]['source_layer'])}H{int(exp23_registration[model]['source_head'])}</td>
+        <td>{f(exp23[model]['outside_context']['metrics']['expected_error_candidate_minus_distance_random']['mean'], 4)} [{f(exp23[model]['outside_context']['metrics']['expected_error_candidate_minus_distance_random']['ci95_low'], 4)}, {f(exp23[model]['outside_context']['metrics']['expected_error_candidate_minus_distance_random']['ci95_high'], 4)}]</td>
+        <td>{f(exp23[model]['outside_context']['metrics']['expected_error_candidate_minus_attention_mass']['mean'], 4)} [{f(exp23[model]['outside_context']['metrics']['expected_error_candidate_minus_attention_mass']['ci95_low'], 4)}, {f(exp23[model]['outside_context']['metrics']['expected_error_candidate_minus_attention_mass']['ci95_high'], 4)}]</td>
+        <td>not supported</td></tr>"""
+        for model in model_order
+    )
+
     status_labels = {
         "verified": "已验证",
         "falsified": "已证伪",
@@ -1850,10 +2116,10 @@ def build(output: Path) -> None:
         (16, "Gemma 是否与 Qwen 一样有局部 OV head set", "falsified", "L35H2 与 {L29H4,L35H2} natural carrier/injection/removal package", "完整 localized-OV 判据未通过；L37 exact residual mediation +0.0864", "Gemma 的支持结论是分布式 residual mediator，而不是与 Qwen 同构的局部 OV writer。"),
         (17, "Prompt noise 的主要来源是什么", "partial", "count/seed-context/interaction decomposition + grouped cubic absolute-position control；与原 23 的 attention controls 联合解释", "代表层 count/seed/interaction 方差占比：Qwen 0.599/0.161/0.241，Gemma 0.385/0.228/0.386；position-count ρ≈0.965；去 position 后 3-PC R² Qwen {:.3f}、Gemma {:.3f}".format(float(counter_by_model['Qwen3-8B']['position_residual_pc3_grouped_ridge_r2']), float(counter_by_model['Gemma4-E4B']['position_residual_pc3_grouped_ridge_r2'])), "绝对位置解释 frozen 前三维的大部分 ordering；seed/context 与交互仍贡献噪声，但 token identity、context、attention 的独立因果份额尚未完全识别。当前论文无需继续细分。"),
         (18, "为什么 prompt manifold 浅层出现、answer manifold 深层出现", "partial", "跨层 prompt probe、answer classifier、dense restoration、restoration→attention response、answer patch/removal timing", "prompt 浅层已可读；source reuse 在 Qwen 约到 L20、Gemma约到 L16；answer 可执行性在中后层上升", "局部 occurrence 可早期记录；全局 answer query 需等待 retrieval 与 consolidation。时序与因果边界成立，但“架构为何必然如此”不是单一干预可证明的命题。"),
-        (19, "是否建立完整 distributed prompt evidence→retrieval→late answer→output 因果链", "partial", "现有 full-span restoration、restoration→attention response、retrieval-subspace mediation、late answer removal/patch 与 model-specific write；下一步固定既有 layers/bases，在 canonical confirmation panel 上运行同一-forward retrieval×late 2×2 nested serial mediation", "各箭头已由相互独立的 matched-control experiments 支持；尚未在同一 seed-count forward 中同时、方向特异地阻断 retrieval 与 late mediator", "核心中尺度链条已基本闭环；实验 19 用于把多段 triangulation 升级为同一试次的 partial serial mediation，不要求 prompt rank-3 与 answer rank-3 是同一 basis。详见 Appendix B。"),
+        (19, "是否建立完整 distributed prompt evidence→retrieval→late answer→output 因果链", "verified", "canonical confirmation seeds 1254–1263×counts 1–10；同一 forward 的 11-arm source restoration、retrieval/late aligned-vs-orthogonal removal 与 2×2 joint block；每模型 1,100 rows、100 paired units、10,000 bootstrap draws", "source repair Qwen/Gemma +2.674/+2.670 counts；retrieval mediation +0.327/+0.521；late mediation +1.118/+1.215；三项 ordered criteria 均 PASS，且更晚 block 对已计算的 retrieval readout 变化严格为 0", "同一试次内支持 ordered partial serial mediation：分布式 span evidence 会重配 retrieval，局部 count-aligned retrieval 会影响后续 late state，late state 再影响输出。负 interaction 与剩余 repair 表明路径有重叠和 bypass；不支持唯一通道或一枚固定 basis 原样跨层传递。详见 Appendix B。"),
         (20, "是否需要对所有 non-needle token 做 frozen-PCA census", "partial", "all-token capture 已含 endpoint、interior、hard-negative 与确定性 ordinary-passage samples", "ordinary/hard-negative 的 ungated prefix curve ΔR² 为负，未显示与 endpoint 相同 trajectory", "已有足够多类负对照支持当前限定结论；逐 token 无遗漏 census 成本高且不会改变 span-level mechanism，故不再扩展。"),
-        (22, "是否由经典 induction head 形成 running index", "open", "先以 canonical discovery 冻结 earlier-span candidate heads；再用独立 single-token synthetic assay 的 repeated-consistent、unique-anchor、successor-reassignment 与 same-position ordinary-repeat 检验 relation following；最后在 confirmation NIAH 做 attention-mass-matched path block", "现有 earlier-span preference 只说明会回看较早 needles，不检验 previous-occurrence→successor 的关系重映射", "仅当 synthetic attention 随 identity-defined successor 而非固定位置移动，且冻结 path 的定向阻断同时破坏 endpoint update、later retrieval 与 final count，才能称为 classical induction-head mechanism；这是可选微观定位。详见 Appendix C。"),
-        (23, "Needle identity/context/position 与 outside-span attention controls 能否解释 prompt noise", "partial", "已有 earlier active-span/ordinary-span 与 needle-only/ordinary-only controls；下一步在冻结的 Qwen L8 / Gemma L9 做 identity×context×position 的 2×2×2 paired factorial，并对 discovery-frozen outside-context edges 做 attention-mass/position-matched block", "frozen top-head earlier-span preference：Qwen 0.859–0.979、Gemma 0.273–0.960；去掉 outside context 的 needle-only mask 反而使两模型变差，Qwen specificity 较强、Gemma behavior readout 较弱", "active spans 是特异 source，但 outside context 不是可直接删除的纯噪声；二者存在协同。若论文需要归因 prompt scatter，再用 factorial 与 targeted edge block 分离 identity/context/position 的份额；否则当前 span-level mechanism 已足够。详见 Appendix D。"),
+        (22, "经典 induction-head micro-circuit 是否是 canonical running-index update 的特异机制", "falsified", "独立 30×4 synthetic relation-following assay 冻结一个 head/model；随后在 seeds 1254–1263×counts 1–10 对 previous-successor natural edges 做 pre-O αV subtraction，并与 layer/head/distance/edge-count/attention-mass matched ordinary edges 比较；counts 2–10 为主分析", "synthetic gate 保留 Qwen L5H13 与 Gemma L5H0；但 canonical candidate-minus-control expected-error 为 −0.02193 [−0.03311,−0.01076] 与 −0.01207 [−0.02499,0.00127]，两模型决策均 not_supported", "存在 induction-like relation-following head，但预注册的 canonical edge-specific necessity 不成立；因此不能把 earlier-span routing 定名为已验证的 classical induction-head mechanism。该否定不排除分布式 span evidence、其他 registry 或 fully renormalized QK counterfactual。详见 Appendix C。"),
+        (23, "预注册的 identity/context/position nuisance model 与 selected outside-halo edge specificity 是否成立", "falsified", "冻结 Qwen L8/Gemma L9 rank-3 basis 做 30 seeds×8 cells factorial（160 discovery、80 confirmation、2,400 endpoint states/model）；另在 100 confirmation units 上阻断 natural-attention-ranked ordinary halo edges，并分别匹配 exact-distance random 与 attention-mass controls", "factorial held-out full R² 为 −0.0221/−0.0893；最大 factor ΔR² 仅 Qwen position +0.0175、Gemma identity +0.0031。candidate removal 对两个 controls 的 expected-error CI 在两模型均跨 0，candidate_exceeds_both_controls=false", "强解释包被否定：三类受控操作未形成稳定的 held-out nuisance model，选定 halo edges 也没有超出两个 matched controls 的特异必要性。该结果不把自然 prompt noise 唯一分解，也不否定广泛 outside context 与 needle span 的分布式协同。详见 Appendix D。"),
         (25, "固定 prompt endpoint rank-3 是否直接变成 answer rank-3", "falsified", "prompt endpoint aligned removal、full-span restoration、retrieval-subspace mediation 与 late answer interventions 联合判定", "endpoint rank-3 removal 近 0；full-span restoration 强正；retrieval basis 只在局部窗口有效且跨层 operator 非 identity", "否定“一枚固定三维 prompt counter 直接搬到 answer”的强版本。它不是原 19 所缺的必要箭头；原 19 需要的是允许各阶段重参数化的串联中介。"),
         (21, "Opening counting-definition cue 是否为 running geometry 的必要条件", "falsified", "V4.4.2 paired opening-definition removal；完整删除边界、coverage、计算定义与数值见 Appendix A", "两个预选浅层均保留近乎相同的 centroid topology 与相近的 seed-held-out readout；同时 full-state cue displacement 仍随 running index 系统变化", "“opening definition cue 是必要条件”的强命题被证伪：没有它仍形成有序、可读的 running geometry；但 cue 会调制完整 state，因此非必要不等于无作用。该结果不能外推为删除全部 task/query instructions。"),
         (24, "是否继续做跨 final-count N 的 prefix invariance", "closed", "不再运行；当前全部 running-index capture 的 final N=10，报告始终限定为 position-confounded counter-like record", "无新增实验；现有证据不用于声称跨 final-N 的抽象 counter", "该实验只有在升级为 abstract-counter 主张时才必要；当前 mechanism 不作此主张，因此关闭并保留为范围边界。"),
@@ -1862,10 +2128,10 @@ def build(output: Path) -> None:
     for _, _, status, _, _, _ in extension_claims:
         status_counts[status] += 1
     if len(extension_claims) != 25 or status_counts != {
-        "verified": 11,
-        "falsified": 7,
-        "partial": 5,
-        "open": 1,
+        "verified": 12,
+        "falsified": 9,
+        "partial": 3,
+        "open": 0,
         "closed": 1,
     }:
         raise RuntimeError(f"Unexpected extension audit partition: {status_counts}")
@@ -2022,11 +2288,11 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
   <p class="eyebrow">Realistic NIAH · Non-thinking V4.4/V4.4.5 · Mechanistic analysis</p>
   <h1>Non-thinking 模型如何计数：分布式证据、广域检索与晚层写入</h1>
   <p class="dek">本报告按计算机制而非实验产生顺序组织证据：先陈述可证伪的三阶段机制，再依次检验 prompt-side evidence formation、answer-query broad retrieval、late consolidation 与 architecture-specific write。全文严格区分 <strong>representation decodability、causal use、sufficiency 与 mediation</strong>，避免把可读方向直接解释为模型实际使用的计数器。</p>
-  <div class="meta"><span>模型：Qwen3-8B / Gemma4-E4B</span><span>计数范围：1–10</span><span>canonical seeds：1234–1263</span><span>位置：needle end / <code>Total:</code> 后首数字前</span><span>更新：2026-08-14</span></div>
+  <div class="meta"><span>模型：Qwen3-8B / Gemma4-E4B</span><span>计数范围：1–10</span><span>canonical seeds：1234–1263</span><span>位置：needle end / <code>Total:</code> 后首数字前</span><span>更新：2026-08-15</span></div>
 </header>
 <nav aria-label="report sections">
   <a href="#summary">机制总览</a><a href="#baseline">任务与行为</a><a href="#representation">测量与 geometry</a><a href="#formation">Stage I · form</a>
-  <a href="#retrieval">Stage II · retrieve</a><a href="#write">Stage III · consolidate</a><a href="#ov-write">Stage IIIb · write</a><a href="#ledger">证据表</a><a href="#extension-audit">Extension 审计</a><a href="#limitations">未完成项</a><a href="#appendix">Appendix</a>
+  <a href="#retrieval">Stage II · retrieve</a><a href="#write">Stage III · consolidate</a><a href="#ov-write">Stage IIIb · write</a><a href="#ledger">证据表</a><a href="#extension-audit">Extension 审计</a><a href="#limitations">边界与下一步</a><a href="#appendix">Appendix</a>
 </nav>
 <main>
 
@@ -2053,7 +2319,9 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
     <div class="result"><strong>Stage II 的决定性对照</strong><p>Top-bank ablation 的主要 matched-random effects 为 Qwen K32 +1.623、Gemma K8 +0.767 counts；restoration mediation 在 Qwen L23 为 +0.265，在 Gemma L29 为 +0.527，之后该 frozen basis 的效应消失。</p></div>
     <div class="result"><strong>Stage III 的决定性对照</strong><p>Full answer-state patch 的 donor-gold hit 为 96.6%/96.0%；late answer rank-3 removal 峰值为 +0.878/+1.222 counts；aligned 1× across-block transport 为 0.949/0.978，而等范数 orthogonal control 约为 0。</p></div>
   </div>
-  <div class="claim boundary"><strong>论文级结论边界。</strong>我们建立的是一条<strong>中尺度、部分中介的自然计算路径</strong>，而不是完整且唯一的 circuit。Prompt endpoint geometry 是 descriptive readout；span-level evidence 是被因果支持的 source unit；broad retrieval 是被自然使用的一条 aggregation pathway；late answer state 是充分且方向特异必要的执行状态。现有证据不要求解析 span 内哪个 token 是“地址”或“内容”，也不要求 Qwen 与 Gemma 共享同一组 writer heads。</div>
+  <figure><h4 class="figure-title">图 1c · 同一 forward 把三阶段串起来</h4>{exp19_chart}<figcaption>每一横条是 canonical confirmation panel（10 seeds×10 counts）上、以 seed–count 为 paired unit 的平均 expected-count effect，单位均为 counts；横轴越向右表示候选操作相对其 matched control 的方向特异效应越大。Source repair 比较完整 needle-span restoration 与等 token ordinary-span restoration；retrieval/late mediation 分别比较 count-aligned removal 与同层、同 realized-norm orthogonal removal。三组效应在 Qwen 与 Gemma 均为正，95% seed-unit bootstrap CI 见 Appendix B。该图把此前分段证据升级为同一试次的有序 partial serial mediation，但条长不能相加成“通路解释比例”。</figcaption></figure>
+  <div class="claim"><strong>链条已在同一试次闭环。</strong>Source repair 为 Qwen/Gemma +2.674/+2.670 counts；retrieval mediation 为 +0.327/+0.521；late mediation 为 +1.118/+1.215。Source restoration 同时改变后续 broad score 与 retrieval coordinate；retrieval-aligned removal 削弱随后 late coordinate；late-aligned removal 改变输出而不反向改变已经计算完的 retrieval readout。<strong>目前结论：</strong>支持“distributed span evidence → local retrieval mediator → late answer mediator → output”的有序部分中介。</div>
+  <div class="claim boundary"><strong>论文级结论边界。</strong>我们建立的是一条<strong>中尺度、部分中介的自然计算路径</strong>，而不是完整且唯一的 circuit。Joint retrieval×late interaction 在两模型均为负，且 fully aligned block 后仍保留正 source repair，说明两个冻结 mediator 有重叠、饱和与 bypass，而不是穷尽全部计算。Prompt endpoint geometry 是 descriptive readout；span-level evidence 是被因果支持的 source unit；broad retrieval 是被自然使用的一条 aggregation pathway；late answer state 是充分且方向特异必要的执行状态。现有证据不要求解析 span 内哪个 token 是“地址”或“内容”，也不要求 Qwen 与 Gemma 共享同一组 writer heads。</div>
 </section>
 
 <section id="representation">
@@ -2373,6 +2641,9 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
     <tr><td>Transport</td><td>Adjacent-layer aligned 1× vs actual-norm-matched orthogonal</td><td>target-chord propagation coefficient F</td><td>Qwen contrast +0.9417 [0.9127, 0.9670]；Gemma +0.9759 [0.9639, 0.9884]</td><td>An injected count-aligned change is selectively relayed across one block; this is local transport capacity, not by itself proof of natural-axis use.</td></tr>
     <tr><td>OV write</td><td>Qwen L28 H16/H19 natural pre-O injection/removal</td><td>expected-count slope / error specificity</td><td>+0.0640 / +0.0732</td><td>A localized natural OV transporter writes signed count content in Qwen.</td></tr>
     <tr><td>OV / residual write</td><td>Gemma L29H4 natural-OV tests + L37 residual mediation</td><td>carrier / injection / removal error / exact residual mediation</td><td>+0.1360 / +0.0612 / +0.0628 / +0.0864</td><td>L29H4 participates in count-relevant writing, while matched-head controls prevent a unique localized-writer claim; L37 is the confirmed distributed mediator.</td></tr>
+    <tr><td>Integrated chain</td><td>Same-forward 11-arm source restoration × retrieval/late directional blocks</td><td>source / retrieval / late expected-count effects</td><td>Qwen +2.674 / +0.327 / +1.118；Gemma +2.670 / +0.521 / +1.215 counts；all ordered criteria PASS</td><td>The three stages form an ordered partial serial mediation in each model; negative interaction and remaining repair rule out an exhaustive unique path.</td></tr>
+    <tr><td>Formation micro-circuit</td><td>Independent induction assay + canonical previous-successor edge removal vs matched ordinary edge</td><td>candidate-minus-control expected-error damage</td><td>Qwen −0.02193 [−0.03311,−0.01076]；Gemma −0.01207 [−0.02499,0.00127]</td><td>Induction-like heads exist in the synthetic assay, but the registered classical-induction edge specificity is not supported in canonical counting.</td></tr>
+    <tr><td>Prompt-noise attribution</td><td>I×C×P factorial + selected outside-halo edge removal vs two matched controls</td><td>held-out full R² / candidate specificity gate</td><td>full R² −0.0221/−0.0893；candidate_exceeds_both_controls=false in both models</td><td>The registered factor model does not stably explain held-out scatter, and the selected halo edges are not specifically necessary beyond matched controls.</td></tr>
   </tbody></table></div>
 
   <h3>7.1 What is established—and what is not</h3>
@@ -2382,6 +2653,9 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
     <li><span class="pill">Established</span> 完整 needle span 的早层 state 可强力修复 corrupt behavior；endpoint-only restoration 近零。</li>
     <li><span class="pill">Established</span> 晚层相邻 answer-query boundaries 的局部三维 centroid maps 在 held-out seeds 上可预测、对 seed bootstrap 稳定；连续 ambient operators 的 cosine 较高但低于 1，表示方向更连续但并非固定不变。</li>
     <li><span class="pill">Established</span> broad-ranked answer-query heads、局部 retrieval rank-3、late answer residual state 与最终数字之间存在 matched-control causal effects；retrieval rank-3 effect 只在 Qwen L21–23 / Gemma L29 出现。</li>
+    <li><span class="pill">Established</span> 同一 forward 的 nested intervention 在两模型均满足 source→retrieval→late→output 的三项有序判据；这是 partial serial mediation，而非把独立实验事后拼接。</li>
+    <li><span class="pill">Falsified strong version</span> Synthetic relation-following head 的存在不足以建立 canonical classical-induction mechanism；冻结 previous-successor edge removal 未超过 attention/distance-matched ordinary-edge control。</li>
+    <li><span class="pill">Falsified registered attribution</span> Identity/context/position factorial 的 held-out full model 为负 R²，selected outside-halo edges 也未同时超过两个 matched controls；因此不能把 prompt scatter 归因于这套简单受控分解。</li>
     <li><span class="pill">Not established</span> running-index direction与answer count direction是同一轴；事实上两者可近正交，因为位置、basis、局部 computation 与写入坐标系不同。</li>
     <li><span class="pill">Not established</span> 某一个 prompt token 或某一个 attention head 单独存储/计算完整整数。</li>
     <li><span class="pill">Scope boundary / closed</span> 不声称 endpoint trajectory 对 final count N 不变；当前 running-index capture 的 N 固定为 10，position control 说明 ordinal-position 解释不可忽略，因此不再为本文追加 cross-final-N experiment。</li>
@@ -2405,13 +2679,16 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
     <li><code>v4_4_4/gemma/residual/k2/*analysis.json</code>：Gemma K2 residual path。</li>
     <li><code>v4_4_5_followup/campaign_summary.json</code>、<code>v4_4_5_followup/span_restoration/{{needle_minus_ordinary_specificity,full_minus_endpoint,layerwise_seed_statistics}}.*</code> 与 <code>plans/nonthinking-followup-experiment-log-20260813.md</code>：72,000-row dense restoration、逐层 seed-cluster statistics、23,400 answer-state rows、3,000 retrieval states、2,800 retrieval-subspace rows及 persistent-copy audits。</li>
     <li><code>v4_4_5_followup/span_restoration/attention_response_canonical.csv</code>：由 Filestream audited <code>analysis/span_restoration/broad_summary.csv</code>（SHA-256 <code>bd4c958f…b04d608a</code>）派生；覆盖 canonical 30 seeds×counts 1–10、Qwen L0–35 top-32 与 Gemma L0–41 top-8，并保存 needle/ordinary response 及两者 specificity。</li>
+    <li><code>v4_4_5_followup/exp19/*/serial_summary.json</code>：每模型 1,100-row same-forward partial serial mediation 与 10,000-draw paired audit。</li>
+    <li><code>v4_4_5_followup/exp22_v3/*/{{analysis_summary,canonical_registration,synthetic_audit}}.json</code>：独立 induction-like gate、300-row canonical matched-edge confirmation 与限定性 negative verdict。</li>
+    <li><code>v4_4_5_followup/exp23_v2/*/{{analysis_summary,analysis_audit,outside_context_registration,complete,run_provenance}}.json</code>：240-row factorial、2,400 endpoint states、400-row outside-context panel、100 exact edge audits与双 control decision。</li>
     <li><code>v4_4_2/realistic_niah_v4_4_2_mode_geometry_attention_report.html</code>、<code>docs/realistic_niah_v4_4_2.md</code> 与 <code>scripts/analyze_realistic_niah_v4_4_2_counter_geometry.py</code>：Q21 opening-definition cue removal 的冻结 paired states、逐层 CKA/readout 与 intervention 边界。</li>
   </ol>
 </section>
 
 <section id="extension-audit">
   <h2>8. Non-thinking extension 问题审计：验证了多少，证伪了多少？</h2>
-  <p class="lead">为避免把一个宽泛问题同时算作“回答”和“未回答”，这里把 <code>non-thinking extension.md</code> 的提问拆成 25 个可判定命题，并保留原始题号。<strong>已验证</strong>表示有直接实验支持限定后的正命题；<strong>已证伪</strong>只否定表中写出的强版本，不等于证明所有替代理论；<strong>部分回答</strong>表示证据已约束答案但未完成识别；<strong>未完成</strong>表示仍有一项可选的决定性实验；<strong>已关闭</strong>表示当前论文主动不提出相应强主张，因此不再追加实验，但保留其适用范围边界。原问题 21 的完整 cue-removal 证据移至文末 Appendix A，表内只保留精确命题与 verdict；原问题 24 作为主动关闭的范围边界保留在表尾。</p>
+  <p class="lead">为避免把一个宽泛问题同时算作“回答”和“未回答”，这里把 <code>non-thinking extension.md</code> 的提问拆成 25 个可判定命题，并保留原始题号。<strong>已验证</strong>表示有直接实验支持限定后的正命题；<strong>已证伪</strong>只否定表中写出的强版本，不等于证明所有替代理论；<strong>部分回答</strong>表示证据已约束答案但命题本身不允许唯一识别；<strong>未完成</strong>保留为状态类别，但本轮计数为 0；<strong>已关闭</strong>表示当前论文主动不提出相应强主张，因此不再追加实验。原问题 19、22、23 的最终结果见 Appendix B–D；原问题 21 的完整 cue-removal 证据见 Appendix A；原问题 24 作为主动关闭的范围边界保留在表尾。</p>
   <div class="audit-summary" aria-label="Extension audit status counts">
     <div class="audit-card"><strong>{status_counts['verified']}</strong><span>已验证 / 25</span></div>
     <div class="audit-card"><strong>{status_counts['falsified']}</strong><span>已证伪 / 25</span></div>
@@ -2419,11 +2696,11 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
     <div class="audit-card"><strong>{status_counts['open']}</strong><span>未完成 / 25</span></div>
     <div class="audit-card"><strong>{status_counts['closed']}</strong><span>已关闭 / 25</span></div>
   </div>
-  <p>最重要的更新有三条：第一，prompt endpoint 确有可读的 counter-like ordering，但绝对位置足以解释冻结前三维的大部分信号；第二，endpoint 局部寄存器假说被否定，而 full-span distributed evidence 得到强因果支持；第三，broad-bank count subspace 的自然因果使用只出现在 Qwen L21–L23 / Gemma L29，之后转入不同的 late residual representation。<strong>目前总评：</strong>证据支持阶段性“形成—局部聚合—晚层执行”，反对一枚固定三维 counter 原样贯穿全网络。</p>
+  <p>最重要的更新有四条：第一，prompt endpoint 确有可读的 counter-like ordering，但绝对位置足以解释冻结前三维的大部分信号；第二，endpoint 局部寄存器假说被否定，而 full-span distributed evidence 得到强因果支持；第三，broad-bank count subspace 的自然因果使用只出现在 Qwen L21–L23 / Gemma L29，之后转入不同的 late residual representation；第四，同一-forward experiment 19 正式闭合有序部分中介，而 experiments 22/23 分别否定 canonical classical-induction specificity 与简单 prompt-noise attribution package。<strong>目前总评：</strong>证据支持阶段性“形成—局部聚合—晚层执行”，反对一枚固定三维 counter、单一 induction edge registry 或一组简单 nuisance factors 穷尽机制。</p>
   <details class="collapsible-list"><summary>展开 25 项实验设置—结果—结论对照表</summary>
     <div class="table-wrap"><table class="extension-audit"><thead><tr><th>#</th><th>原问题 / 可判定命题</th><th>状态</th><th>实验设置与 control</th><th>具体结果</th><th>目前结论</th></tr></thead><tbody>{extension_audit_rows}</tbody></table></div>
   </details>
-  <div class="experiment"><div class="experiment-label">Planned experiment 19</div><div><h4>在同一 forward 中补齐 source → retrieval → late answer → output 的串联中介</h4><p>现有证据分别支持四条相邻箭头，但来自互相独立的 matched-control experiments。要把这种 triangulation 升级为同一试次内的串联中介，固定 canonical confirmation panel（seeds 1254–1263 × counts 1–10，共 100 个 paired units / model），在一个 corrupt forward 内同时安装 source restoration 与下游方向特异 block。冻结位置为：Qwen source L8、retrieval L23、late answer L29；Gemma source L9、retrieval L29、late answer L37。层与 basis 均在既有 discovery artifacts 上冻结，不用本实验重新选峰。除单级成对干预外，若要声称“串联”而不只是两次独立 mediation，joint <span class="math">2×2</span> retrieval/late factorial 是正式 arm，而非只做一个 aligned+aligned 附加点。</p>
+  <div class="experiment"><div class="experiment-label">Completed experiment 19 · audit PASS</div><div><h4>同一 forward 中的 source → retrieval → late answer → output 串联中介</h4><p>该实验已在 canonical confirmation panel（seeds 1254–1263 × counts 1–10，共 100 paired units/model）完成。每模型运行 11 arms、1,100 unique rows，并以 10,000 次 seed-unit bootstrap 估计区间；Qwen 固定 source/retrieval/late layers 为 L8/L23/L29，Gemma 为 L9/L29/L37。层、两个彼此独立的 rank-3 bases、normalization 与 sign 都在既有 discovery artifacts 上冻结，不按本实验结果重新选峰。Joint <span class="math">2×2</span> retrieval/late factorial 是正式 arm，因此“串联”不是只靠两个独立实验事后拼接。</p>
   <details class="collapsible-list"><summary>展开：实验 arms、读数、判据与数值例子</summary>
     <div class="table-wrap"><table><thead><tr><th>Arm</th><th>同一 forward 内的操作</th><th>用途</th></tr></thead><tbody>
       <tr><td>C / O</td><td>needle-corrupt；以及在同层恢复等 token 数、等长度 ordinary spans</td><td>corrupt reference 与 source-restoration matched control</td></tr>
@@ -2434,27 +2711,24 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
     </tbody></table></div>
     <div class="formula"><strong>行为读数。</strong>对 counts 1–10 的候选答案 softmax 定义 <span class="math">E[c]</span>，expected-count error 为 <span class="math">e(X)=|E[c]_X−N|</span>。Source repair 为 <span class="math">G<sub>S</sub>=e(O)−e(S)</span>；retrieval mediation 为 <span class="math">M<sub>R</sub>=e(S+R∥)−e(S+R⊥)</span>；late mediation 为 <span class="math">M<sub>T</sub>=e(S+T∥)−e(S+T⊥)</span>。三者均以 counts 为单位，并同时汇报 strict generated-count accuracy。<span class="example">例：gold N=8，ordinary control 的 E[c]=3（error 5），source restoration 后 E[c]=6（error 2），则 G<sub>S</sub>=3 counts。若 S+R⊥ 的 E[c]=5.8（error 2.2），S+R∥ 为 4.8（error 3.2），则 M<sub>R</sub>=1.0 count：删除 count-aligned retrieval component 比等范数正交删除多抹掉 1 count 的 repair。</span></div>
     <div class="formula"><strong>串联判据。</strong>除最终行为外，同时读取 frozen broad-bank count coordinate、needle attention mass / broad score 与 late-answer count coordinate。若（i）S 改变后续 broad routing 与 retrieval coordinate；（ii）R∥ 相对 R⊥ 同时削弱 late coordinate 和输出 repair；（iii）T∥ 相对 T⊥ 进一步伤害输出，但不反向改变更早的 retrieval readout，则建立有序的 partial serial mediation。Joint factorial 的 overlap contrast 定义为 <span class="math">I<sub>RT</sub>=[e(S+R∥+T∥)−e(S+R⊥+T∥)]−[e(S+R∥+T⊥)−e(S+R⊥+T⊥)]</span>：负值表示 late block 部分遮蔽 retrieval block 的附加损伤，零附近表示近似相加，正值表示协同；它只描述路径重叠，不证明唯一性。Joint aligned block 后的剩余 repair 为 <span class="math">G<sub>resid</sub>=e(O)−e(S+R∥+T∥)</span>；可报告未截断的 accounted fraction <span class="math">1−G<sub>resid</sub>/G<sub>S</sub></span>。<span class="example">沿用上例，若 joint block 后 E[c]=3.5（error 4.5），则 G<sub>resid</sub>=0.5，accounted fraction=1−0.5/3=0.833；其余 16.7% 可来自 bypass、冗余或测量误差。</span></div>
-  </details><p><strong>当前状态与可判定结论：</strong>该实验尚未运行，所以不能把上述 arms 写成结果。若三条有序判据同时通过，原问题 19 可由“分段三角验证”升级为“同一 forward 的 partial serial mediation”；若某一级不通过，只说明存在 bypass、冗余或 basis mismatch，不能反推 prompt evidence 不重要。</p></div></div>
-  <div class="claim boundary"><strong>审计结论。</strong>25 项中，11 项限定后的正命题已有直接支持，7 个过强机制版本被 matched-control 或 paired robustness experiments 否定，5 项已有实质约束但仍属部分回答，1 项 induction-head 微观定位尚未完成，另有 1 项因当前论文不提出相应强主张而关闭。Q21 只证伪“opening definition cue 必要”，并未删除计数问题与输出指令。尤其不能把“position-confounded counter-like geometry”升级为抽象计数器，也不能把“局部 retrieval-subspace mediation”升级为跨层固定低秩或唯一通道。若要再补一项机制实验，原问题 19 的同一-forward 串联中介优先级最高。</div>
+  </details><figure><h4 class="figure-title">图 8a · 实验 19 的三段正效应</h4>{exp19_chart}<figcaption>横轴是相对 matched control 的 expected-count effect（counts）。图中 source、retrieval、late 三段分别回答“完整 span 修复是否到达 retrieval”“count-aligned retrieval 是否影响后续 late state”“late count-aligned state 是否影响输出”；它们不是可直接求和的独立份额。</figcaption></figure><details class="collapsible-list"><summary>展开实验 19 的均值与 95% bootstrap CI</summary><div class="table-wrap"><table><thead><tr><th>Model</th><th>Source repair</th><th>Retrieval mediation</th><th>Late mediation</th><th>Joint interaction</th><th>Remaining repair</th></tr></thead><tbody>{exp19_rows}</tbody></table></div></details><p><strong>结果与目前结论：</strong>三项 ordered criteria 在两个模型均通过；joint interaction 为 Qwen −0.382、Gemma −0.380，fully aligned block 后仍有 +1.477/+1.291 counts source repair。原问题 19 因此升级为<strong>支持同一 forward 的 ordered partial serial mediation</strong>。负 interaction 与 remaining repair 明确反对“两个冻结 mediator 穷尽唯一通路”的强版本。</p></div></div>
+  <div class="claim boundary"><strong>审计结论。</strong>25 项中，12 项限定后的正命题已有直接支持，9 个过强机制版本被 matched-control 或 paired robustness experiments 否定，3 项已有实质约束但仍属部分回答，没有仍待运行的预注册机制实验，另有 1 项因当前论文不提出相应强主张而关闭。Q21 只证伪“opening definition cue 必要”，并未删除计数问题与输出指令。尤其不能把“position-confounded counter-like geometry”升级为抽象计数器，也不能把“partial serial mediation”升级为唯一通道。</div>
 </section>
 
 <section id="limitations">
   <h2>9. What remains：还差什么没做，以及哪些并非当前主张所必需</h2>
-  <p class="lead">现有证据已足以支持一个中等粒度的机制主张：non-thinking counting 依赖分布式 prompt evidence，经局部 broad retrieval/aggregation 进入晚层可执行 answer state；Qwen 与 Gemma 采用不同粒度的写入实现。当前只剩一项对主机制有直接增益的补全实验：把已经分别验证的相邻箭头放进同一 forward 做串联中介。其余项目要么是可选的 micro-circuit reconstruction，要么属于论文主动不提出的更强主张。</p>
+  <p class="lead">现有证据已完成本文中尺度机制链的预注册补全：non-thinking counting 依赖分布式 prompt evidence，经局部 broad retrieval/aggregation 进入晚层可执行 answer state；同一-forward 串联中介在两模型均通过，Qwen 与 Gemma 则采用不同粒度的写入实现。Q22 与 Q23 也已运行并给出限定性负结果。因此当前没有尚待运行、会改变中心机制结论的 GPU 实验；剩余工作主要属于 token-level 精细归因或跨任务外部有效性。</p>
   <div class="table-wrap"><table><thead><tr><th>Open question</th><th>Why it matters</th><th>Decisive experiment</th><th>Priority for the present paper</th></tr></thead><tbody>
-    <tr><td>原问题 19：四段机制是否能在同一 forward 内形成有序串联中介？</td><td>目前每条相邻箭头都已有 matched-control 支持，但它们来自不同实验；同一试次的 nested block 能排除一部分跨样本拼接歧义，并定量剩余 bypass。</td><td>按上一节冻结的 source/retrieval/late layers，运行 S、S+R⊥/R∥、S+T⊥/T∥ 与完整 retrieval×late 2×2 joint factorial；同时读 behavior、broad routing、retrieval coordinate 与 late coordinate。</td><td><strong>最高的机制补全优先级。</strong>它会提高链条整合强度，但不是当前中等粒度结论成立的前提；完整协议见 Appendix B。</td></tr>
-    <tr><td>原问题 22：早期 running-index update 是否属于经典 induction-head micro-circuit？</td><td>earlier-span preference 与 induction-like routing 相容，但没有检验 previous-occurrence→successor 的关系重映射。</td><td>先在独立 single-token assay 中比较 repeated-consistent、unique-anchor、successor-reassignment、same-position ordinary-repeat，再把通过的 frozen heads 带回 canonical NIAH 做 attention-mass-matched path block。</td><td><strong>低优先级、可选。</strong>只影响形成阶段的 head-level 命名，不影响 distributed source evidence；协议见 Appendix C。</td></tr>
-    <tr><td>原问题 23：identity、context、position 各自贡献多少 prompt noise？</td><td>现有数据已说明 position 占主导、active span 与 outside context 协同，但没有把三者的独立效应与交互完全识别。</td><td>在冻结 L8/L9 做 identity×context×position 的 2×2×2 paired factorial；随后只阻断 discovery-frozen outside-context attention edges，并与 edge 数、位置带和原始 attention mass 匹配的 control 比较。</td><td><strong>中等、取决于论文范围。</strong>若要解释 manifold scatter 的来源则值得做；对当前 span-level mechanism 不是必要项。协议见 Appendix D。</td></tr>
     <tr><td>Attention endpoint peaks 的 QK address 与 V content 如何分工？</td><td>这会把 Stage II 从 span/head-bank 层级推进到 token-level circuit；attention map 本身不承担因果结论。</td><td>严格 token registration 后分别 patch Q/K routing、V content 与 pre-O z，并加入 span-interior 和 position-matched controls。</td><td><strong>低优先级。</strong>解析成本高；当前论文不需要声称唯一 token-level path。</td></tr>
     <tr><td>机制是否泛化到更长上下文、更多 count range 与非 city needles？</td><td>现有结论严格限定于冻结的 V4.4 panel、counts 1–10 与当前模板。</td><td>预注册 held-out templates、不同 needle semantics、不同 context lengths 与超出训练范围的 counts。</td><td><strong>投稿前最值得补的泛化实验之一，</strong>但不影响当前 panel 内的因果识别。</td></tr>
   </tbody></table></div>
   <div class="claim boundary"><strong>已证伪与主动关闭的范围。</strong>原问题 21 的强必要性版本已被证伪：只删除开头两句 task/record 定义后，浅层 running ordering 与 seed-held-out readout 几乎保留；但 counting query 与 numeric-output instruction 仍在，所以这不是“全部 task instructions 均非必要”的实验，完整证据见 Appendix A。原问题 24 才是主动关闭：当前报告只主张 position-confounded counter-like record，不主张 final-N invariant abstract counter。原问题 25 的固定 prompt rank-3→answer rank-3 直传强版本也已被证伪，且不是补全原问题 19 的必要条件。</div>
-  <div class="claim"><strong>最终结论与优先级。</strong>若只补一项机制实验，运行原问题 19 的同一-forward partial serial mediation；若还要解释 prompt manifold 的散度来源，再做原问题 23 的三因子分解；原问题 22 的 induction-head 定名属于低优先级微电路重建。若资源用于提高外部有效性，则跨模板、长度、语义与 count range 的 generalization 比 QK/V address-content 拆分更有投稿价值。</div>
+  <div class="claim"><strong>最终结论与优先级。</strong>中心机制链已经闭环，Q22/Q23 的注册强版本也已有负判定；继续租 GPU 不应再用于重复这三项。若资源仍可用，投稿前更高价值的下一步是跨模板、长度、needle semantics 与 count range 的预注册 generalization。QK/V address-content 拆分只在论文要升级为 token-level unique-circuit 主张时才值得做。</div>
 </section>
 
 <section id="appendix">
-  <h2>Appendix · Q21 的完整证据，以及 Q19/Q22/Q23 的可执行实验协议</h2>
-  <p class="lead">本附录把主文不宜展开的 robustness 证据与尚未运行的实验设计分开记录。Appendix A 是已经完成的结果；Appendix B–D 是预注册草案，只有实际运行并通过 coverage/audit 后才能进入结果段。</p>
+  <h2>Appendix · Q21、Q19、Q22、Q23 的完整实验定义与审计结果</h2>
+  <p class="lead">本附录把主文不宜展开的 robustness、微电路和负结果完整保留。Appendix A–D 均为已经完成并通过 coverage/audit 的实验；其中 B 支持 ordered partial serial mediation，C 与 D 否定各自预注册的强版本，同时保留清楚的解释边界。</p>
 
   <h3>Appendix A · Q21：opening counting-definition cue 的必要性被证伪</h3>
   <div class="experiment"><div class="experiment-label">Completed · V4.4.2</div><div><h4>删除了什么，保留了什么</h4><p>paired intervention 只删除 prompt 开头两句定义：“需要数 passage 中的 city-score audit records”以及“record 的定义”。passage、全部 slots、计数问题、<code>Total:&lt;integer&gt;</code> numeric-output instruction 与 assistant formatting 均保持不变。正式 panel 使用 seeds 1234–1243；下面的 prompt running-index geometry 对每个模型使用 10 个 final-N=10 prompts，每个 prompt 读取第 1–10 个 needle endpoints，因此共有 100 对 cue-present/cue-absent endpoint states。V4.4.2 没有 discovery/confirmation split；ridge 在两种 cue 条件共同拟合的 shared six-PC basis 中使用固定 <span class="math">α=1</span>，并做 leave-one-seed-out prediction，不能把这 10 seeds 重新称为独立 confirmation。</p></div></div>
@@ -2465,7 +2739,7 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
   <div class="claim"><strong>Q21 的精确结论。</strong>Qwen L8 的 CKA=0.9995、ridge R² 0.845→0.840、count η² 0.645→0.633；Gemma L9 的 CKA=0.9999、ridge R² 0.343→0.355、count η² 0.440→0.433。由此可证伪“这两句 opening definitions 是形成有序 running geometry 的必要条件”。但 paired interaction η² 仍为 Qwen 0.484、Gemma 0.332，说明 cue 会以 count-dependent 方式调制完整 state。最重要的边界是：计数问题和输出指令没有删除，所以不能外推成“模型在没有任何 task instruction 时也会形成同一 geometry”。</div>
 
   <h3>Appendix B · Q19：同一-forward partial serial mediation</h3>
-  <details class="collapsible-list"><summary>展开完整实验协议（最高优先级；尚未运行）</summary>
+  <details class="collapsible-list"><summary>展开完整实验定义（已完成；audit PASS）</summary>
     <p><strong>目的。</strong>现有 full-span restoration、restoration→attention response、retrieval-subspace intervention、late answer intervention 与 write/mediation 分别支持相邻箭头。新实验不再寻找一枚跨层固定 basis，而是在同一个 seed-count forward 中检验“修复 source 后产生的收益，是否依次依赖冻结的 retrieval 与 late-answer components”。</p>
     <p><strong>Cohort 与冻结项。</strong>canonical confirmation seeds 1254–1263 × counts 1–10，共 100 paired units/model。Qwen 固定 source/retrieval/late layers 为 L8/L23/L29，Gemma 为 L9/L29/L37；所有 bases、head registries、normalization 与 sign 都从既有 discovery artifacts 读取并记录 SHA-256，不允许按本实验结果重新选 layer、rank 或 direction。</p>
     <div class="table-wrap"><table><thead><tr><th>Arm family</th><th>操作</th><th>识别对象</th></tr></thead><tbody>
@@ -2478,23 +2752,32 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
     <div class="formula"><strong>行为量与 interaction。</strong>令 <span class="math">e(X)=|E[c]<sub>X</sub>−N|</span>。source repair 为 <span class="math">G<sub>S</sub>=e(O)−e(S)</span>；retrieval/late mediation 分别为 <span class="math">M<sub>R</sub>=e(S+R∥)−e(S+R⊥)</span> 与 <span class="math">M<sub>T</sub>=e(S+T∥)−e(S+T⊥)</span>。joint interaction 为 <span class="math">I<sub>RT</sub>=[e(S+R∥+T∥)−e(S+R⊥+T∥)]−[e(S+R∥+T⊥)−e(S+R⊥+T⊥)]</span>：负值表示 late block 遮蔽一部分 retrieval damage，零附近表示近似相加，正值表示协同。<span class="example">例：若在 T⊥ 下 R∥ 相对 R⊥ 多造成 1.0 count error，而在 T∥ 下只多造成 0.3，则 I<sub>RT</sub>=0.3−1.0=−0.7，表示 late block 已遮蔽 retrieval block 的 0.7-count 附加作用；这不证明两者是唯一通道。</span></div>
     <p><strong>通过判据。</strong>顺序上应同时看到：（i）S 相对 O 改变随后 broad routing/retrieval coordinate；（ii）R∥ 相对 R⊥ 削弱 late coordinate 与行为 repair；（iii）T∥ 相对 T⊥ 损伤输出，但不能反向改变已经计算完成的早期 retrieval readout。通过后只能称为 <em>partial serial mediation</em>；失败可能来自 bypass、冗余或 basis mismatch，不能否定 raw prompt evidence 的既有因果性。</p>
   </details>
+  <details class="collapsible-list"><summary>展开 Q19 精确结果（均值 [95% bootstrap CI]，单位 counts）</summary><div class="table-wrap"><table><thead><tr><th>Model</th><th>Source repair</th><th>Retrieval mediation</th><th>Late mediation</th><th>Joint interaction</th><th>Remaining repair</th></tr></thead><tbody>{exp19_rows}</tbody></table></div></details>
+  <div class="claim"><strong>Q19 目前结论。</strong>两模型都通过三项有序判据；更晚 intervention 对已经计算完的 retrieval/broad readout 的最大变化为 0。负 joint interaction 表明 late block 遮蔽一部分 retrieval damage，fully aligned block 后仍有正 remaining repair。因而支持的是<strong>有序、非穷尽的 partial serial mediation</strong>，不是线性相加、唯一通道或同一三维 basis 的跨层搬运。</div>
 
   <h3>Appendix C · Q22：是否存在 classical induction-head micro-circuit</h3>
-  <details class="collapsible-list"><summary>展开完整实验协议（低优先级、可选；尚未运行）</summary>
+  <details class="collapsible-list"><summary>展开完整实验定义（已完成；audit PASS）</summary>
     <p><strong>为什么现有结果不够。</strong>某个 head 在 needle endpoint 回看较早 spans，只能说明 earlier-span preference；classical induction 还要求它跟随“当前重复 identity → 上一次同 identity 后面的 successor”这一关系，而不是只跟随绝对位置、相对距离或通用 record marker。</p>
     <p><strong>两阶段冻结。</strong>先只用 canonical discovery seeds 1234–1253，按已有 endpoint→earlier-span preference 冻结 candidate heads。随后让这些同一 heads 接受一个独立的 standard induction assay：为每个模型从稳定 single-token pool 生成 30 个固定 base sequences，并各自构造四种完全 token/position-matched 版本。<code>repeated-consistent</code> 含重复 anchor→successor pairs；<code>unique-anchor</code> 消除 previous identity match；<code>successor-reassignment</code> 固定两个 earlier successor 的内容与位置，只交换它们前面的等长 anchor identities，使“当前 anchor 的 previous-match successor”从一个位置移动到另一个位置；<code>same-position ordinary-repeat</code> 保留相同重复/位置统计但打破 anchor→successor relation。该 assay 共 30×4=120 forwards/model，不用 confirmation NIAH outcomes 选 head。</p>
     <div class="formula"><strong>Relation-following score。</strong>对 candidate head <span class="math">h</span>，在当前 anchor query <span class="math">q_t</span> 上，定义 <span class="math">I<sub>h</sub>=mean α<sub>h</sub>(q<sub>t</sub>, successor(previous matching identity))−mean α<sub>h</sub>(q<sub>t</sub>, matched non-successor)</span>。<span class="example">例：若 head 对 identity-defined successor 的平均 attention mass 为 0.20，对同距离 control 为 0.05，则 I<sub>h</sub>=0.15。在 successor-reassignment 中，matching anchor 从 earlier position 1 换到 position 2，而两个 successor positions 均不移动；relation-following mass 应从 successor 1 转到 successor 2。若仍盯原位置，更像 positional routing。</span></div>
-    <p><strong>Canonical causal confirmation。</strong>只保留同时满足 canonical earlier-span preference 与 synthetic induction score 的冻结 heads；再在 discovery data 中为每个 retained head 冻结 repeated record-template anchor、current-anchor query offset 与 previous-occurrence successor key offset。在 NIAH confirmation seeds 1254–1263 × counts 1–10 上运行三 arms：natural、candidate-path block、matched-control block，共 300 condition rows/model。candidate arm 只阻断每个 needle 内这些 current-anchor-query→previous-successor QK edges，并不预设 needle endpoint 本身就是 induction query；control 在同 layer/head 中阻断相同 edge 数、相同 key-distance bins 且 pre-intervention attention mass 匹配的 non-successor edges。随后比较下游 endpoint increment geometry、frozen broad retrieval 与最终 expected/strict count。只有 synthetic relation-following、unique-anchor collapse 与 canonical downstream matched-block effect 三者同时成立，才把“induction-like”升级为“classical induction-head mechanism”。否则应保留为 earlier-span routing，不能强行定名。</p>
+    <p><strong>Canonical causal confirmation。</strong>只保留同时满足 canonical earlier-span preference 与 synthetic induction score 的冻结 heads；再在 discovery data 中为每个 retained head 冻结 repeated record-template anchor、current-anchor query offset 与 previous-occurrence successor key offset。在 NIAH confirmation seeds 1254–1263 × counts 1–10 上运行三 arms：natural、candidate-edge removal、matched-control removal，共 300 condition rows/model。candidate arm 在真实 pre-O head slice 上减去每条冻结 natural edge 的 <span class="math">α(q,k)V(k)</span> contribution；control 在同 layer/head 中删除相同 edge 数、相同 key-distance bins 且 natural attention mass 匹配的 non-successor contribution。该操作保留其余 frozen forward，不重新归一化 attention logits，因此是 natural edge-contribution removal，不是 fully renormalized QK counterfactual。随后比较 frozen broad retrieval、correct margin 与最终 expected/strict count。只有 synthetic relation-following、unique-anchor collapse 与 canonical downstream matched-control effect 三者同时成立，才把“induction-like”升级为“classical induction-head mechanism”。</p>
   </details>
+  <figure><h4 class="figure-title">图 C1 · Synthetic gate 通过，但 canonical matched-block gate 失败</h4>{exp22_chart}<figcaption>横轴是 counts 2–10 主分析中，冻结 previous-successor candidate-edge removal 相对同 layer/head、同距离、同 edge 数且 natural attention mass 匹配的 ordinary-edge removal 所增加的 expected-count absolute error。正值才支持 classical-induction edge specificity；圆点是 10 个 seed 的平均，横线是 10,000-draw seed bootstrap 95% CI。Qwen 均值和完整 CI 为负；Gemma CI 跨 0，均未满足正向 gate。</figcaption></figure>
+  <details class="collapsible-list"><summary>展开 Q22 synthetic 与 canonical 数值</summary><div class="table-wrap"><table><thead><tr><th>Model</th><th>Frozen head</th><th>Repeated relation</th><th>Reassignment following</th><th>Unique / ordinary absolute response</th><th>Canonical expected-error candidate−control</th><th>Decision</th></tr></thead><tbody>{exp22_rows}</tbody></table></div></details>
+  <div class="claim boundary"><strong>Q22 目前结论。</strong>独立 synthetic assay 确实找到 induction-like relation-following heads，但把同一注册关系带回 canonical NIAH 后，candidate edge 并不比严格 matched ordinary edge 更必要。因此<strong>预注册的 classical induction-head specificity 不受支持</strong>。这只否定该 frozen current-anchor→previous-successor αV contribution 的特异必要性；它不否定 earlier-span routing、其他 head/path registry，也不是 fully renormalized QK deletion。</div>
 
   <h3>Appendix D · Q23：identity、context、position 与 outside-context synergy</h3>
-  <details class="collapsible-list"><summary>展开完整实验协议（中等优先级；尚未运行）</summary>
-    <p><strong>现有 V4.1–V4.4 做了什么、还缺什么。</strong><code>docs/realistic_niah_v4.md</code> 中冻结的旧 panel 已构成逐级放松的 robustness ladder：V4.1 固定 position/order/content，V4.2 放开 position，V4.3 再放开固定 fact set 的 order，V4.4 再放开 city-score content。它足以说明 geometry 不只存在于一个完全固定 prompt，但这些因素不是完整交叉操纵，因此不能分别估计 identity、context、position 的独立贡献与交互；下面的 factorial 只在论文确实要解释 manifold scatter 来源时才值得补。</p>
+  <details class="collapsible-list"><summary>展开完整实验定义（已完成；audit PASS）</summary>
+    <p><strong>为什么需要这组补充。</strong><code>docs/realistic_niah_v4.md</code> 中冻结的旧 panel 已构成逐级放松的 robustness ladder：V4.1 固定 position/order/content，V4.2 放开 position，V4.3 再放开固定 fact set 的 order，V4.4 再放开 city-score content。它说明 geometry 不只存在于一个完全固定 prompt，但旧因素不是完整交叉操纵，不能分别估计 identity、context、position 的受控变形及交互。Q23 因而用 factorial 检验一个简单 held-out nuisance model，并用局部 edge removal 检验先前粗粒度 outside-mask 现象能否获得 matched-control specificity。</p>
     <p><strong>Phase A：2×2×2 paired factorial。</strong>在 Qwen L8、Gemma L9 固定读取 running-index states，不重新选层。三个二值因素分别是：（I）active records 的 city/score surface identities 保持原样或用 tokenizer-length-matched pool 随机替换；（C）各 record 周围的 ordinary context 保持原样或在相同 length/depth bins 内跨 slot 置换；（P）record 保持原位置或与 exact-token-length ordinary carrier 交换到预先冻结的 gap-jittered slots，同时保持 record order、总 prompt length 与 answer-query position。每个模型先独立做 tokenizer/span audit。使用全部 30 base seeds × 8 cells × final N=10，共 240 prompt-forwards/model、2,400 endpoint states/model；discovery seeds 1234–1253 只拟合 nuisance model，confirmation seeds 1254–1263 报告效应。</p>
     <div class="formula"><strong>Held-out incremental R²。</strong>先在冻结三维 basis 中减去每个 running index 的 discovery centroid，得到 within-count residual。以 seed 为 group 做 held-out multivariate regression，full model 含 I/C/P 的 main effects 与 interactions；因素 <span class="math">F</span> 的增量定义为 <span class="math">ΔR²<sub>F</sub>=R²(full)−R²(full without every term containing F)</span>。<span class="example">例：full model 在 held-out seeds 上解释 60% residual variance，删去 position 及其 interactions 后只解释 20%，则 ΔR²<sub>P</sub>=0.60−0.20=0.40。它表示这组受控 position manipulations 对 scatter 的增量预测力，不等于自然数据中“40% 神经元由位置产生”。</span></div>
-    <p><strong>Phase B：targeted outside-context edge block。</strong>在 discovery seeds 上冻结对 endpoint queries 最具 outside-context specificity 的 edges；confirmation seeds 1254–1263 × counts 1–10 使用四 arms：no block、candidate outside-edge block、layer/head/key-distance/edge-count-matched random outside-edge block、pre-intervention attention-mass-matched ordinary-edge block，共 400 condition rows/model。读数包括 frozen 3-PC ordering/within-count scatter、后续 broad retrieval 与 expected/strict count。candidate block 只有在两个 matched controls 之外仍产生同方向损伤，才能说明特定 outside context 被计算使用；“mask 掉所有 outside tokens 后变差”本身不能区分支持性 context 与普遍分布外破坏。</p>
-    <p><strong>解释边界。</strong>这套实验可以识别哪些受控因素会因果地扭曲 manifold，并把粗粒度 outside-mask 结果局部化；它仍不把 observational scatter 唯一分配给某一个自然来源。若论文只需要“position-confounded、distributed span evidence”这一中尺度结论，Q23 保持部分回答即可，不必为了完整 census 追加昂贵扫描。</p>
+    <p><strong>Phase B：targeted outside-context natural-edge removal。</strong>Discovery seeds 在候选 heads 中冻结一个 source head，并在每个 confirmation unit 内按 natural attention 排序 ordinary halo keys；最多保留 16 条，同时受每个 64-token distance bin 的 distinct non-halo control capacity 约束。Seeds 1254–1263 × counts 1–10 使用四 arms：natural、candidate halo-edge removal、exact-distance random control、同 bin attention-mass control，共 400 rows/model。三种 removal arms 的 edge 数严格相等且大于 0，每条 control 与 candidate 同 distance bin、key 不重用。干预在 answer-query source-head pre-O slice 减去 frozen natural <span class="math">αV</span> contribution；不重算归一化 QK。只有 candidate removal 在 expected error 上同时超过两个 controls，才支持注册的 specificity claim。</p>
+    <p><strong>解释边界。</strong>Factorial 的 ΔR² 是受控 deformation 对 held-out residual 的增量预测力，不是自然方差份额；Phase B 识别一个冻结 source-head registry 的特异必要性，不是 outside-context token census 或 pathway-uniqueness test。Negative result 因而约束当前简单解释，但不能把 observational scatter 唯一分配给某个来源，也不能推出 distributed outside-context synergy 不存在。</p>
   </details>
+  <figure><h4 class="figure-title">图 D1 · 三类受控变形没有形成稳定 held-out nuisance model</h4>{exp23_factor_chart}<figcaption>横轴是 confirmation seeds 上的 incremental ΔR²：完整 I/C/P 主效应与交互模型的 held-out R²，减去删除所有含该因素项后的 R²。正值表示该因素在这套受控 manipulation 下增加 held-out prediction；零线表示没有增量。Qwen position 为 +0.0175，Gemma identity 为 +0.0031，其余接近或低于 0；更关键的是两个 full-model held-out R² 本身为 −0.0221 与 −0.0893，说明整套模型不如用 confirmation mean 预测。故这些条形不能解释为自然 prompt noise 的 variance share。</figcaption></figure>
+  <figure><h4 class="figure-title">图 D2 · Selected outside-halo edge removal 未超过两个 matched controls</h4>{exp23_specificity_chart}<figcaption>横轴是 candidate halo-edge removal 相对各 matched control 多造成的 expected-count absolute error，单位 counts；圆点为 10-seed 均值，横线为 10,000-draw seed bootstrap 95% CI。Distance-random control 严格匹配 layer/head、edge count 和每条 key 的 distance bin；attention-mass control 还在同一 distance bin 内匹配 natural pre-intervention attention。两模型四个 CI 全部跨 0，因此注册判据 <code>candidate_exceeds_both_controls</code> 均为 false。</figcaption></figure>
+  <details class="collapsible-list"><summary>展开 Q23 精确结果</summary><div class="table-wrap"><table><thead><tr><th>Model</th><th>Full held-out R²</th><th>ΔR² I / C / P</th><th>Frozen source head</th><th>Expected error vs distance control</th><th>Expected error vs attention-mass control</th><th>Decision</th></tr></thead><tbody>{exp23_rows}</tbody></table></div></details>
+  <div class="claim boundary"><strong>Q23 目前结论。</strong>预注册的强解释包未通过：I/C/P manipulation 没有形成稳定的 held-out additive/interaction model，selected outside-halo edges 也没有超出两个 matched controls 的特异必要性。这个负结果不等于 identity、context 或 position 在自然数据中“没有作用”，也不等于所有 outside context 都无用；它只说明当前简单分解不能唯一解释 observational scatter，且冻结的单一 source-head αV halo registry 不是可确认的特异通路。</div>
 </section>
 
 </main>

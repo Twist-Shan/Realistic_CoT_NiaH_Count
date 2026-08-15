@@ -1,0 +1,81 @@
+{
+  "boundary": "The factorial estimates controlled deformation under token-level matched interventions; it is not a census or unique decomposition of natural prompt noise.",
+  "factorial": {
+    "centroid_rank3_capture": 0.9790153646837871,
+    "confirmation_forwards": 80,
+    "confirmation_full_model_r2": -0.08931727913778253,
+    "confirmation_incremental_delta_r2": {
+      "context": 0.00023133271129127664,
+      "identity": 0.0031411747280536417,
+      "position": -0.0007207058409135492
+    },
+    "confirmation_reduced_r2": {
+      "context": -0.08954861184907381,
+      "identity": -0.09245845386583618,
+      "position": -0.08859657329686899
+    },
+    "definition": "Delta R2_F is held-out full-model R2 minus held-out R2 after dropping every term containing factor F.",
+    "discovery_forwards": 160,
+    "endpoint_states_per_forward": 10
+  },
+  "model": "Gemma4-E4B",
+  "outside_context": {
+    "artifact_audit": {
+      "exact_distance_and_edge_count_matching": true,
+      "finite_rows_and_states": true,
+      "maximum_candidate_edges": 16,
+      "minimum_candidate_edges": 2,
+      "paired_units": 100,
+      "source_hook_applications_per_row": 1
+    },
+    "candidate_exceeds_both_controls": false,
+    "definition": "Positive expected-error specificity means candidate halo-edge removal harms count more than the stated matched control.",
+    "metrics": {
+      "broad_score_damage_candidate_minus_attention_mass": {
+        "ci95_high": 1.5209698243110173e-05,
+        "ci95_low": -0.00048756093977197384,
+        "mean": -0.00022366203906739706,
+        "positive_seed_fraction": 0.4,
+        "seed_count": 10
+      },
+      "broad_score_damage_candidate_minus_distance_random": {
+        "ci95_high": 0.0003128984308218786,
+        "ci95_low": -0.0004552744992077034,
+        "mean": -7.332280362975271e-05,
+        "positive_seed_fraction": 0.4,
+        "seed_count": 10
+      },
+      "correct_margin_damage_candidate_minus_attention_mass": {
+        "ci95_high": 0.08005395877361296,
+        "ci95_low": -0.0648952784538269,
+        "mean": 0.005601716041564944,
+        "positive_seed_fraction": 0.4,
+        "seed_count": 10
+      },
+      "correct_margin_damage_candidate_minus_distance_random": {
+        "ci95_high": 0.031958912849426264,
+        "ci95_low": -0.0590741136074066,
+        "mean": -0.009390273094177243,
+        "positive_seed_fraction": 0.6,
+        "seed_count": 10
+      },
+      "expected_error_candidate_minus_attention_mass": {
+        "ci95_high": 0.012923639284835614,
+        "ci95_low": -0.005775867904317585,
+        "mean": 0.0038614896314261363,
+        "positive_seed_fraction": 0.6,
+        "seed_count": 10
+      },
+      "expected_error_candidate_minus_distance_random": {
+        "ci95_high": 0.00557633508209274,
+        "ci95_low": -0.009880865333702032,
+        "mean": -0.0022157831451270213,
+        "positive_seed_fraction": 0.4,
+        "seed_count": 10
+      }
+    },
+    "rows": 400,
+    "unique_keys": 400
+  },
+  "status": "PASS"
+}

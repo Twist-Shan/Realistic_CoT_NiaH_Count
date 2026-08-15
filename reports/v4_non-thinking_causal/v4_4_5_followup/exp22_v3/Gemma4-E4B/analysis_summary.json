@@ -1,0 +1,49 @@
+{
+  "boundary": "Supports or rejects the classical induction label for the frozen primary head; it does not alter the established distributed span-evidence mechanism.",
+  "canonical_matched_block_gate": false,
+  "canonical_rows": 300,
+  "full_panel_expected_absolute_error_candidate_minus_control": {
+    "ci95_high": 0.0015568063868631927,
+    "ci95_low": -0.022260095156404803,
+    "mean": -0.010866805218126259,
+    "positive_seed_fraction": 0.2,
+    "seed_count": 10
+  },
+  "metrics": {
+    "broad_score_damage_candidate_minus_control": {
+      "ci95_high": 0.0018311310349470114,
+      "ci95_low": -6.9414904163224175e-06,
+      "mean": 0.0009003221636759243,
+      "positive_seed_fraction": 0.8,
+      "seed_count": 10
+    },
+    "correct_margin_damage_candidate_minus_control": {
+      "ci95_high": 0.022325929933124107,
+      "ci95_low": -0.15116287257936264,
+      "mean": -0.061475626627604175,
+      "positive_seed_fraction": 0.5,
+      "seed_count": 10
+    },
+    "expected_absolute_error_candidate_minus_control": {
+      "ci95_high": 0.001267358620755137,
+      "ci95_low": -0.024994277145767033,
+      "mean": -0.012074228020140288,
+      "positive_seed_fraction": 0.2,
+      "seed_count": 10
+    },
+    "strict_absolute_error_candidate_minus_control": {
+      "ci95_high": 0.0,
+      "ci95_low": -0.03333333333333333,
+      "mean": -0.01111111111111111,
+      "positive_seed_fraction": 0.0,
+      "seed_count": 10
+    }
+  },
+  "model": "Gemma4-E4B",
+  "paired_seed_count": 10,
+  "primary_relation_rows": 270,
+  "scientific_decision": "not_supported",
+  "status": "PASS",
+  "structural_no_previous_match_rows": 30,
+  "synthetic_relation_gate": true
+}

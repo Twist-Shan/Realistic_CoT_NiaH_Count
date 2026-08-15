@@ -1,0 +1,56 @@
+{
+  "arms": [
+    "C",
+    "O",
+    "S",
+    "S_Rorth",
+    "S_Raligned",
+    "S_Torth",
+    "S_Taligned",
+    "S_Rorth_Torth",
+    "S_Raligned_Torth",
+    "S_Rorth_Taligned",
+    "S_Raligned_Taligned"
+  ],
+  "broad_files": [
+    "/home/ubuntu/runs/nonthinking_v445_exp19_serial_mediation_20260814/Qwen3-8B/broad_metrics.jsonl"
+  ],
+  "broad_rows": 7700,
+  "counts": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "detail_files": [
+    "/home/ubuntu/runs/nonthinking_v445_exp19_serial_mediation_20260814/Qwen3-8B/detail.jsonl"
+  ],
+  "detail_rows": 1100,
+  "expected_broad_rows": 7700,
+  "hook_failures": 0,
+  "models": [
+    "Qwen3-8B"
+  ],
+  "paired_units": 100,
+  "schema_version": "realistic_niah_v4_4_5_serial_mediation_analysis_audit_v1",
+  "seeds": [
+    1254,
+    1255,
+    1256,
+    1257,
+    1258,
+    1259,
+    1260,
+    1261,
+    1262,
+    1263
+  ],
+  "status": "PASS",
+  "unique_detail_keys": 1100
+}
