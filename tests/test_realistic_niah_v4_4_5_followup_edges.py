@@ -107,6 +107,33 @@ def test_structural_no_match_and_relation_rows_have_exact_coverage():
         )
 
 
+def test_structural_no_match_keeps_strict_numeric_equality():
+    rows = []
+    for arm in ("natural", "candidate_edge_block", "mass_distance_control"):
+        rows.append(
+            {
+                "seed": 1254,
+                "gold_count": 1,
+                "arm": arm,
+                "structural_no_previous_match": True,
+                "registered_edges": 0,
+                "reachable_edges": 0,
+                "intervention_sites": 0,
+                "expected_count": 1.0,
+                "strict_absolute_error": 0.0,
+                "retrieval_bank_broad_score_mean": 0.5,
+                "correct_count_margin": 1.0,
+            }
+        )
+    rows[1]["expected_count"] += 1e-6
+    with pytest.raises(RuntimeError, match="not numerically identical"):
+        audit_structural_and_relation_rows(
+            rows,
+            structural_counts={1},
+            primary_relation_counts=set(),
+        )
+
+
 def test_mass_and_random_controls_stay_in_distance_bin():
     row = torch.linspace(0.0, 1.0, 80)
     mass_key, audit = select_attention_mass_control(

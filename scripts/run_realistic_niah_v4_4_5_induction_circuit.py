@@ -567,6 +567,84 @@ def main() -> None:
     }
     if not completed.issubset(expected):
         raise RuntimeError("Existing canonical rows are outside the frozen registry")
+
+    # The first Gemma attention/capture forward can exercise lazy backend
+    # initialization.  It must never become a recorded arm: in V2 that made
+    # the very first structural natural row differ from the two later empty-
+    # delta rows even though all three had zero hook sites.  Exercise the exact
+    # source-capture + causal-prefill path once, discard every readout/state,
+    # and retain the strict 1e-9 equality audit for the subsequently recorded
+    # N=1 arms.  This warm-up is repeated after every process restart.
+    warmup_config = experiment["canonical"].get("discarded_noop_warmup", {})
+    if not bool(warmup_config.get("enabled")) or bool(
+        warmup_config.get("recorded", True)
+    ):
+        raise RuntimeError("Canonical discarded no-op warm-up is not enabled")
+    warmup_seed = int(warmup_config["seed"])
+    warmup_count = int(warmup_config["count"])
+    if warmup_seed not in {int(value) for value in experiment["confirmation_seeds"]}:
+        raise RuntimeError("Canonical warm-up seed is outside confirmation")
+    if warmup_count not in structural_counts:
+        raise RuntimeError("Canonical warm-up count is not a structural no-match count")
+    warmup_encoding = confirmation_encodings[(warmup_seed, warmup_count)]
+    warmup_source_bundle = capture_query_bundle(
+        model,
+        adapter,
+        warmup_encoding,
+        layers=(source_layer,),
+        capture_attention=False,
+        capture_values=True,
+        audit_cache_equivalence=False,
+    )
+    if source_layer not in warmup_source_bundle.value_by_layer:
+        raise RuntimeError("Canonical no-op warm-up failed to capture source values")
+    warmup_metrics, warmup_states, warmup_intervention = evaluate_arm(
+        model,
+        tokenizer,
+        adapter,
+        warmup_encoding,
+        endpoint_layer=int(model_config["endpoint_geometry_layer"]),
+        retrieval_layer=int(model_config["retrieval_layer"]),
+        retrieval_heads=model_config["retrieval_heads"],
+        deltas={},
+        max_new_tokens=int(
+            experiment["canonical"]["strict_generation_max_new_tokens"]
+        ),
+    )
+    if int(warmup_intervention.get("sites", -1)) != 0:
+        raise RuntimeError("Discarded canonical no-op warm-up applied an intervention")
+    if warmup_states.shape[0] != len(warmup_encoding.needle_spans):
+        raise RuntimeError("Discarded canonical no-op warm-up state capture is incomplete")
+    if any(
+        not np.isfinite(float(warmup_metrics[name]))
+        for name in (
+            "expected_count",
+            "retrieval_bank_broad_score_mean",
+            "correct_count_margin",
+        )
+    ):
+        raise RuntimeError("Discarded canonical no-op warm-up produced nonfinite readouts")
+    write_json(
+        root / "canonical_noop_warmup.json",
+        {
+            "schema_version": "realistic_niah_v4_4_5_induction_noop_warmup_v1",
+            "status": "PASS",
+            "seed": warmup_seed,
+            "gold_count": warmup_count,
+            "recorded": False,
+            "intervention_sites": 0,
+            "source_capture_present": True,
+            "endpoint_states": int(warmup_states.shape[0]),
+            "reason": "discard_lazy_attention_capture_initialization_before_recorded_arms",
+        },
+    )
+    del warmup_source_bundle, warmup_metrics, warmup_states, warmup_intervention
+    print(
+        f"[induction] {model_label} discarded canonical no-op warm-up "
+        f"seed={warmup_seed} N={warmup_count}",
+        flush=True,
+    )
+
     for seed in experiment["confirmation_seeds"]:
         for count in experiment["counts"]:
             if all((int(seed), int(count), arm) in completed for arm in arms):

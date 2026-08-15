@@ -139,6 +139,17 @@ def analyze_model(
         or int(registration_coverage.get("units", -1)) != 100
     ):
         raise RuntimeError("Canonical registration coverage audit did not pass")
+    warmup = json.loads(
+        (model_root / "canonical_noop_warmup.json").read_text(encoding="utf-8")
+    )
+    if (
+        warmup.get("status") != "PASS"
+        or bool(warmup.get("recorded", True))
+        or int(warmup.get("intervention_sites", -1)) != 0
+        or int(warmup.get("gold_count", -1)) not in structural_counts
+        or not bool(warmup.get("source_capture_present"))
+    ):
+        raise RuntimeError("Discarded canonical no-op warm-up audit did not pass")
     keys = {(row["model_label"], int(row["seed"]), int(row["gold_count"]), row["arm"]) for row in rows}
     if len(rows) != 300 or len(keys) != 300:
         raise RuntimeError(f"{model} expected 300 canonical rows/keys, got {len(rows)}/{len(keys)}")
@@ -187,7 +198,7 @@ def analyze_model(
         "boundary": "Supports or rejects the classical induction label for the frozen primary head; it does not alter the established distributed span-evidence mechanism.",
     }
     (model_root / "analysis_summary.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    (model_root / "analysis_audit.json").write_text(json.dumps({"status": "PASS", "rows": len(rows), "unique_keys": len(keys), "registration_coverage_units": int(registration_coverage["units"]), "primary_relation_rows": len(relation_rows), "structural_no_previous_match_rows": len(rows) - len(relation_rows), "paired_seeds": len(expected_error)}, indent=2) + "\n", encoding="utf-8")
+    (model_root / "analysis_audit.json").write_text(json.dumps({"status": "PASS", "rows": len(rows), "unique_keys": len(keys), "registration_coverage_units": int(registration_coverage["units"]), "discarded_noop_warmup": True, "primary_relation_rows": len(relation_rows), "structural_no_previous_match_rows": len(rows) - len(relation_rows), "paired_seeds": len(expected_error)}, indent=2) + "\n", encoding="utf-8")
     return result
 
 
