@@ -14,6 +14,12 @@ from realistic_niah_v4_4_5.followup_edges import (
     select_attention_mass_control,
     select_deterministic_random_control,
 )
+from scripts.run_realistic_niah_v4_4_5_induction_circuit import (
+    identity_repeated_pairs,
+)
+from scripts.analyze_realistic_niah_v4_4_5_induction_circuit import (
+    audit_structural_and_relation_rows,
+)
 
 
 def encoding_fixture() -> PromptEncoding:
@@ -51,6 +57,54 @@ def test_repeated_anchor_registration_requires_unique_in_span_successor():
     assert candidates[7] == ((20, 21), (50, 51))
     assert candidates[9] == ((22, 23), (52, 53))
     assert 10 not in candidates
+
+
+def test_single_needle_is_explicit_no_previous_match_control():
+    base = encoding_fixture()
+    single = replace(
+        base,
+        count=1,
+        slot_spans=(base.slot_spans[0],),
+        needle_spans=(base.needle_spans[0],),
+    )
+    assert repeated_anchor_candidates(single) == {}
+    assert identity_repeated_pairs(single, 7) == ()
+
+
+def test_structural_no_match_and_relation_rows_have_exact_coverage():
+    rows = []
+    for count in (1, 2):
+        for arm in ("natural", "candidate_edge_block", "mass_distance_control"):
+            structural = count == 1
+            rows.append(
+                {
+                    "seed": 1254,
+                    "gold_count": count,
+                    "arm": arm,
+                    "structural_no_previous_match": structural,
+                    "registered_edges": 0 if structural else 1,
+                    "reachable_edges": 0 if structural else 1,
+                    "intervention_sites": (
+                        0 if structural or arm == "natural" else 1
+                    ),
+                    "expected_count": float(count),
+                    "strict_absolute_error": 0.0,
+                    "retrieval_bank_broad_score_mean": 0.5,
+                    "correct_count_margin": 1.0,
+                }
+            )
+    audit_structural_and_relation_rows(
+        rows,
+        structural_counts={1},
+        primary_relation_counts={2},
+    )
+    rows[1]["intervention_sites"] = 1
+    with pytest.raises(RuntimeError, match="structural control"):
+        audit_structural_and_relation_rows(
+            rows,
+            structural_counts={1},
+            primary_relation_counts={2},
+        )
 
 
 def test_mass_and_random_controls_stay_in_distance_bin():

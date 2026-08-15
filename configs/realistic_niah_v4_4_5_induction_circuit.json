@@ -20,6 +20,8 @@
   },
   "canonical": {
     "arms": ["natural", "candidate_edge_block", "mass_distance_control"],
+    "structural_no_previous_match_counts": [1],
+    "primary_relation_counts": [2, 3, 4, 5, 6, 7, 8, 9, 10],
     "distance_bin_width": 64,
     "strict_generation_max_new_tokens": 8,
     "intervention": "subtract_frozen_natural_alpha_times_v_at_registered_pre_o_head_slice",

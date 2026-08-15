@@ -309,9 +309,17 @@ def run_synthetic_assay(
 
 
 def identity_repeated_pairs(encoding: PromptEncoding, anchor_token: int) -> tuple[tuple[int, int], ...]:
+    # N=1 is a registered structural negative control: there is no previous
+    # occurrence, hence no previous-match -> successor edge to remove.  This
+    # is different from losing the frozen anchor on an N>=2 prompt, which
+    # remains a hard registration failure.
+    if len(encoding.needle_spans) < 2:
+        return ()
     candidates = repeated_anchor_candidates(encoding)
     if int(anchor_token) not in candidates:
-        raise RuntimeError("Frozen anchor is absent from a confirmation prompt")
+        raise RuntimeError(
+            "Frozen anchor is absent from a relation-present confirmation prompt"
+        )
     occurrences = tuple(candidates[int(anchor_token)])
     return tuple(
         (int(occurrences[index][0]), int(occurrences[index - 1][1]))
@@ -497,6 +505,60 @@ def main() -> None:
     state_dir = root / "endpoint_states"
     completed = completed_keys(detail_path)
     arms = tuple(str(value) for value in experiment["canonical"]["arms"])
+    structural_counts = {
+        int(value)
+        for value in experiment["canonical"]["structural_no_previous_match_counts"]
+    }
+    primary_relation_counts = {
+        int(value) for value in experiment["canonical"]["primary_relation_counts"]
+    }
+    if structural_counts | primary_relation_counts != {
+        int(value) for value in experiment["counts"]
+    } or structural_counts & primary_relation_counts:
+        raise RuntimeError("Canonical structural/primary count registry is not a partition")
+    confirmation_encodings: dict[tuple[int, int], PromptEncoding] = {}
+    registration_coverage: list[dict[str, Any]] = []
+    for seed in experiment["confirmation_seeds"]:
+        for count in experiment["counts"]:
+            encoding = render_v4_prompt(
+                rows[(int(seed), int(count))],
+                tokenizer=tokenizer,
+                model_spec=spec,
+                config=config,
+                answer_format="numeric",
+            )
+            pairs = identity_repeated_pairs(encoding, anchor_token)
+            expected_edges = 0 if int(count) in structural_counts else int(count) - 1
+            if len(pairs) != expected_edges:
+                raise RuntimeError(
+                    "Frozen canonical anchor has incomplete confirmation coverage: "
+                    f"seed={seed}, count={count}, observed={len(pairs)}, "
+                    f"expected={expected_edges}"
+                )
+            confirmation_encodings[(int(seed), int(count))] = encoding
+            registration_coverage.append(
+                {
+                    "seed": int(seed),
+                    "gold_count": int(count),
+                    "structural_no_previous_match": bool(
+                        int(count) in structural_counts
+                    ),
+                    "registered_edges": len(pairs),
+                }
+            )
+    write_json(
+        root / "canonical_registration_coverage.json",
+        {
+            "schema_version": (
+                "realistic_niah_v4_4_5_induction_registration_coverage_v1"
+            ),
+            "status": "PASS",
+            "units": len(registration_coverage),
+            "structural_no_previous_match_counts": sorted(structural_counts),
+            "primary_relation_counts": sorted(primary_relation_counts),
+            "rows": registration_coverage,
+        },
+    )
     expected = {
         (int(seed), int(count), arm)
         for seed in experiment["confirmation_seeds"]
@@ -509,13 +571,7 @@ def main() -> None:
         for count in experiment["counts"]:
             if all((int(seed), int(count), arm) in completed for arm in arms):
                 continue
-            encoding = render_v4_prompt(
-                rows[(int(seed), int(count))],
-                tokenizer=tokenizer,
-                model_spec=spec,
-                config=config,
-                answer_format="numeric",
-            )
+            encoding = confirmation_encodings[(int(seed), int(count))]
             source_bundle = capture_query_bundle(
                 model,
                 adapter,
@@ -636,6 +692,9 @@ def main() -> None:
                         "source_layer": source_layer,
                         "source_head": source_head,
                         "anchor_token_id": int(anchor_token),
+                        "structural_no_previous_match": bool(
+                            int(count) in structural_counts
+                        ),
                         "registered_edges": len(edge_audits),
                         "reachable_edges": len(reachable),
                         "blocked_edge_attention_mass_sum": float(
@@ -676,6 +735,8 @@ def main() -> None:
         "unique_canonical_keys": len(completed),
         "retained_head": [source_layer, source_head],
         "anchor_token_id": int(anchor_token),
+        "structural_no_previous_match_counts": sorted(structural_counts),
+        "primary_relation_counts": sorted(primary_relation_counts),
     }
     write_json(root / "complete.json", completion)
     print(json.dumps(completion, indent=2))
