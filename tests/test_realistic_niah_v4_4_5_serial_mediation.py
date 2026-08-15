@@ -109,6 +109,39 @@ def test_retrieval_aligned_hook_removes_frozen_coordinates() -> None:
     assert abs(audit["norm_ratio"] - 1.0) < 1e-6
 
 
+def test_retrieval_bank_reconstruction_does_not_reenter_projection_hooks() -> None:
+    adapter, attention, _layer = fake_adapter()
+    encoding = SimpleNamespace(sequence_length=5, query_position=4)
+    basis = torch.eye(8)[:3]
+    value = torch.arange(40, dtype=torch.float32).reshape(1, 5, 8) / 10
+    observed_calls = 0
+
+    def full_prompt_only_hook(_module, args):
+        nonlocal observed_calls
+        observed_calls += 1
+        if args[0].shape[1] != encoding.sequence_length:
+            raise RuntimeError("capture hook saw a recursive projection call")
+
+    capture_handle = attention.o_proj.register_forward_pre_hook(full_prompt_only_hook)
+    try:
+        with retrieval_path_hook(
+            adapter,
+            encoding,
+            layer=0,
+            heads=(0, 1),
+            mean=torch.zeros(8),
+            basis=basis,
+            control_direction=torch.nn.functional.normalize(torch.eye(8)[3], dim=0),
+            mode=None,
+        ) as audit:
+            attention(value)
+    finally:
+        capture_handle.remove()
+
+    assert observed_calls == 1
+    assert audit["applications"] == 1
+
+
 def test_late_aligned_hook_removes_count_coordinate() -> None:
     adapter, _attention, layer = fake_adapter()
     encoding = SimpleNamespace(sequence_length=5, query_position=4)

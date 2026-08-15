@@ -108,9 +108,31 @@ def load_answer_geometry(
 
 
 def projection_result(projection: nn.Module, value: torch.Tensor) -> torch.Tensor:
-    parameter = next(projection.parameters())
-    tensor = value.to(device=parameter.device, dtype=parameter.dtype).reshape(1, 1, -1)
-    return projection(tensor)[0, 0].detach().float().cpu()
+    """Evaluate a linear output projection without re-entering module hooks.
+
+    Retrieval-bank reconstruction runs inside an attention forward hook while
+    other capture hooks may already be installed on ``o_proj``.  Calling the
+    module recursively would therefore look like a second, one-token model
+    forward to those hooks.  Applying the frozen affine map directly is
+    exactly equivalent and deliberately bypasses module-level hooks.
+    """
+
+    linear = projection
+    weight = getattr(linear, "weight", None)
+    if not isinstance(weight, torch.Tensor) or weight.ndim != 2:
+        wrapped = getattr(projection, "linear", None)
+        if not isinstance(wrapped, nn.Module):
+            raise RuntimeError("Output projection exposes no matrix weight")
+        linear = wrapped
+        weight = getattr(linear, "weight", None)
+    if not isinstance(weight, torch.Tensor) or weight.ndim != 2:
+        raise RuntimeError("Output projection exposes no matrix weight")
+    if value.ndim != 1 or int(value.numel()) != int(weight.shape[1]):
+        raise ValueError("Output-projection input has the wrong width")
+    bias = getattr(linear, "bias", None)
+    tensor = value.to(device=weight.device, dtype=weight.dtype)
+    result = torch.nn.functional.linear(tensor, weight, bias)
+    return result.detach().float().cpu()
 
 
 def selected_bank_output(
