@@ -142,6 +142,35 @@ def test_retrieval_bank_reconstruction_does_not_reenter_projection_hooks() -> No
     assert audit["applications"] == 1
 
 
+def test_retrieval_interventions_move_cpu_geometry_to_model_device() -> None:
+    if not torch.cuda.is_available():
+        return
+    encoding = SimpleNamespace(sequence_length=5, query_position=4)
+    value = (
+        torch.arange(40, dtype=torch.float32, device="cuda").reshape(1, 5, 8)
+        / 10
+    )
+    for mode in ("aligned", "orthogonal"):
+        adapter, attention, _layer = fake_adapter()
+        attention.to("cuda")
+        with retrieval_path_hook(
+            adapter,
+            encoding,
+            layer=0,
+            heads=(0, 1),
+            mean=torch.zeros(8, device="cpu"),
+            basis=torch.eye(8, device="cpu")[:3],
+            control_direction=torch.nn.functional.normalize(
+                torch.eye(8, device="cpu")[3], dim=0
+            ),
+            mode=mode,
+        ) as audit:
+            output = attention(value)
+        assert output.device.type == "cuda"
+        assert audit["applications"] == 1
+        assert abs(audit["norm_ratio"] - 1.0) < 1e-3
+
+
 def test_late_aligned_hook_removes_count_coordinate() -> None:
     adapter, _attention, layer = fake_adapter()
     encoding = SimpleNamespace(sequence_length=5, query_position=4)

@@ -261,14 +261,25 @@ def retrieval_path_hook(
         realized = torch.zeros_like(bank)
         if mode is not None:
             selected = hidden[:, int(encoding.query_position) : int(encoding.query_position) + 1, :]
-            target_replacement, realized_target = _realized_replacement(selected, aligned)
+            # Bank coordinates are intentionally audited on CPU, whereas the
+            # causal residual stream lives on the model device.  Move only the
+            # intervention vector back to that device before the bf16-realized
+            # subtraction; retain the CPU copy above for all reported geometry.
+            aligned_on_device = aligned.to(
+                device=selected.device, dtype=torch.float32
+            )
+            target_replacement, realized_target = _realized_replacement(
+                selected, aligned_on_device
+            )
             target_norm = torch.linalg.vector_norm(realized_target)
             if mode == "aligned":
                 replacement = target_replacement
                 realized_tensor = realized_target
             else:
                 replacement, realized_tensor = _closest_realized_norm_replacement(
-                    selected, control, target_norm
+                    selected,
+                    control.to(device=selected.device, dtype=torch.float32),
+                    target_norm,
                 )
             patched = hidden.clone()
             patched[:, int(encoding.query_position) : int(encoding.query_position) + 1, :] = replacement
