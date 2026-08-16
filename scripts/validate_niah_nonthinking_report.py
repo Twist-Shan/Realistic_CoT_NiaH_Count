@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -17,6 +18,9 @@ class ReportParser(HTMLParser):
         self.svg_without_label = 0
         self.details_count = 0
         self.summary_count = 0
+        self.figure_count = 0
+        self.figcaption_count = 0
+        self.class_counts: Counter[str] = Counter()
         self.external_assets: list[str] = []
         self.in_extension_table = False
         self.in_extension_body = False
@@ -24,6 +28,7 @@ class ReportParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attr = dict(attrs)
+        self.class_counts.update(attr.get("class", "").split())
         if identifier := attr.get("id"):
             self.ids.append(identifier)
         if tag == "a" and (href := attr.get("href", "")).startswith("#"):
@@ -36,6 +41,10 @@ class ReportParser(HTMLParser):
             self.details_count += 1
         if tag == "summary":
             self.summary_count += 1
+        if tag == "figure":
+            self.figure_count += 1
+        if tag == "figcaption":
+            self.figcaption_count += 1
         if tag == "table" and "extension-audit" in attr.get("class", "").split():
             self.in_extension_table = True
         if tag == "tbody" and self.in_extension_table:
@@ -90,6 +99,51 @@ def main() -> int:
         failures.append(
             f"details/summary mismatch: {report.details_count}/{report.summary_count}"
         )
+    if report.figure_count != report.figcaption_count:
+        failures.append(
+            f"figure/figcaption mismatch: {report.figure_count}/{report.figcaption_count}"
+        )
+    if report.class_counts["figure-primer"] != report.figure_count:
+        failures.append(
+            "figure-primer/figure mismatch: "
+            f"{report.class_counts['figure-primer']}/{report.figure_count}"
+        )
+    for primer_label in (
+        "<strong>这张图画什么。</strong>",
+        "<strong>怎么读。</strong>",
+        "<strong>一个例子。</strong>",
+    ):
+        if text.count(primer_label) != report.figure_count:
+            failures.append(
+                f"primer label {primer_label!r} count={text.count(primer_label)}, "
+                f"expected {report.figure_count}"
+            )
+    expected_exact_classes = {
+        "stage": 4,
+        "protocol-step": 3,
+        "chain-row": 5,
+    }
+    for class_name, expected in expected_exact_classes.items():
+        actual = report.class_counts[class_name]
+        if actual != expected:
+            failures.append(f".{class_name} count={actual}, expected {expected}")
+    expected_minimum_classes = {
+        "chain-blueprint": 5,
+        "evidence-triad": 4,
+        "triad-step": 12,
+        "chain-purpose": 6,
+        "step-heading": 10,
+        "experiment": 18,
+        "conclusion-line": 2,
+    }
+    for class_name, minimum in expected_minimum_classes.items():
+        actual = report.class_counts[class_name]
+        if actual < minimum:
+            failures.append(f".{class_name} count={actual}, expected >= {minimum}")
+    if text.count("<strong>目的。</strong>") < 15:
+        failures.append("fewer than 15 explicit experiment/section purposes")
+    if text.count("目前结论") < 15:
+        failures.append("fewer than 15 explicit current-conclusion statements")
     if report.external_assets:
         failures.append(f"external assets: {report.external_assets}")
     if stale_phrases:
@@ -104,6 +158,8 @@ def main() -> int:
         "PASS "
         f"ids={len(report.ids)} anchors={len(report.fragments)} "
         f"svgs={report.svg_count} details={report.details_count} "
+        f"figures={report.figure_count} primers={report.class_counts['figure-primer']} "
+        f"triads={report.class_counts['evidence-triad']} "
         f"extension_rows={report.extension_rows} external_assets=0"
     )
     return 0
