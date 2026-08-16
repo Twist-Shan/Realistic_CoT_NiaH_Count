@@ -20,8 +20,9 @@ def _repository_head() -> str | None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Build paired non-thinking/native-thinking mechanism datasets from "
-            "the exact audited V4.4 frozen stimulus backbone."
+            "Build the shared geometry panel, registered non-thinking/native-thinking "
+            "mode contracts, and causal-extension registry from the exact audited "
+            "V4.4 frozen stimulus backbone."
         )
     )
     parser.add_argument(
@@ -30,7 +31,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--output-dir",
-        default="exports/realistic_niah_count_mechanism_analysis_v1",
+        default="exports/realistic_niah_count_mechanism_analysis_v2",
     )
     args = parser.parse_args()
     result = build_mechanism_dataset(

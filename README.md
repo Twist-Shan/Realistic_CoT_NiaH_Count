@@ -61,7 +61,7 @@ Remote: <https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git>
 | Goal | Primary entry point | Detailed specification |
 | --- | --- | --- |
 | Run the V5 native-thinking representation + causal replication | `scripts/run_realistic_niah_v5.py`, `configs/realistic_niah_v5.json` | [`docs/realistic_niah_v5.md`](docs/realistic_niah_v5.md) |
-| Rebuild the paired V4.4 non-thinking/native-thinking input dataset | `scripts/build_realistic_niah_mechanism_dataset.py` | [Hugging Face dataset](https://huggingface.co/datasets/stwistzz/realistic-niah-count-mechanism-analysis) |
+| Rebuild the shared V4.4 geometry panel, mode contracts, and causal-extension registry | `scripts/build_realistic_niah_mechanism_dataset.py` | [Hugging Face dataset](https://huggingface.co/datasets/twistshan/realistic-niah-count-mechanism-analysis) |
 | Run the Realistic NIAH V4 mechanism study | `scripts/freeze_realistic_niah_v4.py`, `scripts/run_realistic_niah_v4.py` | [`docs/realistic_niah_v4.md`](docs/realistic_niah_v4.md) |
 | Inspect the completed V4 numeric non-thinking run | `run_20260731_v4_numeric_presentation_v3` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md) |
 | Open or rebuild the V4 representation + causal report | [`reports/realistic_niah_v4_representation_report.html`](reports/realistic_niah_v4_representation_report.html), `scripts/build_realistic_niah_v4_representation_report.py` | [`docs/realistic_niah_v4_causal_screen_20260801.md`](docs/realistic_niah_v4_causal_screen_20260801.md) |

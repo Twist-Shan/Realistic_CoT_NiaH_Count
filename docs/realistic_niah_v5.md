@@ -135,23 +135,36 @@ independent samples. Bootstrap intervals and sign-flip tests use seed as the
 inference unit; mechanism, K, and transition phase must be selected rather
 than pooled.
 
-## Frozen paired input dataset
+## Frozen shared geometry panel and causal extensions
 
 The exact V4.4 input backbone used by V4 non-thinking is frozen at
-[`stwistzz/realistic-niah-count-mechanism-analysis`](https://huggingface.co/datasets/stwistzz/realistic-niah-count-mechanism-analysis).
-It exposes `non_thinking` and `native_thinking` configurations, each with 200
-discovery rows and 100 confirmation rows. The 300 pairs have identical
-passages, gold records, slots, active needle spans, hard negatives, and design
-metadata; only the user prompt and chat-template thinking control differ.
+[`twistshan/realistic-niah-count-mechanism-analysis`](https://huggingface.co/datasets/twistshan/realistic-niah-count-mechanism-analysis).
+Dataset schema v2 exposes one default `geometry_shared` configuration with 200
+discovery rows and 100 confirmation rows. Each `pair_id` appears once; passages,
+gold records, slots, active needle spans, hard negatives, and design metadata
+are therefore not duplicated across modes. `contracts/MODE_CONTRACTS.json`
+stores the registered `non_thinking` and `native_thinking` prompt/runtime
+contracts once, while each geometry row stores the corresponding rendered
+prompt hashes and expected final lines in `mode_views`.
+
+The mode contrast jointly changes the registered prompt contract and the
+chat-template thinking control; it is not interpreted as a flag-only
+intervention. Mode-specific causal datasets are registered separately in
+`causal/REGISTRY.json` and stored under
+`data/causal/<mode>/<experiment_id>/<split>.jsonl`. They may add seeds
+independently and must declare any shared paired confirmation subset used for
+cross-mode causal contrasts. Adding a causal extension must not change
+`geometry_shared`.
 
 The local reproducible builder is
 `scripts/build_realistic_niah_mechanism_dataset.py`. Its source full-grid
 stimulus SHA-256 is
 `da4dd86142eb8a07f9a7e53497efd3375184c8e68367d4db994370fcb331f090`,
-and its paired V4.4 backbone audit SHA-256 is
+and its shared V4.4 backbone audit SHA-256 is
 `f70a62c0a9cb10d4f80f950566aa321f84fb96df67479b2f60c424f6c300238e`.
-The Hub repository contains inputs and provenance only—no generations,
-hidden states, attention tables, representation outputs, or causal results.
+Until causal extensions are explicitly registered, the Hub repository contains
+inputs and provenance only—no generations, hidden states, attention tables,
+representation outputs, or causal results.
 
 ## Pipeline
 

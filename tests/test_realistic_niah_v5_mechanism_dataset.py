@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from realistic_niah_v5.mechanism_dataset import (
     audit_paired_records,
+    audit_shared_geometry_records,
+    build_mode_contracts,
     build_non_thinking_user_text,
+    causal_extension_registry,
     paired_record,
+    render_mode_user_text,
+    shared_geometry_record,
 )
 
 
@@ -70,3 +75,59 @@ def test_non_thinking_prompt_is_exact_v4_numeric_layout() -> None:
     assert prompt.count("PASSAGE") == 1
     assert prompt.endswith("Total:<integer>")
     assert "with no space after the colon" in prompt
+
+
+def test_shared_geometry_row_stores_backbone_once_and_two_mode_views() -> None:
+    stimulus = _stimulus()
+    contracts = build_mode_contracts()
+    row = shared_geometry_record(stimulus, mode_contracts=contracts)
+    audit = audit_shared_geometry_records([row], mode_contracts=contracts)
+
+    assert audit["passed"] is True
+    assert audit["geometry_shared_rows"] == 1
+    assert audit["prompt_hash_checks"] == 2
+    assert row["row_id"] == row["pair_id"] == stimulus["stimulus_id"]
+    assert row["passage"] == stimulus["passage"]
+    assert row["available_modes"] == ["non_thinking", "native_thinking"]
+    assert set(row["mode_views"]) == {"non_thinking", "native_thinking"}
+    assert "user_text" not in row
+    assert "messages" not in row
+
+
+def test_mode_contracts_reconstruct_registered_prompts() -> None:
+    passage = "PASSAGE"
+    contracts = build_mode_contracts()
+    non = render_mode_user_text(contracts["non_thinking"], passage)
+    native = render_mode_user_text(contracts["native_thinking"], passage)
+
+    assert non == build_non_thinking_user_text(passage)
+    assert non.count(passage) == 1
+    assert native.count(passage) == 1
+    assert contracts["non_thinking"]["chat_template_thinking_enabled"] is False
+    assert contracts["native_thinking"]["chat_template_thinking_enabled"] is True
+    assert "flag-only contrast" in contracts["native_thinking"]["treatment_note"]
+
+
+def test_shared_geometry_audit_detects_mode_hash_tampering() -> None:
+    import copy
+
+    contracts = build_mode_contracts()
+    row = shared_geometry_record(_stimulus(), mode_contracts=contracts)
+    tampered = copy.deepcopy(row)
+    tampered["mode_views"]["native_thinking"]["user_text_sha256"] = "0" * 64
+
+    audit = audit_shared_geometry_records([tampered], mode_contracts=contracts)
+    assert audit["passed"] is False
+    assert any("native_thinking prompt SHA mismatch" in error for error in audit["errors"])
+
+
+def test_causal_registry_keeps_mode_extensions_separate() -> None:
+    registry = causal_extension_registry()
+    assert registry["modes"]["non_thinking"]["extensions"] == []
+    assert registry["modes"]["native_thinking"]["extensions"] == []
+    assert "{mode}" in registry["layout"]
+    assert any("shared paired confirmation" in rule for rule in registry["rules"])
+    template = registry["extension_entry_template"]
+    assert set(registry["required_entry_fields"]).issubset(template)
+    assert template["files"]["discovery"].startswith("data/causal/<mode>/")
+    assert template["files"]["confirmation"].startswith("data/causal/<mode>/")
