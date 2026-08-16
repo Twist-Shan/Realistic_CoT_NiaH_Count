@@ -50,20 +50,33 @@
     32,
     33,
     34,
-    35,
-    36,
-    37,
-    38,
-    39,
-    40,
-    41
+    35
   ],
-  "model_label": "Gemma4-E4B",
+  "model_label": "Qwen3-8B",
   "native_cohort": "parser_hit",
+  "native_marker_kind_support": {
+    "audit_sentence": 50,
+    "bullet": 10,
+    "completion_recap": 120,
+    "indexed": 99,
+    "ordinal": 4
+  },
+  "native_selected_site_support": {
+    "item_end": 180,
+    "marker_end": 103
+  },
   "native_site_kind": "item_end",
-  "native_thinking_capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_position_geometry_inputs\\Gemma4-E4B\\capture_index.jsonl",
+  "native_site_policy": "trace_aware_count_boundary",
+  "native_site_policy_mapping": {
+    "audit_sentence": "item_end",
+    "bullet": "item_end",
+    "completion_recap": "item_end",
+    "indexed": "marker_end",
+    "ordinal": "marker_end"
+  },
+  "native_thinking_capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_position_geometry_inputs\\Qwen3-8B\\capture_index.jsonl",
   "nc4_note": "No native classifier is trained on these intermediate position labels; reported NCC accuracy and probe-NCC disagreement are NC4-like diagnostics, not the original terminal-classifier NC4 statistic.",
-  "non_thinking_capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\exports\\run_20260731_v4_numeric_presentation_v3\\Gemma4-E4B\\numeric\\representation\\capture\\capture_index.jsonl",
+  "non_thinking_capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\exports\\run_20260731_v4_numeric_presentation_v3\\Qwen3-8B\\numeric\\representation\\capture\\capture_index.jsonl",
   "non_thinking_design_variant": "v4.4",
   "non_thinking_pooling": "span_end",
   "pca_dim_requested": 32,
@@ -71,27 +84,27 @@
     "native_thinking": {
       "confirmation": {
         "1": 10,
-        "10": 3,
-        "2": 7,
-        "3": 7,
-        "4": 7,
-        "5": 7,
-        "6": 7,
-        "7": 7,
-        "8": 7,
-        "9": 5
+        "10": 9,
+        "2": 10,
+        "3": 9,
+        "4": 9,
+        "5": 9,
+        "6": 9,
+        "7": 9,
+        "8": 9,
+        "9": 9
       },
       "discovery": {
         "1": 20,
-        "10": 7,
-        "2": 19,
-        "3": 16,
-        "4": 15,
-        "5": 13,
-        "6": 12,
-        "7": 12,
-        "8": 12,
-        "9": 10
+        "10": 18,
+        "2": 20,
+        "3": 19,
+        "4": 19,
+        "5": 19,
+        "6": 19,
+        "7": 19,
+        "8": 19,
+        "9": 19
       }
     },
     "non_thinking": {

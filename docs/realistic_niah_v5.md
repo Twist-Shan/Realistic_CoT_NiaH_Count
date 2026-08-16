@@ -214,6 +214,16 @@ python scripts/compare_realistic_niah_position_geometry.py `
   --native-cohort parser_hit `
   --output work/v5/qwen/position_geometry
 
+# Registered anchor sensitivity: indexed/ordinal -> marker_end;
+# bullet/audit_sentence/completion_recap -> item_end.  Do not use
+# trace_category to choose a token, because it encodes trajectory coverage.
+python scripts/compare_realistic_niah_position_geometry.py `
+  --non-thinking-capture-index work/v4/qwen/capture/capture_index.jsonl `
+  --native-thinking-capture-index work/v5/qwen/capture/capture_index.jsonl `
+  --native-site-policy trace_aware_count_boundary `
+  --native-cohort parser_hit `
+  --output work/v5/qwen/position_geometry_trace_aware
+
 # 4c. Build the standalone three-column geometry report after running the
 #     comparison for both parser_hit and one_to_one, PCA=32, and both
 #     registered models. Final-answer correctness is a display attribute;
@@ -223,6 +233,9 @@ python scripts/build_niah_geometry_comparison_report.py `
   --native-capture-root work/v5_position_geometry_inputs `
   --aligned-geometry-root reports/v5_position_geometry `
   --one-to-one-geometry-root reports/v5_position_geometry_one_to_one `
+  --trace-aware-aligned-geometry-root reports/v5_position_geometry_trace_aware `
+  --trace-aware-one-to-one-geometry-root reports/v5_position_geometry_one_to_one_trace_aware `
+  --native-trace-root work/remote_native_traces_68_209_74_38 `
   --output reports/NiaH_Geometry_Comparison.html `
   --manifest reports/NiaH_Geometry_Comparison.manifest.json
 

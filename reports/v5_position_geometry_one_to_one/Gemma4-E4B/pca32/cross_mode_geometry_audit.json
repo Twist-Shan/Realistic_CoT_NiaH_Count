@@ -60,7 +60,17 @@
   ],
   "model_label": "Gemma4-E4B",
   "native_cohort": "one_to_one",
+  "native_marker_kind_support": {
+    "audit_sentence": 10,
+    "bullet": 30,
+    "indexed": 60
+  },
+  "native_selected_site_support": {
+    "item_end": 100
+  },
   "native_site_kind": "item_end",
+  "native_site_policy": "uniform",
+  "native_site_policy_mapping": null,
   "native_thinking_capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_position_geometry_inputs\\Gemma4-E4B\\capture_index.jsonl",
   "nc4_note": "No native classifier is trained on these intermediate position labels; reported NCC accuracy and probe-NCC disagreement are NC4-like diagnostics, not the original terminal-classifier NC4 statistic.",
   "non_thinking_capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\exports\\run_20260731_v4_numeric_presentation_v3\\Gemma4-E4B\\numeric\\representation\\capture\\capture_index.jsonl",
@@ -154,7 +164,8 @@
     ]
   },
   "regularization": "discovery-fitted PCA plus OAS class covariance; MANOVA generalized eigenvalues use an explicit trace-scaled ridge",
-  "schema_version": "realistic_niah_cross_mode_position_geometry_v2_fixed_seed_panel",
+  "schema_version": "realistic_niah_cross_mode_position_geometry_v3_snr",
+  "snr_definition": "confirmation-only class-balanced trace ratio after discovery-fitted standardization and PCA: mean_k ||mu_k - mean_j(mu_j)||^2 divided by mean_k mean_i ||x_ki - mu_k||^2; dB = 10 log10(ratio); higher means more centroid separation per unit within-class scatter",
   "stimulus_alignment": "exact split/seed/stimulus_id match",
   "uncertainty": "matched-panel delete-one-confirmation-seed jackknife; native-thinking positions may be missing within a seed"
 }

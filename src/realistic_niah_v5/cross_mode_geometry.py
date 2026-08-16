@@ -32,8 +32,21 @@ from sklearn.metrics import (
 from sklearn.preprocessing import StandardScaler
 
 
-SCHEMA_VERSION = "realistic_niah_cross_mode_position_geometry_v2_fixed_seed_panel"
+SCHEMA_VERSION = "realistic_niah_cross_mode_position_geometry_v3_snr"
 CLASSES = tuple(range(1, 11))
+NATIVE_SITE_POLICIES = ("uniform", "trace_aware_count_boundary")
+TRACE_AWARE_SITE_BY_MARKER_KIND = {
+    # These marker spans carry an explicit ordinal/index cue.  The resulting
+    # geometry is a sensitivity analysis because the cue itself can make k
+    # decodable; it is not the primary completed-item estimand.
+    "indexed": "marker_end",
+    "ordinal": "marker_end",
+    # A repeated bullet does not identify k, and the fallback parsers have no
+    # genuine marker token.  Use the completed item boundary for those traces.
+    "bullet": "item_end",
+    "audit_sentence": "item_end",
+    "completion_recap": "item_end",
+}
 QUALITY_DIRECTION = {
     "logistic_precision": "higher",
     "logistic_recall": "higher",
@@ -169,14 +182,24 @@ def load_native_thinking_capture(
     capture_index: str | Path,
     *,
     site_kind: str = "item_end",
+    site_policy: str = "uniform",
     cohort: str = "one_to_one",
 ) -> ModeDataset:
     if cohort not in {"parser_hit", "one_to_one", "one_to_one_correct"}:
         raise ValueError(f"Unknown native-thinking cohort: {cohort}")
+    if site_policy not in NATIVE_SITE_POLICIES:
+        raise ValueError(f"Unknown native-thinking site policy: {site_policy}")
     index_path = Path(capture_index)
     index_rows = []
     descriptors: list[
-        tuple[dict[str, Any], dict[str, Any], list[int], list[int]]
+        tuple[
+            dict[str, Any],
+            dict[str, Any],
+            str,
+            str | None,
+            list[int],
+            list[int],
+        ]
     ] = []
     for row in _read_jsonl(index_path):
         if int(row.get("gold_count", -1)) != 10:
@@ -189,10 +212,38 @@ def load_native_thinking_capture(
             continue
         manifest_path = index_path.parent / str(row["manifest_path"])
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        row_marker_kind = row.get("marker_kind")
+        manifest_marker_kind = manifest.get("parser", {}).get("marker_kind")
+        if (
+            row_marker_kind is not None
+            and manifest_marker_kind is not None
+            and str(row_marker_kind) != str(manifest_marker_kind)
+        ):
+            raise ValueError(
+                f"marker_kind mismatch for {row.get('request_id')}: "
+                f"index={row_marker_kind!r}, manifest={manifest_marker_kind!r}"
+            )
+        marker_kind = (
+            str(row_marker_kind)
+            if row_marker_kind is not None
+            else (
+                str(manifest_marker_kind)
+                if manifest_marker_kind is not None
+                else None
+            )
+        )
+        selected_site_kind = site_kind
+        if site_policy == "trace_aware_count_boundary":
+            if marker_kind not in TRACE_AWARE_SITE_BY_MARKER_KIND:
+                raise ValueError(
+                    "trace_aware_count_boundary requires a registered marker_kind; "
+                    f"got {marker_kind!r} for {row.get('request_id')}"
+                )
+            selected_site_kind = TRACE_AWARE_SITE_BY_MARKER_KIND[marker_kind]
         site_indices = [
             index
             for index, site in enumerate(manifest["site_rows"])
-            if str(site.get("site_kind")) == site_kind
+            if str(site.get("site_kind")) == selected_site_kind
             and site.get("occurrence") is not None
         ]
         occurrences = [
@@ -203,12 +254,12 @@ def load_native_thinking_capture(
             continue
         if len(occurrences) != len(set(occurrences)):
             raise ValueError(
-                f"Duplicate {site_kind} occurrences for {row.get('request_id')}"
+                f"Duplicate {selected_site_kind} occurrences for {row.get('request_id')}"
             )
         unexpected = sorted(set(occurrences) - set(CLASSES))
         if unexpected:
             raise ValueError(
-                f"Unexpected {site_kind} occurrences {unexpected} for "
+                f"Unexpected {selected_site_kind} occurrences {unexpected} for "
                 f"{row.get('request_id')}"
             )
         if cohort in {"one_to_one", "one_to_one_correct"} and sorted(
@@ -218,25 +269,52 @@ def load_native_thinking_capture(
         order = np.argsort(np.asarray(occurrences, dtype=int))
         ordered_sites = np.asarray(site_indices, dtype=int)[order].tolist()
         ordered_occurrences = np.asarray(occurrences, dtype=int)[order].tolist()
-        descriptors.append((row, manifest, ordered_sites, ordered_occurrences))
+        descriptors.append(
+            (
+                row,
+                manifest,
+                selected_site_kind,
+                marker_kind,
+                ordered_sites,
+                ordered_occurrences,
+            )
+        )
         index_rows.append(row)
     if not descriptors:
         raise ValueError(
-            f"No observed N10 {site_kind}/{cohort} trajectories in {index_path}"
+            f"No observed N10 {site_policy}:{site_kind}/{cohort} trajectories "
+            f"in {index_path}"
         )
-    first_row, _first_manifest, _first_sites, _first_occurrences = descriptors[0]
+    (
+        first_row,
+        _first_manifest,
+        _first_selected_site_kind,
+        _first_marker_kind,
+        _first_sites,
+        _first_occurrences,
+    ) = descriptors[0]
     first_path = index_path.parent / str(first_row["states_path"])
     with np.load(first_path, allow_pickle=False) as archive:
         layer_indices = archive["layer_indices"].astype(int)
         hidden_size = int(archive["site_states"].shape[-1])
-    total = sum(len(occurrences) for _, _, _, occurrences in descriptors)
+    total = sum(
+        len(occurrences)
+        for _, _, _, _, _, occurrences in descriptors
+    )
     states = {
         int(layer): np.empty((total, hidden_size), dtype=np.float16)
         for layer in layer_indices
     }
     metadata_rows: list[dict[str, Any]] = []
     offset = 0
-    for row, _manifest, site_indices, occurrences in descriptors:
+    for (
+        row,
+        _manifest,
+        selected_site_kind,
+        marker_kind,
+        site_indices,
+        occurrences,
+    ) in descriptors:
         shard = index_path.parent / str(row["states_path"])
         selected_sites = np.asarray(site_indices, dtype=int)
         with np.load(shard, allow_pickle=False) as archive:
@@ -255,6 +333,10 @@ def load_native_thinking_capture(
                     "seed": int(row["seed"]),
                     "occurrence": int(occurrence),
                     "stimulus_id": str(row["stimulus_id"]),
+                    "trace_category": row.get("trace_category"),
+                    "marker_kind": marker_kind,
+                    "selected_site_kind": selected_site_kind,
+                    "native_site_policy": site_policy,
                 }
             )
         offset += len(occurrences)
@@ -506,6 +588,28 @@ def _evaluate_confirmation(fitted: FittedLayer) -> tuple[pd.DataFrame, dict[str,
     }
     grand = x.mean(axis=0)
     centered_means = np.stack([means[label] - grand for label in CLASSES])
+    # Report a class-balanced multiclass SNR so ragged late-position support
+    # does not silently give early classes more weight.  The signal is the
+    # mean squared distance of the ten confirmation centroids from their
+    # class-balanced grand centroid; the noise is the macro-average squared
+    # residual around each confirmation centroid.  Standardization and PCA
+    # were fit on discovery only, so this is a held-out descriptive cluster
+    # statistic rather than a training-set score.
+    class_means = np.stack([means[label] for label in CLASSES])
+    balanced_grand = class_means.mean(axis=0)
+    signal_power = float(
+        np.square(class_means - balanced_grand).sum(axis=1).mean()
+    )
+    class_noise_power = np.asarray(
+        [
+            np.square(x[y == label] - means[label]).sum(axis=1).mean()
+            for label in CLASSES
+        ],
+        dtype=float,
+    )
+    noise_power = float(class_noise_power.mean())
+    snr_ratio = float(signal_power / max(noise_power, np.finfo(float).eps))
+    snr_db = float(10.0 * np.log10(max(snr_ratio, np.finfo(float).tiny)))
     norms = np.linalg.norm(centered_means, axis=1)
     normalized = centered_means / np.maximum(norms[:, None], np.finfo(float).eps)
     gram = normalized @ normalized.T
@@ -621,6 +725,10 @@ def _evaluate_confirmation(fitted: FittedLayer) -> tuple[pd.DataFrame, dict[str,
         ),
         "ncc_accuracy": float(accuracy_score(y, ncc_prediction)),
         "ncc_balanced_accuracy": float(balanced_accuracy_score(y, ncc_prediction)),
+        "class_balanced_snr": snr_ratio,
+        "class_balanced_snr_db": snr_db,
+        "class_balanced_signal_power": signal_power,
+        "class_balanced_noise_power": noise_power,
         "nc4_probe_ncc_disagreement": float(
             np.mean(logistic_prediction != ncc_prediction)
         ),
@@ -776,6 +884,7 @@ def compare_position_geometry(
     design_variant: str = "v4.4",
     non_thinking_pooling: str = "span_end",
     native_site_kind: str = "item_end",
+    native_site_policy: str = "uniform",
     native_cohort: str = "parser_hit",
     pca_dim: int = 32,
     layers: Sequence[int] | None = None,
@@ -789,6 +898,7 @@ def compare_position_geometry(
     native_thinking = load_native_thinking_capture(
         native_thinking_capture_index,
         site_kind=native_site_kind,
+        site_policy=native_site_policy,
         cohort=native_cohort,
     )
     if native_cohort == "parser_hit":
@@ -901,6 +1011,24 @@ def compare_position_geometry(
             "non_thinking_design_variant": design_variant,
             "non_thinking_pooling": non_thinking_pooling,
             "native_site_kind": native_site_kind,
+            "native_site_policy": native_site_policy,
+            "native_site_policy_mapping": (
+                dict(TRACE_AWARE_SITE_BY_MARKER_KIND)
+                if native_site_policy == "trace_aware_count_boundary"
+                else None
+            ),
+            "native_selected_site_support": {
+                str(site): int(count)
+                for site, count in native_thinking.metadata[
+                    "selected_site_kind"
+                ].value_counts().sort_index().items()
+            },
+            "native_marker_kind_support": {
+                str(marker): int(count)
+                for marker, count in native_thinking.metadata[
+                    "marker_kind"
+                ].value_counts(dropna=False).sort_index().items()
+            },
             "native_cohort": native_cohort,
             "analysis_design": analysis_design,
             "stimulus_alignment": "exact split/seed/stimulus_id match",
@@ -917,6 +1045,12 @@ def compare_position_geometry(
             "classification_weighting": (
                 "class-balanced multinomial logistic fit; balanced accuracy is the "
                 "primary summary when position support is ragged"
+            ),
+            "snr_definition": (
+                "confirmation-only class-balanced trace ratio after discovery-fitted "
+                "standardization and PCA: mean_k ||mu_k - mean_j(mu_j)||^2 divided "
+                "by mean_k mean_i ||x_ki - mu_k||^2; dB = 10 log10(ratio); higher "
+                "means more centroid separation per unit within-class scatter"
             ),
             "uncertainty": (
                 "matched-panel delete-one-confirmation-seed jackknife; native-thinking "

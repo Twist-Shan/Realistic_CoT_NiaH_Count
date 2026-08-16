@@ -1,5 +1,5 @@
 {
-  "analysis_design": "fixed_registered_seed_panel_observed_positions",
+  "analysis_design": "complete_trajectory_paired_sensitivity",
   "classification_weighting": "class-balanced multinomial logistic fit; balanced accuracy is the primary summary when position support is ragged",
   "cluster_labels": [
     1,
@@ -50,74 +50,86 @@
     32,
     33,
     34,
-    35,
-    36,
-    37,
-    38,
-    39,
-    40,
-    41
+    35
   ],
-  "model_label": "Gemma4-E4B",
-  "native_cohort": "parser_hit",
+  "model_label": "Qwen3-8B",
+  "native_cohort": "one_to_one",
+  "native_marker_kind_support": {
+    "audit_sentence": 50,
+    "bullet": 10,
+    "completion_recap": 120,
+    "indexed": 90
+  },
+  "native_selected_site_support": {
+    "item_end": 180,
+    "marker_end": 90
+  },
   "native_site_kind": "item_end",
-  "native_thinking_capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_position_geometry_inputs\\Gemma4-E4B\\capture_index.jsonl",
+  "native_site_policy": "trace_aware_count_boundary",
+  "native_site_policy_mapping": {
+    "audit_sentence": "item_end",
+    "bullet": "item_end",
+    "completion_recap": "item_end",
+    "indexed": "marker_end",
+    "ordinal": "marker_end"
+  },
+  "native_thinking_capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_position_geometry_inputs\\Qwen3-8B\\capture_index.jsonl",
   "nc4_note": "No native classifier is trained on these intermediate position labels; reported NCC accuracy and probe-NCC disagreement are NC4-like diagnostics, not the original terminal-classifier NC4 statistic.",
-  "non_thinking_capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\exports\\run_20260731_v4_numeric_presentation_v3\\Gemma4-E4B\\numeric\\representation\\capture\\capture_index.jsonl",
+  "non_thinking_capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\exports\\run_20260731_v4_numeric_presentation_v3\\Qwen3-8B\\numeric\\representation\\capture\\capture_index.jsonl",
   "non_thinking_design_variant": "v4.4",
   "non_thinking_pooling": "span_end",
   "pca_dim_requested": 32,
   "position_support": {
     "native_thinking": {
       "confirmation": {
-        "1": 10,
-        "10": 3,
-        "2": 7,
-        "3": 7,
-        "4": 7,
-        "5": 7,
-        "6": 7,
-        "7": 7,
-        "8": 7,
-        "9": 5
+        "1": 9,
+        "10": 9,
+        "2": 9,
+        "3": 9,
+        "4": 9,
+        "5": 9,
+        "6": 9,
+        "7": 9,
+        "8": 9,
+        "9": 9
       },
       "discovery": {
-        "1": 20,
-        "10": 7,
-        "2": 19,
-        "3": 16,
-        "4": 15,
-        "5": 13,
-        "6": 12,
-        "7": 12,
-        "8": 12,
-        "9": 10
+        "1": 18,
+        "10": 18,
+        "2": 18,
+        "3": 18,
+        "4": 18,
+        "5": 18,
+        "6": 18,
+        "7": 18,
+        "8": 18,
+        "9": 18
       }
     },
     "non_thinking": {
       "confirmation": {
-        "1": 10,
-        "10": 10,
-        "2": 10,
-        "3": 10,
-        "4": 10,
-        "5": 10,
-        "6": 10,
-        "7": 10,
-        "8": 10,
-        "9": 10
+        "1": 9,
+        "10": 9,
+        "2": 9,
+        "3": 9,
+        "4": 9,
+        "5": 9,
+        "6": 9,
+        "7": 9,
+        "8": 9,
+        "9": 9
       },
       "discovery": {
-        "1": 20,
-        "10": 20,
-        "2": 20,
-        "3": 20,
-        "4": 20,
-        "5": 20,
-        "6": 20,
-        "7": 20,
-        "8": 20,
-        "9": 20
+        "1": 18,
+        "10": 18,
+        "2": 18,
+        "3": 18,
+        "4": 18,
+        "5": 18,
+        "6": 18,
+        "7": 18,
+        "8": 18,
+        "9": 18
       }
     }
   },
@@ -143,7 +155,6 @@
       1255,
       1256,
       1257,
-      1258,
       1259,
       1260,
       1261,
@@ -166,9 +177,7 @@
       1246,
       1247,
       1248,
-      1249,
       1250,
-      1251,
       1252,
       1253
     ]

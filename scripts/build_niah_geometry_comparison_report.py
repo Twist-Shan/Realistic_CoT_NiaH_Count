@@ -10,7 +10,9 @@ The three displayed populations are deliberately distinct:
 
 Position (1--10) is the geometry class.  Final-answer correctness is carried as
 an independent trajectory-level display attribute and never changes the
-position label or the primary aligned cohort.
+position label or the primary aligned cohort.  Native panels also expose a
+registered marker-kind-aware anchor sensitivity; uniform item_end remains the
+primary, cross-trace-comparable estimand.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ import hashlib
 import html
 import json
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -39,8 +41,13 @@ if str(SRC) not in sys.path:
 
 from realistic_niah_v5.cross_mode_geometry import (  # noqa: E402
     ModeDataset,
+    TRACE_AWARE_SITE_BY_MARKER_KIND,
     load_native_thinking_capture,
     load_non_thinking_capture,
+)
+from realistic_niah_v5.parsing import (  # noqa: E402
+    PARSER_UPSTREAM_COMMIT,
+    PARSER_UPSTREAM_REPOSITORY,
 )
 
 
@@ -124,7 +131,10 @@ def _support_range(audit: Mapping[str, Any], mode: str) -> tuple[int, int]:
 
 
 def load_metric_comparison(
-    aligned_root: Path, one_to_one_root: Path
+    aligned_root: Path,
+    one_to_one_root: Path,
+    trace_aware_aligned_root: Path,
+    trace_aware_one_to_one_root: Path,
 ) -> tuple[
     dict[str, dict[int, dict[str, Any]]],
     dict[str, int],
@@ -143,15 +153,59 @@ def load_metric_comparison(
             complete_audit_path = complete_dir / "cross_mode_geometry_audit.json"
             aligned_global_path = aligned_dir / "global_covariance_geometry.csv"
             complete_global_path = complete_dir / "global_covariance_geometry.csv"
+            trace_aligned_dir = trace_aware_aligned_root / model / f"pca{pca_dim}"
+            trace_complete_dir = (
+                trace_aware_one_to_one_root / model / f"pca{pca_dim}"
+            )
+            trace_aligned_audit_path = (
+                trace_aligned_dir / "cross_mode_geometry_audit.json"
+            )
+            trace_complete_audit_path = (
+                trace_complete_dir / "cross_mode_geometry_audit.json"
+            )
+            trace_aligned_global_path = (
+                trace_aligned_dir / "global_covariance_geometry.csv"
+            )
+            trace_complete_global_path = (
+                trace_complete_dir / "global_covariance_geometry.csv"
+            )
             aligned_audit = read_json(aligned_audit_path)
             complete_audit = read_json(complete_audit_path)
+            trace_aligned_audit = read_json(trace_aligned_audit_path)
+            trace_complete_audit = read_json(trace_complete_audit_path)
             aligned_rows = read_csv(aligned_global_path)
             complete_rows = read_csv(complete_global_path)
+            trace_aligned_rows = read_csv(trace_aligned_global_path)
+            trace_complete_rows = read_csv(trace_complete_global_path)
 
             require(aligned_audit["model_label"] == model, "aligned model mismatch")
             require(complete_audit["model_label"] == model, "one-to-one model mismatch")
             require(aligned_audit["native_cohort"] == "parser_hit", "aligned cohort mismatch")
             require(complete_audit["native_cohort"] == "one_to_one", "one-to-one cohort mismatch")
+            require(
+                aligned_audit.get("native_site_policy", "uniform") == "uniform",
+                "aligned primary site policy mismatch",
+            )
+            require(
+                complete_audit.get("native_site_policy", "uniform") == "uniform",
+                "one-to-one primary site policy mismatch",
+            )
+            for trace_audit, cohort in (
+                (trace_aligned_audit, "parser_hit"),
+                (trace_complete_audit, "one_to_one"),
+            ):
+                require(trace_audit["model_label"] == model, "trace-aware model mismatch")
+                require(trace_audit["native_cohort"] == cohort, "trace-aware cohort mismatch")
+                require(
+                    trace_audit["native_site_policy"]
+                    == "trace_aware_count_boundary",
+                    "trace-aware site policy mismatch",
+                )
+                require(
+                    trace_audit["native_site_policy_mapping"]
+                    == TRACE_AWARE_SITE_BY_MARKER_KIND,
+                    "trace-aware mapping mismatch",
+                )
             require(
                 aligned_audit["analysis_design"]
                 == "fixed_registered_seed_panel_observed_positions",
@@ -163,43 +217,139 @@ def load_metric_comparison(
                 "one-to-one design mismatch",
             )
             require(
+                trace_aligned_audit["analysis_design"]
+                == "fixed_registered_seed_panel_observed_positions",
+                "trace-aware aligned design mismatch",
+            )
+            require(
+                trace_complete_audit["analysis_design"]
+                == "complete_trajectory_paired_sensitivity",
+                "trace-aware one-to-one design mismatch",
+            )
+            require(
                 aligned_audit["registered_seed_panel"] == EXPECTED_FULL_PANEL,
                 "aligned seed panel is not the registered 30-seed panel",
             )
-            for audit in (aligned_audit, complete_audit):
+            require(
+                trace_aligned_audit["registered_seed_panel"]
+                == aligned_audit["registered_seed_panel"],
+                "trace-aware aligned seed panel changed",
+            )
+            require(
+                trace_complete_audit["registered_seed_panel"]
+                == complete_audit["registered_seed_panel"],
+                "trace-aware one-to-one seed panel changed",
+            )
+            for audit in (
+                aligned_audit,
+                complete_audit,
+                trace_aligned_audit,
+                trace_complete_audit,
+            ):
                 require(audit["evaluation_split"] == "confirmation only", "split leakage")
                 require(audit["preprocessing_fit_split"] == "discovery only", "PCA leakage")
                 require(audit["probe_fit_split"] == "discovery only", "probe leakage")
                 require(audit["cluster_labels"] == list(range(1, 11)), "label mismatch")
 
             non_rows = [row for row in aligned_rows if row["mode"] == "non_thinking"]
+            complete_non_rows = [
+                row for row in complete_rows if row["mode"] == "non_thinking"
+            ]
+            trace_aligned_non_rows = [
+                row
+                for row in trace_aligned_rows
+                if row["mode"] == "non_thinking"
+            ]
+            trace_complete_non_rows = [
+                row
+                for row in trace_complete_rows
+                if row["mode"] == "non_thinking"
+            ]
             aligned_native_rows = [
                 row for row in aligned_rows if row["mode"] == "native_thinking"
             ]
             complete_native_rows = [
                 row for row in complete_rows if row["mode"] == "native_thinking"
             ]
-            require(non_rows and aligned_native_rows and complete_native_rows, "missing mode rows")
+            trace_aligned_native_rows = [
+                row
+                for row in trace_aligned_rows
+                if row["mode"] == "native_thinking"
+            ]
+            trace_complete_native_rows = [
+                row
+                for row in trace_complete_rows
+                if row["mode"] == "native_thinking"
+            ]
+            require(
+                non_rows
+                and aligned_native_rows
+                and complete_native_rows
+                and trace_aligned_native_rows
+                and trace_complete_native_rows,
+                "missing mode rows",
+            )
+            require(
+                non_rows == trace_aligned_non_rows,
+                "trace-aware policy changed aligned non-thinking metrics",
+            )
+            require(
+                complete_non_rows == trace_complete_non_rows,
+                "trace-aware policy changed one-to-one non-thinking metrics",
+            )
 
             def summarize(rows: list[dict[str, str]]) -> dict[str, Any]:
                 logistic = _best(rows, "logistic_balanced_accuracy")
                 ncc = _best(rows, "ncc_balanced_accuracy")
+                snr = _best(rows, "class_balanced_snr")
                 return {
                     "n_confirmation": int(logistic["n_confirmation"]),
                     "logistic": float(logistic["logistic_balanced_accuracy"]),
                     "logistic_layer": int(logistic["layer"]),
                     "ncc": float(ncc["ncc_balanced_accuracy"]),
                     "ncc_layer": int(ncc["layer"]),
+                    "snr": float(snr["class_balanced_snr"]),
+                    "snr_db": float(snr["class_balanced_snr_db"]),
+                    "snr_layer": int(snr["layer"]),
+                }
+
+            def layerwise(rows: list[dict[str, str]]) -> dict[str, dict[str, Any]]:
+                return {
+                    str(int(row["layer"])): {
+                        "logistic": float(row["logistic_balanced_accuracy"]),
+                        "ncc": float(row["ncc_balanced_accuracy"]),
+                        "snr": float(row["class_balanced_snr"]),
+                        "snr_db": float(row["class_balanced_snr_db"]),
+                        "n_confirmation": int(row["n_confirmation"]),
+                    }
+                    for row in rows
                 }
 
             comparison[model][pca_dim] = {
                 "non_thinking": summarize(non_rows),
                 "native_one_to_one": summarize(complete_native_rows),
                 "native_aligned": summarize(aligned_native_rows),
+                "native_one_to_one_trace_aware": summarize(
+                    trace_complete_native_rows
+                ),
+                "native_aligned_trace_aware": summarize(
+                    trace_aligned_native_rows
+                ),
                 "non_support": _support_range(aligned_audit, "non_thinking"),
                 "one_support": _support_range(complete_audit, "native_thinking"),
                 "aligned_support": _support_range(aligned_audit, "native_thinking"),
                 "one_seed_panel": complete_audit["registered_seed_panel"],
+                "layerwise": {
+                    "non_thinking": layerwise(non_rows),
+                    "native_one_to_one": layerwise(complete_native_rows),
+                    "native_aligned": layerwise(aligned_native_rows),
+                    "native_one_to_one_trace_aware": layerwise(
+                        trace_complete_native_rows
+                    ),
+                    "native_aligned_trace_aware": layerwise(
+                        trace_aligned_native_rows
+                    ),
+                },
             }
             if pca_dim == 32:
                 aligned_peak_layer[model] = comparison[model][pca_dim][
@@ -211,6 +361,10 @@ def load_metric_comparison(
                     aligned_global_path,
                     complete_audit_path,
                     complete_global_path,
+                    trace_aligned_audit_path,
+                    trace_aligned_global_path,
+                    trace_complete_audit_path,
+                    trace_complete_global_path,
                 ]
             )
     return comparison, aligned_peak_layer, inputs
@@ -272,7 +426,9 @@ def native_outcomes(
 
 
 def partial_trace_rows(
-    capture_index: Path, index_rows: list[dict[str, Any]]
+    capture_index: Path,
+    index_rows: list[dict[str, Any]],
+    trace_by_request: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for row in index_rows:
@@ -284,9 +440,9 @@ def partial_trace_rows(
             site for site in manifest["site_rows"] if site.get("site_kind") == "item_end"
         ]
         parser = manifest["parser"]
-        result.append(
-            {
+        value = {
                 "model": row["model_label"],
+                "request_id": row["request_id"],
                 "split": row["split"],
                 "seed": int(row["seed"]),
                 "observed": len(item_sites),
@@ -296,23 +452,226 @@ def partial_trace_rows(
                 "parsed_count": row.get("parsed_count"),
                 "exact_count": bool(row.get("exact_count")),
                 "trace_category": row.get("trace_category"),
+                "endpoint_sites": [
+                    {
+                        "occurrence": int(site["occurrence"]),
+                        "city": str(site.get("city")),
+                        "char_start": int(site["char_start"]),
+                        "char_end": int(site["char_end"]),
+                        "endpoint_token": int(site["endpoint_token"]),
+                        "sequence_query_position": (
+                            int(manifest["prompt_token_count"])
+                            + int(site["endpoint_token"])
+                        ),
+                        "alignment_strategy": str(site["alignment_strategy"]),
+                    }
+                    for site in item_sites
+                ],
             }
-        )
+        if trace_by_request is not None:
+            trace = trace_by_request.get(str(row["request_id"]))
+            require(trace is not None, f"trace archive lacks {row['request_id']}")
+            require(
+                int(trace["prompt_token_count"]) == int(manifest["prompt_token_count"]),
+                f"prompt token mismatch for {row['request_id']}",
+            )
+            require(
+                len(trace["output_token_ids"]) == int(manifest["output_token_count"]),
+                f"output token mismatch for {row['request_id']}",
+            )
+            raw = str(trace["raw_output_text"])
+            start = int(parser.get("list_start_char") or 0)
+            end = int(parser.get("cut_char") or start)
+            value["raw_excerpt"] = raw[start:end].strip()
+            for endpoint in value["endpoint_sites"]:
+                endpoint["item_text"] = raw[
+                    endpoint["char_start"] : endpoint["char_end"]
+                ].strip()
+        result.append(value)
     return sorted(result, key=lambda row: (row["split"], row["seed"]))
 
 
 def display_layers(dataset: ModeDataset, aligned_peak: int) -> list[int]:
     available = sorted(dataset.states_by_layer)
-    last = max(available)
-    landmarks = {
-        0,
-        round(last * 0.25),
-        round(last * 0.50),
-        round(last * 0.75),
-        last,
-        int(aligned_peak),
+    require(int(aligned_peak) in available, "aligned peak layer is unavailable")
+    return available
+
+
+def load_trace_archive(
+    trace_root: Path | None, model: str
+) -> tuple[dict[str, dict[str, Any]] | None, Path | None]:
+    if trace_root is None:
+        return None, None
+    path = trace_root / model / "generations.jsonl"
+    rows = [row for row in read_jsonl(path) if int(row.get("gold_count", -1)) == 10]
+    require(len(rows) == 30, f"expected 30 N10 generation rows for {model}")
+    mapping = {str(row["request_id"]): row for row in rows}
+    require(len(mapping) == 30, f"duplicate N10 request IDs for {model}")
+    return mapping, path
+
+
+def native_alignment_summary(
+    capture_index: Path,
+    index_rows: list[dict[str, Any]],
+    trace_by_request: Mapping[str, Mapping[str, Any]] | None,
+) -> dict[str, Any]:
+    counts: Counter[str] = Counter()
+    examples: dict[str, dict[str, Any]] = {}
+    ordered_rows = sorted(
+        index_rows,
+        key=lambda row: (str(row["split"]) != "confirmation", int(row["seed"])),
+    )
+    for row in ordered_rows:
+        if int(row.get("gold_count", -1)) != 10:
+            continue
+        manifest = read_json(capture_index.parent / str(row["manifest_path"]))
+        trace = (
+            None
+            if trace_by_request is None
+            else trace_by_request.get(str(row["request_id"]))
+        )
+        if trace_by_request is not None:
+            require(trace is not None, f"trace archive lacks {row['request_id']}")
+            require(
+                int(trace["prompt_token_count"]) == int(manifest["prompt_token_count"]),
+                f"prompt token mismatch for {row['request_id']}",
+            )
+            require(
+                len(trace["output_token_ids"]) == int(manifest["output_token_count"]),
+                f"output token mismatch for {row['request_id']}",
+            )
+        for site in manifest["site_rows"]:
+            if site.get("site_kind") != "item_end":
+                continue
+            strategy = str(site["alignment_strategy"])
+            counts[strategy] += 1
+            if strategy in examples:
+                continue
+            example = {
+                "model": str(row["model_label"]),
+                "split": str(row["split"]),
+                "seed": int(row["seed"]),
+                "occurrence": int(site["occurrence"]),
+                "city": str(site.get("city")),
+                "char_start": int(site["char_start"]),
+                "char_end": int(site["char_end"]),
+                "endpoint_token": int(site["endpoint_token"]),
+                "prompt_token_count": int(manifest["prompt_token_count"]),
+                "sequence_query_position": (
+                    int(manifest["prompt_token_count"]) + int(site["endpoint_token"])
+                ),
+                "alignment_strategy": strategy,
+            }
+            if trace is not None:
+                raw = str(trace["raw_output_text"])
+                example["item_text"] = raw[
+                    int(site["char_start"]) : int(site["char_end"])
+                ].strip()
+            examples[strategy] = example
+    return {
+        "item_end_sites": int(sum(counts.values())),
+        "strategy_counts": dict(sorted(counts.items())),
+        "examples": list(examples.values()),
+        "trace_archive_verified": trace_by_request is not None,
     }
-    return sorted(layer for layer in landmarks if layer in dataset.states_by_layer)
+
+
+def native_trace_policy_summary(
+    capture_index: Path,
+    index_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Audit the registered trace-aware anchor without changing eligibility."""
+
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in index_rows:
+        if int(row.get("gold_count", -1)) != 10:
+            continue
+        marker_kind = str(row.get("marker_kind"))
+        require(
+            marker_kind in TRACE_AWARE_SITE_BY_MARKER_KIND,
+            f"unregistered marker_kind {marker_kind!r}",
+        )
+        selected_site_kind = TRACE_AWARE_SITE_BY_MARKER_KIND[marker_kind]
+        bucket = grouped.setdefault(
+            marker_kind,
+            {
+                "marker_kind": marker_kind,
+                "selected_site_kind": selected_site_kind,
+                "trace_count": 0,
+                "one_to_one_count": 0,
+                "split_trace_counts": Counter(),
+                "one_to_one_split_trace_counts": Counter(),
+                "trace_categories": Counter(),
+                "selected_state_count": 0,
+                "alignment_strategies": Counter(),
+            },
+        )
+        require(
+            bucket["selected_site_kind"] == selected_site_kind,
+            f"non-deterministic policy for {marker_kind}",
+        )
+        bucket["trace_count"] += 1
+        bucket["one_to_one_count"] += int(bool(row.get("trace_one_to_one")))
+        bucket["split_trace_counts"][str(row["split"])] += 1
+        if bool(row.get("trace_one_to_one")):
+            bucket["one_to_one_split_trace_counts"][str(row["split"])] += 1
+        bucket["trace_categories"][str(row.get("trace_category"))] += 1
+        manifest = read_json(capture_index.parent / str(row["manifest_path"]))
+        manifest_marker = str(manifest.get("parser", {}).get("marker_kind"))
+        require(
+            manifest_marker == marker_kind,
+            f"marker_kind mismatch for {row.get('request_id')}",
+        )
+        selected = [
+            site
+            for site in manifest["site_rows"]
+            if site.get("site_kind") == selected_site_kind
+            and site.get("occurrence") is not None
+        ]
+        item_end = [
+            site
+            for site in manifest["site_rows"]
+            if site.get("site_kind") == "item_end"
+            and site.get("occurrence") is not None
+        ]
+        require(
+            [int(site["occurrence"]) for site in selected]
+            == [int(site["occurrence"]) for site in item_end],
+            f"trace-aware site changes ordinal support for {row.get('request_id')}",
+        )
+        bucket["selected_state_count"] += len(selected)
+        for site in selected:
+            bucket["alignment_strategies"][str(site["alignment_strategy"])] += 1
+    result = []
+    for marker_kind in TRACE_AWARE_SITE_BY_MARKER_KIND:
+        if marker_kind not in grouped:
+            continue
+        bucket = grouped[marker_kind]
+        result.append(
+            {
+                "marker_kind": marker_kind,
+                "selected_site_kind": bucket["selected_site_kind"],
+                "trace_count": int(bucket["trace_count"]),
+                "one_to_one_count": int(bucket["one_to_one_count"]),
+                "split_trace_counts": {
+                    split: int(bucket["split_trace_counts"].get(split, 0))
+                    for split in ("discovery", "confirmation")
+                },
+                "one_to_one_split_trace_counts": {
+                    split: int(
+                        bucket["one_to_one_split_trace_counts"].get(split, 0)
+                    )
+                    for split in ("discovery", "confirmation")
+                },
+                "trace_categories": dict(sorted(bucket["trace_categories"].items())),
+                "selected_state_count": int(bucket["selected_state_count"]),
+                "alignment_strategies": dict(
+                    sorted(bucket["alignment_strategies"].items())
+                ),
+            }
+        )
+    require(sum(row["trace_count"] for row in result) == 30, "trace policy row loss")
+    return result
 
 
 def fit_display_coordinates(
@@ -360,6 +719,8 @@ def build_visual_data(
     export_root: Path,
     native_capture_root: Path,
     aligned_peak_layer: Mapping[str, int],
+    comparison: Mapping[str, Mapping[int, Mapping[str, Any]]],
+    trace_root: Path | None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[Path]]:
     visual: dict[str, Any] = {}
     partials: list[dict[str, Any]] = []
@@ -376,7 +737,10 @@ def build_visual_data(
         native_index = native_capture_root / model / "capture_index.jsonl"
         non_outcome, outcome_path = non_thinking_outcomes(export_root, model)
         native_outcome, native_rows = native_outcomes(native_index)
-        partials.extend(partial_trace_rows(native_index, native_rows))
+        trace_by_request, trace_path = load_trace_archive(trace_root, model)
+        partials.extend(
+            partial_trace_rows(native_index, native_rows, trace_by_request)
+        )
 
         non = load_non_thinking_capture(non_index, design_variant="v4.4", pooling="span_end")
         aligned = load_native_thinking_capture(
@@ -385,8 +749,22 @@ def build_visual_data(
         one = load_native_thinking_capture(
             native_index, site_kind="item_end", cohort="one_to_one"
         )
+        aligned_trace_aware = load_native_thinking_capture(
+            native_index,
+            site_policy="trace_aware_count_boundary",
+            cohort="parser_hit",
+        )
+        one_trace_aware = load_native_thinking_capture(
+            native_index,
+            site_policy="trace_aware_count_boundary",
+            cohort="one_to_one",
+        )
         common_layers = sorted(
-            set(non.states_by_layer) & set(aligned.states_by_layer) & set(one.states_by_layer)
+            set(non.states_by_layer)
+            & set(aligned.states_by_layer)
+            & set(one.states_by_layer)
+            & set(aligned_trace_aware.states_by_layer)
+            & set(one_trace_aware.states_by_layer)
         )
         probe = ModeDataset(
             mode="common",
@@ -398,20 +776,33 @@ def build_visual_data(
         visual[model] = {
             "layers": layers,
             "default_layer": int(aligned_peak_layer[model]),
+            "metrics": comparison[model][32]["layerwise"],
+            "alignment": native_alignment_summary(
+                native_index, native_rows, trace_by_request
+            ),
+            "trace_policy": native_trace_policy_summary(native_index, native_rows),
             "panels": {
                 "non_thinking": fit_display_coordinates(non, layers, non_outcome),
                 "native_one_to_one": fit_display_coordinates(one, layers, native_outcome),
                 "native_aligned": fit_display_coordinates(aligned, layers, native_outcome),
+                "native_one_to_one_trace_aware": fit_display_coordinates(
+                    one_trace_aware, layers, native_outcome
+                ),
+                "native_aligned_trace_aware": fit_display_coordinates(
+                    aligned_trace_aware, layers, native_outcome
+                ),
             },
         }
         inputs.extend([non_index, native_index, outcome_path])
+        if trace_path is not None:
+            inputs.append(trace_path)
         for provenance_path in (
             non_index.parent / "capture_manifest.json",
             native_index.parent / "export_audit.json",
         ):
             if provenance_path.is_file():
                 inputs.append(provenance_path)
-        del non, aligned, one, probe
+        del non, aligned, one, aligned_trace_aware, one_trace_aware, probe
         gc.collect()
     return visual, partials, inputs
 
@@ -424,6 +815,8 @@ def metric_table(comparison: Mapping[str, Mapping[int, Mapping[str, Any]]]) -> s
             non = item["non_thinking"]
             one = item["native_one_to_one"]
             aligned = item["native_aligned"]
+            one_trace = item["native_one_to_one_trace_aware"]
+            aligned_trace = item["native_aligned_trace_aware"]
             one_panel = item["one_seed_panel"]
 
             def cell(value: Mapping[str, Any], support: tuple[int, int], seeds: str) -> str:
@@ -435,6 +828,7 @@ def metric_table(comparison: Mapping[str, Mapping[int, Mapping[str, Any]]]) -> s
                 return (
                     f"<strong>logistic {pct(value['logistic'])} @ L{value['logistic_layer']}</strong>"
                     f"<br>NCC {pct(value['ncc'])} @ L{value['ncc_layer']}"
+                    f"<br>SNR {value['snr']:.3f} / {value['snr_db']:.2f} dB @ L{value['snr_layer']}"
                     f"<br><span class=\"muted\">D/C seeds {esc(seeds)} · confirmation nₖ {support_text}</span>"
                 )
 
@@ -447,7 +841,9 @@ def metric_table(comparison: Mapping[str, Mapping[int, Mapping[str, Any]]]) -> s
                     str(pca_dim),
                     cell(non, item["non_support"], "20/10"),
                     cell(one, item["one_support"], one_seeds),
+                    cell(one_trace, item["one_support"], one_seeds),
                     cell(aligned, item["aligned_support"], "20/10"),
+                    cell(aligned_trace, item["aligned_support"], "20/10"),
                 )
             )
     return html_table(
@@ -455,8 +851,10 @@ def metric_table(comparison: Mapping[str, Mapping[int, Mapping[str, Any]]]) -> s
             "模型",
             "PCA",
             "Non-thinking · full panel",
-            "Native · one-to-one",
-            "Native · ordinal-aligned full panel",
+            "Native 1:1 · item_end",
+            "Native 1:1 · trace-aware",
+            "Native aligned · item_end",
+            "Native aligned · trace-aware",
         ],
         rows,
     )
@@ -494,6 +892,168 @@ def partial_table(partials: Iterable[Mapping[str, Any]]) -> str:
     )
 
 
+def endpoint_table(endpoints: Iterable[Mapping[str, Any]]) -> str:
+    rows = []
+    for endpoint in endpoints:
+        strategy = str(endpoint["alignment_strategy"])
+        forward = (
+            "full baseline sequence"
+            if strategy == "literal_baseline_token_prefix"
+            else "text-exact retokenized prefix"
+        )
+        rows.append(
+            (
+                str(endpoint["occurrence"]),
+                esc(endpoint["city"]),
+                esc(endpoint.get("item_text", "archive text unavailable")),
+                f"[{endpoint['char_start']}, {endpoint['char_end']})",
+                str(endpoint["endpoint_token"]),
+                str(endpoint["sequence_query_position"]),
+                esc(forward),
+            )
+        )
+    return html_table(
+        [
+            "k",
+            "city",
+            "parser item text",
+            "raw char span",
+            "output endpoint (0-based)",
+            "model sequence position (0-based)",
+            "forward path",
+        ],
+        rows,
+    )
+
+
+def partial_trace_details(partials: Iterable[Mapping[str, Any]]) -> str:
+    blocks = []
+    for row in partials:
+        if row.get("raw_excerpt") is None:
+            continue
+        blocks.append(
+            "<details>"
+            f"<summary>{esc(row['model'])} · {esc(row['split'])} · seed {row['seed']} · "
+            f"{row['observed']} observed item_end states · final {esc(row['parsed_count'])}</summary>"
+            f"<pre class=\"trace\">{esc(row['raw_excerpt'])}</pre>"
+            f"{endpoint_table(row['endpoint_sites'])}</details>"
+        )
+    if not blocks:
+        return '<p class="small">Raw generation archive was not supplied.</p>'
+    return "".join(blocks)
+
+
+def token_extraction_section(visual: Mapping[str, Any]) -> str:
+    count_rows = []
+    example_rows = []
+    policy_rows = []
+    for model in MODELS:
+        alignment = visual[model]["alignment"]
+        strategies = alignment["strategy_counts"]
+        count_rows.append(
+            (
+                esc(model),
+                str(alignment["item_end_sites"]),
+                str(strategies.get("literal_baseline_token_prefix", 0)),
+                str(strategies.get("text_exact_boundary_retokenization", 0)),
+                "yes" if alignment["trace_archive_verified"] else "no",
+            )
+        )
+        for example in alignment["examples"]:
+            example_rows.append(
+                (
+                    esc(model),
+                    f"{esc(example['split'])} / {example['seed']} / k={example['occurrence']}",
+                    esc(example["city"]),
+                    esc(example.get("item_text", "archive text unavailable")),
+                    f"[{example['char_start']}, {example['char_end']})",
+                    str(example["endpoint_token"]),
+                    str(example["sequence_query_position"]),
+                    esc(example["alignment_strategy"]),
+                )
+            )
+        for row in visual[model]["trace_policy"]:
+            categories = ", ".join(
+                f"{key}={value}"
+                for key, value in row["trace_categories"].items()
+            )
+            strategies = ", ".join(
+                f"{key}={value}"
+                for key, value in row["alignment_strategies"].items()
+            )
+            policy_rows.append(
+                (
+                    esc(model),
+                    esc(row["marker_kind"]),
+                    esc(row["selected_site_kind"]),
+                    str(row["trace_count"]),
+                    str(row["one_to_one_count"]),
+                    (
+                        f"{row['split_trace_counts']['discovery']}/"
+                        f"{row['split_trace_counts']['confirmation']}"
+                    ),
+                    (
+                        f"{row['one_to_one_split_trace_counts']['discovery']}/"
+                        f"{row['one_to_one_split_trace_counts']['confirmation']}"
+                    ),
+                    str(row["selected_state_count"]),
+                    esc(categories),
+                    esc(strategies),
+                )
+            )
+    counts = html_table(
+        [
+            "模型",
+            "N10 item_end sites",
+            "literal full-sequence",
+            "retokenized prefix",
+            "raw archive verified",
+        ],
+        count_rows,
+    )
+    examples = html_table(
+        [
+            "模型",
+            "example",
+            "city",
+            "parser item text",
+            "raw char span",
+            "output endpoint",
+            "sequence position",
+            "alignment strategy",
+        ],
+        example_rows,
+    )
+    policy = html_table(
+        [
+            "模型",
+            "marker_kind",
+            "trace-aware site",
+            "N10 traces",
+            "one-to-one",
+            "all D/C traces",
+            "1:1 D/C traces",
+            "states",
+            "trace categories",
+            "alignment strategies",
+        ],
+        policy_rows,
+    )
+    return f"""
+<section id="tokens"><h2>Trace → token → hidden state</h2>
+<p>Native trace 先由注册 parser 找到第一个满足终止规则的 gold-city list。第 k 个 parser item 的字符区间是 <code>[char_start, char_end)</code>，主站点 <code>item_end:k</code> 取该区间结束边界。随后用原始生成时保存的 <code>output_token_ids</code> 做 text-exact 对齐；只有 <code>alignment_eligible=true</code> 的站点进入 geometry。</p>
+<div class="callout"><strong>实际 capture 公式：</strong>相对 output 的 0-based endpoint 是 <code>endpoint_token = prefix_token_count - 1</code>；模型输入中的 0-based query position 是 <code>prompt_token_count + endpoint_token</code>。forward hook 读取每个 decoder block 的输出在该位置的 residual-stream vector，所以 L0 表示第 0 个 decoder block 的输出，而不是 embedding layer。</div>
+<div class="definitions two"><div><h3>Literal baseline boundary</h3><p>若 <code>raw_text[:char_end]</code> 与原始 output token prefix 完全同边界，则在一次完整 <code>prompt + output</code> forward 中直接取上述位置。</p></div><div><h3>Text-exact boundary retokenization</h3><p>若字符边界切开 tokenizer 的合并，不能错误地借用跨边界 token。此时将 <code>raw_text[:char_end]</code> 精确重分词，单独 forward <code>prompt + retokenized prefix</code>，取最后一个 token；该 state 与原 trace 共享边界前的 baseline prefix，但不是完整 trace forward 中某个 token 的冒名替代。</p></div></div>
+<div class="callout warning"><strong>Non-thinking 对照：</strong>站点不来自 response trace，而来自 prompt 中第 k 个 exact needle token span <code>[start,end)</code>；<code>span_end</code> 明确定义为每层 block 输出的 <code>hidden[0, end-1]</code>。因此三列共享 ordinal k，但 native 与 non-thinking 的 token 语义不同。</div>
+{counts}<details><summary>Representative character/token alignments</summary>{examples}</details>
+<h3>Parser-aware anchor sensitivity</h3>
+<p>parser 同时给出完整性类别 <code>trace_category</code> 和表面格式 <code>marker_kind</code>。实现固定到 <a href="{esc(PARSER_UPSTREAM_REPOSITORY)}/commit/{esc(PARSER_UPSTREAM_COMMIT)}"><code>{esc(PARSER_UPSTREAM_COMMIT[:12])}</code></a>。这里<strong>不让 trace_category 决定 token</strong>：one-to-one/partial/duplicate 是整条轨迹的覆盖结果，用它反向挑 token 会把 completion selection 写进 measurement。敏感性策略只读取 marker_kind：<code>indexed/ordinal → marker_end</code>；<code>bullet/audit_sentence/completion_recap → item_end</code>。bullet 符号在各项相同，不携带 k；两个 fallback 没有真实 marker。</p>
+<div class="callout warning"><strong>解释边界：</strong>trace-aware 是异质站点的诊断，不替代统一 <code>item_end</code> 主分析。尤其 indexed/ordinal 的 marker 本身可能直接暴露 k，分类变好可能只是显式文本 cue，而不是更紧密的内部 count state。报告因此允许切换两套 anchor，并分别重算每层 PCA、probe 与 SNR。</div>
+{policy}
+<div class="callout warning"><strong>已观测到的 split/site 混杂：</strong>Gemma one-to-one 的 confirmation 只有 3 条 seed，且三条全部是 <code>indexed → marker_end</code>；对应 discovery 则是 indexed 3、bullet 3、audit_sentence 1 的异质混合。因此这一格 trace-aware 的早层极高分数同时包含显式数字 token 与跨 split 站点构成变化，不能作为内部 counter 更紧的证据。</div>
+</section>"""
+
+
 def model_section(model: str, payload: Mapping[str, Any]) -> str:
     slug = "qwen" if model.startswith("Qwen") else "gemma"
     options = "".join(
@@ -523,6 +1083,7 @@ def model_section(model: str, payload: Mapping[str, Any]) -> str:
             f'<article class="geometry-card"><h3>{esc(title)}</h3>'
             f'<p>{esc(description)}</p>'
             f'<canvas id="{slug}-{key}" data-model="{esc(model)}" data-panel="{key}"></canvas>'
+            f'<div class="rotate-hint">drag to rotate · discovery-fitted PC1/PC2/PC3</div>'
             f'<div class="panel-stats" id="{slug}-{key}-stats"></div></article>'
         )
     return f"""
@@ -530,8 +1091,11 @@ def model_section(model: str, payload: Mapping[str, Any]) -> str:
   <div class="section-title"><div><div class="eyebrow">MODEL COMPARISON</div><h2>{esc(model)}</h2></div>
   <div class="controls"><label>Layer <select id="{slug}-layer">{options}</select></label>
   <label>Displayed panel <select id="{slug}-split"><option value="confirmation">confirmation only · 10 seeds / nominal 100</option><option value="all">all registered · 30 seeds / nominal 300</option></select></label>
+  <label>Native anchor <select id="{slug}-anchor"><option value="uniform">uniform item_end · primary</option><option value="trace_aware">trace-aware count boundary · sensitivity</option></select></label>
   <label>Final outcome <select id="{slug}-outcome"><option value="all">all</option><option value="correct">correct</option><option value="wrong">wrong</option></select></label></div></div>
   <div class="geometry-grid">{''.join(cards)}</div>
+  <div class="metric-block"><h3>Every-layer held-out tightness</h3><p class="small">PCA32；standardization/PCA/probes 只在 discovery 拟合。三张曲线都只评价 confirmation；Native anchor 切换会同步替换两条 native 曲线，点击曲线附近可切换上面的 3D layer。</p>
+  <div class="metric-grid"><article><h4>Logistic balanced accuracy</h4><canvas id="{slug}-metric-logistic"></canvas></article><article><h4>Nearest-centroid balanced accuracy</h4><canvas id="{slug}-metric-ncc"></canvas></article><article><h4>Class-balanced SNR (dB)</h4><canvas id="{slug}-metric-snr_db"></canvas></article></div></div>
 </section>
 """
 
@@ -541,48 +1105,79 @@ def build_html(
     visual: Mapping[str, Any],
     partials: list[dict[str, Any]],
 ) -> str:
+    gemma_trace_one = comparison["Gemma4-E4B"][32][
+        "native_one_to_one_trace_aware"
+    ]
     visual_json = json.dumps(visual, ensure_ascii=False, separators=(",", ":")).replace(
         "</", "<\\/"
     )
     css = """
 :root{--paper:#F3EEE4;--surface:#FFFDF8;--ink:#20242D;--muted:#626A74;--line:#C9C2B6;--indigo:#23165C;--violet:#6750E8;--teal:#00A88F;--yellow:#D6B52C}
-*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font-family:"Segoe UI",Arial,sans-serif;line-height:1.62}nav{position:sticky;top:0;z-index:5;display:flex;gap:18px;padding:10px 22px;background:rgba(243,238,228,.96);border-bottom:1px solid var(--line)}nav a{color:var(--indigo);font-size:13px;font-weight:750;text-decoration:none}main{max-width:1480px;margin:auto;padding:38px 28px 80px}header{max-width:1080px;border-bottom:2px solid var(--ink);padding-bottom:28px}.eyebrow{font:700 12px/1.2 Consolas,monospace;letter-spacing:.12em;color:var(--teal)}h1{font-size:44px;line-height:1.08;margin:10px 0 16px;letter-spacing:-.035em}h2{font-size:29px;margin:0}.lead{font-size:18px;color:#404852;max-width:92ch}section{padding:46px 0;border-bottom:1px solid var(--line)}.callout{max-width:1080px;background:var(--surface);border-left:4px solid var(--teal);padding:15px 19px;margin:20px 0}.warning{border-left-color:var(--yellow)}.definitions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}.definitions>div,.geometry-card{background:var(--surface);border:1px solid var(--line);padding:17px}.definitions h3,.geometry-card h3{color:var(--indigo);margin:0 0 8px;font-size:17px}.definitions p,.geometry-card p{font-size:13px;color:var(--muted);margin:0 0 12px}.section-title{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:18px}.controls{display:flex;gap:12px;flex-wrap:wrap}.controls label{font-size:12px;font-weight:700;color:var(--muted)}select{display:block;margin-top:4px;border:1px solid var(--line);background:var(--surface);padding:7px 28px 7px 9px;color:var(--ink)}.geometry-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.geometry-card canvas{display:block;width:100%;height:360px;background:#F8F4EC;border:1px solid #DDD5C9}.panel-stats{min-height:46px;margin-top:9px;color:var(--muted);font:12px/1.5 Consolas,monospace}.table-scroll{overflow:auto;background:var(--surface);border:1px solid var(--line);margin:16px 0 22px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid #DED8CE}th{position:sticky;top:0;background:#ECE6DA;color:#303744}.muted{color:var(--muted);font-size:11px}.legend{display:flex;gap:18px;flex-wrap:wrap;margin:12px 0;font-size:13px}.dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:-1px;background:var(--violet)}.dot.correct{border:3px solid white;box-shadow:0 0 0 1px #49515B}.dot.wrong{border:2px solid #20242D}.small{font-size:13px;color:var(--muted);max-width:110ch}details{background:var(--surface);border:1px solid var(--line);margin:18px 0}summary{cursor:pointer;padding:12px 15px;font-weight:750;color:var(--indigo)}details .table-scroll{border:0;border-top:1px solid var(--line);margin:0}.provenance{font:11px/1.6 Consolas,monospace;color:var(--muted)}
-@media(max-width:1050px){.geometry-grid,.definitions{grid-template-columns:1fr}.geometry-card canvas{height:390px}.section-title{align-items:flex-start;flex-direction:column}}@media(max-width:650px){main{padding:25px 13px 60px}h1{font-size:34px}.geometry-card canvas{height:330px}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font-family:"Segoe UI",Arial,sans-serif;line-height:1.62}nav{position:sticky;top:0;z-index:5;display:flex;gap:18px;padding:10px 22px;background:rgba(243,238,228,.96);border-bottom:1px solid var(--line)}nav a{color:var(--indigo);font-size:13px;font-weight:750;text-decoration:none}main{max-width:1480px;margin:auto;padding:38px 28px 80px}header{max-width:1080px;border-bottom:2px solid var(--ink);padding-bottom:28px}.eyebrow{font:700 12px/1.2 Consolas,monospace;letter-spacing:.12em;color:var(--teal)}h1{font-size:44px;line-height:1.08;margin:10px 0 16px;letter-spacing:-.035em}h2{font-size:29px;margin:0}.lead{font-size:18px;color:#404852;max-width:92ch}section{padding:46px 0;border-bottom:1px solid var(--line)}.callout{max-width:1080px;background:var(--surface);border-left:4px solid var(--teal);padding:15px 19px;margin:20px 0}.warning{border-left-color:var(--yellow)}.definitions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}.definitions.two{grid-template-columns:repeat(2,minmax(0,1fr))}.definitions>div,.geometry-card{background:var(--surface);border:1px solid var(--line);padding:17px}.definitions h3,.geometry-card h3{color:var(--indigo);margin:0 0 8px;font-size:17px}.definitions p,.geometry-card p{font-size:13px;color:var(--muted);margin:0 0 12px}.section-title{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:18px}.controls{display:flex;gap:12px;flex-wrap:wrap}.controls label{font-size:12px;font-weight:700;color:var(--muted)}select{display:block;margin-top:4px;border:1px solid var(--line);background:var(--surface);padding:7px 28px 7px 9px;color:var(--ink)}.geometry-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.geometry-card canvas{display:block;width:100%;height:360px;background:#F8F4EC;border:1px solid #DDD5C9;touch-action:none;cursor:grab}.geometry-card canvas:active{cursor:grabbing}.rotate-hint{margin-top:5px;color:#7A7270;font:10px/1.4 Consolas,monospace}.panel-stats{min-height:70px;margin-top:7px;color:var(--muted);font:12px/1.5 Consolas,monospace}.metric-block{margin-top:24px}.metric-block h3{color:var(--indigo);margin-bottom:2px}.metric-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:12px}.metric-grid article{background:var(--surface);border:1px solid var(--line);padding:12px}.metric-grid h4{font-size:13px;color:var(--indigo);margin:0 0 7px}.metric-grid canvas{width:100%;height:190px;display:block;background:#F8F4EC;border:1px solid #DDD5C9;cursor:crosshair}.table-scroll{overflow:auto;background:var(--surface);border:1px solid var(--line);margin:16px 0 22px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid #DED8CE}th{position:sticky;top:0;background:#ECE6DA;color:#303744}.muted{color:var(--muted);font-size:11px}.legend{display:flex;gap:18px;flex-wrap:wrap;margin:12px 0;font-size:13px}.dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:-1px;background:var(--violet)}.dot.correct{border:3px solid white;box-shadow:0 0 0 1px #49515B}.dot.wrong{border:2px solid #20242D}.small{font-size:13px;color:var(--muted);max-width:110ch}details{background:var(--surface);border:1px solid var(--line);margin:18px 0}summary{cursor:pointer;padding:12px 15px;font-weight:750;color:var(--indigo)}details .table-scroll{border:0;border-top:1px solid var(--line);margin:0}.trace{white-space:pre-wrap;overflow-wrap:anywhere;background:#F8F4EC;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:0;padding:16px;font:12px/1.55 Consolas,monospace}.provenance{font:11px/1.6 Consolas,monospace;color:var(--muted)}
+@media(max-width:1050px){.geometry-grid,.definitions,.definitions.two,.metric-grid{grid-template-columns:1fr}.geometry-card canvas{height:390px}.section-title{align-items:flex-start;flex-direction:column}}@media(max-width:650px){main{padding:25px 13px 60px}h1{font-size:34px}.geometry-card canvas{height:330px}}
 """
     script = """
 const DATA=__VISUAL_DATA__;
 const COLORS=['#6750E8','#00A9D8','#00A88F','#2DBE77','#A7C957','#D6B52C','#F29E4C','#E76F51','#D94B86','#8E5DB7'];
-function filtered(model,panel,layer,split,outcome){
-  const block=DATA[model].panels[panel][String(layer)]; if(!block)return {points:[],evr:[]};
-  return {evr:block.evr,points:block.points.filter(p=>(split==='all'||p[0]===split)&&(outcome==='all'||(outcome==='correct'?p[3]===1:p[3]===0)))};
+const PANEL_COLORS={non_thinking:'#20242D',native_one_to_one:'#D6A900',native_aligned:'#00A88F'};
+const PANELS=['non_thinking','native_one_to_one','native_aligned'];
+const VIEWS={};
+function slug(model){return model.startsWith('Qwen')?'qwen':'gemma'}
+function controls(model){const s=slug(model);return {layer:+document.getElementById(s+'-layer').value,split:document.getElementById(s+'-split').value,anchor:document.getElementById(s+'-anchor').value,outcome:document.getElementById(s+'-outcome').value}}
+function panelKey(panel,anchor){return panel==='non_thinking'||anchor==='uniform'?panel:panel+'_trace_aware'}
+function filtered(model,panel,layer,split,outcome,anchor){
+  const key=panelKey(panel,anchor),block=DATA[model].panels[key][String(layer)];if(!block)return {points:[],evr:[],key};
+  return {evr:block.evr,key,points:block.points.filter(p=>(split==='all'||p[0]===split)&&(outcome==='all'||(outcome==='correct'?p[3]===1:p[3]===0)))};
 }
-function draw(canvas,model,panel,layer,split,outcome){
-  const {points,evr}=filtered(model,panel,layer,split,outcome),rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+function rotate3(x,y,z,view){
+  const cy=Math.cos(view.yaw),sy=Math.sin(view.yaw),cp=Math.cos(view.pitch),sp=Math.sin(view.pitch);
+  const x1=cy*x+sy*z,z1=-sy*x+cy*z;
+  return [x1,cp*y-sp*z1,sp*y+cp*z1];
+}
+function draw3D(canvas,model,panel,layer,split,outcome,anchor){
+  const {points,evr,key}=filtered(model,panel,layer,split,outcome,anchor),rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
   canvas.width=Math.max(1,Math.round(rect.width*dpr));canvas.height=Math.max(1,Math.round(rect.height*dpr));
-  const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);const w=rect.width,h=rect.height;c.clearRect(0,0,w,h);
-  const pad={l:42,r:17,t:18,b:34};if(!points.length){c.fillStyle='#6A727D';c.font='14px Segoe UI';c.fillText('No states match this filter.',20,30);return;}
-  const xs=points.map(p=>p[5]),ys=points.map(p=>p[6]);let xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);
-  const dx=Math.max(xmax-xmin,1e-6),dy=Math.max(ymax-ymin,1e-6);xmin-=dx*.09;xmax+=dx*.09;ymin-=dy*.09;ymax+=dy*.09;
-  const sx=x=>pad.l+(x-xmin)/(xmax-xmin)*(w-pad.l-pad.r),sy=y=>h-pad.b-(y-ymin)/(ymax-ymin)*(h-pad.t-pad.b);
-  c.strokeStyle='#D9D2C7';c.lineWidth=1;if(xmin<=0&&xmax>=0){c.beginPath();c.moveTo(sx(0),pad.t);c.lineTo(sx(0),h-pad.b);c.stroke()}if(ymin<=0&&ymax>=0){c.beginPath();c.moveTo(pad.l,sy(0));c.lineTo(w-pad.r,sy(0));c.stroke()}
+  const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);const w=rect.width,h=rect.height,stat=document.getElementById(canvas.id+'-stats');c.clearRect(0,0,w,h);
+  if(!points.length){c.fillStyle='#6A727D';c.font='14px Segoe UI';c.fillText('No states match this filter.',20,30);stat.textContent=`L${layer} · no states match this display filter`;return}
+  const view=VIEWS[canvas.id]||(VIEWS[canvas.id]={yaw:-.72,pitch:.46});
   const groups=new Map();for(const p of points){if(!groups.has(p[2]))groups.set(p[2],[]);groups.get(p[2]).push(p)}
-  const cent=[...groups.entries()].sort((a,b)=>a[0]-b[0]).map(([k,ps])=>[k,ps.reduce((s,p)=>s+p[5],0)/ps.length,ps.reduce((s,p)=>s+p[6],0)/ps.length,ps.length]);
-  c.strokeStyle='#2C3440';c.lineWidth=2;c.beginPath();cent.forEach((p,i)=>i?c.lineTo(sx(p[1]),sy(p[2])):c.moveTo(sx(p[1]),sy(p[2])));c.stroke();
-  for(const p of points){c.globalAlpha=.66;c.fillStyle=COLORS[p[2]-1];c.strokeStyle=p[3]===1?'#FFFDF8':'#20242D';c.lineWidth=p[3]===1?2.4:1.15;c.beginPath();c.arc(sx(p[5]),sy(p[6]),3.3,0,Math.PI*2);c.fill();c.stroke()}
-  c.globalAlpha=1;for(const p of cent){c.fillStyle=COLORS[p[0]-1];c.strokeStyle='#20242D';c.lineWidth=1.3;c.beginPath();c.arc(sx(p[1]),sy(p[2]),6,0,Math.PI*2);c.fill();c.stroke();c.fillStyle='#20242D';c.font='10px Consolas';c.fillText(String(p[0]),sx(p[1])+7,sy(p[2])-7)}
-  c.fillStyle='#4F5863';c.font='11px Consolas';c.fillText('PC1',w-38,h-10);c.save();c.translate(13,41);c.rotate(-Math.PI/2);c.fillText('PC2',0,0);c.restore();
-  const seeds=new Set(points.map(p=>p[0]+':'+p[1])).size,counts=cent.map(p=>p[3]),nominal=split==='confirmation'?100:(split==='all'?300:seeds*10);const stat=document.getElementById(canvas.id+'-stats');
-  stat.textContent=`L${layer} · nominal ${nominal} · actual ${points.length} states · ${seeds} seeds · nₖ ${Math.min(...counts)}–${Math.max(...counts)} · EVR(PC1–3) ${(100*evr.reduce((a,b)=>a+b,0)).toFixed(1)}%`;
+  const cent=[...groups.entries()].sort((a,b)=>a[0]-b[0]).map(([k,ps])=>[k,ps.reduce((s,p)=>s+p[5],0)/ps.length,ps.reduce((s,p)=>s+p[6],0)/ps.length,ps.reduce((s,p)=>s+p[7],0)/ps.length,ps.length]);
+  const rotated=points.map(p=>({p,r:rotate3(p[5],p[6],p[7],view)}));
+  const rcent=cent.map(p=>({p,r:rotate3(p[1],p[2],p[3],view)}));
+  const maxAbs=Math.max(...points.flatMap(p=>[Math.abs(p[5]),Math.abs(p[6]),Math.abs(p[7])]),1e-6),axisLen=maxAbs*.72;
+  const axes=[['PC1','#D14B4B',rotate3(axisLen,0,0,view)],['PC2','#008E7B',rotate3(0,axisLen,0,view)],['PC3','#6750E8',rotate3(0,0,axisLen,view)]];
+  const xy=rotated.map(o=>o.r).concat(axes.map(a=>a[2]),[[0,0,0]]);let xmin=Math.min(...xy.map(v=>v[0])),xmax=Math.max(...xy.map(v=>v[0])),ymin=Math.min(...xy.map(v=>v[1])),ymax=Math.max(...xy.map(v=>v[1]));
+  const dx=Math.max(xmax-xmin,1e-6),dy=Math.max(ymax-ymin,1e-6);xmin-=dx*.11;xmax+=dx*.11;ymin-=dy*.11;ymax+=dy*.11;const pad={l:23,r:23,t:18,b:22},sx=x=>pad.l+(x-xmin)/(xmax-xmin)*(w-pad.l-pad.r),sy=y=>h-pad.b-(y-ymin)/(ymax-ymin)*(h-pad.t-pad.b);
+  for(const [label,color,end] of axes){c.strokeStyle=color;c.lineWidth=1.25;c.beginPath();c.moveTo(sx(0),sy(0));c.lineTo(sx(end[0]),sy(end[1]));c.stroke();c.fillStyle=color;c.font='10px Consolas';c.fillText(label,sx(end[0])+3,sy(end[1])-3)}
+  c.strokeStyle='#2C3440';c.globalAlpha=.8;c.lineWidth=2;c.beginPath();rcent.forEach((o,i)=>i?c.lineTo(sx(o.r[0]),sy(o.r[1])):c.moveTo(sx(o.r[0]),sy(o.r[1])));c.stroke();
+  const depths=rotated.map(o=>o.r[2]),zmin=Math.min(...depths),zmax=Math.max(...depths),zspan=Math.max(zmax-zmin,1e-6);rotated.sort((a,b)=>a.r[2]-b.r[2]);
+  for(const o of rotated){const p=o.p,depth=(o.r[2]-zmin)/zspan;c.globalAlpha=.42+.45*depth;c.fillStyle=COLORS[p[2]-1];c.strokeStyle=p[3]===1?'#FFFDF8':'#20242D';c.lineWidth=p[3]===1?2.25:1.05;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),2.7+1.25*depth,0,Math.PI*2);c.fill();c.stroke()}
+  c.globalAlpha=1;for(const o of rcent){const p=o.p;c.fillStyle=COLORS[p[0]-1];c.strokeStyle='#20242D';c.lineWidth=1.3;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),5.8,0,Math.PI*2);c.fill();c.stroke();c.fillStyle='#20242D';c.font='10px Consolas';c.fillText(String(p[0]),sx(o.r[0])+7,sy(o.r[1])-6)}
+  const seeds=new Set(points.map(p=>p[0]+':'+p[1])).size,counts=cent.map(p=>p[4]),nominal=split==='confirmation'?100:300,metric=DATA[model].metrics[key][String(layer)],anchorText=panel==='non_thinking'?'prompt span_end':(anchor==='uniform'?'uniform item_end':'trace-aware boundary');
+  const metricText=metric?`held-out C: logistic BA ${(100*metric.logistic).toFixed(1)}% · NCC BA ${(100*metric.ncc).toFixed(1)}% · SNR ${metric.snr.toFixed(3)} (${metric.snr_db.toFixed(2)} dB)`:'';
+  stat.textContent=`${anchorText} · L${layer} · nominal ${nominal} · actual ${points.length} states · ${seeds} seeds · nₖ ${Math.min(...counts)}–${Math.max(...counts)} · EVR(PC1–3) ${(100*evr.reduce((a,b)=>a+b,0)).toFixed(1)}% · ${metricText}`;
 }
-function redraw(model){const slug=model.startsWith('Qwen')?'qwen':'gemma',layer=+document.getElementById(slug+'-layer').value,split=document.getElementById(slug+'-split').value,outcome=document.getElementById(slug+'-outcome').value;for(const panel of ['non_thinking','native_one_to_one','native_aligned'])draw(document.getElementById(slug+'-'+panel),model,panel,layer,split,outcome)}
-for(const model of Object.keys(DATA)){const slug=model.startsWith('Qwen')?'qwen':'gemma';for(const key of ['layer','split','outcome'])document.getElementById(slug+'-'+key).addEventListener('change',()=>redraw(model));redraw(model)}
+function drawMetric(canvas,model,field){
+  const rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;canvas.width=Math.max(1,Math.round(rect.width*dpr));canvas.height=Math.max(1,Math.round(rect.height*dpr));const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);const w=rect.width,h=rect.height,pad={l:39,r:10,t:13,b:27},layers=DATA[model].layers,ctl=controls(model),current=ctl.layer;
+  const series=PANELS.map(panel=>({panel,values:layers.map(layer=>DATA[model].metrics[panelKey(panel,ctl.anchor)][String(layer)][field])}));let ymin,ymax;if(field==='logistic'||field==='ncc'){ymin=0;ymax=1}else{const all=series.flatMap(s=>s.values),span=Math.max(Math.max(...all)-Math.min(...all),1);ymin=Math.min(...all)-.08*span;ymax=Math.max(...all)+.08*span}
+  const sx=layer=>pad.l+(layer-layers[0])/Math.max(layers[layers.length-1]-layers[0],1)*(w-pad.l-pad.r),sy=value=>h-pad.b-(value-ymin)/Math.max(ymax-ymin,1e-9)*(h-pad.t-pad.b);
+  c.clearRect(0,0,w,h);c.strokeStyle='#D7D0C5';c.lineWidth=1;for(let i=0;i<=4;i++){const y=pad.t+i*(h-pad.t-pad.b)/4;c.beginPath();c.moveTo(pad.l,y);c.lineTo(w-pad.r,y);c.stroke()}
+  c.strokeStyle='#8B8490';c.setLineDash([4,3]);c.beginPath();c.moveTo(sx(current),pad.t);c.lineTo(sx(current),h-pad.b);c.stroke();c.setLineDash([]);
+  for(const s of series){c.strokeStyle=PANEL_COLORS[s.panel];c.lineWidth=s.panel==='native_aligned'?2.5:1.75;c.beginPath();layers.forEach((layer,i)=>i?c.lineTo(sx(layer),sy(s.values[i])):c.moveTo(sx(layer),sy(s.values[i])));c.stroke();const idx=layers.indexOf(current);c.fillStyle=PANEL_COLORS[s.panel];c.beginPath();c.arc(sx(current),sy(s.values[idx]),3.5,0,Math.PI*2);c.fill()}
+  c.fillStyle='#4F5863';c.font='10px Consolas';c.fillText(field==='snr_db'?ymax.toFixed(1):Math.round(100*ymax)+'%',3,pad.t+3);c.fillText(field==='snr_db'?ymin.toFixed(1):Math.round(100*ymin)+'%',3,h-pad.b+3);c.fillText('L'+layers[0],pad.l-5,h-8);c.fillText('L'+layers[layers.length-1],w-pad.r-23,h-8);c.fillText('selected L'+current,Math.max(pad.l,Math.min(w-86,sx(current)-30)),12);
+  let lx=pad.l;for(const [panel,label] of [['non_thinking','NT'],['native_one_to_one','1:1'],['native_aligned','aligned']]){c.fillStyle=PANEL_COLORS[panel];c.fillRect(lx,h-20,12,2);c.fillStyle='#4F5863';c.fillText(label,lx+15,h-16);lx+=label==='aligned'?70:48}
+  canvas.onclick=e=>{const box=canvas.getBoundingClientRect(),raw=(e.clientX-box.left-pad.l)/Math.max(box.width-pad.l-pad.r,1),target=layers[0]+Math.max(0,Math.min(1,raw))*(layers[layers.length-1]-layers[0]);const nearest=layers.reduce((a,b)=>Math.abs(b-target)<Math.abs(a-target)?b:a);document.getElementById(slug(model)+'-layer').value=String(nearest);redraw(model)};
+}
+function redraw(model){const ctl=controls(model),s=slug(model);for(const panel of PANELS)draw3D(document.getElementById(s+'-'+panel),model,panel,ctl.layer,ctl.split,ctl.outcome,ctl.anchor);for(const field of ['logistic','ncc','snr_db'])drawMetric(document.getElementById(s+'-metric-'+field),model,field)}
+function setup3D(canvas,model,panel){let active=false,lastX=0,lastY=0;canvas.addEventListener('pointerdown',e=>{active=true;lastX=e.clientX;lastY=e.clientY;canvas.setPointerCapture(e.pointerId)});canvas.addEventListener('pointermove',e=>{if(!active)return;const view=VIEWS[canvas.id]||(VIEWS[canvas.id]={yaw:-.72,pitch:.46});view.yaw+=(e.clientX-lastX)*.009;view.pitch=Math.max(-1.45,Math.min(1.45,view.pitch+(e.clientY-lastY)*.009));lastX=e.clientX;lastY=e.clientY;const ctl=controls(model);draw3D(canvas,model,panel,ctl.layer,ctl.split,ctl.outcome,ctl.anchor)});const stop=()=>{active=false};canvas.addEventListener('pointerup',stop);canvas.addEventListener('pointercancel',stop)}
+for(const model of Object.keys(DATA)){const s=slug(model);for(const key of ['layer','split','anchor','outcome'])document.getElementById(s+'-'+key).addEventListener('change',()=>redraw(model));for(const panel of PANELS)setup3D(document.getElementById(s+'-'+panel),model,panel);redraw(model)}
 let timer;window.addEventListener('resize',()=>{clearTimeout(timer);timer=setTimeout(()=>Object.keys(DATA).forEach(redraw),100)});
 """.replace("__VISUAL_DATA__", visual_json)
 
     partial_confirmation = [row for row in partials if row["split"] == "confirmation"]
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NiaH Geometry Comparison</title><style>{css}</style></head>
-<body><nav><a href="#design">口径</a><a href="#qwen">Qwen</a><a href="#gemma">Gemma</a><a href="#metrics">指标</a><a href="#partial">部分轨迹</a></nav><main>
+<body><nav><a href="#design">口径</a><a href="#tokens">Token 提取</a><a href="#qwen">Qwen</a><a href="#gemma">Gemma</a><a href="#metrics">指标</a><a href="#partial">部分轨迹</a></nav><main>
 <header><div class="eyebrow">REALISTIC NIAH · THREE-COHORT GEOMETRY</div><h1>NiaH Geometry Comparison</h1>
 <p class="lead">同一份报告并列展示 non-thinking、经过 one-to-one 结构清洗的 native-thinking，以及使用共享 30 seeds、按实际出现 ordinal 对齐的 native-thinking。</p></header>
 <section id="design"><h2>比较口径</h2><div class="definitions"><div><h3>1 · Non-thinking</h3><p>固定 V4.4 N=10 prompt；第 k 类是 prompt 中第 k 个真实 needle 的 span-end state。每个 seed 固定有十个位置。</p></div><div><h3>2 · Native · one-to-one</h3><p>第 k 类是 response 中第 k 个 item-end state。要求 parser-observed city multiset 与 gold 严格相等、无重复或遗漏；不筛最终答案正确性。这是 completion-conditioned sensitivity。</p></div><div><h3>3 · Native · ordinal-aligned</h3><p>同一套 30 seeds 上保留所有 parser-hit。模型实际写出的第 k 项标为 k；少写就少观测，不插值、不补齐。</p></div></div>
@@ -590,13 +1185,15 @@ let timer;window.addEventListener('resize',()=>{clearTimeout(timer);timer=setTim
 <div class="callout"><strong>标签分离：</strong>位置标签始终是 <code>occurrence=k</code>；<code>final exact_count</code> 只控制点的轮廓，不参与 PCA、probe class 或 aligned cohort 入选。</div>
 <div class="callout"><strong>“少数了”的两种含义：</strong>non-thinking 即使最终输出 6 而不是 10，N=10 prompt 中十个真实 needle endpoints 仍全部存在，所以仍贡献十个位置 state；native-thinking 若 response 只实际写出六项，则只有六个 item-end states。二者都保留错误样本，但只有后者会产生 ragged position support。</div>
 <div class="callout warning"><strong>站点语义边界：</strong>non-thinking 是 prompt needle endpoint，native-thinking 是 response item endpoint。三列比较的是“运行位置几何是否形成”，不是声称三个站点是同一个 token-level random variable。图可在 confirmation-only（10 seeds，nominal 100）与全注册 panel（30 seeds，nominal 300）之间切换；native 列始终另报实际可观测 state 数。</div></section>
+{token_extraction_section(visual)}
 {model_section('Qwen3-8B', visual['Qwen3-8B'])}
 {model_section('Gemma4-E4B', visual['Gemma4-E4B'])}
-<section id="metrics"><h2>Held-out 定量比较</h2><p class="small">所有 PCA/标准化/probe 只在 discovery 拟合，数值只在 confirmation 评价。表中跨层最大值是描述性 layer scan；one-to-one 与 full-panel 的 seed population 不同，不能把差值直接归因于清洗操作。</p>{metric_table(comparison)}</section>
+<section id="metrics"><h2>Held-out 定量比较</h2><p class="small">所有标准化、PCA32、logistic 与 nearest-centroid prototype 只在 discovery 拟合，数值只在 confirmation 评价。Logistic/NCC 报 balanced accuracy，以免 aligned panel 的 late-position 支持较少而改变类权重。SNR 是 confirmation 上的 class-balanced trace ratio：十个 centroid 围绕其等权 grand centroid 的平均平方距离，除以各类内部平均平方残差；同时报告 ratio 与 <code>10 log10(ratio)</code> dB，越高表示单位类内噪声对应的类间信号越强。表中跨层最大值是描述性 layer scan；one-to-one 与 full-panel 的 seed population 不同，不能把差值直接归因于清洗操作。trace-aware 与 item_end 使用相同轨迹和 ordinal support，但 selected token 不同；其差值是 anchor sensitivity，也不能直接解释为内部 counter 增强。</p>
+<div class="callout warning"><strong>不要误读最高值：</strong>Gemma one-to-one trace-aware 的 Logistic 峰值为 {pct(gemma_trace_one['logistic'])} @ L{gemma_trace_one['logistic_layer']}，SNR 峰值为 {gemma_trace_one['snr']:.3f} / {gemma_trace_one['snr_db']:.2f} dB @ L{gemma_trace_one['snr_layer']}。但 confirmation 只有 3 个 indexed seeds，测到的是显式数字 marker 的可分性并叠加 split/site composition shift；这项数值是 artifact diagnostic，不进入机制主证据。</div>{metric_table(comparison)}</section>
 <section id="partial"><h2>部分轨迹如何进入 aligned 列</h2><p>下面列出 confirmation 中所有非 one-to-one 轨迹。<code>ordinal labels</code> 正是进入第三列的 class；例如只有 <code>1,2</code> 就只贡献两个 state。最终答案可以仍然是 10，这不会虚构第 3–10 个 item-end state。</p><details open><summary>Confirmation partial trajectories · {len(partial_confirmation)} rows</summary>{partial_table(partial_confirmation)}</details>
-<p class="small">这里展示的是本地 capture manifest 中可审计的 parser 结果。生成全文没有包含在本地 geometry export；接回 native-thinking filestream 后，可再把原始 trace 片段并入此节。</p></section>
+<h3>原始 trace 与实际 endpoint</h3><p class="small">下列片段来自服务器 generation 存档，并已按 request ID、prompt token count、output token count 与本地 capture manifest 对账。表中 sequence position 是实际送入对应 forward 的 0-based query index。</p>{partial_trace_details(partial_confirmation)}</section>
 <section><h2>解释优先级</h2><div class="callout"><strong>主结果：</strong>第三列（ordinal-aligned full panel）回答共享 seed panel 上的总体问题。第二列只作为敏感性分析，回答“条件于完整写出十项时，几何怎样”。若两列不同，首先解释为 trajectory-completion selection，而不是几何被“修复”。</div>
-<p class="provenance">Report schema: niah_geometry_comparison_v1 · display PCA: discovery-fitted, independently fit per column · quantitative PCA: discovery-fitted 32-dimensional pipeline</p></section>
+<p class="provenance">Report schema: niah_geometry_comparison_v3_trace_aware_all_layers_3d_snr · display PCA3: discovery-fitted independently per column, anchor and layer · quantitative PCA32: discovery-fitted · probes: discovery fit / confirmation evaluation</p></section>
 </main><script>{script}</script></body></html>"""
 
 
@@ -606,17 +1203,36 @@ def main() -> None:
     parser.add_argument("--native-capture-root", type=Path, required=True)
     parser.add_argument("--aligned-geometry-root", type=Path, required=True)
     parser.add_argument("--one-to-one-geometry-root", type=Path, required=True)
+    parser.add_argument(
+        "--trace-aware-aligned-geometry-root", type=Path, required=True
+    )
+    parser.add_argument(
+        "--trace-aware-one-to-one-geometry-root", type=Path, required=True
+    )
+    parser.add_argument(
+        "--native-trace-root",
+        type=Path,
+        help=(
+            "Optional root containing <model>/generations.jsonl. When supplied, "
+            "raw partial-trace excerpts and character/token endpoint audits are embedded."
+        ),
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
 
     comparison, aligned_peak, metric_inputs = load_metric_comparison(
-        args.aligned_geometry_root.resolve(), args.one_to_one_geometry_root.resolve()
+        args.aligned_geometry_root.resolve(),
+        args.one_to_one_geometry_root.resolve(),
+        args.trace_aware_aligned_geometry_root.resolve(),
+        args.trace_aware_one_to_one_geometry_root.resolve(),
     )
     visual, partials, visual_inputs = build_visual_data(
         args.non_thinking_export_root.resolve(),
         args.native_capture_root.resolve(),
         aligned_peak,
+        comparison,
+        None if args.native_trace_root is None else args.native_trace_root.resolve(),
     )
     document = build_html(comparison, visual, partials)
     output = args.output.resolve()
@@ -625,7 +1241,7 @@ def main() -> None:
     output.write_text(document, encoding="utf-8")
     all_inputs = sorted(set(metric_inputs + visual_inputs), key=str)
     manifest = {
-        "schema_version": "niah_geometry_comparison_v1",
+        "schema_version": "niah_geometry_comparison_v3_trace_aware_all_layers_3d_snr",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "three_columns": [
             "non_thinking_full_panel",
@@ -633,6 +1249,20 @@ def main() -> None:
             "native_thinking_ordinal_aligned_full_panel",
         ],
         "position_label": "ordinal occurrence 1-10",
+        "native_anchor_options": {
+            "primary": "uniform item_end",
+            "sensitivity": {
+                "policy": "trace_aware_count_boundary",
+                "mapping": TRACE_AWARE_SITE_BY_MARKER_KIND,
+            },
+        },
+        "parser_upstream": {
+            "repository": PARSER_UPSTREAM_REPOSITORY,
+            "commit": PARSER_UPSTREAM_COMMIT,
+        },
+        "display_geometry": "all decoder layers; discovery-fitted PCA3; interactive orthographic rotation",
+        "quantitative_geometry": "discovery-fitted PCA32; confirmation-only balanced accuracy and class-balanced SNR",
+        "native_primary_site": "parser item_end:k aligned to endpoint_token=prefix_token_count-1",
         "final_correctness_role": "display attribute only; never a geometry class or primary cohort filter",
         "inputs": {str(path): sha256(path) for path in all_inputs},
         "output": str(output),

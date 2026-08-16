@@ -165,7 +165,8 @@
     ]
   },
   "regularization": "discovery-fitted PCA plus OAS class covariance; MANOVA generalized eigenvalues use an explicit trace-scaled ridge",
-  "schema_version": "realistic_niah_cross_mode_position_geometry_v2_fixed_seed_panel",
+  "schema_version": "realistic_niah_cross_mode_position_geometry_v3_snr",
+  "snr_definition": "confirmation-only class-balanced trace ratio after discovery-fitted standardization and PCA: mean_k ||mu_k - mean_j(mu_j)||^2 divided by mean_k mean_i ||x_ki - mu_k||^2; dB = 10 log10(ratio); higher means more centroid separation per unit within-class scatter",
   "stimulus_alignment": "exact split/seed/stimulus_id match",
   "uncertainty": "matched-panel delete-one-confirmation-seed jackknife; native-thinking positions may be missing within a seed"
 }

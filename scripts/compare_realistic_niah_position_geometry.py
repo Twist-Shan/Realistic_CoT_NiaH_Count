@@ -29,6 +29,17 @@ def main() -> None:
     parser.add_argument("--non-thinking-pooling", default="span_end")
     parser.add_argument("--native-site-kind", default="item_end")
     parser.add_argument(
+        "--native-site-policy",
+        choices=["uniform", "trace_aware_count_boundary"],
+        default="uniform",
+        help=(
+            "uniform uses --native-site-kind for every trace. "
+            "trace_aware_count_boundary uses marker_end for indexed/ordinal "
+            "traces and item_end for bullet/audit_sentence/completion_recap; "
+            "this is a heterogeneous sensitivity estimand, not the primary site."
+        ),
+    )
+    parser.add_argument(
         "--native-cohort",
         choices=["parser_hit", "one_to_one", "one_to_one_correct"],
         default="parser_hit",
@@ -49,6 +60,7 @@ def main() -> None:
         design_variant=args.design_variant,
         non_thinking_pooling=args.non_thinking_pooling,
         native_site_kind=args.native_site_kind,
+        native_site_policy=args.native_site_policy,
         native_cohort=args.native_cohort,
         pca_dim=args.pca_dim,
         layers=args.layers,

@@ -60,7 +60,24 @@
   ],
   "model_label": "Gemma4-E4B",
   "native_cohort": "parser_hit",
+  "native_marker_kind_support": {
+    "audit_sentence": 35,
+    "bullet": 99,
+    "indexed": 69
+  },
+  "native_selected_site_support": {
+    "item_end": 134,
+    "marker_end": 69
+  },
   "native_site_kind": "item_end",
+  "native_site_policy": "trace_aware_count_boundary",
+  "native_site_policy_mapping": {
+    "audit_sentence": "item_end",
+    "bullet": "item_end",
+    "completion_recap": "item_end",
+    "indexed": "marker_end",
+    "ordinal": "marker_end"
+  },
   "native_thinking_capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_position_geometry_inputs\\Gemma4-E4B\\capture_index.jsonl",
   "nc4_note": "No native classifier is trained on these intermediate position labels; reported NCC accuracy and probe-NCC disagreement are NC4-like diagnostics, not the original terminal-classifier NC4 statistic.",
   "non_thinking_capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\exports\\run_20260731_v4_numeric_presentation_v3\\Gemma4-E4B\\numeric\\representation\\capture\\capture_index.jsonl",

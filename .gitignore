@@ -52,6 +52,8 @@ reports/v*_realistic_niah_analysis_*/
 /work/v445_gemma_partial_run/
 /work/v446_layerwise_subspace_20260809/
 /work/v5_position_geometry_inputs/
+/work/niah-parser-reference/
+/work/remote_native_traces_*/
 /work/audit_confirmation_qwen_partial.jsonl
 /work/audit_pilot_*.jsonl
 /work/audit_v445_canonical_stimuli.py

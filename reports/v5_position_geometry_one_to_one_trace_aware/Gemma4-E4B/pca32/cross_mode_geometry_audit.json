@@ -1,5 +1,5 @@
 {
-  "analysis_design": "fixed_registered_seed_panel_observed_positions",
+  "analysis_design": "complete_trajectory_paired_sensitivity",
   "classification_weighting": "class-balanced multinomial logistic fit; balanced accuracy is the primary summary when position support is ragged",
   "cluster_labels": [
     1,
@@ -59,8 +59,25 @@
     41
   ],
   "model_label": "Gemma4-E4B",
-  "native_cohort": "parser_hit",
+  "native_cohort": "one_to_one",
+  "native_marker_kind_support": {
+    "audit_sentence": 10,
+    "bullet": 30,
+    "indexed": 60
+  },
+  "native_selected_site_support": {
+    "item_end": 40,
+    "marker_end": 60
+  },
   "native_site_kind": "item_end",
+  "native_site_policy": "trace_aware_count_boundary",
+  "native_site_policy_mapping": {
+    "audit_sentence": "item_end",
+    "bullet": "item_end",
+    "completion_recap": "item_end",
+    "indexed": "marker_end",
+    "ordinal": "marker_end"
+  },
   "native_thinking_capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_position_geometry_inputs\\Gemma4-E4B\\capture_index.jsonl",
   "nc4_note": "No native classifier is trained on these intermediate position labels; reported NCC accuracy and probe-NCC disagreement are NC4-like diagnostics, not the original terminal-classifier NC4 statistic.",
   "non_thinking_capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\exports\\run_20260731_v4_numeric_presentation_v3\\Gemma4-E4B\\numeric\\representation\\capture\\capture_index.jsonl",
@@ -70,8 +87,20 @@
   "position_support": {
     "native_thinking": {
       "confirmation": {
-        "1": 10,
+        "1": 3,
         "10": 3,
+        "2": 3,
+        "3": 3,
+        "4": 3,
+        "5": 3,
+        "6": 3,
+        "7": 3,
+        "8": 3,
+        "9": 3
+      },
+      "discovery": {
+        "1": 7,
+        "10": 7,
         "2": 7,
         "3": 7,
         "4": 7,
@@ -79,45 +108,33 @@
         "6": 7,
         "7": 7,
         "8": 7,
-        "9": 5
-      },
-      "discovery": {
-        "1": 20,
-        "10": 7,
-        "2": 19,
-        "3": 16,
-        "4": 15,
-        "5": 13,
-        "6": 12,
-        "7": 12,
-        "8": 12,
-        "9": 10
+        "9": 7
       }
     },
     "non_thinking": {
       "confirmation": {
-        "1": 10,
-        "10": 10,
-        "2": 10,
-        "3": 10,
-        "4": 10,
-        "5": 10,
-        "6": 10,
-        "7": 10,
-        "8": 10,
-        "9": 10
+        "1": 3,
+        "10": 3,
+        "2": 3,
+        "3": 3,
+        "4": 3,
+        "5": 3,
+        "6": 3,
+        "7": 3,
+        "8": 3,
+        "9": 3
       },
       "discovery": {
-        "1": 20,
-        "10": 20,
-        "2": 20,
-        "3": 20,
-        "4": 20,
-        "5": 20,
-        "6": 20,
-        "7": 20,
-        "8": 20,
-        "9": 20
+        "1": 7,
+        "10": 7,
+        "2": 7,
+        "3": 7,
+        "4": 7,
+        "5": 7,
+        "6": 7,
+        "7": 7,
+        "8": 7,
+        "9": 7
       }
     }
   },
@@ -139,36 +156,16 @@
   },
   "registered_seed_panel": {
     "confirmation": [
-      1254,
       1255,
-      1256,
-      1257,
-      1258,
-      1259,
       1260,
-      1261,
-      1262,
-      1263
+      1261
     ],
     "discovery": [
       1234,
-      1235,
       1236,
-      1237,
       1238,
-      1239,
       1240,
-      1241,
-      1242,
-      1243,
       1244,
-      1245,
-      1246,
-      1247,
-      1248,
-      1249,
-      1250,
-      1251,
       1252,
       1253
     ]
