@@ -214,6 +214,18 @@ python scripts/compare_realistic_niah_position_geometry.py `
   --native-cohort parser_hit `
   --output work/v5/qwen/position_geometry
 
+# 4c. Build the standalone three-column geometry report after running the
+#     comparison for both parser_hit and one_to_one, PCA=32, and both
+#     registered models. Final-answer correctness is a display attribute;
+#     the geometry class remains the observed ordinal 1-10.
+python scripts/build_niah_geometry_comparison_report.py `
+  --non-thinking-export-root exports/run_20260731_v4_numeric_presentation_v3 `
+  --native-capture-root work/v5_position_geometry_inputs `
+  --aligned-geometry-root reports/v5_position_geometry `
+  --one-to-one-geometry-root reports/v5_position_geometry_one_to_one `
+  --output reports/NiaH_Geometry_Comparison.html `
+  --manifest reports/NiaH_Geometry_Comparison.manifest.json
+
 # 5. Capture attention and freeze causal head banks.
 python scripts/run_realistic_niah_v5.py attention `
   --model Qwen3-8B `
