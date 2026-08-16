@@ -31,7 +31,12 @@ def main() -> None:
     parser.add_argument(
         "--native-cohort",
         choices=["parser_hit", "one_to_one", "one_to_one_correct"],
-        default="one_to_one",
+        default="parser_hit",
+        help=(
+            "Primary geometry uses parser_hit: retain every observed item position "
+            "on the full registered seed panel. one_to_one variants are sensitivity "
+            "analyses restricted to complete trajectories."
+        ),
     )
     parser.add_argument("--pca-dim", type=int, default=32)
     parser.add_argument("--layers", type=int, nargs="+")

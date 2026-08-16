@@ -89,6 +89,18 @@ accepted-item occurrence 1 through 10. Answer-query analysis uses gold count
 and evaluated once on confirmation seeds 1254-1263. The decomposition is
 descriptive and must not be described as identifying a causal source of noise.
 
+The primary cross-mode position geometry fixes the full V4.4 seed panel in
+both modes: 20 discovery seeds and 10 confirmation seeds. It uses the
+`parser_hit` native cohort without filtering on `trace_one_to_one` or final
+answer correctness. A partial native trace contributes every `item_end` state
+that was actually observed; missing later positions are not imputed. Therefore
+the output records support separately for every position and mode, fits a
+class-balanced logistic probe, and treats balanced accuracy as the primary
+classification summary. The same-seed design controls the registered stimulus
+panel, but it is not an observation-level paired comparison when a native
+position is missing. The `one_to_one` and `one_to_one_correct` options remain
+available only as complete-trajectory sensitivity analyses.
+
 ## Causal ledger
 
 `src/realistic_niah_v5/causal.py` registers and implements the report-facing
@@ -193,6 +205,14 @@ python scripts/run_realistic_niah_v5.py capture `
 python scripts/run_realistic_niah_v5.py representation `
   --capture-index work/v5/qwen/capture/capture_index.jsonl `
   --output work/v5/qwen/representation
+
+# 4b. Compare V4 non-thinking and V5 native-thinking on the same full
+#     30-seed panel. parser_hit retains observed positions from partial traces.
+python scripts/compare_realistic_niah_position_geometry.py `
+  --non-thinking-capture-index work/v4/qwen/capture/capture_index.jsonl `
+  --native-thinking-capture-index work/v5/qwen/capture/capture_index.jsonl `
+  --native-cohort parser_hit `
+  --output work/v5/qwen/position_geometry
 
 # 5. Capture attention and freeze causal head banks.
 python scripts/run_realistic_niah_v5.py attention `

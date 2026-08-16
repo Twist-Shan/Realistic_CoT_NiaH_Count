@@ -1,9 +1,12 @@
 """Position-wise non-thinking versus native-thinking geometry comparison.
 
-Each running/enumeration index is treated as one class.  Discovery rows fit
-all preprocessing and probes; confirmation rows measure class-specific probe
-quality and covariance-aware cluster quality.  The two modes are paired on the
-same complete N=10 seed trajectories before any comparison is made.
+Each running/enumeration index is treated as one class. Discovery rows fit all
+preprocessing and probes; confirmation rows measure class-specific probe
+quality and covariance-aware cluster quality. The primary comparison keeps the
+same registered N=10 seed panel in both modes. Native-thinking traces may be
+ragged: every parser-observed item position is retained without requiring a
+one-to-one trace or a correct final answer, and position-specific support is
+reported explicitly.
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ from sklearn.metrics import (
 from sklearn.preprocessing import StandardScaler
 
 
-SCHEMA_VERSION = "realistic_niah_cross_mode_position_geometry_v1"
+SCHEMA_VERSION = "realistic_niah_cross_mode_position_geometry_v2_fixed_seed_panel"
 CLASSES = tuple(range(1, 11))
 QUALITY_DIRECTION = {
     "logistic_precision": "higher",
@@ -172,7 +175,9 @@ def load_native_thinking_capture(
         raise ValueError(f"Unknown native-thinking cohort: {cohort}")
     index_path = Path(capture_index)
     index_rows = []
-    descriptors: list[tuple[dict[str, Any], dict[str, Any], list[int]]] = []
+    descriptors: list[
+        tuple[dict[str, Any], dict[str, Any], list[int], list[int]]
+    ] = []
     for row in _read_jsonl(index_path):
         if int(row.get("gold_count", -1)) != 10:
             continue
@@ -194,43 +199,56 @@ def load_native_thinking_capture(
             int(manifest["site_rows"][index]["occurrence"])
             for index in site_indices
         ]
-        if sorted(occurrences) != list(CLASSES):
+        if not occurrences:
             continue
-        descriptors.append((row, manifest, site_indices))
+        if len(occurrences) != len(set(occurrences)):
+            raise ValueError(
+                f"Duplicate {site_kind} occurrences for {row.get('request_id')}"
+            )
+        unexpected = sorted(set(occurrences) - set(CLASSES))
+        if unexpected:
+            raise ValueError(
+                f"Unexpected {site_kind} occurrences {unexpected} for "
+                f"{row.get('request_id')}"
+            )
+        if cohort in {"one_to_one", "one_to_one_correct"} and sorted(
+            occurrences
+        ) != list(CLASSES):
+            continue
+        order = np.argsort(np.asarray(occurrences, dtype=int))
+        ordered_sites = np.asarray(site_indices, dtype=int)[order].tolist()
+        ordered_occurrences = np.asarray(occurrences, dtype=int)[order].tolist()
+        descriptors.append((row, manifest, ordered_sites, ordered_occurrences))
         index_rows.append(row)
     if not descriptors:
         raise ValueError(
-            f"No complete N10 {site_kind}/{cohort} trajectories in {index_path}"
+            f"No observed N10 {site_kind}/{cohort} trajectories in {index_path}"
         )
-    first_row, _first_manifest, _first_sites = descriptors[0]
+    first_row, _first_manifest, _first_sites, _first_occurrences = descriptors[0]
     first_path = index_path.parent / str(first_row["states_path"])
     with np.load(first_path, allow_pickle=False) as archive:
         layer_indices = archive["layer_indices"].astype(int)
         hidden_size = int(archive["site_states"].shape[-1])
-    total = len(descriptors) * len(CLASSES)
+    total = sum(len(occurrences) for _, _, _, occurrences in descriptors)
     states = {
         int(layer): np.empty((total, hidden_size), dtype=np.float16)
         for layer in layer_indices
     }
     metadata_rows: list[dict[str, Any]] = []
     offset = 0
-    for row, manifest, site_indices in descriptors:
+    for row, _manifest, site_indices, occurrences in descriptors:
         shard = index_path.parent / str(row["states_path"])
-        occurrences = np.asarray(
-            [int(manifest["site_rows"][index]["occurrence"]) for index in site_indices]
-        )
-        order = np.argsort(occurrences)
-        selected_sites = np.asarray(site_indices, dtype=int)[order]
+        selected_sites = np.asarray(site_indices, dtype=int)
         with np.load(shard, allow_pickle=False) as archive:
             layers = archive["layer_indices"].astype(int)
             if not np.array_equal(layers, layer_indices):
                 raise ValueError(f"Layer mismatch in {shard}")
             values = np.asarray(archive["site_states"])[selected_sites]
             for layer_axis, layer in enumerate(layer_indices):
-                states[int(layer)][offset : offset + len(CLASSES)] = values[
+                states[int(layer)][offset : offset + len(occurrences)] = values[
                     :, layer_axis, :
                 ]
-        for occurrence in CLASSES:
+        for occurrence in occurrences:
             metadata_rows.append(
                 {
                     "split": str(row["split"]),
@@ -239,7 +257,7 @@ def load_native_thinking_capture(
                     "stimulus_id": str(row["stimulus_id"]),
                 }
             )
-        offset += len(CLASSES)
+        offset += len(occurrences)
     dataset = ModeDataset(
         mode="native_thinking",
         model_label=str(index_rows[0]["model_label"]),
@@ -248,6 +266,111 @@ def load_native_thinking_capture(
     )
     dataset.validate()
     return dataset
+
+
+def _seed_keys(metadata: pd.DataFrame) -> set[tuple[str, int]]:
+    return {
+        (str(split), int(seed))
+        for split, seed in metadata[["split", "seed"]]
+        .drop_duplicates()
+        .itertuples(index=False, name=None)
+    }
+
+
+def _stimulus_ids_by_seed(metadata: pd.DataFrame) -> dict[tuple[str, int], str]:
+    result: dict[tuple[str, int], str] = {}
+    for (split, seed), frame in metadata.groupby(["split", "seed"], sort=False):
+        stimulus_ids = sorted(set(frame["stimulus_id"].astype(str)))
+        if len(stimulus_ids) != 1:
+            raise ValueError(
+                f"Seed {(str(split), int(seed))} maps to stimulus IDs {stimulus_ids}"
+            )
+        result[(str(split), int(seed))] = stimulus_ids[0]
+    return result
+
+
+def _subset_seed_keys(
+    dataset: ModeDataset, keys: set[tuple[str, int]]
+) -> ModeDataset:
+    mask = np.fromiter(
+        (
+            (str(split), int(seed)) in keys
+            for split, seed in zip(dataset.metadata["split"], dataset.metadata["seed"])
+        ),
+        dtype=bool,
+        count=len(dataset.metadata),
+    )
+    selected = dataset.metadata.loc[mask].copy()
+    selected["_old_index"] = np.flatnonzero(mask)
+    selected = selected.sort_values(["split", "seed", "occurrence"])
+    old_index = selected.pop("_old_index").to_numpy(dtype=int)
+    result = ModeDataset(
+        mode=dataset.mode,
+        model_label=dataset.model_label,
+        metadata=selected.reset_index(drop=True),
+        states_by_layer={
+            layer: values[old_index] for layer, values in dataset.states_by_layer.items()
+        },
+    )
+    result.validate()
+    return result
+
+
+def _panel_seeds(keys: set[tuple[str, int]]) -> dict[str, list[int]]:
+    seeds = {
+        split: sorted(seed for candidate_split, seed in keys if candidate_split == split)
+        for split in ("discovery", "confirmation")
+    }
+    if not seeds["discovery"] or not seeds["confirmation"]:
+        raise ValueError("Both discovery and confirmation need registered seeds")
+    return seeds
+
+
+def _position_support(dataset: ModeDataset) -> dict[str, dict[str, int]]:
+    support: dict[str, dict[str, int]] = {}
+    for split in ("discovery", "confirmation"):
+        frame = dataset.metadata.loc[dataset.metadata["split"].astype(str).eq(split)]
+        counts = frame["occurrence"].astype(int).value_counts()
+        support[split] = {
+            str(label): int(counts.get(label, 0)) for label in CLASSES
+        }
+    return support
+
+
+def match_registered_seed_panel(
+    non_thinking: ModeDataset, native_thinking: ModeDataset
+) -> tuple[ModeDataset, ModeDataset, dict[str, list[int]]]:
+    """Require the two modes to use the same seed panel, allowing ragged positions."""
+
+    if non_thinking.model_label != native_thinking.model_label:
+        raise ValueError("Cross-mode comparison requires the same model checkpoint")
+    non_thinking_keys = _seed_keys(non_thinking.metadata)
+    native_thinking_keys = _seed_keys(native_thinking.metadata)
+    if non_thinking_keys != native_thinking_keys:
+        missing_native = sorted(non_thinking_keys - native_thinking_keys)
+        extra_native = sorted(native_thinking_keys - non_thinking_keys)
+        raise ValueError(
+            "The registered seed panels differ: "
+            f"missing_native={missing_native}, extra_native={extra_native}"
+        )
+    non_thinking_stimuli = _stimulus_ids_by_seed(non_thinking.metadata)
+    native_thinking_stimuli = _stimulus_ids_by_seed(native_thinking.metadata)
+    stimulus_mismatches = {
+        key: (non_thinking_stimuli[key], native_thinking_stimuli[key])
+        for key in sorted(non_thinking_keys)
+        if non_thinking_stimuli[key] != native_thinking_stimuli[key]
+    }
+    if stimulus_mismatches:
+        raise ValueError(
+            "The registered seed panel has cross-mode stimulus mismatches: "
+            f"{stimulus_mismatches}"
+        )
+    seeds = _panel_seeds(non_thinking_keys)
+    return (
+        _subset_seed_keys(non_thinking, non_thinking_keys),
+        _subset_seed_keys(native_thinking, native_thinking_keys),
+        seeds,
+    )
 
 
 def pair_complete_trajectories(
@@ -267,44 +390,13 @@ def pair_complete_trajectories(
     if not common:
         raise ValueError("The two modes have no common complete N10 seed trajectory")
 
-    def subset(dataset: ModeDataset) -> ModeDataset:
-        mask = np.fromiter(
-            (
-                (str(split), int(seed)) in common
-                for split, seed in zip(
-                    dataset.metadata["split"], dataset.metadata["seed"]
-                )
-            ),
-            dtype=bool,
-            count=len(dataset.metadata),
-        )
-        selected = dataset.metadata.loc[mask].copy()
-        selected["_old_index"] = np.flatnonzero(mask)
-        selected = selected.sort_values(["split", "seed", "occurrence"])
-        old_index = selected.pop("_old_index").to_numpy(dtype=int)
-        result = ModeDataset(
-            mode=dataset.mode,
-            model_label=dataset.model_label,
-            metadata=selected.reset_index(drop=True),
-            states_by_layer={
-                layer: values[old_index] for layer, values in dataset.states_by_layer.items()
-            },
-        )
-        result.validate()
-        return result
-
-    left = subset(non_thinking)
-    right = subset(native_thinking)
+    left = _subset_seed_keys(non_thinking, common)
+    right = _subset_seed_keys(native_thinking, common)
     left_keys = left.metadata[["split", "seed", "occurrence"]].to_records(index=False)
     right_keys = right.metadata[["split", "seed", "occurrence"]].to_records(index=False)
     if not np.array_equal(left_keys, right_keys):
         raise RuntimeError("Paired cross-mode metadata keys are not identical")
-    seeds = {
-        split: sorted(seed for candidate_split, seed in common if candidate_split == split)
-        for split in ("discovery", "confirmation")
-    }
-    if not seeds["discovery"] or not seeds["confirmation"]:
-        raise ValueError("Both discovery and confirmation need common complete seeds")
+    seeds = _panel_seeds(common)
     return left, right, seeds
 
 
@@ -319,6 +411,16 @@ def _fit_layer(
     confirmation = metadata["split"].astype(str).eq("confirmation").to_numpy()
     yd = metadata.loc[discovery, "occurrence"].to_numpy(dtype=int)
     yc = metadata.loc[confirmation, "occurrence"].to_numpy(dtype=int)
+    if set(yd.tolist()) != set(CLASSES):
+        raise ValueError("Discovery rows do not cover every position class")
+    if set(yc.tolist()) != set(CLASSES):
+        raise ValueError("Confirmation rows do not cover every position class")
+    confirmation_support = {label: int(np.sum(yc == label)) for label in CLASSES}
+    if min(confirmation_support.values()) < 3:
+        raise ValueError(
+            "Confirmation geometry needs at least three observations per position "
+            "so every delete-one-seed replicate retains covariance support"
+        )
     scaler = StandardScaler().fit(states[discovery].astype(np.float32))
     xd_scaled = scaler.transform(states[discovery].astype(np.float32))
     xc_scaled = scaler.transform(states[confirmation].astype(np.float32))
@@ -337,6 +439,7 @@ def _fit_layer(
     xd = pca.transform(xd_scaled)
     xc = pca.transform(xc_scaled)
     logistic = LogisticRegression(
+        class_weight="balanced",
         max_iter=5000,
         random_state=random_state,
     ).fit(xd, yd)
@@ -380,6 +483,7 @@ def _evaluate_confirmation(fitted: FittedLayer) -> tuple[pd.DataFrame, dict[str,
     logistic_prediction = fitted.logistic_prediction
     ncc_prediction = fitted.ncc_prediction
     labels = np.asarray(CLASSES, dtype=int)
+    class_support = {label: int(np.sum(y == label)) for label in CLASSES}
     precision, recall, f1, _support = precision_recall_fscore_support(
         y,
         logistic_prediction,
@@ -455,6 +559,7 @@ def _evaluate_confirmation(fitted: FittedLayer) -> tuple[pd.DataFrame, dict[str,
             rows.append(
                 {
                     "occurrence": int(label),
+                    "n_confirmation_class": class_support[label],
                     "metric": metric,
                     "value": value,
                     "quality_direction": direction,
@@ -506,12 +611,16 @@ def _evaluate_confirmation(fitted: FittedLayer) -> tuple[pd.DataFrame, dict[str,
     np.fill_diagonal(ideal, 1.0)
     global_metrics = {
         "n_confirmation": int(len(x)),
+        "n_confirmation_seed_clusters": int(len(np.unique(fitted.confirmation_seed))),
+        "min_confirmation_per_class": int(min(class_support.values())),
+        "max_confirmation_per_class": int(max(class_support.values())),
         "pca_components": int(fitted.pca_components),
         "logistic_accuracy": float(accuracy_score(y, logistic_prediction)),
         "logistic_balanced_accuracy": float(
             balanced_accuracy_score(y, logistic_prediction)
         ),
         "ncc_accuracy": float(accuracy_score(y, ncc_prediction)),
+        "ncc_balanced_accuracy": float(balanced_accuracy_score(y, ncc_prediction)),
         "nc4_probe_ncc_disagreement": float(
             np.mean(logistic_prediction != ncc_prediction)
         ),
@@ -584,7 +693,7 @@ def _subset_fitted(fitted: FittedLayer, keep: np.ndarray) -> FittedLayer:
     )
 
 
-def _paired_jackknife_trends(
+def _matched_panel_jackknife_trends(
     fitted_by_mode: Mapping[str, FittedLayer],
     point_trends: Mapping[str, pd.DataFrame],
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -592,7 +701,7 @@ def _paired_jackknife_trends(
     seeds_left = sorted(np.unique(fitted_by_mode[modes[0]].confirmation_seed))
     seeds_right = sorted(np.unique(fitted_by_mode[modes[1]].confirmation_seed))
     if seeds_left != seeds_right:
-        raise ValueError("Paired jackknife requires identical confirmation seeds")
+        raise ValueError("Matched-panel jackknife requires identical confirmation seeds")
     replicates: dict[str, list[pd.DataFrame]] = {mode: [] for mode in modes}
     for omitted_seed in seeds_left:
         for mode in modes:
@@ -667,7 +776,7 @@ def compare_position_geometry(
     design_variant: str = "v4.4",
     non_thinking_pooling: str = "span_end",
     native_site_kind: str = "item_end",
-    native_cohort: str = "one_to_one",
+    native_cohort: str = "parser_hit",
     pca_dim: int = 32,
     layers: Sequence[int] | None = None,
     random_state: int = 0,
@@ -682,9 +791,16 @@ def compare_position_geometry(
         site_kind=native_site_kind,
         cohort=native_cohort,
     )
-    non_thinking, native_thinking, paired_seeds = pair_complete_trajectories(
-        non_thinking, native_thinking
-    )
+    if native_cohort == "parser_hit":
+        non_thinking, native_thinking, seed_panel = match_registered_seed_panel(
+            non_thinking, native_thinking
+        )
+        analysis_design = "fixed_registered_seed_panel_observed_positions"
+    else:
+        non_thinking, native_thinking, seed_panel = pair_complete_trajectories(
+            non_thinking, native_thinking
+        )
+        analysis_design = "complete_trajectory_paired_sensitivity"
     available_layers = sorted(
         set(non_thinking.states_by_layer) & set(native_thinking.states_by_layer)
     )
@@ -731,7 +847,7 @@ def compare_position_geometry(
             trends.insert(0, "mode", mode)
             trends.insert(0, "model_label", dataset.model_label)
             trend_rows.append(trends)
-        mode_jackknife, cross_jackknife = _paired_jackknife_trends(
+        mode_jackknife, cross_jackknife = _matched_panel_jackknife_trends(
             fitted_by_mode, trends_by_mode
         )
         for frame in (mode_jackknife, cross_jackknife):
@@ -786,13 +902,26 @@ def compare_position_geometry(
             "non_thinking_pooling": non_thinking_pooling,
             "native_site_kind": native_site_kind,
             "native_cohort": native_cohort,
-            "paired_complete_n10_seeds": paired_seeds,
+            "analysis_design": analysis_design,
+            "stimulus_alignment": "exact split/seed/stimulus_id match",
+            "registered_seed_panel": seed_panel,
+            "position_support": {
+                "non_thinking": _position_support(non_thinking),
+                "native_thinking": _position_support(native_thinking),
+            },
             "layers": selected_layers,
             "pca_dim_requested": int(pca_dim),
             "preprocessing_fit_split": "discovery only",
             "probe_fit_split": "discovery only",
             "evaluation_split": "confirmation only",
-            "uncertainty": "paired delete-one-confirmation-seed jackknife",
+            "classification_weighting": (
+                "class-balanced multinomial logistic fit; balanced accuracy is the "
+                "primary summary when position support is ragged"
+            ),
+            "uncertainty": (
+                "matched-panel delete-one-confirmation-seed jackknife; native-thinking "
+                "positions may be missing within a seed"
+            ),
             "cluster_labels": list(CLASSES),
             "quality_direction": QUALITY_DIRECTION,
             "nc4_note": (

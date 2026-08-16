@@ -209,20 +209,42 @@ def position_geometry_summary(
             require(audit["evaluation_split"] == "confirmation only", f"geometry split mismatch: {audit_path}")
             require(audit["preprocessing_fit_split"] == "discovery only", f"geometry preprocessing leakage: {audit_path}")
             require(audit["probe_fit_split"] == "discovery only", f"geometry probe leakage: {audit_path}")
-            require(audit["native_cohort"] == "one_to_one", f"geometry cohort mismatch: {audit_path}")
+            require(audit["native_cohort"] == "parser_hit", f"geometry cohort mismatch: {audit_path}")
+            require(
+                audit["analysis_design"]
+                == "fixed_registered_seed_panel_observed_positions",
+                f"geometry design mismatch: {audit_path}",
+            )
+            require(
+                audit["stimulus_alignment"]
+                == "exact split/seed/stimulus_id match",
+                f"geometry stimulus alignment mismatch: {audit_path}",
+            )
+            require(
+                audit["registered_seed_panel"]
+                == {
+                    "discovery": list(range(1234, 1254)),
+                    "confirmation": list(range(1254, 1264)),
+                },
+                f"geometry registered seed panel mismatch: {audit_path}",
+            )
             require(audit["native_site_kind"] == "item_end", f"geometry site mismatch: {audit_path}")
             require(audit["cluster_labels"] == list(range(1, 11)), f"geometry labels mismatch: {audit_path}")
             per_mode: dict[str, dict[str, Any]] = {}
             for mode in ("native_thinking", "non_thinking"):
                 mode_rows = [row for row in rows if row["mode"] == mode]
                 require(mode_rows, f"missing geometry mode {model} PCA={pca_dim} {mode}")
-                best_logistic = max(mode_rows, key=lambda row: f(row["logistic_accuracy"]))
-                best_ncc = max(mode_rows, key=lambda row: f(row["ncc_accuracy"]))
+                best_logistic = max(
+                    mode_rows, key=lambda row: f(row["logistic_balanced_accuracy"])
+                )
+                best_ncc = max(
+                    mode_rows, key=lambda row: f(row["ncc_balanced_accuracy"])
+                )
                 per_mode[mode] = {
                     "n_confirmation": int(best_logistic["n_confirmation"]),
-                    "best_logistic": f(best_logistic["logistic_accuracy"]),
+                    "best_logistic": f(best_logistic["logistic_balanced_accuracy"]),
                     "best_logistic_layer": int(best_logistic["layer"]),
-                    "best_ncc": f(best_ncc["ncc_accuracy"]),
+                    "best_ncc": f(best_ncc["ncc_balanced_accuracy"]),
                     "best_ncc_layer": int(best_ncc["layer"]),
                 }
             native_layer = per_mode["native_thinking"]["best_logistic_layer"]
@@ -233,11 +255,21 @@ def position_geometry_summary(
             ]
             require(len(nonthinking_same_layer) == 1, f"missing same-layer geometry comparator: {model} PCA={pca_dim}")
             per_mode["native_thinking"]["nonthinking_same_layer_logistic"] = f(
-                nonthinking_same_layer[0]["logistic_accuracy"]
+                nonthinking_same_layer[0]["logistic_balanced_accuracy"]
             )
+            native_support = [
+                int(value)
+                for value in audit["position_support"]["native_thinking"][
+                    "confirmation"
+                ].values()
+            ]
             per_mode["audit"] = {
-                "confirmation_seeds": len(audit["paired_complete_n10_seeds"]["confirmation"]),
-                "discovery_seeds": len(audit["paired_complete_n10_seeds"]["discovery"]),
+                "confirmation_seeds": len(
+                    audit["registered_seed_panel"]["confirmation"]
+                ),
+                "discovery_seeds": len(audit["registered_seed_panel"]["discovery"]),
+                "native_confirmation_support_min": min(native_support),
+                "native_confirmation_support_max": max(native_support),
             }
             out[model][pca_dim] = per_mode
             inputs.extend([audit_path, global_path])
@@ -491,7 +523,11 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
                 (
                     esc(model),
                     str(pca_dim),
-                    str(audit_info["confirmation_seeds"]),
+                    f"{audit_info['discovery_seeds']} / {audit_info['confirmation_seeds']}",
+                    (
+                        f"{audit_info['native_confirmation_support_min']}–"
+                        f"{audit_info['native_confirmation_support_max']}"
+                    ),
                     f"{pct(native['best_logistic'])} @ L{native['best_logistic_layer']}",
                     f"{pct(nonthinking['best_logistic'])} @ L{nonthinking['best_logistic_layer']}",
                     f"{pct(native['best_ncc'])} @ L{native['best_ncc_layer']}",
@@ -528,7 +564,7 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     ]
 
     manifest = {
-        "schema_version": "realistic_niah_v5_native_thinking_mechanism_report_v2_representation",
+        "schema_version": "realistic_niah_v5_native_thinking_mechanism_report_v3_fixed_seed_geometry",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "reference_design": Path(args.reference_report).name,
         "inputs": {
@@ -581,12 +617,12 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 </section>
 
 <section id="representation"><h2>2 · Representation：位置几何与可执行答案状态</h2>
-<p>这里把 representation 分成两类，避免把“能从 hidden state 解码”误写成“该 state 已被证明具有因果作用”。第一类是 <strong>confirmation-only 位置几何</strong>：在 discovery seeds 上拟合 PCA、标准化与 probe，只在 paired complete confirmation seeds 上评价 1–10 的 item-end 位置标签。第二类是 <strong>hidden-state patch</strong>：直接把 donor 的答案状态输运到 recipient，并用真实生成结果衡量 donor count 是否被采用。</p>
+<p>这里把 representation 分成两类，避免把“能从 hidden state 解码”误写成“该 state 已被证明具有因果作用”。第一类是 <strong>confirmation-only 位置几何</strong>：两种 mode 固定使用同一套 20 个 discovery 与 10 个 confirmation seeds；在 discovery 上拟合 PCA、标准化与 probe，只在 confirmation 上评价。Native Thinking 保留 parser 实际观测到的 item-end 位置，不再以 one-to-one 或最终答案正确性作为 geometry 入选条件。第二类是 <strong>hidden-state patch</strong>：直接把 donor 的答案状态输运到 recipient，并用真实生成结果衡量 donor count 是否被采用。</p>
 <h3>2.1 item-end 位置状态具有可解码几何</h3>
-<p>Native Thinking 只使用第一层 parser 选出的 <code>one_to_one</code> trace，并在每个已接受 item 的 <code>item_end</code> 捕获 hidden state；non-thinking 对照使用同一 seed、同一 1–10 标签和 <code>span_end</code> pooling。10 类机会水平为 10%。PCA=32 时，Native Thinking 的最佳 confirmation logistic accuracy 在 Qwen/Gemma 分别为 <strong>{pct(geometry['Qwen3-8B'][32]['native_thinking']['best_logistic'])}</strong> 与 <strong>{pct(geometry['Gemma4-E4B'][32]['native_thinking']['best_logistic'])}</strong>；相应 non-thinking 峰值为 {pct(geometry['Qwen3-8B'][32]['non_thinking']['best_logistic'])} 与 {pct(geometry['Gemma4-E4B'][32]['non_thinking']['best_logistic'])}。</p>
-{table(['模型','PCA','confirmation seeds','Native logistic 峰值','Non-thinking logistic 峰值','Native NCC 峰值','Non-thinking NCC 峰值'], geometry_rows)}
-<div class="callout evidence-note"><strong>如何解释：</strong>两个模型的 item-end hidden states 都包含明显的 running-position / count-index 信息，而且在 PCA 16/32/64 下结论方向稳定。它说明 Native Thinking 的中间状态沿已接受 item 序号形成可解码结构；但“每个模型取跨层最大值”是描述性层扫描，不是预注册单层的显著性检验，不能单凭这个表宣称 Native 显著优于 non-thinking。</div>
-<p class="small">不确定性边界：Qwen 有 9 个 paired complete confirmation seeds（90 states），Gemma 只有 3 个（30 states）。Gemma 的 delete-one-seed jackknife 因而很宽；本报告把 geometry 作为强描述性 representation 证据，不把它与 Holm-corrected causal endpoint 混为一谈。另一个边界是 NC4：此处没有在中间位置标签上训练原始 terminal classifier，NCC 与 probe–NCC disagreement 只是 NC4-like diagnostics。</p>
+<p>Native Thinking 在每条 trace 实际解析出的第 k 个 item 的 <code>item_end</code> 捕获 hidden state；non-thinking 对照使用同一 seed panel、1–10 标签和 <code>span_end</code> pooling。由于 partial trace 的后期位置可能缺失，logistic fit 使用 class balancing，主表报告 balanced accuracy；10 类名义机会水平为 10%。PCA=32 时，Native Thinking 的最佳 confirmation balanced logistic accuracy 在 Qwen/Gemma 分别为 <strong>{pct(geometry['Qwen3-8B'][32]['native_thinking']['best_logistic'])}</strong> 与 <strong>{pct(geometry['Gemma4-E4B'][32]['native_thinking']['best_logistic'])}</strong>；相应 non-thinking 峰值为 {pct(geometry['Qwen3-8B'][32]['non_thinking']['best_logistic'])} 与 {pct(geometry['Gemma4-E4B'][32]['non_thinking']['best_logistic'])}。</p>
+{table(['模型','PCA','seed panel D/C','Native confirmation nₖ','Native balanced logistic 峰值','Non-thinking balanced logistic 峰值','Native balanced NCC 峰值','Non-thinking balanced NCC 峰值'], geometry_rows)}
+<div class="callout evidence-note"><strong>如何解释：</strong>主图现在回答的是“在同一套 30 seeds 上，实际被 Native Thinking 写出的第 k 个 item state 是否形成位置几何”。它不再把 trace 完整性混进 geometry cohort。两个模型的 item-end hidden states 都包含 running-position / count-index 信息；但“每个模型取跨层最大值”仍是描述性层扫描，不是预注册单层的显著性检验，不能单凭这个表宣称 Native 显著优于 non-thinking。</div>
+<p class="small">缺失性边界：所有 30 seeds 都进入 seed panel，但并非每个 Native trace 都产生 10 个可捕获 item。confirmation 中，Qwen 每个位置有 9–10 个 states，Gemma 有 3–10 个；non-thinking 每个位置均有 10 个。后期位置的缺失很可能不是随机的，因此结果严格条件于“parser 实际观测到该位置”，不能外推为缺失位置的 hidden-state geometry。delete-one-seed jackknife 使用同一套 10 个 confirmation seed clusters。另一个边界是 NC4：此处没有在中间位置标签上训练原始 terminal classifier，NCC 与 probe–NCC disagreement 只是 NC4-like diagnostics。</p>
 <h3>2.2 hidden-state patch：完整答案状态在双模型均可执行</h3>
 <p>Answer patch 使用已对齐的 56 对 registry，从既有 correct-only self/full/projected/orthogonal trials 中过滤，不重跑 GPU；主指标解析实际生成的 count。Full donor patch 的 donor adoption 在 Qwen/Gemma 分别为 <strong>{pct(answer_adoption['Qwen3-8B']['effect'])}</strong> 与 <strong>{pct(answer_adoption['Gemma4-E4B']['effect'])}</strong>，双模型均通过主审计。Projected count-direction 在 Gemma 为 {pct(answer_projected_adoption['Gemma4-E4B']['effect'])} 且显著；Qwen 为 {pct(answer_projected_adoption['Qwen3-8B']['effect'])}，在完整 Holm family 下未显著。</p>
 {table(['模型','Full donor adoption','95% CI','Holm','Projected donor adoption','95% CI','Holm'], answer_state_rows)}
