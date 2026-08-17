@@ -7,6 +7,8 @@ import pandas as pd
 
 from realistic_niah_v5.cross_mode_geometry import ModeDataset
 from realistic_niah_v5.dual_endpoint_geometry import (
+    RUNNING_NATIVE_PRIMARY_SITES,
+    RUNNING_NON_THINKING_SITES,
     _final_count_analysis,
     determine_group_eligibility,
     load_native_thinking_final_count,
@@ -14,6 +16,11 @@ from realistic_niah_v5.dual_endpoint_geometry import (
     relabel_seed_panel,
     select_discovery_winners,
 )
+
+
+def test_running_index_primary_sites_are_fixed_single_token_endpoints():
+    assert RUNNING_NON_THINKING_SITES == ("span_end",)
+    assert RUNNING_NATIVE_PRIMARY_SITES == ("item_end",)
 
 
 def _write_jsonl(path, rows):

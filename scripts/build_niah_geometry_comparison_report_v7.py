@@ -48,7 +48,7 @@ from scripts.build_niah_geometry_comparison_report import (  # noqa: E402
 )
 
 
-REPORT_SCHEMA_VERSION = "niah_geometry_comparison_v7_pooled_all_counts"
+REPORT_SCHEMA_VERSION = "niah_geometry_comparison_v8_fixed_end_all_counts"
 
 
 def _pct(value: Any) -> str:
@@ -166,7 +166,7 @@ def marker_appendix(parser_rows: list[dict[str, Any]]) -> str:
 {_cohort_table(legacy, FULL_LEGACY_MARKERS)}
 {marker_definitions_html()}
 <details><summary>Current hybrid parser marker</summary>
-<p class="small"><code>inline_count</code> 合并 Count:k、文字 cardinal/ordinal 等连续显式进度事件；<code>evidence_sequence</code> 是只有 city+score 表面顺序、没有显式 ordinal 的保守兜底。该分类用于混杂诊断，不参与主 site/layer selector。</p>
+<p class="small"><code>inline_count</code> 合并 Count:k、文字 cardinal/ordinal 等连续显式进度事件；<code>evidence_sequence</code> 是只有 city+score 表面顺序、没有显式 ordinal 的保守兜底。该分类用于混杂诊断，不改变固定的 <code>item_end</code> 主站点，也不参与 layer selector。</p>
 {_cohort_table(hybrid, HYBRID_MARKERS)}</details>
 <details><summary>Trace completeness category</summary>
 {_cohort_table(categories, TRACE_CATEGORIES)}</details>
@@ -268,7 +268,7 @@ def band_appendix(band_root: Path) -> tuple[str, list[Path]]:
         inputs.extend((audit_path, all_points_path, confirmation_points_path))
     return f"""
 <section id="appendix-bands"><h2>Appendix B · Native-thinking 的上下分层</h2>
-<p>本 appendix 对 Qwen 与 Gemma 使用同一诊断：固定主分析由 discovery 选出的 native running site/layer，在 discovery-fitted PCA3 中分别查看 full 300-source panel 与 confirmation 100-source panel；再比较 marker/seed/occurrence 关联和逐 trajectory 去均值后的结构。分成两团本身不是“两个计数器”的证据。</p>
+<p>本 appendix 对 Qwen 与 Gemma 使用同一诊断：native running site 固定为 <code>item_end</code>，layer 由 discovery 选择；在 discovery-fitted PCA3 中分别查看 full 300-source panel 与 confirmation 100-source panel，再比较 marker/seed/occurrence 关联和逐 trajectory 去均值后的结构。分成两团本身不是“两个计数器”的证据。</p>
 {''.join(blocks)}
 </section>""", inputs
 
@@ -318,15 +318,15 @@ def build_html(
     script = _dual_script(dual_visual)
     return f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NiaH Geometry Comparison</title><style>{css}</style></head><body>
 <nav><a href="#scope">口径</a><a href="#tokens">Token 提取</a><a href="#dual">主结果</a><a href="#claims">结论</a><a href="#analysis-role">分析取舍</a><a href="#appendix-markers">Marker appendix</a><a href="#appendix-bands">分层 appendix</a></nav><main>
-<header><div class="eyebrow">REALISTIC NIAH · ALL-COUNT GEOMETRY</div><h1>NiaH Geometry Comparison</h1><p class="lead">Running index 与 final count 两组比较都覆盖 N=1…10，并可在完整 300 trajectories 与 confirmation 100 trajectories 之间切换。Non-thinking 与 native-thinking 各自在自己的 discovery-selected token site 和 decoder layer 上评价。</p></header>
+<header><div class="eyebrow">REALISTIC NIAH · ALL-COUNT GEOMETRY</div><h1>NiaH Geometry Comparison</h1><p class="lead">Running index 与 final count 两组比较都覆盖 N=1…10，并可在完整 300 trajectories 与 confirmation 100 trajectories 之间切换。Running index 固定比较 prompt <code>span_end</code> 与 thinking-trace <code>item_end</code>；两个模式只各自选择最佳 decoder layer。</p></header>
 <section id="scope"><h2>严格比较口径</h2><div class="definitions"><div><h3>Full 300</h3><p>10 个 gold N × 30 seeds。它是 descriptive geometry view；PCA3 仍只由 discovery 200 拟合，避免 confirmation 反向选显示 basis。</p></div><div><h3>Confirmation 100</h3><p>10 个 gold N × 10 held-out seeds。主表的 Logistic、nearest-centroid 与 SNR 都是 discovery-frozen 后在这里评价。</p></div><div><h3>Native running 的 ragged rule</h3><p>每条 trace 只贡献 parser 实际观察到的 1…M。数到 8 就贡献八个 states；不按 gold N 或最终 Total 补到 9/10。</p></div></div></section>
-<section id="tokens"><h2>Token 提取与两个独立 filestream</h2><div class="definitions two"><div><h3>Running index</h3><p>Non-thinking 在 prompt 第 k 个 needle span 上取 span-end/span-mean。Native-thinking 先在原始 response 字符串中定位第 k 个 city-count item，再用保存的原始 <code>output_token_ids</code> 做 exact-prefix 对齐；query position = <code>prompt_token_count + prefix_token_count − 1</code>。主 selector 只搜索 <code>pre_city</code>、<code>city_end</code>、<code>city_unit_end</code>、<code>item_end</code>、<code>post_boundary</code>。</p></div><div><h3>Final count · answer_query_v3</h3><p><code>answer_query_v3</code> 直接从最后一个 literal <code>Total: &lt;integer&gt;</code> 提取，边界停在数字首字符前；它已与 running parser 的 detected/miss 状态解耦。每条 trajectory 必须恰好一个该站点，并单独物化为 final-count capture 后再进入报告。</p></div></div></section>
+<section id="tokens"><h2>Token 提取与两个独立 filestream</h2><div class="definitions two"><div><h3>Running index · fixed end</h3><p>Non-thinking 固定读取 prompt 第 k 个 needle span 的最后一个 token：<code>hidden[0, end−1]</code>。Native-thinking 先在原始 response 字符串中定位第 k 个完整 city-count item，再用保存的原始 <code>output_token_ids</code> 做 exact-prefix 对齐，固定读取 <code>item_end</code>：query position = <code>prompt_token_count + prefix_token_count − 1</code>。两侧都只使用一个自然边界 token，主分析不再搜索其他 token sites。</p></div><div><h3>Final count · answer_query_v3</h3><p><code>answer_query_v3</code> 直接从最后一个 literal <code>Total: &lt;integer&gt;</code> 提取，边界停在数字首字符前；它已与 running parser 的 detected/miss 状态解耦。每条 trajectory 必须恰好一个该站点，并单独物化为 final-count capture 后再进入报告。</p></div></div></section>
 {dual_endpoint_section(dual_results, dual_visual)}
 {empirical_claims(dual_results)}
-<section id="analysis-role"><h2>为什么删除 trace-format × site × layer 大段</h2><div class="callout"><strong>结论：</strong>不放在主报告。按 marker-format 再分别搜索 token site 与 layer，会在支持不均的小 strata 中产生大量 post-hoc choices；它主要回答 parser 表面格式，而不是 cross-mode representation。保留 marker 比例和 band 归因作为 appendix 混杂诊断。</div><p>主结果仍必须保留一个精简的 held-out summary：site/layer 只由 discovery grouped-CV 选择，confirmation 100 只评价冻结选择。删掉的是重复的 every-layer/per-format held-out 曲线，不是删掉防止 selection bias 的 held-out 设计。</p></section>
+<section id="analysis-role"><h2>为什么删除 trace-format × site × layer 大段</h2><div class="callout"><strong>结论：</strong>不放在主报告。按 marker-format 再分别搜索 token site 与 layer，会在支持不均的小 strata 中产生大量 post-hoc choices；它主要回答 parser 表面格式，而不是 cross-mode representation。保留 marker 比例和 band 归因作为 appendix 混杂诊断。</div><p>主结果把 running token site 直接固定为 <code>span_end/item_end</code>，仅由 discovery grouped-CV 选择各自 layer；confirmation 100 只评价冻结层。删掉的是 site search 和重复的 every-layer/per-format held-out 曲线，不是删掉防止 selection bias 的 held-out 设计。</p></section>
 <section id="snr"><h2>SNR 的读法</h2><p>在 discovery-fitted PCA16-whitened 空间中，SNR = 各 count centroid 围绕 class-balanced grand centroid 的平均平方距离 ÷ 各 count 内部的平均平方残差；报告 dB = 10 log<sub>10</sub>(SNR)。0 dB 表示类间 centroid energy 与类内 scatter 相当，越高表示类间/类内比越高。它与分类 accuracy 不等价：两种 probe 提高但 SNR 不提高时，只能 claim “更可解码”，不能 claim “所有簇更紧”。</p></section>
 {marker_html}{band_html}
-<section><h2>解释边界</h2><p>这些图和 probes 证明的是 within-task decodability/geometry，不单独证明离散计数器、逐步加一算法或因果使用。两个 mode 的 token 语义和最佳层不同，因此比较的是同一任务变量在各自最佳表征中的可读性，而不是共享坐标系中的绝对距离。</p><p class="provenance">Report schema: {REPORT_SCHEMA_VERSION} · pooled 10 counts × 30 seeds · full/confirmation views: 300/100 trajectories · primary selector: pooled discovery only · trace-format sweep: appendix-only diagnostic</p></section>
+<section><h2>解释边界</h2><p>这些图和 probes 证明的是 within-task decodability/geometry，不单独证明离散计数器、逐步加一算法或因果使用。两个 mode 的 end token 语义和最佳层仍不同，因此比较的是两个单-token 完成边界上同一任务变量的可读性，而不是共享坐标系中的绝对距离。</p><p class="provenance">Report schema: {REPORT_SCHEMA_VERSION} · pooled 10 counts × 30 seeds · full/confirmation views: 300/100 trajectories · running sites fixed: span_end/item_end · layer selector: pooled discovery only · trace-format sweep: appendix-only diagnostic</p></section>
 </main><script>{script}</script></body></html>"""
 
 
@@ -379,7 +379,7 @@ def build_report(
         },
         "running_state_rule": "parser-observed 1..M only; never pad to gold N or final Total",
         "answer_query_v3": "independent final-answer extraction; exactly one site per trajectory",
-        "primary_analysis": "pooled discovery-only site/layer selection; frozen confirmation evaluation",
+        "primary_analysis": "running sites fixed to span_end/item_end; pooled discovery-only layer selection; frozen confirmation evaluation",
         "trace_format_site_layer_sweep": "omitted from main; marker/band diagnostics moved to appendix",
         "inputs": {str(path): sha256(path) for path in inputs},
         "output": str(output),

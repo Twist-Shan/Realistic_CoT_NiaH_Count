@@ -282,7 +282,9 @@ def site_metadata(
                         else None
                     ),
                     "city": str(site.get("city")),
-                    "raw_suffix": raw[max(0, end - 24) : min(len(raw), end + 24)],
+                    "raw_suffix": " ".join(
+                        raw[max(0, end - 24) : min(len(raw), end + 24)].split()
+                    ),
                     "baseline_endpoint_token_id": (
                         int(output_token_ids[endpoint])
                         if endpoint < len(output_token_ids)

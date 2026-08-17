@@ -182,7 +182,7 @@
     "native_thinking": "answer_query_v3: last literal thinking-trace token immediately before the numeric final answer",
     "non_thinking": "prompt_final_total_query: final prompt Total: token immediately before answer generation"
   },
-  "independent_layer_rule": "token site and layer are selected separately within each mode; layer numbers are never matched across modes",
+  "independent_layer_rule": "running token sites are fixed to span_end/item_end; decoder layers are selected separately within each mode and layer numbers are never matched across modes",
   "inputs": {
     "native_thinking_final_count": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_geometry_full_panel\\final\\Qwen3-8B\\capture_index.jsonl",
     "native_thinking_running_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_geometry_full_panel\\running\\Qwen3-8B\\capture_index.jsonl",
@@ -349,21 +349,16 @@
     "non_thinking_trajectory_count": 300
   },
   "running_index_token_sites": {
-    "excluded_from_primary_search": "pre_marker/marker_end and format-conditioned selectors are omitted because they mix lexical marker cues with the pooled representation estimand",
+    "excluded_from_primary_search": "span_mean and all alternative native token sites are omitted; the primary comparison uses one boundary-token state per observed occurrence in both modes",
     "native_thinking_primary": {
-      "city_end": "last city/entity token in a parsed trace item",
-      "city_unit_end": "last token in the sentence or physical line containing the parsed city",
-      "item_end": "last token of a completed parsed trace item",
-      "post_boundary": "first token after the parsed item boundary",
-      "pre_city": "last token before the parsed city begins; an anticipatory site for implicit lists and a sensitivity site elsewhere"
+      "item_end": "last token of a completed parsed trace item"
     },
-    "non_thinking": {
-      "span_end": "last token of each prompt evidence span",
-      "span_mean": "mean over tokens in each prompt evidence span"
+    "non_thinking_primary": {
+      "span_end": "last token of each prompt evidence span"
     }
   },
-  "schema_version": "realistic_niah_dual_endpoint_geometry_v4_pooled_all_counts",
-  "selection_rule": "maximize the mean of discovery grouped-CV logistic and nearest-centroid balanced accuracy; tie-break by NCC, logistic, earlier within-model layer, then token-site name",
+  "schema_version": "realistic_niah_dual_endpoint_geometry_v5_fixed_end_all_counts",
+  "selection_rule": "with token site fixed, maximize the mean of discovery grouped-CV logistic and nearest-centroid balanced accuracy over layers; tie-break by NCC, logistic, then earlier within-model layer",
   "trace_groups": {
     "evaluated": [
       "all_traces"

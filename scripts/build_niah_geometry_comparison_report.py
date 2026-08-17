@@ -1708,11 +1708,11 @@ def dual_endpoint_section(
     panel_labels = {
         "running_non": (
             "Running index · non-thinking",
-            "Prompt evidence span；位置由 discovery 在 span_end/span_mean 中选择。",
+            "Prompt evidence span 的最后一个 token；站点固定为 span_end，只由 discovery 选择 layer。",
         ),
         "running_native": (
             "Running index · native-thinking",
-            "Thinking trace item；主 selector 排除显式 marker endpoint。",
+            "Thinking trace 完整 item 的最后一个 token；站点固定为 item_end，只由 discovery 选择 layer。",
         ),
         "final_non": (
             "Final count · non-thinking",
@@ -1757,11 +1757,11 @@ def dual_endpoint_section(
 
     return f"""
 <section id="dual"><h2>两个 endpoint，各自在自己的最佳表征上比较</h2>
-<p>这里不再要求 non-thinking 与 native-thinking 使用同一层。每个模式分别在 discovery 中搜索自己的 token site 与 decoder layer；程序按 5-fold seed-grouped OOF Logistic/NCC balanced accuracy 的平均值选赢家，confirmation 不进入 selector。定量空间是每 fold 内重拟合的 StandardScaler + whitened PCA16；下方 3D 仅作显示，每层独立用 discovery 拟合 PCA3。</p>
+<p>Running-index 的测量算子固定为单-token 完成边界：non-thinking 使用 <code>span_end</code>，native-thinking 使用 <code>item_end</code>，主分析不再搜索其他站点。两个模式仍各自在 discovery 中选择自己的 decoder layer；程序按 5-fold seed-grouped OOF Logistic/NCC balanced accuracy 的平均值选层，confirmation 不进入 selector。定量空间是每 fold 内重拟合的 StandardScaler + whitened PCA16；下方 3D 仅作显示，每层独立用 discovery 拟合 PCA3。</p>
 <div class="definitions two"><div><h3>Running index</h3><p><strong>non-thinking：</strong>prompt 中第 k 个 evidence span。<strong>native-thinking：</strong>thinking trace 中 parser-observed 的第 k 项。两边类别都是 k=1…10，但 token 语义不同。</p></div><div><h3>Final count</h3><p><strong>non-thinking：</strong>prompt-final <code>Total:</code> query。<strong>native-thinking：</strong>numeric final answer 前的最后一个 thinking token。两边类别都是 gold N=1…10。</p></div></div>
-<div class="callout"><strong>判读规则：</strong>每个 endpoint、mode 都使用自己的 discovery-frozen 最佳 token-site/layer。只有 held-out Logistic 与 NCC 同向提高时才写“更可解码”；只有 SNR 也提高时才进一步写“类间/类内比更高”。三项不一致时分别报告，不能笼统写成“几何更紧”。</div>
+<div class="callout"><strong>判读规则：</strong>running-index 使用固定的 end site 和各自 discovery-frozen 最佳 layer；final-count 也使用预先定义的 query site 和各自最佳 layer。只有 held-out Logistic 与 NCC 同向提高时才写“更可解码”；只有 SNR 也提高时才进一步写“类间/类内比更高”。三项不一致时分别报告，不能笼统写成“几何更紧”。</div>
 <div class="callout"><strong>统一 split：</strong>running-index 与 final-count 都使用注册的 20-seed discovery / 10-seed confirmation。每个 final-count 模式的 confirmation 恰好是 10 counts × 10 seeds = 100 个 states；同一 seed 的十个 count 条件始终在同一侧。</div>
-{html_table(['模型', 'endpoint', '模式', 'D-selected site/layer', 'D OOF', '冻结层 held-out', 'held-out SNR', 'support'], summary_rows)}
+{html_table(['模型', 'endpoint', '模式', '固定 site / D-selected layer', 'D OOF', '冻结层 held-out', 'held-out SNR', 'support'], summary_rows)}
 {category_html}
 <h3>每层 3D：四个 panel 各自切 layer</h3>
 <p class="small">每张图固定使用该 panel 由 discovery 选中的 token site，但 layer 可独立浏览全部 decoder blocks；因此不会把两个模式锁到同一层。点色是 running k 或 gold final count N。统计栏同时显示该层的 discovery OOF 与 held-out Logistic/NCC/SNR；all-layer held-out 曲线仅作透明诊断，程序化赢家仍只读取 discovery 列。</p>

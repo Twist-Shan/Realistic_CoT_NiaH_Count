@@ -8,10 +8,10 @@
   },
   "platform": "Windows-11-10.0.26200-SP0",
   "python": "3.12.7 | packaged by Anaconda, Inc. | (main, Oct  4 2024, 13:17:27) [MSC v.1929 64 bit (AMD64)]",
-  "schema_version": "realistic_niah_dual_endpoint_geometry_v4_pooled_all_counts",
+  "schema_version": "realistic_niah_dual_endpoint_geometry_v5_fixed_end_all_counts",
   "timings_seconds": {
-    "final_count_seconds": 61.316776499996195,
-    "running_index_seconds": 724.3927153000113,
-    "total_seconds": 785.7095021999994
+    "final_count_seconds": 17.87164759999723,
+    "running_index_seconds": 91.7058185999922,
+    "total_seconds": 109.57747329999984
   }
 }

@@ -1,10 +1,10 @@
-"""CPU analysis for independently selected running-index and final-count geometry.
+"""CPU analysis for fixed-end running-index and final-count geometry.
 
-The two modes are never forced onto a common decoder layer.  Candidate token
-sites and layers are ranked inside each mode using discovery-only grouped
-cross-validation.  A frozen winner is then evaluated on held-out seeds.  The
-native-thinking running-index analysis additionally pools sparse parser surface
-forms into explicit-ordinal and non-explicit-progress groups.
+The two modes are never forced onto a common decoder layer.  Running-index
+sites are fixed a priori to the last token of the prompt evidence span and the
+last token of the parsed thinking item.  Layers are ranked separately inside
+each mode using discovery-only grouped cross-validation, and the frozen winner
+is then evaluated on held-out seeds.
 """
 
 from __future__ import annotations
@@ -33,15 +33,9 @@ from realistic_niah_v5.trace_stratified_geometry import (
 )
 
 
-SCHEMA_VERSION = "realistic_niah_dual_endpoint_geometry_v4_pooled_all_counts"
-RUNNING_NON_THINKING_SITES = ("span_end", "span_mean")
-RUNNING_NATIVE_PRIMARY_SITES = (
-    "pre_city",
-    "city_end",
-    "city_unit_end",
-    "item_end",
-    "post_boundary",
-)
+SCHEMA_VERSION = "realistic_niah_dual_endpoint_geometry_v5_fixed_end_all_counts"
+RUNNING_NON_THINKING_SITES = ("span_end",)
+RUNNING_NATIVE_PRIMARY_SITES = ("item_end",)
 TRACE_GROUP_MEMBERS = {
     "all_traces": None,
     "explicit_count_marker": ("indexed", "ordinal", "inline_count"),
@@ -474,7 +468,7 @@ def _running_index_analysis(
                     endpoint="running_index",
                     dataset=dataset,
                     analysis_group="all_traces",
-                    selector="prompt_span_site_search",
+                    selector="fixed_span_end_layer_search",
                     token_site=pooling,
                     layer=layer,
                     states=states,
@@ -567,7 +561,7 @@ def _running_index_analysis(
                         endpoint="running_index",
                         dataset=dataset,
                         analysis_group=analysis_group,
-                        selector="trace_site_x_layer_search",
+                        selector="fixed_item_end_layer_search",
                         token_site=site,
                         layer=layer,
                         states=states[mask],
@@ -855,13 +849,14 @@ def analyze_dual_endpoint_geometry(
                 ),
             },
             "independent_layer_rule": (
-                "token site and layer are selected separately within each mode; "
-                "layer numbers are never matched across modes"
+                "running token sites are fixed to span_end/item_end; decoder "
+                "layers are selected separately within each mode and layer "
+                "numbers are never matched across modes"
             ),
             "selection_rule": (
-                "maximize the mean of discovery grouped-CV logistic and nearest-"
-                "centroid balanced accuracy; tie-break by NCC, logistic, earlier "
-                "within-model layer, then token-site name"
+                "with token site fixed, maximize the mean of discovery grouped-CV "
+                "logistic and nearest-centroid balanced accuracy over layers; "
+                "tie-break by NCC, logistic, then earlier within-model layer"
             ),
             "confirmation_rule": (
                 "all-layer held-out curves are saved for transparent diagnostics, "
@@ -883,27 +878,16 @@ def analyze_dual_endpoint_geometry(
                 "the frozen discovery projection"
             ),
             "running_index_token_sites": {
-                "non_thinking": {
+                "non_thinking_primary": {
                     "span_end": "last token of each prompt evidence span",
-                    "span_mean": "mean over tokens in each prompt evidence span",
                 },
                 "native_thinking_primary": {
-                    "pre_city": (
-                        "last token before the parsed city begins; an anticipatory "
-                        "site for implicit lists and a sensitivity site elsewhere"
-                    ),
-                    "city_end": "last city/entity token in a parsed trace item",
-                    "city_unit_end": (
-                        "last token in the sentence or physical line containing "
-                        "the parsed city"
-                    ),
                     "item_end": "last token of a completed parsed trace item",
-                    "post_boundary": "first token after the parsed item boundary",
                 },
                 "excluded_from_primary_search": (
-                    "pre_marker/marker_end and format-conditioned selectors are "
-                    "omitted because they mix lexical marker cues with the pooled "
-                    "representation estimand"
+                    "span_mean and all alternative native token sites are omitted; "
+                    "the primary comparison uses one boundary-token state per "
+                    "observed occurrence in both modes"
                 ),
             },
             "running_index_analysis_unit": (
