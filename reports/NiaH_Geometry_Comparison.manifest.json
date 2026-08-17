@@ -1,6 +1,6 @@
 {
   "schema_version": "niah_geometry_comparison_v10_entity_domain_transfer",
-  "generated_at": "2026-08-17T23:17:46.981149+00:00",
+  "generated_at": "2026-08-17T23:26:04.800371+00:00",
   "cohorts": {
     "full": "10 gold counts x 30 seeds = 300 trajectories",
     "confirmation": "10 gold counts x 10 seeds = 100 trajectories"
@@ -50,5 +50,5 @@
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_geometry_full_panel\\running\\Qwen3-8B\\shards\\Qwen3-8B__native_thinking__v5__V4_4_T10000_N1_seed1234\\capture_manifest.json": "0ce6f781628fc5f0cd6d482d6cfdaf0da35ace79257adcc573a5eaeb38ffc654"
   },
   "output": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\NiaH_Geometry_Comparison.html",
-  "output_sha256": "ce510fd3c14f6e4e0b9cd9cf8ebf909a0582b839d7c726442f3f5f16cb2a445d"
+  "output_sha256": "acae290a5a0b5b3d5a0e1a8d71ad6a17d1816f7d95d04c9ca7318a1670f062e0"
 }
