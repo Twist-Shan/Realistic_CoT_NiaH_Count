@@ -7,13 +7,16 @@ import pandas as pd
 import pytest
 
 from realistic_niah_v5.causal import (
+    analyze_paired_causal_results,
     bootstrap_seed_mean_ci,
+    build_answer_query_causal_plan,
     build_causal_plan,
     fit_centroid_subspace,
     layer_matched_random_controls,
     mechanism_continuations,
     paired_seed_effects,
     query_context_mask,
+    rank_answer_query_heads,
     rank_mechanism_heads,
     rank_retrieval_heads,
     sign_flip_pvalue,
@@ -26,6 +29,18 @@ from realistic_niah_v5.parsing import (
     PARSER_UPSTREAM_COMMIT,
     parse_and_align_record,
     parse_trace_record,
+)
+from realistic_niah_v5.pre_city import (
+    build_pre_city_causal_plan,
+    orthogonal_norm_matched_patch_state,
+    pre_city_token_queries,
+    rank_pre_city_heads,
+)
+from realistic_niah_v5.response_reference import (
+    REFERENCE_TYPES,
+    parse_response_reference_sites,
+    response_reference_queries,
+    targeted_retrieval_queries,
 )
 from realistic_niah_v5.representation import (
     analyze_representation,
@@ -169,6 +184,52 @@ def test_answer_query_candidates_include_chat_termination() -> None:
     assert len(scored[2]) > len(answers[2])
 
 
+def test_answer_query_v2_recovers_gemma_channel_prefixed_total() -> None:
+    row = _row("gemma4")
+    raw = str(row["raw_output_text"]).replace(
+        "<channel|>\nTotal: 2", "<channel|>Total: 2"
+    )
+    row["raw_output_text"] = raw
+    row["output_token_ids"] = [ord(value) for value in raw]
+    parsed = parse_and_align_record(row, CharacterTokenizer())
+    ids = {site["site_id"] for site in parsed["token_sites"]}
+    assert "answer_query" not in ids
+    assert "answer_query_v2" in ids
+    encoding = build_native_trace_encoding(
+        row,
+        CharacterTokenizer(),
+        site_id="answer_query_v2",
+        candidate_counts=tuple(range(1, 11)),
+    )
+    assert encoding.raw_prefix_text.endswith("Total:")
+    assert encoding.selected_site["alignment_strategy"] == (
+        "literal_baseline_token_prefix"
+    )
+    assert dict(encoding.count_candidate_answer_token_ids)[2] == (ord("2"),)
+
+
+@pytest.mark.parametrize("family", ["qwen3", "gemma4"])
+def test_answer_query_v3_uses_literal_token_before_numeric_answer(
+    family: str,
+) -> None:
+    row = _row(family)
+    parsed = parse_and_align_record(row, CharacterTokenizer())
+    site = next(
+        site for site in parsed["token_sites"]
+        if site["site_id"] == "answer_query_v3"
+    )
+    assert site["alignment_strategy"] == "literal_baseline_token_prefix"
+    encoding = build_native_trace_encoding(
+        row,
+        CharacterTokenizer(),
+        site_id="answer_query_v3",
+        candidate_counts=tuple(range(1, 11)),
+    )
+    assert encoding.raw_prefix_text.endswith("Total: ")
+    assert encoding.input_ids[-1] == ord(" ")
+    assert dict(encoding.count_candidate_answer_token_ids)[2] == (ord("2"),)
+
+
 def test_native_generation_registers_exact_prompt_record_spans() -> None:
     passage = "Chicago received a score of 72. Noise. Baku received a score of 98."
     records = []
@@ -241,6 +302,247 @@ def test_parser_boundaries_define_targeted_and_progress_causal_continuations() -
         ("continue", "Baku"),
         ("stop", None),
     ]
+
+
+def test_item_end_fallback_policy_is_explicit_and_audited(monkeypatch) -> None:
+    import realistic_niah_v5.causal as causal_module
+
+    original_trace_char_sites = causal_module.trace_char_sites
+
+    def trace_sites_without_first_city_end(raw_text, parser):
+        return [
+            site
+            for site in original_trace_char_sites(raw_text, parser)
+            if site.site_id != "city_end:1"
+        ]
+
+    monkeypatch.setattr(
+        causal_module, "trace_char_sites", trace_sites_without_first_city_end
+    )
+    targeted, targeted_excluded = mechanism_continuations(
+        _row(),
+        CharacterTokenizer(),
+        mechanism="targeted_retrieval",
+        boundary_policy="item_end_fallback_v2",
+    )
+    progress, progress_excluded = mechanism_continuations(
+        _row(),
+        CharacterTokenizer(),
+        mechanism="progress_transition",
+        boundary_policy="item_end_fallback_v2",
+    )
+    assert not targeted_excluded
+    assert not progress_excluded
+    assert all(
+        row["target_boundary_policy"] == "item_end_fallback_v2"
+        for row in targeted + progress
+    )
+    assert targeted[0]["target_site_candidates"] == ["city_end:1", "item_end:1"]
+    assert progress[0]["target_site_candidates"] == ["marker_end:2", "item_end:2"]
+    assert targeted[0]["target_site_id"] == "item_end:1"
+    assert targeted[0]["target_boundary_variant"] == "item_end_fallback"
+    assert targeted[0]["target_site_fallback"] is True
+    assert targeted[0]["target_candidate_audit"] == [
+        {"site_id": "city_end:1", "status": "missing_registered_boundary"},
+        {"site_id": "item_end:1", "status": "selected"},
+    ]
+    assert targeted[1]["target_boundary_variant"] == "primary"
+    assert targeted[1]["target_site_fallback"] is False
+
+
+def test_unknown_causal_boundary_policy_is_rejected() -> None:
+    with pytest.raises(ValueError, match="Unknown causal boundary policy"):
+        mechanism_continuations(
+            _row(),
+            CharacterTokenizer(),
+            mechanism="targeted_retrieval",
+            boundary_policy="silent_unregistered_fallback",
+        )
+
+
+def test_pre_city_queries_use_real_baseline_tokens_and_keep_variants_separate() -> None:
+    queries, exclusions = pre_city_token_queries(
+        _row(), CharacterTokenizer(), depths=(1, 2), include_anchor=True
+    )
+    assert not [row for row in exclusions if row["status"].startswith("raw_")]
+    first = [row for row in queries if row.occurrence == 1]
+    by_variant = {row.query_variant: row for row in first}
+    assert {"pre_city_d1", "pre_city_d2", "pre_city_anchor"} <= set(by_variant)
+    assert by_variant["pre_city_d1"].token_distance_before_city == 1
+    assert by_variant["pre_city_d2"].token_distance_before_city == 2
+    assert by_variant["pre_city_d1"].query_output_token_count < by_variant["pre_city_d1"].city_after_token
+    assert by_variant["pre_city_anchor"].anchor_kind == "marker_end_left_token_boundary"
+
+
+@pytest.mark.parametrize("family", ["qwen3", "gemma4"])
+def test_response_reference_parser_registers_exact_pre_city_tokens(
+    family: str,
+) -> None:
+    row = _row(family)
+    sites, exclusions = parse_response_reference_sites(row)
+    assert not exclusions
+    assert [site.city for site in sites] == ["Chicago", "Baku"]
+    assert {site.response_type for site in sites} <= set(REFERENCE_TYPES)
+    queries, token_exclusions = response_reference_queries(row, CharacterTokenizer())
+    assert not token_exclusions
+    assert len(queries) >= 4
+    assert {query.base.query_variant for query in queries} == {
+        "pre_city_d1",
+        "pre_city_d2",
+        "pre_city_anchor",
+    }
+    assert all(
+        query.base.token_distance_before_city == 1
+        for query in queries
+        if query.base.query_variant == "pre_city_d1"
+    )
+    assert {
+        query.site.parser_name for query in queries
+    } == {f"{family}_response_reference_parser_v1"}
+
+
+def test_answer_query_ranking_uses_broad_score_not_total_mass() -> None:
+    rows = []
+    for head, raw, broad, coverage in (
+        (0, 0.90, 0.09, 0.10),
+        (1, 0.60, 0.54, 0.90),
+    ):
+        rows.append(
+            {
+                "model_label": "Qwen3-8B",
+                "split": "discovery",
+                "trace_one_to_one": True,
+                "layer": 0,
+                "head": head,
+                "target_needle_raw_mass": raw,
+                "target_needle_relative_mass": raw,
+                "trace_item_raw_mass": raw,
+                "trace_item_relative_mass": raw,
+                "prompt_broad_score": broad,
+                "prompt_broad_coverage": coverage,
+                "trace_broad_score": broad,
+                "trace_broad_coverage": coverage,
+            }
+        )
+    ranking = rank_answer_query_heads(pd.DataFrame(rows))
+    assert int(ranking.iloc[0]["head"]) == 1
+    assert ranking.iloc[0]["selection_metric"].endswith("broad_score")
+
+
+def test_marker_orthogonal_control_matches_delta_norm() -> None:
+    import torch
+
+    receiver = torch.arange(16, dtype=torch.float32)
+    donor = receiver + torch.linspace(-2.0, 3.0, 16)
+    control = orthogonal_norm_matched_patch_state(
+        receiver, donor, seed_text="unit-test"
+    )
+    donor_delta = donor - receiver
+    control_delta = control - receiver
+    assert torch.linalg.vector_norm(control_delta).item() == pytest.approx(
+        torch.linalg.vector_norm(donor_delta).item(), rel=1e-6
+    )
+    assert torch.dot(control_delta, donor_delta).item() == pytest.approx(
+        0.0, abs=1e-5
+    )
+
+
+def test_marker_orthogonal_zero_delta_is_identity() -> None:
+    import torch
+
+    receiver = torch.tensor([1.0, -2.0, 3.0])
+    control = orthogonal_norm_matched_patch_state(
+        receiver, receiver.clone(), seed_text="zero-delta"
+    )
+    assert torch.equal(control, receiver)
+
+
+def test_answer_query_plan_contains_factorial_joint_bank(tmp_path) -> None:
+    rows = []
+    for split in ("discovery", "confirmation"):
+        for head in range(8):
+            rows.append(
+                {
+                    "model_label": "Qwen3-8B",
+                    "split": split,
+                    "trace_one_to_one": True,
+                    "layer": 0,
+                    "head": head,
+                    "target_needle_raw_mass": 1.0 - head * 0.01,
+                    "target_needle_relative_mass": 0.5 - head * 0.005,
+                    "trace_item_raw_mass": 1.0 - abs(head - 2) * 0.01,
+                    "trace_item_relative_mass": 0.5 - abs(head - 2) * 0.005,
+                    "prompt_broad_score": 1.0 - head * 0.01,
+                    "prompt_broad_coverage": 0.9 - head * 0.01,
+                    "trace_broad_score": 1.0 - abs(head - 2) * 0.01,
+                    "trace_broad_coverage": 0.9 - abs(head - 2) * 0.01,
+                }
+            )
+    attention = tmp_path / "answer_attention.csv"
+    pd.DataFrame(rows).to_csv(attention, index=False)
+    paths = build_answer_query_causal_plan(
+        attention,
+        tmp_path / "answer_plan",
+        config=V5Config(causal_head_bank_sizes=(1,), causal_random_controls=3),
+    )
+    plan = pd.read_csv(paths["plan"])
+    mechanisms = set(plan["mechanism"])
+    assert mechanisms == {
+        "answer_prompt_aggregation",
+        "answer_trace_aggregation",
+        "answer_prompt_and_trace_aggregation",
+    }
+    joint = plan.loc[
+        plan["condition"].eq("answer_prompt_and_trace_aggregation_ranked")
+    ].iloc[0]
+    assert int(joint["prompt_bank_size"]) == 1
+    assert int(joint["trace_bank_size"]) == 1
+    assert int(joint["selected_head_count"]) == 2
+    audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
+    assert audit["confirmation_used_for_selection"] is False
+    assert len(audit["reported_behavioral_conditions"]) == 4
+
+
+def test_answer_query_plan_constrains_ranked_banks_for_exact_controls(
+    tmp_path,
+) -> None:
+    rows = []
+    for split in ("discovery", "confirmation"):
+        for head in range(8):
+            rows.append(
+                {
+                    "model_label": "Gemma4-E4B",
+                    "split": split,
+                    "trace_one_to_one": True,
+                    "layer": 0,
+                    "head": head,
+                    "target_needle_raw_mass": 1.0 - head * 0.01,
+                    "target_needle_relative_mass": 0.5,
+                    "trace_item_raw_mass": 1.0 - abs(head - 2) * 0.01,
+                    "trace_item_relative_mass": 0.5,
+                    "prompt_broad_score": 1.0 - head * 0.01,
+                    "prompt_broad_coverage": 0.9,
+                    "trace_broad_score": 1.0 - abs(head - 2) * 0.01,
+                    "trace_broad_coverage": 0.9,
+                }
+            )
+    attention = tmp_path / "answer_attention.csv"
+    pd.DataFrame(rows).to_csv(attention, index=False)
+    paths = build_answer_query_causal_plan(
+        attention,
+        tmp_path / "answer_plan",
+        config=V5Config(causal_head_bank_sizes=(4,), causal_random_controls=3),
+    )
+    plan = pd.read_csv(paths["plan"])
+    audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
+    assert audit["skipped_banks"] == []
+    assert len(plan) == 12
+    assert set(plan.groupby("mechanism").size()) == {4}
+    assert set(plan.loc[plan["repeat"].eq(0), "bank_size"]) == {4}
+    assert all(
+        len(json.loads(heads)) == 4
+        for heads in plan.loc[plan["repeat"].gt(0), "heads"]
+    )
 
 
 def test_v5_config_freezes_sites_and_disjoint_seed_splits() -> None:
@@ -345,7 +647,7 @@ def test_discovery_head_ranking_and_layer_matched_controls() -> None:
     assert all((0, 0) not in bank and (1, 0) not in bank for bank in controls)
 
 
-def test_causal_plan_audits_unmatched_banks_instead_of_scheduling_them(
+def test_causal_plan_keeps_treatment_and_audits_unmatched_controls(
     tmp_path,
 ) -> None:
     attention_rows = [
@@ -371,12 +673,24 @@ def test_causal_plan_audits_unmatched_banks_instead_of_scheduling_them(
     paths = build_causal_plan(source, tmp_path / "plan", config=config)
     plan = pd.read_csv(paths["plan"])
     audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
-    assert plan.empty
+    assert len(plan) == 2
+    assert set(plan["condition"]) == {
+        "targeted_retrieval_ranked",
+        "progress_transition_ranked",
+    }
+    assert set(plan["bank_size"]) == {4}
+    assert set(plan["repeat"]) == {0}
     assert {row["mechanism"] for row in audit["skipped_banks"]} == {
         "targeted_retrieval",
         "progress_transition",
     }
     assert audit["skipped_banks"][0]["bank_size"] == 4
+    assert all(
+        row["ranked_treatment_included"] is True
+        and row["control_status"]
+        == "not_constructible_disjoint_exact_layer_match"
+        for row in audit["skipped_banks"]
+    )
     assert "Not enough non-selected heads" in audit["skipped_banks"][0]["reason"]
 
 
@@ -409,6 +723,67 @@ def test_causal_query_rows_are_averaged_before_seed_inference() -> None:
         trials, treatment="ranked", control="random", outcome="y"
     )
     assert effects.loc[0, "mean_effect"] == pytest.approx(-2.0)
+
+
+def test_causal_analysis_retains_clean_k0_baseline_for_selected_bank(
+    tmp_path,
+) -> None:
+    rows = []
+    for seed in (1254, 1255):
+        rows.extend(
+            [
+                {
+                    "model_label": "Qwen3-8B",
+                    "seed": seed,
+                    "condition": "clean",
+                    "status": "ok",
+                    "mechanism": "targeted_retrieval",
+                    "bank_size": 0,
+                    "transition_phase": "retrieve",
+                    "score": 3.0,
+                },
+                {
+                    "model_label": "Qwen3-8B",
+                    "seed": seed,
+                    "condition": "targeted_retrieval_ranked",
+                    "status": "ok",
+                    "mechanism": "targeted_retrieval",
+                    "bank_size": 4,
+                    "transition_phase": "retrieve",
+                    "score": 1.0,
+                },
+            ]
+        )
+    # Real head-causal JSONL contains boundary-exclusion rows without a K,
+    # which promotes the loaded bank_size column from int to float.
+    rows.append(
+        {
+            "model_label": "Qwen3-8B",
+            "seed": 1254,
+            "condition": "clean",
+            "status": "missing_registered_boundary",
+            "mechanism": "targeted_retrieval",
+            "transition_phase": "retrieve",
+            "score": None,
+        }
+    )
+    source = tmp_path / "trials.jsonl"
+    source.write_text(
+        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
+    )
+    result = analyze_paired_causal_results(
+        source,
+        tmp_path / "analysis.csv",
+        treatment="targeted_retrieval_ranked",
+        control="clean",
+        outcome="score",
+        config=V5Config(bootstrap_samples=100),
+        mechanism="targeted_retrieval",
+        bank_size=4,
+        transition_phase="retrieve",
+    )
+    assert result.loc[0, "mean_effect"] == pytest.approx(-2.0)
+    assert result.loc[0, "n_seeds"] == 2
 
 
 def test_capture_shards_feed_end_to_end_representation_analysis(tmp_path) -> None:
@@ -484,3 +859,153 @@ def test_capture_shards_feed_end_to_end_representation_analysis(tmp_path) -> Non
     audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
     assert audit["primary_site"] == "item_end"
     assert audit["groups_completed"] == 3
+
+
+def test_pre_city_plan_freezes_each_variant_on_discovery_only(tmp_path) -> None:
+    variants = {
+        "pre_city_d1": 1,
+        "pre_city_d2": 2,
+        "pre_city_anchor": 3,
+    }
+    rows = []
+    for split in ("discovery", "confirmation"):
+        for variant, preferred_head in variants.items():
+            for head in range(8):
+                raw = 1.0 if head == preferred_head else 0.1 - head * 0.001
+                if split == "confirmation":
+                    raw += 0.01
+                rows.append(
+                    {
+                        "model_label": "Qwen3-8B",
+                        "split": split,
+                        "query_variant": variant,
+                        "layer": 0,
+                        "head": head,
+                        "target_needle_raw_mass": raw,
+                        "target_needle_relative_mass": raw / 2,
+                        "target_needle_top1": head == preferred_head,
+                    }
+                )
+    attention = pd.DataFrame(rows)
+    ranking = rank_pre_city_heads(attention)
+    top = ranking.loc[ranking["discovery_rank"].eq(1)]
+    assert {
+        str(row.query_variant): int(row.head)
+        for row in top.itertuples(index=False)
+    } == variants
+
+    source = tmp_path / "attention.csv"
+    attention.to_csv(source, index=False)
+    paths = build_pre_city_causal_plan(
+        source,
+        tmp_path / "plan",
+        config=V5Config(
+            causal_head_bank_sizes=(1, 2, 4),
+            causal_random_controls=1,
+        ),
+    )
+    plan = pd.read_csv(paths["plan"])
+    ranked = plan.loc[
+        plan["condition"].eq("pre_city_targeted_retrieval_ranked")
+    ]
+    assert set(ranked["query_variant"]) == set(variants)
+    assert set(ranked["bank_size"]) == {1, 2, 4}
+    assert ranked["confirmation_target_needle_raw_mass"].notna().all()
+    assert ranked["confirmation_target_needle_relative_mass"].notna().all()
+    audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
+    assert audit["confirmation_used_for_selection"] is False
+    assert audit["variant_specific_discovery_selection"] is True
+    assert audit["broad_aggregation_used"] is False
+
+
+def test_response_reference_position_consensus_separates_query_positions(
+    tmp_path,
+) -> None:
+    from realistic_niah_v5.response_reference import (
+        build_response_reference_causal_plan,
+    )
+
+    rows = []
+    preferred = {"pre_city_d1": 0, "pre_city_d2": 1, "pre_city_anchor": 2}
+    for split in ("discovery", "confirmation"):
+        for response_type in REFERENCE_TYPES:
+            for position, preferred_head in preferred.items():
+                for head in range(8):
+                    raw = 1.0 if head == preferred_head else 0.01
+                    rows.append(
+                        {
+                            "model_label": "Qwen3-8B",
+                            "request_id": f"{split}-{response_type}",
+                            "split": split,
+                            "response_type": response_type,
+                            "position_variant": position,
+                            "layer": 0,
+                            "head": head,
+                            "target_needle_raw_mass": raw,
+                            "target_needle_relative_mass": raw / 2,
+                            "target_needle_top1": head == preferred_head,
+                        }
+                    )
+    attention = tmp_path / "response_attention.csv"
+    pd.DataFrame(rows).to_csv(attention, index=False)
+    paths = build_response_reference_causal_plan(
+        attention,
+        tmp_path / "response_plan",
+        config=V5Config(causal_head_bank_sizes=(1,), causal_random_controls=3),
+    )
+    plan = pd.read_csv(paths["plan"])
+    primary = plan.loc[
+        plan["bank_scope"].eq("position_consensus")
+        & plan["condition"].eq("response_reference_position_consensus_ranked")
+    ]
+    assert len(primary) == 9
+    for position, preferred_head in preferred.items():
+        heads = {
+            json.loads(value)[0][1]
+            for value in primary.loc[
+                primary["position_variant"].eq(position), "heads"
+            ]
+        }
+        assert heads == {preferred_head}
+    audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
+    assert audit["primary_bank_scope"] == "position_consensus"
+
+
+def test_targeted_retrieval_parser_registers_each_pre_citation_k_to_k() -> None:
+    row = _row("qwen3")
+    raw = str(row["raw_output_text"])
+    queries, exclusions = targeted_retrieval_queries(row, CharacterTokenizer())
+    assert not exclusions
+    assert [query.base.occurrence for query in queries] == [1, 2]
+    for query in queries:
+        city_start = raw.index(query.base.city, query.site.item_start_char)
+        assert query.site.citation_start_kind == "exact_city_fallback"
+        assert query.site.citation_start_char == city_start
+        assert query.base.query_output_token_count == city_start
+        assert query.to_dict()["token_distance_before_citation"] == 1
+        assert query.target_after_token == query.site.item_end_char
+
+
+def test_targeted_retrieval_parser_starts_at_exact_record_not_list_scaffold() -> None:
+    raw = (
+        "<think>\nI will enumerate.\n"
+        "1. Found: In the 2024 city score audit, Chicago received a score of 72.\n"
+        "2. Excerpt: In the 2024 city score audit, Baku received a score of 98.\n"
+        "Therefore there are two.\n</think>\nTotal: 2"
+    )
+    row = _row("qwen3")
+    row["raw_output_text"] = raw
+    row["output_token_ids"] = [ord(value) for value in raw]
+    queries, exclusions = targeted_retrieval_queries(row, CharacterTokenizer())
+    assert not exclusions
+    assert len(queries) == 2
+    for query in queries:
+        expected = raw.index(
+            "In the 2024 city score audit", query.site.item_start_char
+        )
+        assert query.site.citation_start_kind == "exact_record_prefix"
+        assert query.site.citation_start_char == expected
+        assert query.base.query_output_token_count == expected
+        assert raw[query.site.item_start_char : expected].strip().endswith(
+            ("Found:", "Excerpt:")
+        )

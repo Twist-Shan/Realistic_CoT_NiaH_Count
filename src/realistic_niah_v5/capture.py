@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,6 +40,11 @@ from .spec import V5Config
 
 CAPTURE_SCHEMA_VERSION = "realistic_niah_v5_trace_capture_v4"
 ATTENTION_SCHEMA_VERSION = "realistic_niah_v5_mechanism_attention_v3"
+NO_ALIGNED_TRACE_SITES_REASON = "no_aligned_registered_v5_trace_sites"
+
+
+class NoAlignedTraceSitesError(ValueError):
+    """A record has no registered trace site that can be captured."""
 
 
 @dataclass(frozen=True)
@@ -82,7 +88,14 @@ def _selected_sites(
     token_sites: Sequence[TraceTokenSite],
     config: V5Config,
     site_kinds: Sequence[str] | None = None,
+    *,
+    site_ids: Sequence[str] | None = None,
 ) -> list[TraceTokenSite]:
+    if site_kinds is not None and site_ids is not None:
+        raise ValueError("site_kinds and site_ids are mutually exclusive")
+    registered_ids = None if site_ids is None else {str(value) for value in site_ids}
+    if registered_ids is not None and not registered_ids:
+        raise ValueError("site_ids cannot be empty")
     registered = set(config.registered_sites)
     if site_kinds is not None:
         requested = set(map(str, site_kinds))
@@ -95,7 +108,14 @@ def _selected_sites(
     result = [
         site
         for site in token_sites
-        if site.char_site.site_kind in registered and site.alignment_eligible
+        if (
+            (
+                site.char_site.site_kind in registered
+                if registered_ids is None
+                else site.char_site.site_id in registered_ids
+            )
+            and site.alignment_eligible
+        )
     ]
     return sorted(
         result,
@@ -163,8 +183,11 @@ def capture_trace_record(
     site_kinds: Sequence[str] | None = None,
     capture_span_pooling: bool = True,
     overwrite: bool = False,
+    site_ids: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     config.validate()
+    if site_kinds is not None and site_ids is not None:
+        raise ValueError("site_kinds and site_ids are mutually exclusive")
     output = Path(output_dir)
     manifest_path = output / "capture_manifest.json"
     if manifest_path.exists() and not overwrite:
@@ -192,6 +215,14 @@ def capture_trace_record(
                 f"Existing V5 site grid differs in {manifest_path}; "
                 "use --overwrite or a new output directory."
             )
+        expected_site_ids = (
+            None if site_ids is None else sorted({str(value) for value in site_ids})
+        )
+        if saved.get("selected_site_ids") != expected_site_ids:
+            raise RuntimeError(
+                f"Existing V5 site-id grid differs in {manifest_path}; "
+                "use --overwrite or a new output directory."
+            )
         if bool(saved.get("capture_span_pooling")) != bool(capture_span_pooling):
             raise RuntimeError(
                 f"Existing V5 span-pooling policy differs in {manifest_path}; "
@@ -211,9 +242,9 @@ def capture_trace_record(
         baseline_output_token_ids=output_token_ids(row),
         sites=trace_char_sites(raw, parser),
     )
-    sites = _selected_sites(token_sites, config, site_kinds)
+    sites = _selected_sites(token_sites, config, site_kinds, site_ids=site_ids)
     if not sites:
-        raise ValueError("No aligned registered V5 trace sites")
+        raise NoAlignedTraceSitesError("No aligned registered V5 trace sites")
     started = time.perf_counter()
     full = _full_input(row)
     prompt_count = len(prompt_token_ids(row))
@@ -327,6 +358,9 @@ def capture_trace_record(
         "layers": layer_indices.tolist(),
         "selected_site_kinds": sorted(
             set(config.registered_sites if site_kinds is None else site_kinds)
+        ),
+        "selected_site_ids": (
+            None if site_ids is None else sorted({str(value) for value in site_ids})
         ),
         "capture_span_pooling": bool(capture_span_pooling),
         "site_rows": [site.to_dict() for site in sites],
@@ -513,6 +547,205 @@ def capture_trace_attention_metrics(
     return pd.DataFrame(rows)
 
 
+@torch.inference_mode()
+def capture_answer_query_attention_metrics(
+    model: Any,
+    adapter: DecoderAdapter,
+    tokenizer: Any,
+    row: Mapping[str, Any],
+    *,
+    site_id: str = "answer_query_v3",
+) -> pd.DataFrame:
+    """Measure prompt and registered-trace aggregation at the answer query.
+
+    Prompt aggregation is computed over the literal oracle needle-record spans.
+    Trace aggregation is computed independently over the frozen,
+    parser-registered reasoning item spans.  For each route we retain the full
+    per-span mass vector and the V4.4 non-thinking broad score
+    ``total_mass * exp(entropy(per_span_mass)) / span_count``.  The two routes
+    are ranked separately downstream; neither is replaced by an unregistered
+    broad-context aggregate.  The table always preserves the exact prompt
+    needle raw/relative mass required by the V5 result contract.
+    """
+
+    parsed = parse_trace_record(row)
+    if not bool(parsed["parser"]["detected"]):
+        return pd.DataFrame()
+    encoding = build_native_trace_encoding(
+        row,
+        tokenizer,
+        site_id=site_id,
+        candidate_counts=tuple(range(1, 11)),
+    )
+    if not encoding.prompt_record_spans:
+        raise ValueError(
+            "Answer-query attention requires frozen prompt_record_spans"
+        )
+    raw = raw_output_text(row)
+    parser = find_trace_count_sequence(
+        raw,
+        model_family=parsed["model_family"],
+        gold_records=gold_records(row),
+    )
+    aligned_sites = align_trace_sites(
+        tokenizer,
+        raw_text=raw,
+        baseline_output_token_ids=output_token_ids(row),
+        sites=trace_char_sites(raw, parser),
+    )
+    aligned_by_id = {site.char_site.site_id: site for site in aligned_sites}
+    active_site = aligned_by_id.get(site_id)
+    if active_site is None or not active_site.alignment_eligible:
+        raise RuntimeError(f"Answer-query site {site_id!r} is not token aligned")
+    legacy_site = aligned_by_id.get("answer_query")
+    legacy_alias_same_endpoint = bool(
+        legacy_site is not None
+        and legacy_site.alignment_eligible
+        and legacy_site.endpoint_token == active_site.endpoint_token
+    )
+    attention_rows, key_starts, _logits = position_attention_outputs(
+        model,
+        adapter,
+        encoding,
+        encoding.query_position,
+    )
+    rows: list[dict[str, Any]] = []
+    for layer, (attention, key_start) in enumerate(
+        zip(attention_rows, key_starts)
+    ):
+        for head in range(attention.shape[0]):
+            head_row = attention[head]
+            span_masses = [
+                _mass(head_row, key_start=key_start, spans=[span])
+                for span in encoding.prompt_record_spans
+            ]
+            target_mass = float(sum(span_masses))
+            prompt_right = min(
+                encoding.prompt_token_count - int(key_start),
+                int(head_row.shape[-1]),
+            )
+            prompt_mass = (
+                float(head_row[: max(0, prompt_right)].sum().item())
+                if prompt_right > 0
+                else 0.0
+            )
+            relative_mass = (
+                target_mass / prompt_mass if prompt_mass > 0 else float("nan")
+            )
+            trace_span_masses = [
+                _mass(head_row, key_start=key_start, spans=[span])
+                for span in encoding.trace_item_spans
+            ]
+            trace_mass = float(sum(trace_span_masses))
+            generated_left = max(
+                0, int(encoding.prompt_token_count) - int(key_start)
+            )
+            generated_right = min(
+                int(encoding.query_position) - int(key_start),
+                int(head_row.shape[-1]),
+            )
+            generated_prior_mass = (
+                float(head_row[generated_left:max(generated_left, generated_right)].sum().item())
+                if generated_right > generated_left
+                else 0.0
+            )
+            trace_relative_mass = (
+                trace_mass / generated_prior_mass
+                if generated_prior_mass > 0
+                else float("nan")
+            )
+            prompt_broad = _broad_span_metrics(span_masses)
+            trace_broad = _broad_span_metrics(trace_span_masses)
+            rows.append(
+                {
+                    "schema_version": ATTENTION_SCHEMA_VERSION,
+                    "experiment_id": "answer_query_dual_broad_aggregation_attention_v4",
+                    "request_id": encoding.request_id,
+                    "stimulus_id": encoding.stimulus_id,
+                    "model_label": encoding.model_label,
+                    "seed": encoding.seed,
+                    "split": encoding.split,
+                    "gold_count": encoding.count,
+                    "trace_one_to_one": bool(
+                        parsed["parser"].get("trace_one_to_one")
+                    ),
+                    "trace_category": parsed["parser"].get("trace_category"),
+                    "final_exact_count": bool(parsed.get("exact_count")),
+                    "mechanism": "answer_execution",
+                    "site_id": site_id,
+                    "site_kind": str(
+                        encoding.selected_site.get("site_kind", site_id)
+                    ),
+                    "alignment_strategy": str(active_site.alignment_strategy),
+                    "baseline_endpoint_token": int(active_site.endpoint_token),
+                    "legacy_answer_query_present": bool(legacy_site is not None),
+                    "legacy_answer_query_same_endpoint": legacy_alias_same_endpoint,
+                    "layer": int(layer),
+                    "head": int(head),
+                    "key_start": int(key_start),
+                    "active_needle_spans": int(len(span_masses)),
+                    "target_needle_raw_mass": target_mass,
+                    "target_needle_relative_mass": relative_mass,
+                    "target_needle_relative_denominator": "all_prompt_attention_mass",
+                    "all_active_needles_raw_mass": target_mass,
+                    "prompt_span_masses_json": json.dumps(span_masses),
+                    "prompt_broad_coverage": prompt_broad["coverage"],
+                    "prompt_broad_effective_spans": prompt_broad[
+                        "effective_spans"
+                    ],
+                    "prompt_broad_score": prompt_broad["score"],
+                    "full_prompt_mass": prompt_mass,
+                    "registered_trace_item_spans": int(len(trace_span_masses)),
+                    "trace_item_raw_mass": trace_mass,
+                    "trace_span_masses_json": json.dumps(trace_span_masses),
+                    "trace_broad_coverage": trace_broad["coverage"],
+                    "trace_broad_effective_spans": trace_broad[
+                        "effective_spans"
+                    ],
+                    "trace_broad_score": trace_broad["score"],
+                    "trace_item_relative_mass": trace_relative_mass,
+                    "trace_item_relative_denominator": (
+                        "all_prior_generated_trace_attention_mass"
+                    ),
+                    "all_prior_generated_trace_attention_mass": generated_prior_mass,
+                    "other_generated_raw_mass": max(
+                        0.0, generated_prior_mass - trace_mass
+                    ),
+                    "row_sum": float(head_row.sum().item()),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _broad_span_metrics(
+    masses: Sequence[float], *, epsilon: float = 1e-12
+) -> dict[str, float]:
+    """Return the frozen V4.4 broad-aggregation score for exact spans.
+
+    This is deliberately local to the V5 capture path because prompt record
+    spans and parser-registered trace item spans have different dataclasses
+    from the V4 attention atlas.  The numerical definition is identical.
+    """
+
+    values = np.asarray(tuple(float(value) for value in masses), dtype=float)
+    if values.size == 0:
+        return {"coverage": 0.0, "effective_spans": 0.0, "score": 0.0}
+    total = float(values.sum())
+    if total <= float(epsilon):
+        return {"coverage": 0.0, "effective_spans": 0.0, "score": 0.0}
+    probabilities = values / (total + float(epsilon))
+    entropy = float(
+        -np.sum(probabilities * np.log(probabilities + float(epsilon)))
+    )
+    effective = float(math.exp(entropy))
+    coverage = float(effective / len(values))
+    return {
+        "coverage": coverage,
+        "effective_spans": effective,
+        "score": float(total * coverage),
+    }
+
+
 def capture_trace_shards(
     model: Any,
     adapter: DecoderAdapter,
@@ -525,25 +758,60 @@ def capture_trace_shards(
     site_kinds: Sequence[str] | None = None,
     capture_span_pooling: bool = True,
     overwrite: bool = False,
+    site_ids: Sequence[str] | None = None,
 ) -> Path:
     output = Path(output_dir)
     index_rows: list[dict[str, Any]] = []
+    exclusion_rows: list[dict[str, Any]] = []
     for row_index, row in enumerate(records):
         request_id = str(row.get("request_id", row.get("stimulus_id", row_index)))
         safe_id = request_id.replace("/", "__").replace("\\", "__")
         relative = Path("shards") / safe_id
-        manifest = capture_trace_record(
-            model,
-            adapter,
-            tokenizer,
-            row,
-            config=config,
-            output_dir=output / relative,
-            layers=layers,
-            site_kinds=site_kinds,
-            capture_span_pooling=capture_span_pooling,
-            overwrite=overwrite,
-        )
+        try:
+            manifest = capture_trace_record(
+                model,
+                adapter,
+                tokenizer,
+                row,
+                config=config,
+                output_dir=output / relative,
+                layers=layers,
+                site_kinds=site_kinds,
+                capture_span_pooling=capture_span_pooling,
+                overwrite=overwrite,
+                site_ids=site_ids,
+            )
+        except NoAlignedTraceSitesError as error:
+            parsed = parse_trace_record(row)
+            parser = dict(parsed["parser"])
+            exclusion_rows.append(
+                {
+                    "schema_version": CAPTURE_SCHEMA_VERSION,
+                    "row_index": row_index,
+                    "request_id": request_id,
+                    "stimulus_id": parsed.get("stimulus_id", row.get("stimulus_id")),
+                    "model_label": parsed.get("model_label", row.get("model_label")),
+                    "seed": parsed.get("seed", row.get("seed")),
+                    "split": parsed.get("split", row.get("split")),
+                    "gold_count": parsed.get("gold_count"),
+                    "parsed_count": parsed.get("parsed_count"),
+                    "exact_count": parsed.get("exact_count"),
+                    "parser_detected": bool(parser.get("detected", False)),
+                    "parser_status": parser.get("status"),
+                    "trace_one_to_one": bool(parser.get("trace_one_to_one", False)),
+                    "trace_category": parser.get("trace_category"),
+                    "reason_code": NO_ALIGNED_TRACE_SITES_REASON,
+                    "exception_type": type(error).__name__,
+                    "message": str(error),
+                }
+            )
+            print(
+                f"[v5 capture] skip {row_index + 1} {request_id} "
+                f"reason={NO_ALIGNED_TRACE_SITES_REASON} "
+                f"parser_status={parser.get('status')}",
+                flush=True,
+            )
+            continue
         index_rows.append(
             {
                 "schema_version": CAPTURE_SCHEMA_VERSION,
@@ -559,13 +827,15 @@ def capture_trace_shards(
                 "trace_one_to_one": manifest["parser"]["trace_one_to_one"],
                 "trace_category": manifest["parser"]["trace_category"],
                 "marker_kind": manifest["parser"]["marker_kind"],
-                "trace_item_count": int(manifest["parser"]["item_count"]),
-                "sequence_source": manifest["sequence_source"],
+                "trace_item_count": int(manifest["parser"].get("item_count", 0)),
+                "sequence_source": str(manifest.get("sequence_source", "unknown")),
                 "rank_supported_event_count": int(
-                    manifest["episode_parse"]["rank_supported_event_count"]
+                    manifest.get("episode_parse", {}).get(
+                        "rank_supported_event_count", 0
+                    )
                 ),
                 "raw_sequence_count": int(
-                    manifest["episode_parse"]["raw_sequence_count"]
+                    manifest.get("episode_parse", {}).get("raw_sequence_count", 0)
                 ),
                 "manifest_path": (relative / "capture_manifest.json").as_posix(),
                 "states_path": (relative / "states.npz").as_posix(),
@@ -576,8 +846,10 @@ def capture_trace_shards(
             f"sites={len(manifest['site_rows'])} elapsed={manifest['elapsed_seconds']:.2f}s",
             flush=True,
         )
+    exclusions = output / "capture_exclusions.jsonl"
+    _atomic_jsonl(exclusions, exclusion_rows)
     if not index_rows:
-        raise ValueError("No V5 records were supplied for capture")
+        raise ValueError("No eligible V5 records were captured")
     index = output / "capture_index.jsonl"
     _atomic_jsonl(index, index_rows)
     _atomic_json(
@@ -585,6 +857,12 @@ def capture_trace_shards(
         {
             "schema_version": CAPTURE_SCHEMA_VERSION,
             "rows": len(index_rows),
+            "input_rows": len(index_rows) + len(exclusion_rows),
+            "excluded_rows": len(exclusion_rows),
+            "exclusions_path": exclusions.name,
+            "exclusion_reason_codes": sorted(
+                {str(row["reason_code"]) for row in exclusion_rows}
+            ),
             "parser_implementation": PARSER_IMPLEMENTATION,
             "parser_schema_version": PARSER_SCHEMA_VERSION,
             "parser_selection_rule": PARSER_SELECTION_RULE,
@@ -593,6 +871,11 @@ def capture_trace_shards(
             "registered_sites": list(config.registered_sites),
             "selected_site_kinds": sorted(
                 set(config.registered_sites if site_kinds is None else site_kinds)
+            ),
+            "selected_site_ids": (
+                None
+                if site_ids is None
+                else sorted({str(value) for value in site_ids})
             ),
             "capture_span_pooling": bool(capture_span_pooling),
             "counts": sorted({int(row["gold_count"]) for row in index_rows}),
@@ -610,5 +893,10 @@ def capture_trace_shards(
             "restartable_shards": True,
             "full_sequence_hidden_states_materialized": False,
         },
+    )
+    print(
+        f"[v5 capture] completed captured={len(index_rows)} "
+        f"excluded={len(exclusion_rows)} input={len(index_rows) + len(exclusion_rows)}",
+        flush=True,
     )
     return index

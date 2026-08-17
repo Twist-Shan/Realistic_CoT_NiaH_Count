@@ -56,7 +56,8 @@ PARSER_SELECTION_RULE = (
     "construct, pad, or select an episode."
 )
 
-_TOTAL_RE = re.compile(r"(?i)\bTotal\s*:")
+_TOTAL_RE = re.compile(r"(?im)^\s*Total\s*:")
+_TOTAL_ANYWHERE_RE = re.compile(r"(?i)(?<!\w)Total\s*:")
 _TOTAL_VALUE_RE = re.compile(
     r"(?i)(?P<label>\bTotal\s*:\s*)(?P<value>[+-]?\d+)\b"
 )
@@ -906,6 +907,24 @@ def _answer_query_span(text: str, reasoning_end: int | None) -> tuple[int, int] 
     return match.start(), colon + 1
 
 
+def _answer_query_v2_span(
+    text: str, reasoning_end: int | None
+) -> tuple[int, int] | None:
+    """Locate a possibly channel-prefixed literal ``Total:`` answer query."""
+
+    start = int(reasoning_end or 0)
+    matches = list(_TOTAL_ANYWHERE_RE.finditer(text, pos=start))
+    if not matches:
+        matches = list(_TOTAL_ANYWHERE_RE.finditer(text))
+    if not matches:
+        return None
+    match = matches[-1]
+    colon = text.find(":", match.start(), match.end())
+    if colon < 0:
+        return None
+    return match.start(), colon + 1
+
+
 def _answer_query_v3_span(
     text: str, reasoning_end: int | None
 ) -> tuple[int, int] | None:
@@ -951,6 +970,21 @@ def _answer_query_char_sites(
                 boundary_kind="total_colon",
                 char_start=answer[0],
                 char_end=answer[1],
+                primary=False,
+            )
+        )
+    answer_v2 = _answer_query_v2_span(raw_text, reasoning_end)
+    if answer_v2 is not None:
+        sites.append(
+            TraceCharSite(
+                site_id="answer_query_v2",
+                site_kind="answer_query_v2",
+                occurrence=None,
+                city=None,
+                marker=None,
+                boundary_kind="total_colon_relaxed_anchor_v2",
+                char_start=answer_v2[0],
+                char_end=answer_v2[1],
                 primary=False,
             )
         )

@@ -154,7 +154,7 @@ def test_answer_query_v3_survives_a_running_parser_miss() -> None:
 
     assert result["parser"]["detected"] is False
     sites = {site["site_kind"]: site for site in result["char_sites"]}
-    assert set(sites) == {"answer_query", "answer_query_v3"}
+    assert set(sites) == {"answer_query", "answer_query_v2", "answer_query_v3"}
     answer_query_v3 = sites["answer_query_v3"]
     assert raw[
         answer_query_v3["char_start"] : answer_query_v3["char_end"]
