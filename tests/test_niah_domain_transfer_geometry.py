@@ -22,9 +22,8 @@ from realistic_niah_v5.domain_transfer_geometry import (
 def _synthetic_panel() -> DomainEndpointDataset:
     rows = []
     layers = {0: [], 1: []}
-    rng = np.random.default_rng(7)
     for domain_index, domain in enumerate(DOMAINS):
-        for seed in SELECTION_SEEDS + EVALUATION_SEEDS:
+        for seed in EVALUATION_SEEDS:
             for count in COUNTS:
                 rows.append(
                     {
@@ -35,6 +34,7 @@ def _synthetic_panel() -> DomainEndpointDataset:
                         "source_stimulus_id": f"V4_4_T10000_N{count}_seed{seed}",
                     }
                 )
+                rng = np.random.default_rng(10_000 * domain_index + 100 * seed + count)
                 noise = rng.normal(0, 0.04, 12)
                 layers[0].append(noise + domain_index)
                 signal = noise.copy()
@@ -51,25 +51,66 @@ def _synthetic_panel() -> DomainEndpointDataset:
     return dataset
 
 
-def test_layer_selection_and_frozen_evaluation_are_seed_disjoint() -> None:
-    dataset = _synthetic_panel()
-    layer, rows = select_layer(dataset, n_components=4)
+def _synthetic_city_training() -> DomainEndpointDataset:
+    rows = []
+    layers = {0: [], 1: []}
+    for seed in SELECTION_SEEDS + EVALUATION_SEEDS:
+        for count in COUNTS:
+            rows.append(
+                {
+                    "entity_domain": "city",
+                    "seed": seed,
+                    "gold_count": count,
+                    "stimulus_id": f"city-{seed}-{count}",
+                    "source_stimulus_id": f"V4_4_T10000_N{count}_seed{seed}",
+                }
+            )
+            rng = np.random.default_rng(100 * seed + count)
+            noise = rng.normal(0, 0.04, 12)
+            layers[0].append(noise)
+            signal = noise.copy()
+            signal[count - 1] += 5.0
+            layers[1].append(signal)
+    dataset = DomainEndpointDataset(
+        mode="non_thinking",
+        model_label="synthetic",
+        metadata=pd.DataFrame(rows),
+        states_by_layer={
+            key: np.asarray(value, dtype=np.float16) for key, value in layers.items()
+        },
+    )
+    dataset.validate()
+    return dataset
+
+
+def test_city_discovery_selection_and_confirmation_transfer_are_disjoint() -> None:
+    panel = _synthetic_panel()
+    city_training = _synthetic_city_training()
+    layer, rows = select_layer(city_training, n_components=4)
     assert layer == 1
     assert len(rows) == 2
-    result = evaluate_frozen_layer(dataset, layer=layer, dimensions=(1, 2, 4))
+    result = evaluate_frozen_layer(
+        panel,
+        training_dataset=city_training,
+        layer=layer,
+        dimensions=(1, 2, 4),
+    )
     assert result["selection_seeds"] == list(SELECTION_SEEDS)
     assert result["evaluation_seeds"] == list(EVALUATION_SEEDS)
-    assert set(result["cross_domain_count"]) == set(DOMAINS)
+    assert set(result["cross_domain_count"]) == {"flower", "animal"}
+    assert result["training_rows"] == 200
+    assert result["evaluation_rows"] == 300
     assert result["overall_count"]["logistic_balanced_accuracy"] > 0.9
 
 
 def test_city_anchored_visualization_contains_all_300_rows() -> None:
-    result = city_anchored_pca3(_synthetic_panel(), layer=1)
-    assert result["fit_rows"] == 50
+    result = city_anchored_pca3(
+        _synthetic_panel(), training_dataset=_synthetic_city_training(), layer=1
+    )
+    assert result["fit_rows"] == 200
     assert len(result["points"]) == 300
     assert {point["analysis_split"] for point in result["points"]} == {
-        "layer_selection",
-        "evaluation",
+        "confirmation"
     }
 
 

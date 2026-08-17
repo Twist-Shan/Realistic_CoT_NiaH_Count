@@ -1,10 +1,10 @@
 """Answer-endpoint geometry for the city/flower/animal transfer panel.
 
-The appendix experiment deliberately uses only the ten registered V4.4
-confirmation seeds.  To avoid selecting and reporting on the same trajectories,
-the first five seeds select a layer independently for each model and mode; the
-last five seeds evaluate the frozen layer.  The 3-D display basis is fitted on
-city rows from the selector half and is then applied unchanged to all domains.
+The original twenty V4.4 city discovery seeds select a layer and fit the count
+probe independently for each model and mode.  The frozen pipeline is evaluated
+on all ten confirmation seeds for city, flower, and animal (100 trajectories
+per domain).  The 3-D display basis is likewise fitted on city discovery and is
+then applied unchanged to the complete 300-row confirmation panel.
 """
 
 from __future__ import annotations
@@ -27,11 +27,15 @@ from realistic_niah_v5.dual_endpoint_geometry import (
 )
 
 
-SCHEMA_VERSION = "realistic_niah_domain_transfer_geometry_v1"
+SCHEMA_VERSION = "realistic_niah_domain_transfer_geometry_v2_city_discovery"
 DOMAINS = ("city", "flower", "animal")
 COUNTS = tuple(range(1, 11))
-SELECTION_SEEDS = tuple(range(1254, 1259))
-EVALUATION_SEEDS = tuple(range(1259, 1264))
+DISCOVERY_SEEDS = tuple(range(1234, 1254))
+CONFIRMATION_SEEDS = tuple(range(1254, 1264))
+# Backward-compatible names retained for callers; selection/evaluation now use
+# the original city discovery/confirmation split rather than a 5/5 split.
+SELECTION_SEEDS = DISCOVERY_SEEDS
+EVALUATION_SEEDS = CONFIRMATION_SEEDS
 DEFAULT_PCA_DIMENSIONS = (1, 2, 4, 8, 16, 32)
 
 
@@ -69,7 +73,7 @@ class DomainEndpointDataset:
         expected = {
             (domain, seed, count)
             for domain in DOMAINS
-            for seed in SELECTION_SEEDS + EVALUATION_SEEDS
+            for seed in CONFIRMATION_SEEDS
             for count in COUNTS
         }
         observed = {
@@ -166,6 +170,8 @@ def load_transfer_answer_endpoints(
                 "exact_count": row.get("exact_count"),
                 "trace_category": row.get("trace_category"),
                 "marker_kind": row.get("marker_kind"),
+                "generation_truncated": row.get("generation_truncated"),
+                "generation_rescue": row.get("generation_rescue"),
                 "running_site_count": int(row.get("running_site_count", 0)),
                 "answer_site_count": int(row.get("answer_site_count", 0)),
                 "states_path": str(states_path.resolve()),
@@ -188,7 +194,7 @@ def load_city_answer_endpoints(
     capture_index: str | Path,
     *,
     mode: str,
-    seeds: Sequence[int] = SELECTION_SEEDS + EVALUATION_SEEDS,
+    seeds: Sequence[int] = DISCOVERY_SEEDS + CONFIRMATION_SEEDS,
 ) -> DomainEndpointDataset:
     """Load the matching V4.4 city answer-query panel."""
 
@@ -216,6 +222,24 @@ def load_city_answer_endpoints(
     )
     dataset.validate()
     return dataset
+
+
+def subset_by_seeds(
+    dataset: DomainEndpointDataset,
+    seeds: Sequence[int],
+) -> DomainEndpointDataset:
+    retained = dataset.metadata["seed"].astype(int).isin(set(map(int, seeds))).to_numpy()
+    result = DomainEndpointDataset(
+        mode=dataset.mode,
+        model_label=dataset.model_label,
+        metadata=dataset.metadata.loc[retained].reset_index(drop=True),
+        states_by_layer={
+            int(layer): np.asarray(values[retained])
+            for layer, values in dataset.states_by_layer.items()
+        },
+    )
+    result.validate()
+    return result
 
 
 def combine_city_and_transfer(
@@ -340,20 +364,40 @@ def select_layer(
     dataset: DomainEndpointDataset,
     *,
     selection_seeds: Sequence[int] = SELECTION_SEEDS,
+    selection_domain: str = "city",
     n_components: int = 16,
+    cv_folds: int = 5,
 ) -> tuple[int, list[dict[str, Any]]]:
-    """Select one layer with leave-one-seed-out CV on selector seeds only."""
+    """Select one layer with grouped CV on city discovery trajectories."""
 
     seeds = tuple(map(int, selection_seeds))
     metadata = dataset.metadata
-    selector = metadata["seed"].astype(int).isin(seeds).to_numpy()
+    selector = (
+        metadata["seed"].astype(int).isin(seeds)
+        & (metadata["entity_domain"].astype(str) == selection_domain)
+    ).to_numpy()
+    if int(selector.sum()) != len(seeds) * len(COUNTS):
+        raise ValueError(
+            f"Expected {len(seeds) * len(COUNTS)} {selection_domain} layer-selection "
+            f"rows; found {int(selector.sum())}"
+        )
+    if cv_folds < 2 or cv_folds > len(seeds):
+        raise ValueError(f"Invalid grouped CV fold count: {cv_folds}")
+    seed_folds = [
+        tuple(map(int, fold))
+        for fold in np.array_split(np.asarray(seeds, dtype=int), cv_folds)
+        if len(fold)
+    ]
     labels = metadata["gold_count"].to_numpy(dtype=int)
     rows: list[dict[str, Any]] = []
     for layer in sorted(dataset.states_by_layer):
         values = dataset.states_by_layer[layer]
         fold_scores: list[dict[str, float]] = []
-        for held_seed in seeds:
-            test = selector & (metadata["seed"].to_numpy(dtype=int) == held_seed)
+        for held_seeds in seed_folds:
+            test = selector & np.isin(
+                metadata["seed"].to_numpy(dtype=int),
+                np.asarray(held_seeds, dtype=int),
+            )
             train = selector & ~test
             fold_scores.append(
                 _probe_scores(
@@ -374,6 +418,8 @@ def select_layer(
                 "mode": dataset.mode,
                 "layer": int(layer),
                 "selection_seed_count": len(seeds),
+                "selection_domain": selection_domain,
+                "selection_fold_count": len(seed_folds),
                 "pca_dimensions": int(n_components),
                 "cv_logistic_balanced_accuracy": logistic,
                 "cv_ncc_balanced_accuracy": ncc,
@@ -408,83 +454,127 @@ def _count_residuals(
 def evaluate_frozen_layer(
     dataset: DomainEndpointDataset,
     *,
+    training_dataset: DomainEndpointDataset,
     layer: int,
     selection_seeds: Sequence[int] = SELECTION_SEEDS,
     evaluation_seeds: Sequence[int] = EVALUATION_SEEDS,
     dimensions: Sequence[int] = DEFAULT_PCA_DIMENSIONS,
 ) -> dict[str, Any]:
+    """Train on city discovery and evaluate all three confirmation domains."""
+
+    if (
+        dataset.mode != training_dataset.mode
+        or dataset.model_label != training_dataset.model_label
+    ):
+        raise ValueError("Training and evaluation datasets have different model/mode labels")
+    if int(layer) not in dataset.states_by_layer or int(layer) not in training_dataset.states_by_layer:
+        raise ValueError(f"Layer {layer} is absent from one endpoint dataset")
     metadata = dataset.metadata
     values = dataset.states_by_layer[int(layer)]
     count = metadata["gold_count"].to_numpy(dtype=int)
     domain = metadata["entity_domain"].astype(str).to_numpy()
     seed = metadata["seed"].to_numpy(dtype=int)
-    train = np.isin(seed, np.asarray(selection_seeds, dtype=int))
     test = np.isin(seed, np.asarray(evaluation_seeds, dtype=int))
-    if train.sum() != 150 or test.sum() != 150:
-        raise ValueError(f"Expected 150 selector and 150 evaluator rows; got {train.sum()}/{test.sum()}")
+    if int(test.sum()) != 300:
+        raise ValueError(f"Expected 300 confirmation evaluation rows; got {int(test.sum())}")
+
+    training_metadata = training_dataset.metadata
+    training_values = training_dataset.states_by_layer[int(layer)]
+    training_count = training_metadata["gold_count"].to_numpy(dtype=int)
+    training_seed = training_metadata["seed"].to_numpy(dtype=int)
+    training_domain = training_metadata["entity_domain"].astype(str).to_numpy()
+    train = np.isin(training_seed, np.asarray(selection_seeds, dtype=int)) & (
+        training_domain == "city"
+    )
+    if int(train.sum()) != len(selection_seeds) * len(COUNTS):
+        raise ValueError(
+            f"Expected {len(selection_seeds) * len(COUNTS)} city discovery rows; "
+            f"got {int(train.sum())}"
+        )
 
     overall = _probe_scores(
-        values[train], count[train], values[test], count[test], n_components=16
+        training_values[train],
+        training_count[train],
+        values[test],
+        count[test],
+        n_components=16,
     )
     per_seed = []
     for held_seed in evaluation_seeds:
         seed_test = test & (seed == int(held_seed))
         score = _probe_scores(
-            values[train], count[train], values[seed_test], count[seed_test], n_components=16
+            training_values[train],
+            training_count[train],
+            values[seed_test],
+            count[seed_test],
+            n_components=16,
         )
         per_seed.append({"seed": int(held_seed), **score})
 
-    cross_domain: dict[str, dict[str, float]] = {}
+    domain_count: dict[str, dict[str, float]] = {}
     for target in DOMAINS:
-        source_train = train & (domain != target)
         target_test = test & (domain == target)
-        cross_domain[target] = _probe_scores(
-            values[source_train],
-            count[source_train],
+        domain_count[target] = _probe_scores(
+            training_values[train],
+            training_count[train],
             values[target_test],
             count[target_test],
             n_components=16,
         )
     cross_domain_mean = {
-        metric: float(np.mean([cross_domain[target][metric] for target in DOMAINS]))
+        metric: float(
+            np.mean([domain_count[target][metric] for target in ("flower", "animal")])
+        )
         for metric in (
             "logistic_balanced_accuracy",
             "ncc_balanced_accuracy",
         )
     }
 
-    residual_train, residual_test = _count_residuals(
-        values[train], count[train], values[test], count[test]
-    )
-    domain_leakage = _probe_scores(
-        residual_train,
-        domain[train],
-        residual_test,
-        domain[test],
-        n_components=16,
-    )
+    leakage_folds = []
+    for held_seed in evaluation_seeds:
+        fold_test = test & (seed == int(held_seed))
+        fold_train = test & ~fold_test
+        residual_train, residual_test = _count_residuals(
+            values[fold_train],
+            count[fold_train],
+            values[fold_test],
+            count[fold_test],
+        )
+        score = _probe_scores(
+            residual_train,
+            domain[fold_train],
+            residual_test,
+            domain[fold_test],
+            n_components=16,
+        )
+        leakage_folds.append({"seed": int(held_seed), **score})
+    domain_leakage = {
+        metric: float(np.mean([row[metric] for row in leakage_folds]))
+        for metric in (
+            "logistic_balanced_accuracy",
+            "ncc_balanced_accuracy",
+        )
+    }
 
     dimension_rows: list[dict[str, Any]] = []
     for dimension in dimensions:
         pooled = _probe_scores(
-            values[train],
-            count[train],
+            training_values[train],
+            training_count[train],
             values[test],
             count[test],
             n_components=int(dimension),
         )
-        target_scores = []
+        target_scores: dict[str, dict[str, float]] = {}
         for target in DOMAINS:
-            source_train = train & (domain != target)
             target_test = test & (domain == target)
-            target_scores.append(
-                _probe_scores(
-                    values[source_train],
-                    count[source_train],
-                    values[target_test],
-                    count[target_test],
-                    n_components=int(dimension),
-                )
+            target_scores[target] = _probe_scores(
+                training_values[train],
+                training_count[train],
+                values[target_test],
+                count[target_test],
+                n_components=int(dimension),
             )
         dimension_rows.append(
             {
@@ -493,13 +583,27 @@ def evaluate_frozen_layer(
                     "logistic_balanced_accuracy"
                 ],
                 "pooled_ncc_balanced_accuracy": pooled["ncc_balanced_accuracy"],
+                "city_logistic_balanced_accuracy": target_scores["city"][
+                    "logistic_balanced_accuracy"
+                ],
+                "city_ncc_balanced_accuracy": target_scores["city"][
+                    "ncc_balanced_accuracy"
+                ],
                 "cross_domain_logistic_balanced_accuracy": float(
                     np.mean(
-                        [score["logistic_balanced_accuracy"] for score in target_scores]
+                        [
+                            target_scores[target]["logistic_balanced_accuracy"]
+                            for target in ("flower", "animal")
+                        ]
                     )
                 ),
                 "cross_domain_ncc_balanced_accuracy": float(
-                    np.mean([score["ncc_balanced_accuracy"] for score in target_scores])
+                    np.mean(
+                        [
+                            target_scores[target]["ncc_balanced_accuracy"]
+                            for target in ("flower", "animal")
+                        ]
+                    )
                 ),
             }
         )
@@ -508,11 +612,19 @@ def evaluate_frozen_layer(
         "selected_layer": int(layer),
         "selection_seeds": list(map(int, selection_seeds)),
         "evaluation_seeds": list(map(int, evaluation_seeds)),
+        "training_rows": int(train.sum()),
+        "evaluation_rows": int(test.sum()),
+        "count_probe_training_domain": "city",
         "overall_count": overall,
         "overall_count_by_evaluation_seed": per_seed,
-        "cross_domain_count": cross_domain,
+        "count_by_evaluation_domain": domain_count,
+        "city_confirmation_count": domain_count["city"],
+        "cross_domain_count": {
+            target: domain_count[target] for target in ("flower", "animal")
+        },
         "cross_domain_count_mean": cross_domain_mean,
         "count_residual_domain_leakage": domain_leakage,
+        "count_residual_domain_leakage_by_seed": leakage_folds,
         "dimension_sweep": dimension_rows,
         "count_chance": 0.1,
         "domain_chance": 1.0 / 3.0,
@@ -522,41 +634,43 @@ def evaluate_frozen_layer(
 def city_anchored_pca3(
     dataset: DomainEndpointDataset,
     *,
+    training_dataset: DomainEndpointDataset,
     layer: int,
     selection_seeds: Sequence[int] = SELECTION_SEEDS,
 ) -> dict[str, Any]:
-    """Fit PCA3 on selector-city rows, then transform the complete 300 panel."""
+    """Fit PCA3 on city discovery, then transform the confirmation 300 panel."""
 
     metadata = dataset.metadata
     values = dataset.states_by_layer[int(layer)]
+    training_metadata = training_dataset.metadata
+    training_values = training_dataset.states_by_layer[int(layer)]
     fit_mask = (
-        (metadata["entity_domain"].astype(str) == "city")
-        & metadata["seed"].astype(int).isin(set(map(int, selection_seeds)))
+        (training_metadata["entity_domain"].astype(str) == "city")
+        & training_metadata["seed"].astype(int).isin(set(map(int, selection_seeds)))
     ).to_numpy()
     scaler = StandardScaler()
-    scaled_fit = scaler.fit_transform(np.asarray(values[fit_mask], dtype=np.float32))
+    scaled_fit = scaler.fit_transform(
+        np.asarray(training_values[fit_mask], dtype=np.float32)
+    )
     scaled_all = scaler.transform(np.asarray(values, dtype=np.float32))
     pca = PCA(n_components=3, whiten=False, svd_solver="randomized", random_state=0)
     pca.fit(scaled_fit)
     coordinates = pca.transform(scaled_all)
     points = []
-    selection_set = set(map(int, selection_seeds))
     for row, xyz in zip(metadata.to_dict("records"), coordinates):
         points.append(
             {
                 "entity_domain": str(row["entity_domain"]),
                 "seed": int(row["seed"]),
                 "gold_count": int(row["gold_count"]),
-                "analysis_split": (
-                    "layer_selection" if int(row["seed"]) in selection_set else "evaluation"
-                ),
+                "analysis_split": "confirmation",
                 "x": float(xyz[0]),
                 "y": float(xyz[1]),
                 "z": float(xyz[2]),
             }
         )
     return {
-        "basis": "StandardScaler + PCA3 fitted on city layer-selection rows only",
+        "basis": "StandardScaler + PCA3 fitted on city discovery rows only",
         "fit_rows": int(fit_mask.sum()),
         "layer": int(layer),
         "explained_variance_ratio": [float(value) for value in pca.explained_variance_ratio_],
@@ -587,6 +701,9 @@ def capture_audit(dataset: DomainEndpointDataset) -> dict[str, Any]:
         "transfer_running_states": int(transfer["running_site_count"].sum()),
         "transfer_exact_count_rows": int(sum(bool(value) for value in exact)),
         "transfer_exact_count_denominator": int(len(exact)),
+        "transfer_generation_rescue_rows": int(
+            sum(bool(value) for value in transfer.get("generation_rescue", []))
+        ),
         "trace_category_counts": counts("trace_category"),
         "marker_kind_counts": counts("marker_kind"),
     }
@@ -599,4 +716,3 @@ def flatten_dimension_rows(
         for mode, payload in by_mode.items():
             for row in payload["metrics"]["dimension_sweep"]:
                 yield {"model_label": model, "mode": mode, **row}
-

@@ -21,9 +21,9 @@ for value in (ROOT, SRC):
         sys.path.insert(0, str(value))
 
 from realistic_niah_v5.domain_transfer_geometry import (  # noqa: E402
-    EVALUATION_SEEDS,
+    CONFIRMATION_SEEDS,
+    DISCOVERY_SEEDS,
     SCHEMA_VERSION,
-    SELECTION_SEEDS,
     capture_audit,
     city_anchored_pca3,
     combine_city_and_transfer,
@@ -32,6 +32,7 @@ from realistic_niah_v5.domain_transfer_geometry import (  # noqa: E402
     load_city_answer_endpoints,
     load_transfer_answer_endpoints,
     select_layer,
+    subset_by_seeds,
 )
 
 
@@ -90,6 +91,7 @@ def analyze(
     results: dict[str, dict[str, Any]] = {}
     layer_rows: list[dict[str, Any]] = []
     inputs: list[Path] = []
+    site_catalogs: dict[str, dict[str, str]] = {}
     for model in MODELS:
         results[model] = {}
         for mode, (city_index, transfer_index) in _index_paths(
@@ -100,24 +102,57 @@ def analyze(
         ).items():
             city = load_city_answer_endpoints(city_index, mode=mode)
             transfer = load_transfer_answer_endpoints(transfer_index, mode=mode)
-            panel = combine_city_and_transfer(city, transfer)
-            selected_layer, sweep = select_layer(panel)
-            metrics = evaluate_frozen_layer(panel, layer=selected_layer)
-            visualization = city_anchored_pca3(panel, layer=selected_layer)
+            panel = combine_city_and_transfer(
+                subset_by_seeds(city, CONFIRMATION_SEEDS), transfer
+            )
+            selected_layer, sweep = select_layer(
+                city, selection_seeds=DISCOVERY_SEEDS
+            )
+            metrics = evaluate_frozen_layer(
+                panel,
+                training_dataset=city,
+                layer=selected_layer,
+                selection_seeds=DISCOVERY_SEEDS,
+                evaluation_seeds=CONFIRMATION_SEEDS,
+            )
+            visualization = city_anchored_pca3(
+                panel,
+                training_dataset=city,
+                layer=selected_layer,
+                selection_seeds=DISCOVERY_SEEDS,
+            )
             audit = capture_audit(panel)
+            site_index = transfer_index.parent / "site_index.jsonl"
+            site_manifest = transfer_index.parent / "site_index_manifest.json"
+            if not site_index.is_file() or not site_manifest.is_file():
+                raise FileNotFoundError(
+                    f"Missing reusable running/answer site catalog beside "
+                    f"{transfer_index}"
+                )
             results[model][mode] = {
                 "selected_layer": selected_layer,
                 "selection_rule": (
                     "maximize mean of Logistic and nearest-centroid balanced "
-                    "accuracy under leave-one-seed-out CV on the five fixed "
-                    "layer-selection seeds; ties prefer the earlier layer"
+                    "accuracy under five-fold seed-grouped CV on the twenty city "
+                    "discovery seeds; ties prefer the earlier layer"
                 ),
                 "metrics": metrics,
                 "visualization": visualization,
                 "audit": audit,
             }
             layer_rows.extend(sweep)
-            inputs.extend([city_index.resolve(), transfer_index.resolve()])
+            inputs.extend(
+                [
+                    city_index.resolve(),
+                    transfer_index.resolve(),
+                    site_index.resolve(),
+                    site_manifest.resolve(),
+                ]
+            )
+            site_catalogs[f"{model}/{mode}"] = {
+                "site_index": str(site_index.resolve()),
+                "site_index_manifest": str(site_manifest.resolve()),
+            }
             print(
                 f"[domain-transfer geometry] {model} {mode} "
                 f"selected=L{selected_layer}",
@@ -130,9 +165,11 @@ def analyze(
         "design": {
             "domains": ["city", "flower", "animal"],
             "counts": list(range(1, 11)),
-            "seeds": list(SELECTION_SEEDS + EVALUATION_SEEDS),
-            "layer_selection_seeds": list(SELECTION_SEEDS),
-            "evaluation_seeds": list(EVALUATION_SEEDS),
+            "city_discovery_seeds": list(DISCOVERY_SEEDS),
+            "confirmation_seeds": list(CONFIRMATION_SEEDS),
+            "layer_selection_seeds": list(DISCOVERY_SEEDS),
+            "layer_selection_domain": "city",
+            "evaluation_seeds": list(CONFIRMATION_SEEDS),
             "rows_per_model_mode": 300,
             "answer_endpoint": {
                 "non_thinking": "prompt-final Total: colon",
@@ -143,6 +180,7 @@ def analyze(
                 "native_thinking": "each parser-observed thinking item end; ragged and duplicates retained",
             },
         },
+        "preserved_transfer_site_catalogs": site_catalogs,
         "models": results,
         "inputs": {str(path): _sha256(path) for path in sorted(set(inputs), key=str)},
     }
@@ -187,4 +225,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -1,6 +1,6 @@
 {
-  "schema_version": "niah_geometry_comparison_v9_fixed_end_band_snr_3d",
-  "generated_at": "2026-08-17T19:33:07.927215+00:00",
+  "schema_version": "niah_geometry_comparison_v10_entity_domain_transfer",
+  "generated_at": "2026-08-17T22:48:21.612867+00:00",
   "cohorts": {
     "full": "10 gold counts x 30 seeds = 300 trajectories",
     "confirmation": "10 gold counts x 10 seeds = 100 trajectories"
@@ -10,6 +10,7 @@
   "primary_analysis": "running sites fixed to span_end/item_end; pooled discovery-only layer selection; frozen confirmation evaluation",
   "trace_format_site_layer_sweep": "omitted from main; marker/band diagnostics moved to appendix",
   "native_band_snr": "bands and PCA16 frozen on discovery; per-band confirmation SNR requires at least two states per retained k",
+  "entity_domain_transfer": "city-discovery-200 layer selection/probe fitting and frozen city/flower/animal confirmation-100 evaluation; city-anchored PCA3; running endpoints archived at all layers",
   "inputs": {
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\native_geometry_band_diagnostic_full300\\Gemma4-E4B\\all_points.csv": "493745dddb16ac256e5d645644597c75cb7bb0dd0f93f1f927d493aeaea000a3",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\native_geometry_band_diagnostic_full300\\Gemma4-E4B\\band_diagnostic.json": "091391c5e93ce6316596c32a9a138060b3eddcaaaae18a6bcca1c3cdca4a9136",
@@ -31,6 +32,11 @@
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry_full300\\Qwen3-8B\\pca16_whiten\\running_index_group_eligibility.csv": "f938ec30850ed82577069b072a05c19a70128191414be6ce20814b1e737c42ee",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry_full300\\Qwen3-8B\\pca16_whiten\\running_index_selected.csv": "4dc3c962dbe2522ea070a4a59dea2e689b97a9ef873f0cf96d38d840c66cfbbb",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry_full300\\Qwen3-8B\\pca16_whiten\\runtime_log.json": "109acd951ccea519a4fae8d8899e178858350a089685b8316cf554d2331e4ea3",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\domain_transfer_geometry\\analysis\\analysis_manifest.json": "10c50a06ff736140258edd9b3cd5446626b8f0c21818cd2688d88014a7df7e95",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\domain_transfer_geometry\\analysis\\capture_audit.json": "8a897b47c57f2e09c1e509f3ecac2456e8380daf6d20ef85ea9754798c41ee8c",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\domain_transfer_geometry\\analysis\\layer_selection_sweep.csv": "b2b88d5c7e6bea77ecdcd156e295450ce866bb9c1f596b059f83c2017d8b05c9",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\domain_transfer_geometry\\analysis\\pca_dimension_sweep.csv": "5f78924f2fad75eb4275d43926c8349c650db1eb3b798e96fe491e460b0741ff",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\domain_transfer_geometry\\analysis\\report_payload.json": "dfdb3aab6d90a8e51d3e08b9ad6129c1bb01adf46ae6e80001abecc60d3a65a7",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\hybrid_parser_audit_600.jsonl": "03cd79098fe6118fcde510adc37286bcf15c415ad1abdc07566c51f87beb992d",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\nonthinking_v44_geometry_300_150_136_166_78\\Gemma4-E4B\\numeric\\representation\\answer_query_all_layers_v1\\capture_index.jsonl": "08be0e9fec832e94ef8052f0317134a8e155b673e78c7d5e661bd11e957f299e",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\nonthinking_v44_geometry_300_150_136_166_78\\Gemma4-E4B\\numeric\\representation\\capture\\capture_index.jsonl": "7a8c193cb73b4779a19d27b2de8cef8d745f20fd06f35bfe7de9a0784c1d0f16",
@@ -44,5 +50,5 @@
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_geometry_full_panel\\running\\Qwen3-8B\\shards\\Qwen3-8B__native_thinking__v5__V4_4_T10000_N1_seed1234\\capture_manifest.json": "0ce6f781628fc5f0cd6d482d6cfdaf0da35ace79257adcc573a5eaeb38ffc654"
   },
   "output": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\NiaH_Geometry_Comparison.html",
-  "output_sha256": "63316e62b955bc8613fee9e78a5ca020f4cf22a9222df8956a7a2b7abb2d480a"
+  "output_sha256": "7ad83803889964bc464284f6fce7a4d7c78f3c4e407e39777437a9075101293d"
 }

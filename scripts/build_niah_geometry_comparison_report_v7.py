@@ -616,13 +616,13 @@ def _domain_dimension_svg(model: str, payload: Mapping[str, Any]) -> str:
     width, height = 760, 330
     panels = (
         (
-            "Pooled held-out seeds",
-            "pooled_logistic_balanced_accuracy",
+            "City confirmation",
+            "city_logistic_balanced_accuracy",
             52.0,
             350.0,
         ),
         (
-            "Held-domain + held-seed",
+            "City → flower/animal",
             "cross_domain_logistic_balanced_accuracy",
             422.0,
             720.0,
@@ -674,7 +674,7 @@ def _domain_dimension_svg(model: str, payload: Mapping[str, Any]) -> str:
                 for row in rows
             ]
             elements.append(
-                f'<polyline class="domain-dim-line {css_class}" points="'
+                f'<polyline class="domain-dim-line {css_class}" style="fill:none" points="'
                 + " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
                 + '"/>'
             )
@@ -718,13 +718,32 @@ def _domain_verdict(model_payload: Mapping[str, Any]) -> str:
         < float(non["count_residual_domain_leakage"][field])
         for field in transfer_fields
     ]
-    if all(transfer_wins) and all(leakage_wins):
+    low_dim_wins = []
+    for field in (
+        "cross_domain_logistic_balanced_accuracy",
+        "cross_domain_ncc_balanced_accuracy",
+    ):
+        non_values = [
+            float(row[field])
+            for row in non["dimension_sweep"]
+            if int(row["dimensions"]) <= 4
+        ]
+        native_values = [
+            float(row[field])
+            for row in native["dimension_sweep"]
+            if int(row["dimensions"]) <= 4
+        ]
+        non_low = sum(non_values) / len(non_values)
+        native_low = sum(native_values) / len(native_values)
+        low_dim_wins.append(native_low > non_low)
+    if all(transfer_wins) and all(leakage_wins) and all(low_dim_wins):
         return (
-            "两个 count probe 的跨实体迁移都更高，同时两个 residual-domain probe "
-            "都更低；这一组 exploratory 指标与 native-thinking 在 answer endpoint "
-            "保留较少实体类别 nuisance 的解释一致。"
+            "两个 count probe 的 16-D 跨实体迁移和 1–4D 平均都更高，同时两个 "
+            "residual-domain probe 都更低；这一组 exploratory 指标与 "
+            "native-thinking 在 answer endpoint 更低维地保留 count、并保留较少 "
+            "实体类别 nuisance 的解释一致。"
         )
-    if any(transfer_wins) and any(leakage_wins):
+    if any(transfer_wins) and any(leakage_wins) and any(low_dim_wins):
         return (
             "证据是混合的：至少一个跨实体 count probe 与一个 residual-domain "
             "probe 有利于 native-thinking，但没有在两种 probe 上同时复现。"
@@ -749,6 +768,18 @@ def _domain_model_block(model: str, payload: Mapping[str, Any]) -> str:
         overall = metrics["overall_count"]
         transfer = metrics["cross_domain_count_mean"]
         leakage = metrics["count_residual_domain_leakage"]
+        low_rows = [
+            row for row in metrics["dimension_sweep"] if int(row["dimensions"]) <= 4
+        ]
+        low_logistic_values = [
+            float(row["cross_domain_logistic_balanced_accuracy"])
+            for row in low_rows
+        ]
+        low_ncc_values = [
+            float(row["cross_domain_ncc_balanced_accuracy"]) for row in low_rows
+        ]
+        low_logistic = sum(low_logistic_values) / len(low_logistic_values)
+        low_ncc = sum(low_ncc_values) / len(low_ncc_values)
         metrics_rows.append(
             (
                 label,
@@ -757,6 +788,7 @@ def _domain_model_block(model: str, payload: Mapping[str, Any]) -> str:
                 f"{_pct(overall['ncc_balanced_accuracy'])}",
                 f"{_pct(transfer['logistic_balanced_accuracy'])} / "
                 f"{_pct(transfer['ncc_balanced_accuracy'])}",
+                f"{_pct(low_logistic)} / {_pct(low_ncc)}",
                 f"{_pct(leakage['logistic_balanced_accuracy'])} / "
                 f"{_pct(leakage['ncc_balanced_accuracy'])}",
             )
@@ -773,6 +805,7 @@ def _domain_model_block(model: str, payload: Mapping[str, Any]) -> str:
                 str(int(audit["transfer_answer_states"])),
                 str(int(audit["transfer_running_states"])),
                 exact_text,
+                str(int(audit.get("transfer_generation_rescue_rows", 0))),
                 esc(json.dumps(audit["trace_category_counts"], ensure_ascii=False)),
             )
         )
@@ -780,13 +813,14 @@ def _domain_model_block(model: str, payload: Mapping[str, Any]) -> str:
 <article class="appendix-model"><h3>{esc(model)}</h3>
 <div class="callout"><strong>判读：</strong>{esc(_domain_verdict(payload))}</div>
 <div class="dual-grid domain-grid">
-<figure class="geometry-card"><h3>Answer endpoint · non-thinking</h3><div class="controls"><label>Cohort<select id="domain-{slug}-non-cohort"><option value="all">全部 300</option><option value="evaluation">held-out 150</option></select></label><label>Color<select id="domain-{slug}-non-color"><option value="count">gold count</option><option value="domain">entity domain</option></select></label></div><canvas id="domain-{slug}-non" role="img" aria-label="{esc(model)} non-thinking city flower animal answer geometry"></canvas><p class="rotate-hint">drag to rotate · circle city · triangle flower · square animal</p><p class="panel-stats" id="domain-{slug}-non-stats"></p></figure>
-<figure class="geometry-card"><h3>Answer endpoint · native-thinking</h3><div class="controls"><label>Cohort<select id="domain-{slug}-native-cohort"><option value="all">全部 300</option><option value="evaluation">held-out 150</option></select></label><label>Color<select id="domain-{slug}-native-color"><option value="count">gold count</option><option value="domain">entity domain</option></select></label></div><canvas id="domain-{slug}-native" role="img" aria-label="{esc(model)} native-thinking city flower animal answer geometry"></canvas><p class="rotate-hint">drag to rotate · each mode uses its own selected layer and PCA basis</p><p class="panel-stats" id="domain-{slug}-native-stats"></p></figure>
+<figure class="geometry-card"><h3>Answer endpoint · non-thinking</h3><div class="controls"><label>Cohort<select id="domain-{slug}-non-cohort"><option value="all">全部 300</option><option value="city">city 100</option><option value="flower">flower 100</option><option value="animal">animal 100</option></select></label><label>Color<select id="domain-{slug}-non-color"><option value="count">gold count</option><option value="domain">entity domain</option></select></label></div><canvas id="domain-{slug}-non" role="img" aria-label="{esc(model)} non-thinking city flower animal answer geometry"></canvas><p class="rotate-hint">drag to rotate · circle city · triangle flower · square animal</p><p class="panel-stats" id="domain-{slug}-non-stats"></p></figure>
+<figure class="geometry-card"><h3>Answer endpoint · native-thinking</h3><div class="controls"><label>Cohort<select id="domain-{slug}-native-cohort"><option value="all">全部 300</option><option value="city">city 100</option><option value="flower">flower 100</option><option value="animal">animal 100</option></select></label><label>Color<select id="domain-{slug}-native-color"><option value="count">gold count</option><option value="domain">entity domain</option></select></label></div><canvas id="domain-{slug}-native" role="img" aria-label="{esc(model)} native-thinking city flower animal answer geometry"></canvas><p class="rotate-hint">drag to rotate · each mode uses its own selected layer and PCA basis</p><p class="panel-stats" id="domain-{slug}-native-stats"></p></figure>
 </div><div class="domain-legend"><span><i class="domain-city"></i>city</span><span><i class="domain-flower"></i>flower</span><span><i class="domain-animal"></i>animal</span><span>颜色默认表示 N=1…10</span></div>
-{table(('mode', '独立最佳层', 'held-seed count Log/NCC', 'held-domain+seed count Log/NCC', 'count-residual domain Log/NCC ↓'), metrics_rows)}
-<p class="small">前两列 count 指标的 chance=10%；residual-domain 指标的 chance=33.3%，越接近 chance 越符合“实体类别 nuisance 较少”。Residualization 的每个 count centroid 只由 5 个 layer-selection seeds 估计。这里没有新 discovery 200，因此全部结果明确作为 appendix exploratory evidence，而不是主报告的 confirmatory claim。</p>
+{table(('mode', '独立最佳层', 'city-trained pooled confirmation Log/NCC', 'city → flower/animal Log/NCC', '1–4D transfer mean Log/NCC', 'count-residual domain Log/NCC ↓'), metrics_rows)}
+<p class="small">Count probe、StandardScaler 与 PCA16 只在原始 city discovery 200 上拟合，city/flower/animal confirmation 各 100 条都只做冻结评价；chance=10%。Residual-domain 指标在冻结层上对 confirmation 10 seeds 做 leave-one-seed-out CV，并在每折只用训练 seeds 估计 count centroid；chance=33.3%，越接近 chance 越符合“实体类别 nuisance 较少”。这一新 domain manipulation 仍作为 appendix exploratory evidence，而不是主报告的预注册 confirmatory claim。</p>
+<p class="small"><strong>边界：</strong>domain probe 解码的是所有与 city/flower/animal 共变的信息，既包括实体语义，也包括 prompt 词汇、名称 tokenization 与长度差异；因此较低的 domain accuracy 只能表述为“较少可线性解码的 domain-specific nuisance”，不能单独证明模型抹除了实体语义。左右 endpoint 的计算时刻也不同：non-thinking 是回答前的 prompt colon，native-thinking 是完整 reasoning 后、数字答案前的 <code>answer_query_v3</code>。</p>
 {_domain_dimension_svg(model, payload)}
-<details><summary>Capture 完整性与已保存的 running index</summary><p class="small">Flower 与 animal 每种各 100 trajectories。Answer 图每条只用一个 answer-query state；running states 没有被丢弃：non-thinking 保存 prompt 中每个 active-record span end，native-thinking 保存 parser 实际观察到的每个 item end，允许少数、重复与 ragged path，并保存全部 decoder layers。</p>{table(('mode', 'transfer answer states', 'transfer running states', 'final exact / audited', 'native trace categories'), audit_rows)}</details>
+<details><summary>Capture 完整性与已保存的 running index</summary><p class="small">Flower 与 animal 每种各 100 trajectories。Answer 图每条只用一个 answer-query state；running states 没有被丢弃：non-thinking 保存 prompt 中每个 active-record span end，native-thinking 保存 parser 实际观察到的每个 item end，允许少数、重复与 ragged path，并保存全部 decoder layers。每个 model × mode 另有顶层 <code>site_index.jsonl</code>：一行对应一个 site，直接记录 shard <code>states.npz</code>、<code>site_states</code> 的 <code>state_axis</code>、token endpoint、边界语义与层注册表，后续无需逐个扫描 shard manifest。若 greedy generation 达到旧 token ceiling，只有 censored row 会在保持 prompt 与 greedy rule 不变时提高 ceiling 重试；数量单列审计。</p>{table(('mode', 'transfer answer states', 'transfer running states', 'final exact / audited', 'ceiling rescues', 'native trace categories'), audit_rows)}</details>
 </article>"""
 
 
@@ -797,12 +831,29 @@ def domain_transfer_appendix(
     manifest_path = analysis_root / "analysis_manifest.json"
     layer_path = analysis_root / "layer_selection_sweep.csv"
     dimension_path = analysis_root / "pca_dimension_sweep.csv"
+    capture_audit_path = analysis_root / "capture_audit.json"
     payload = read_json(payload_path)
-    if str(payload.get("schema_version")) != "realistic_niah_domain_transfer_geometry_v1":
+    if str(payload.get("schema_version")) != "realistic_niah_domain_transfer_geometry_v2_city_discovery":
         raise ValueError(f"Unexpected domain-transfer payload: {payload_path}")
     models = payload.get("models", {})
     if set(models) != set(MODELS):
         raise ValueError(f"Domain-transfer payload has models {sorted(models)}")
+    capture_audit = read_json(capture_audit_path)
+    if str(capture_audit.get("schema_version")) != (
+        "realistic_niah_domain_transfer_capture_audit_v1"
+    ):
+        raise ValueError(f"Unexpected domain-transfer capture audit: {capture_audit_path}")
+    strict_audits = {
+        (str(row["model_label"]), str(row["mode"])): row
+        for row in capture_audit.get("audits", ())
+    }
+    expected_audits = {
+        (model, mode)
+        for model in MODELS
+        for mode in ("non_thinking", "native_thinking")
+    }
+    if set(strict_audits) != expected_audits:
+        raise ValueError("Domain-transfer capture audit is not the complete 2 x 2 grid")
     visual: dict[str, Any] = {}
     blocks = []
     for model in MODELS:
@@ -813,6 +864,17 @@ def domain_transfer_appendix(
         visual[model] = {}
         for mode, short in (("non_thinking", "non"), ("native_thinking", "native")):
             value = model_payload[mode]
+            strict = strict_audits[(model, mode)]
+            if not (
+                bool(strict.get("registered_panel_complete"))
+                and bool(strict.get("all_states_finite"))
+                and bool(strict.get("site_index_audited"))
+                and int(strict.get("answer_states", -1))
+                == int(value["audit"]["transfer_answer_states"])
+                and int(strict.get("running_states", -1))
+                == int(value["audit"]["transfer_running_states"])
+            ):
+                raise ValueError(f"Strict capture audit disagrees for {model}/{mode}")
             points = value["visualization"]["points"]
             if len(points) != 300:
                 raise ValueError(f"Domain-transfer visualization is not 300 rows: {model}/{mode}")
@@ -838,10 +900,11 @@ def domain_transfer_appendix(
             }
     return f"""
 <section id="appendix-domain-transfer"><h2>Appendix C · Entity-domain transfer：city → flower / animal</h2>
-<div class="definitions"><div><h3>配对刺激</h3><p>同一套 V4.4 confirmation 10 counts × 10 seeds 被逐 cell 改写为 city、flower、animal；haystack、active-record score、N 与 seed 保持不变，只改实体词表及对应 prompt。每个 model × mode 共 300 answer trajectories。</p></div><div><h3>防止同数据选层与报分</h3><p>固定 seeds 1254–1258 只用于各 mode 独立的 layer sweep；L 被冻结后，seeds 1259–1263 才用于表中的 150-row held-seed evaluation。两个 mode 不要求同层。</p></div><div><h3>3-D 图的基准</h3><p>每个 panel 的 StandardScaler/PCA3 只在该 mode 的 50 个 city layer-selection rows 上拟合，再原样 transform flower 与 animal。形状表示 domain、颜色表示 count；左右坐标轴不可直接比较绝对距离。</p></div></div>
+<div class="definitions"><div><h3>配对刺激</h3><p>同一套 V4.4 confirmation 10 counts × 10 seeds 被逐 cell 改写为 city、flower、animal；haystack、active-record score、N 与 seed 保持不变，只改实体词表及对应 prompt。每个 model × mode 共 300 answer trajectories；按要求保留错误输出，count 标签始终是 gold N。</p></div><div><h3>Discovery-only 选层与 probe</h3><p>原始 city discovery 200（10 counts × 20 seeds）用于两个 mode 各自的 grouped-CV layer sweep，并拟合 count probe。Flower/animal 从不参与选层或 count-probe 训练；冻结后在三个 domain 各 100 条 confirmation 上评价。</p></div><div><h3>3-D 图的基准</h3><p>每个 panel 的 StandardScaler/PCA3 也只在该 mode 的 city discovery 200 上拟合，再原样 transform 三个 domain 的 confirmation 300。形状表示 domain、颜色表示 count；左右坐标轴不可直接比较绝对距离。</p></div></div>
 <div class="callout warning"><strong>“更简洁”的可检验含义：</strong>不是肉眼更像一条线，而是在低维 PCA 中仍能解码 count、对未用于 probe 训练的实体类别仍能迁移，同时在减去 count centroid 后更难解码 city/flower/animal。三项没有同时成立时，不作“过滤了无意义内容”的强 claim。</div>
+<details><summary>Flower / animal prompt 如何分别改写</summary><div class="definitions two"><div><h3>Non-thinking</h3><p><code>How many flower-score audit records are in the passage?</code>（animal 版本只把 flower 改为 animal。）随后仍是 <code>Do not explain, reason aloud, quote, or list any records.</code>，并强制整段 response 为 <code>Total:&lt;integer&gt;</code>。保存 prompt-final colon 的 hidden state。</p></div><div><h3>Native-thinking</h3><p>定义句分别写成 <code>A flower-score audit record names one flower…</code> 与 <code>An animal-score audit record names one animal…</code>；问题后要求 concise reasoning、不要 repeating/restarting，并以 <code>Total: &lt;integer&gt;</code> 结束。保存 thinking item ends 与最终数字前的 <code>answer_query_v3</code>。</p></div></div></details>
 {''.join(blocks)}
-</section>""", [payload_path, manifest_path, layer_path, dimension_path], visual
+</section>""", [payload_path, manifest_path, layer_path, dimension_path, capture_audit_path], visual
 
 
 def _dual_script(dual_visual: Mapping[str, Any]) -> str:
@@ -921,16 +984,16 @@ function domainIds(model,mode){const s=model.startsWith('Qwen')?'qwen':'gemma',b
 function domainMark(c,domain,x,y,r){c.beginPath();if(domain==='animal'){c.rect(x-r,y-r,2*r,2*r)}else if(domain==='flower'){c.moveTo(x,y-r*1.18);c.lineTo(x+r*1.08,y+r*.88);c.lineTo(x-r*1.08,y+r*.88);c.closePath()}else{c.arc(x,y,r,0,Math.PI*2)}c.fill();c.stroke()}
 function domainPointColor(point,mode){return mode==='domain'?DOMAIN_COLORS[point[0]]:COLORS[Math.max(0,Math.min(9,point[2]-1))]}
 function drawDomain3D(model,mode){
-  const ids=domainIds(model,mode),payload=DOMAIN_TRANSFER[model][mode],cohort=ids.cohort.value,colorMode=ids.color.value,points=payload.points.filter(p=>cohort==='all'||p[3]==='evaluation'),canvas=ids.canvas,rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+  const ids=domainIds(model,mode),payload=DOMAIN_TRANSFER[model][mode],cohort=ids.cohort.value,colorMode=ids.color.value,points=payload.points.filter(p=>cohort==='all'||p[0]===cohort),canvas=ids.canvas,rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
   canvas.width=Math.max(1,Math.round(rect.width*dpr));canvas.height=Math.max(1,Math.round(rect.height*dpr));const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);const w=rect.width,h=rect.height;c.clearRect(0,0,w,h);if(!points.length)return;
   const view=DOMAIN_VIEWS[canvas.id]||(DOMAIN_VIEWS[canvas.id]={yaw:-.72,pitch:.46}),rotated=points.map(p=>({p,r:rotate3(p[4],p[5],p[6],view)})),maxAbs=Math.max(...points.flatMap(p=>[Math.abs(p[4]),Math.abs(p[5]),Math.abs(p[6])]),1e-6),axisLen=maxAbs*.70,axes=[['PC1','#D14B4B',rotate3(axisLen,0,0,view)],['PC2','#008E7B',rotate3(0,axisLen,0,view)],['PC3','#6750E8',rotate3(0,0,axisLen,view)]];
   const centerGroups=new Map();for(const p of points){if(!centerGroups.has(p[2]))centerGroups.set(p[2],[]);centerGroups.get(p[2]).push(p)}const centers=[...centerGroups.entries()].sort((a,b)=>a[0]-b[0]).map(([count,rows])=>[count,rows.reduce((s,p)=>s+p[4],0)/rows.length,rows.reduce((s,p)=>s+p[5],0)/rows.length,rows.reduce((s,p)=>s+p[6],0)/rows.length]);const rotatedCenters=centers.map(p=>({p,r:rotate3(p[1],p[2],p[3],view)}));
   const xy=rotated.map(o=>o.r).concat(rotatedCenters.map(o=>o.r),axes.map(a=>a[2]),[[0,0,0]]);let xmin=Math.min(...xy.map(v=>v[0])),xmax=Math.max(...xy.map(v=>v[0])),ymin=Math.min(...xy.map(v=>v[1])),ymax=Math.max(...xy.map(v=>v[1]));const dx=Math.max(xmax-xmin,1e-6),dy=Math.max(ymax-ymin,1e-6);xmin-=dx*.11;xmax+=dx*.11;ymin-=dy*.11;ymax+=dy*.11;const pad={l:24,r:24,t:18,b:23},sx=x=>pad.l+(x-xmin)/(xmax-xmin)*(w-pad.l-pad.r),sy=y=>h-pad.b-(y-ymin)/(ymax-ymin)*(h-pad.t-pad.b);
   for(const [label,color,end] of axes){c.strokeStyle=color;c.lineWidth=1.2;c.beginPath();c.moveTo(sx(0),sy(0));c.lineTo(sx(end[0]),sy(end[1]));c.stroke();c.fillStyle=color;c.font='10px Consolas';c.fillText(label,sx(end[0])+3,sy(end[1])-3)}
   if(colorMode==='count'){c.strokeStyle='#4B5563';c.globalAlpha=.72;c.lineWidth=2;c.beginPath();rotatedCenters.forEach((o,i)=>i?c.lineTo(sx(o.r[0]),sy(o.r[1])):c.moveTo(sx(o.r[0]),sy(o.r[1])));c.stroke()}
-  const depths=rotated.map(o=>o.r[2]),zmin=Math.min(...depths),zmax=Math.max(...depths),zspan=Math.max(zmax-zmin,1e-6);rotated.sort((a,b)=>a.r[2]-b.r[2]);for(const o of rotated){const depth=(o.r[2]-zmin)/zspan;c.globalAlpha=.35+.52*depth;c.fillStyle=domainPointColor(o.p,colorMode);c.strokeStyle=o.p[3]==='evaluation'?'#FFFDF8':'#20242D';c.lineWidth=o.p[3]==='evaluation'?1.8:.65;domainMark(c,o.p[0],sx(o.r[0]),sy(o.r[1]),2.5+1.1*depth)}
+  const depths=rotated.map(o=>o.r[2]),zmin=Math.min(...depths),zmax=Math.max(...depths),zspan=Math.max(zmax-zmin,1e-6);rotated.sort((a,b)=>a.r[2]-b.r[2]);for(const o of rotated){const depth=(o.r[2]-zmin)/zspan;c.globalAlpha=.35+.52*depth;c.fillStyle=domainPointColor(o.p,colorMode);c.strokeStyle='#FFFDF8';c.lineWidth=1.8;domainMark(c,o.p[0],sx(o.r[0]),sy(o.r[1]),2.5+1.1*depth)}
   if(colorMode==='count'){c.globalAlpha=1;for(const o of rotatedCenters){c.fillStyle=COLORS[o.p[0]-1];c.strokeStyle='#20242D';c.lineWidth=1.4;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),5.5,0,Math.PI*2);c.fill();c.stroke();c.fillStyle='#20242D';c.font='10px Consolas';c.fillText(String(o.p[0]),sx(o.r[0])+7,sy(o.r[1])-6)}}
-  c.globalAlpha=1;const evr=100*payload.evr.reduce((a,b)=>a+b,0),metric=payload.metrics.cross_domain_count_mean,leak=payload.metrics.count_residual_domain_leakage;ids.stats.textContent=`answer query · L${payload.layer} · ${cohort==='all'?300:150} trajectories · city-selector PCA3 EVR ${evr.toFixed(1)}% · held-domain+seed Log/NCC ${(100*metric.logistic_balanced_accuracy).toFixed(1)}%/${(100*metric.ncc_balanced_accuracy).toFixed(1)}% · residual-domain Log/NCC ${(100*leak.logistic_balanced_accuracy).toFixed(1)}%/${(100*leak.ncc_balanced_accuracy).toFixed(1)}%`;
+  c.globalAlpha=1;const evr=100*payload.evr.reduce((a,b)=>a+b,0),metric=payload.metrics.cross_domain_count_mean,leak=payload.metrics.count_residual_domain_leakage;ids.stats.textContent=`answer query · L${payload.layer} · ${points.length} confirmation trajectories · city-discovery PCA3 EVR ${evr.toFixed(1)}% · city→flower/animal Log/NCC ${(100*metric.logistic_balanced_accuracy).toFixed(1)}%/${(100*metric.ncc_balanced_accuracy).toFixed(1)}% · residual-domain Log/NCC ${(100*leak.logistic_balanced_accuracy).toFixed(1)}%/${(100*leak.ncc_balanced_accuracy).toFixed(1)}%`;
 }
 function setupDomain(model,mode){const ids=domainIds(model,mode),redraw=()=>drawDomain3D(model,mode);ids.cohort.addEventListener('change',redraw);ids.color.addEventListener('change',redraw);let active=false,lastX=0,lastY=0;ids.canvas.addEventListener('pointerdown',e=>{active=true;lastX=e.clientX;lastY=e.clientY;ids.canvas.setPointerCapture(e.pointerId)});ids.canvas.addEventListener('pointermove',e=>{if(!active)return;const view=DOMAIN_VIEWS[ids.canvas.id]||(DOMAIN_VIEWS[ids.canvas.id]={yaw:-.72,pitch:.46});view.yaw+=(e.clientX-lastX)*.009;view.pitch=Math.max(-1.45,Math.min(1.45,view.pitch+(e.clientY-lastY)*.009));lastX=e.clientX;lastY=e.clientY;drawDomain3D(model,mode)});const stop=()=>{active=false};ids.canvas.addEventListener('pointerup',stop);ids.canvas.addEventListener('pointercancel',stop);redraw()}
 for(const model of Object.keys(DOMAIN_TRANSFER))for(const mode of ['non','native'])setupDomain(model,mode);
@@ -1044,8 +1107,9 @@ def build_report(
         "trace_format_site_layer_sweep": "omitted from main; marker/band diagnostics moved to appendix",
         "native_band_snr": "bands and PCA16 frozen on discovery; per-band confirmation SNR requires at least two states per retained k",
         "entity_domain_transfer": (
-            "appendix-internal five-seed layer selection and disjoint five-seed "
-            "evaluation; city-anchored PCA3; running endpoints archived at all layers"
+            "city-discovery-200 layer selection/probe fitting and frozen "
+            "city/flower/animal confirmation-100 evaluation; city-anchored PCA3; "
+            "running endpoints archived at all layers"
             if domain_transfer_root is not None
             else "not included"
         ),

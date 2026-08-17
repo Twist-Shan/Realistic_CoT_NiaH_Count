@@ -21,6 +21,7 @@ STIMULUS_MANIFEST_SCHEMA_VERSION = (
 NONTHINKING_CAPTURE_SCHEMA_VERSION = (
     "realistic_niah_entity_domain_transfer_nonthinking_capture_v1"
 )
+SITE_INDEX_SCHEMA_VERSION = "realistic_niah_domain_transfer_site_index_v1"
 DEFAULT_CONFIRMATION_SEEDS = tuple(range(1254, 1264))
 DEFAULT_COUNTS = tuple(range(1, 11))
 
@@ -74,6 +75,112 @@ def read_jsonl(path: str | Path) -> list[dict[str, Any]]:
                 raise ValueError(f"JSONL line {line_number} is not an object")
             rows.append(value)
     return rows
+
+
+def write_capture_site_index(capture_dir: str | Path) -> tuple[Path, Path]:
+    """Flatten per-shard capture sites into a reusable top-level catalog.
+
+    ``site_states`` remains shard-local so the catalog is small.  Each catalog
+    row records the NPZ path and the exact first-axis index needed to retrieve
+    that site's all-layer hidden states.  Native trajectories are intentionally
+    ragged: every parser-observed ``item_end`` gets a row, including duplicate
+    or partial counting paths, without padding or one-to-one filtering.
+    """
+
+    root = Path(capture_dir)
+    capture_index_path = root / "capture_index.jsonl"
+    capture_rows = read_jsonl(capture_index_path)
+    site_rows: list[dict[str, Any]] = []
+    layer_registries: dict[str, list[int]] = {}
+    for capture_row in capture_rows:
+        manifest_path = root / str(capture_row["manifest_path"])
+        states_path = root / str(capture_row["states_path"])
+        if not manifest_path.is_file() or not states_path.is_file():
+            raise FileNotFoundError(
+                f"Capture shard is incomplete: {manifest_path} / {states_path}"
+            )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        shard_sites = list(manifest.get("site_rows", ()))
+        state_shape = [int(value) for value in manifest["site_states_shape"]]
+        if len(state_shape) != 3 or state_shape[0] != len(shard_sites):
+            raise ValueError(
+                f"Site metadata/state shape mismatch in {manifest_path}: "
+                f"sites={len(shard_sites)} shape={state_shape}"
+            )
+        layers = [int(value) for value in manifest["layers"]]
+        if state_shape[1] != len(layers):
+            raise ValueError(
+                f"Layer metadata/state shape mismatch in {manifest_path}: "
+                f"layers={len(layers)} shape={state_shape}"
+            )
+        model_label = str(capture_row["model_label"])
+        previous_layers = layer_registries.setdefault(model_label, layers)
+        if previous_layers != layers:
+            raise ValueError(f"Inconsistent layer registry for {model_label}")
+        for inferred_axis, raw_site in enumerate(shard_sites):
+            site = dict(raw_site)
+            state_axis = int(site.pop("state_axis", inferred_axis))
+            if state_axis != inferred_axis:
+                raise ValueError(
+                    f"Non-contiguous state_axis in {manifest_path}: "
+                    f"expected {inferred_axis}, found {state_axis}"
+                )
+            site_rows.append(
+                {
+                    **site,
+                    "schema_version": SITE_INDEX_SCHEMA_VERSION,
+                    "capture_row_index": int(capture_row["row_index"]),
+                    "request_id": capture_row.get("request_id"),
+                    "stimulus_id": str(capture_row["stimulus_id"]),
+                    "source_stimulus_id": capture_row.get("source_stimulus_id"),
+                    "model_label": model_label,
+                    "mode": str(capture_row["mode"]),
+                    "entity_domain": str(capture_row["entity_domain"]),
+                    "seed": int(capture_row["seed"]),
+                    "split": str(capture_row["split"]),
+                    "gold_count": int(capture_row["gold_count"]),
+                    "manifest_path": str(capture_row["manifest_path"]),
+                    "states_path": str(capture_row["states_path"]),
+                    "state_array_key": "site_states",
+                    "state_axis": state_axis,
+                    "layer_array_key": "layer_indices",
+                }
+            )
+
+    site_index_path = root / "site_index.jsonl"
+    _atomic_jsonl(site_index_path, site_rows)
+    site_kinds = sorted({str(row["site_kind"]) for row in site_rows})
+    site_manifest_path = root / "site_index_manifest.json"
+    _atomic_json(
+        site_manifest_path,
+        {
+            "schema_version": SITE_INDEX_SCHEMA_VERSION,
+            "capture_index": capture_index_path.name,
+            "site_index": site_index_path.name,
+            "site_rows": len(site_rows),
+            "running_site_rows": sum(
+                str(row["site_kind"]) in {"running_index", "item_end"}
+                for row in site_rows
+            ),
+            "answer_site_rows": sum(
+                str(row["site_kind"]) in {"answer_query", "answer_query_v3"}
+                for row in site_rows
+            ),
+            "site_kinds": site_kinds,
+            "layer_registries": layer_registries,
+            "state_lookup": (
+                "np.load(capture_root / states_path)[state_array_key]"
+                "[state_axis, layer_axis, :]"
+            ),
+            "native_running_policy": (
+                "all parser-observed item_end sites; ragged paths and duplicates retained"
+            ),
+            "nonthinking_running_policy": (
+                "one prompt active-record span-end per registered occurrence"
+            ),
+        },
+    )
+    return site_index_path, site_manifest_path
 
 
 def _stable_domain_seed(domain: str, seed: int) -> int:
@@ -435,6 +542,19 @@ def write_domain_transfer_panel(
     return paths
 
 
+def _should_regenerate_censored(
+    existing: Mapping[str, Any] | None,
+    decoding: Any,
+) -> bool:
+    """Return true only when a larger ceiling can repair a censored shard."""
+
+    return bool(
+        existing is not None
+        and existing.get("generation_truncated")
+        and int(existing.get("output_tokens", 0)) < int(decoding.max_new_tokens)
+    )
+
+
 def generate_native_domain_shards(
     model: Any,
     tokenizer: Any,
@@ -462,8 +582,12 @@ def generate_native_domain_shards(
         safe_id = f"{model_spec.label}__native-thinking__{stimulus['stimulus_id']}"
         relative = Path("shards") / f"{safe_id}.json"
         shard_path = output / relative
-        if shard_path.exists() and not overwrite:
-            generated = json.loads(shard_path.read_text(encoding="utf-8"))
+        existing: dict[str, Any] | None = None
+        if shard_path.exists():
+            existing = json.loads(shard_path.read_text(encoding="utf-8"))
+        regenerate_censored = _should_regenerate_censored(existing, decoding)
+        if existing is not None and not overwrite and not regenerate_censored:
+            generated = existing
             if generated.get("stimulus_id") != stimulus["stimulus_id"]:
                 raise RuntimeError(f"Incompatible generation shard: {shard_path}")
             if generated.get("model_label") != model_spec.label:
@@ -483,6 +607,13 @@ def generate_native_domain_shards(
             )
             generated["source_stimulus_id"] = stimulus.get("source_stimulus_id")
             generated["domain_transfer_schema_version"] = STIMULUS_SCHEMA_VERSION
+            if regenerate_censored and existing is not None:
+                generated["generation_rescue"] = {
+                    "reason": "previous_max_new_tokens_censoring",
+                    "previous_output_tokens": int(existing["output_tokens"]),
+                    "new_max_new_tokens": int(decoding.max_new_tokens),
+                    "prompt_and_greedy_decoding_unchanged": True,
+                }
             _atomic_json(shard_path, generated)
         ordered_rows.append(generated)
         parser = dict(generated.get("trace_parse", {}).get("parser", {}))
@@ -547,6 +678,9 @@ def generate_native_domain_shards(
             },
             "truncated_rows": sum(
                 bool(row["generation_truncated"]) for row in index_rows
+            ),
+            "rescued_truncated_rows": sum(
+                bool(row.get("generation_rescue")) for row in ordered_rows
             ),
             "exact_count_rows": sum(bool(row["exact_count"]) for row in index_rows),
             "trace_category_counts": {
@@ -648,6 +782,9 @@ def capture_native_domain_shards(
                 "trace_category": manifest["parser"]["trace_category"],
                 "marker_kind": manifest["parser"]["marker_kind"],
                 "trace_item_count": int(manifest["parser"]["item_count"]),
+                "output_tokens": int(row.get("output_tokens", 0)),
+                "generation_truncated": bool(row.get("generation_truncated")),
+                "generation_rescue": row.get("generation_rescue"),
                 "running_site_count": int(running_count),
                 "answer_site_count": int(answer_count),
                 "sequence_source": manifest["sequence_source"],
@@ -691,11 +828,15 @@ def capture_native_domain_shards(
             "total_answer_states": sum(
                 int(row["answer_site_count"]) for row in index_rows
             ),
+            "generation_rescue_rows": sum(
+                bool(row.get("generation_rescue")) for row in index_rows
+            ),
             "restartable_shards": True,
             "full_sequence_hidden_states_materialized": False,
             "elapsed_seconds": time.perf_counter() - started_run,
         },
     )
+    write_capture_site_index(output)
     return index_path
 
 
@@ -972,4 +1113,5 @@ def capture_nonthinking_domain_shards(
             "elapsed_seconds": time.perf_counter() - started_run,
         },
     )
+    write_capture_site_index(output)
     return index_path

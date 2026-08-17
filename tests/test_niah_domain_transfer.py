@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 from realistic_niah.entity_domains import (
     native_user_text,
@@ -10,6 +11,7 @@ from realistic_niah_v5.domain_transfer import (
     audit_transformed_stimulus,
     entity_panel,
     transform_stimulus,
+    write_capture_site_index,
 )
 from realistic_niah_v5.generation import V5_USER_TEMPLATE, build_v5_user_text
 from realistic_niah_v5.parsing import find_trace_count_sequence
@@ -169,3 +171,83 @@ def test_legacy_city_registry_parses_noncity_entity_names() -> None:
     assert parsed.detected
     assert parsed.item_count == 2
     assert parsed.item_gold_cities == ("Rose", "Tulip")
+
+
+def test_truncated_generation_rescue_rule_is_strictly_higher_ceiling() -> None:
+    from types import SimpleNamespace
+
+    from realistic_niah_v5.domain_transfer import _should_regenerate_censored
+
+    truncated = {"generation_truncated": True, "output_tokens": 4096}
+    complete = {"generation_truncated": False, "output_tokens": 400}
+    assert _should_regenerate_censored(
+        truncated, SimpleNamespace(max_new_tokens=16384)
+    )
+    assert not _should_regenerate_censored(
+        truncated, SimpleNamespace(max_new_tokens=4096)
+    )
+    assert not _should_regenerate_censored(
+        complete, SimpleNamespace(max_new_tokens=16384)
+    )
+
+
+def test_capture_site_index_flattens_ragged_running_path(tmp_path) -> None:
+    shard = tmp_path / "shards" / "example"
+    shard.mkdir(parents=True)
+    (shard / "states.npz").write_bytes(b"placeholder")
+    manifest = {
+        "layers": [0, 1],
+        "site_states_shape": [3, 2, 4],
+        "site_rows": [
+            {
+                "site_id": "item_end:1",
+                "site_kind": "item_end",
+                "endpoint_token": 101,
+            },
+            {
+                "site_id": "item_end:2",
+                "site_kind": "item_end",
+                "endpoint_token": 147,
+            },
+            {
+                "site_id": "answer_query_v3",
+                "site_kind": "answer_query_v3",
+                "endpoint_token": 211,
+            },
+        ],
+    }
+    (shard / "capture_manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    capture_row = {
+        "row_index": 0,
+        "request_id": "request-1",
+        "stimulus_id": "stimulus-1",
+        "source_stimulus_id": "source-1",
+        "model_label": "Qwen3-8B",
+        "mode": "native-thinking",
+        "entity_domain": "flower",
+        "seed": 1254,
+        "split": "confirmation",
+        "gold_count": 1,
+        "manifest_path": "shards/example/capture_manifest.json",
+        "states_path": "shards/example/states.npz",
+    }
+    (tmp_path / "capture_index.jsonl").write_text(
+        json.dumps(capture_row) + "\n", encoding="utf-8"
+    )
+
+    site_index, site_manifest = write_capture_site_index(tmp_path)
+    rows = [json.loads(line) for line in site_index.read_text().splitlines()]
+    summary = json.loads(site_manifest.read_text())
+
+    assert [row["state_axis"] for row in rows] == [0, 1, 2]
+    assert [row["site_kind"] for row in rows] == [
+        "item_end",
+        "item_end",
+        "answer_query_v3",
+    ]
+    assert all(row["states_path"] == "shards/example/states.npz" for row in rows)
+    assert summary["running_site_rows"] == 2
+    assert summary["answer_site_rows"] == 1
+    assert summary["layer_registries"] == {"Qwen3-8B": [0, 1]}
