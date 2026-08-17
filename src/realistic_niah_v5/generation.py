@@ -6,6 +6,7 @@ from typing import Any, Mapping
 
 import torch
 
+from realistic_niah.entity_domains import native_user_text, resolve_entity_domain
 from realistic_niah_v4.spec import V4ModelSpec
 
 from .parsing import parse_trace_record
@@ -37,6 +38,7 @@ class NativePrompt:
     gold_count: int
     model_label: str
     model_family: str
+    entity_domain: str
     user_text: str
     rendered_prompt: str
     input_ids: tuple[int, ...]
@@ -49,8 +51,12 @@ class NativePrompt:
         return len(self.input_ids)
 
 
-def build_v5_user_text(passage: str) -> str:
-    return V5_USER_TEMPLATE.format(passage=str(passage))
+def build_v5_user_text(passage: str, *, entity_domain: str = "city") -> str:
+    domain = resolve_entity_domain(entity_domain)
+    if domain.name == "city":
+        # Preserve the preregistered city prompt byte-for-byte.
+        return V5_USER_TEMPLATE.format(passage=str(passage))
+    return native_user_text(str(passage), entity_domain=domain.name)
 
 
 def _chat_template_kwargs(model_spec: V4ModelSpec) -> dict[str, Any]:
@@ -113,7 +119,11 @@ def render_native_prompt(
     if str(stimulus.get("design_variant")) != "v4.4":
         raise ValueError("V5 is fixed to frozen V4.4 stimuli")
     passage = str(stimulus["passage"])
-    user_text = build_v5_user_text(passage)
+    entity_domain = resolve_entity_domain(stimulus.get("entity_domain"))
+    user_text = build_v5_user_text(
+        passage,
+        entity_domain=entity_domain.name,
+    )
     rendered = tokenizer.apply_chat_template(
         [{"role": "user", "content": user_text}],
         **_chat_template_kwargs(model_spec),
@@ -156,6 +166,8 @@ def render_native_prompt(
             {
                 "slot_index": int(record["slot_index"]),
                 "city": str(record["city"]),
+                "entity": str(record.get("entity", record["city"])),
+                "entity_domain": entity_domain.name,
                 "score": int(record["score"]),
                 "start": int(start),
                 "end": int(end),
@@ -171,6 +183,7 @@ def render_native_prompt(
         gold_count=int(stimulus["gold_count"]),
         model_label=model_spec.label,
         model_family=family,
+        entity_domain=entity_domain.name,
         user_text=user_text,
         rendered_prompt=rendered,
         input_ids=input_ids,
@@ -261,6 +274,7 @@ def generate_native_trace(
         "design_variant": prompt.design_variant,
         "model_label": prompt.model_label,
         "model_family": prompt.model_family,
+        "entity_domain": prompt.entity_domain,
         "prompt_mode": "native_thinking",
         "seed": prompt.seed,
         "split": prompt.split,

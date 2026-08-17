@@ -47,7 +47,7 @@ from scripts.build_niah_geometry_comparison_report import (  # noqa: E402
 )
 
 
-REPORT_SCHEMA_VERSION = "niah_geometry_comparison_v9_fixed_end_band_snr_3d"
+REPORT_SCHEMA_VERSION = "niah_geometry_comparison_v10_entity_domain_transfer"
 
 
 def _pct(value: Any) -> str:
@@ -603,6 +603,247 @@ def band_appendix(
 </section>""", inputs, visual, audits
 
 
+def _domain_dimension_svg(model: str, payload: Mapping[str, Any]) -> str:
+    """Render PCA-dimension sensitivity for the frozen answer layer."""
+
+    modes = ("non_thinking", "native_thinking")
+    dimensions = [
+        int(row["dimensions"])
+        for row in payload[modes[0]]["metrics"]["dimension_sweep"]
+    ]
+    if dimensions != [1, 2, 4, 8, 16, 32]:
+        raise ValueError(f"Unexpected domain-transfer PCA dimensions for {model}")
+    width, height = 760, 330
+    panels = (
+        (
+            "Pooled held-out seeds",
+            "pooled_logistic_balanced_accuracy",
+            52.0,
+            350.0,
+        ),
+        (
+            "Held-domain + held-seed",
+            "cross_domain_logistic_balanced_accuracy",
+            422.0,
+            720.0,
+        ),
+    )
+    y_top, y_bottom = 54.0, 268.0
+
+    def sx(dimension: int, left: float, right: float) -> float:
+        return left + math.log2(dimension) / 5.0 * (right - left)
+
+    def sy(value: float) -> float:
+        return y_bottom - float(value) * (y_bottom - y_top)
+
+    elements = []
+    for title, metric, left, right in panels:
+        elements.append(
+            f'<text class="metric-label" x="{(left+right)/2:.1f}" y="27" '
+            f'text-anchor="middle">{esc(title)}</text>'
+        )
+        for tick in (0.0, 0.25, 0.5, 0.75, 1.0):
+            y = sy(tick)
+            elements.append(
+                f'<line class="metric-gridline" x1="{left:.1f}" y1="{y:.1f}" '
+                f'x2="{right:.1f}" y2="{y:.1f}"/>'
+            )
+            if left == panels[0][2]:
+                elements.append(
+                    f'<text class="metric-tick" x="{left-8:.1f}" y="{y+4:.1f}" '
+                    f'text-anchor="end">{100*tick:.0f}%</text>'
+                )
+        chance_y = sy(0.1)
+        elements.append(
+            f'<line class="domain-chance" x1="{left:.1f}" y1="{chance_y:.1f}" '
+            f'x2="{right:.1f}" y2="{chance_y:.1f}"/>'
+        )
+        for dimension in dimensions:
+            x = sx(dimension, left, right)
+            elements.append(
+                f'<text class="metric-tick" x="{x:.1f}" y="288" '
+                f'text-anchor="middle">{dimension}</text>'
+            )
+        for mode, css_class in (
+            ("non_thinking", "domain-line-non"),
+            ("native_thinking", "domain-line-native"),
+        ):
+            rows = payload[mode]["metrics"]["dimension_sweep"]
+            points = [
+                (sx(int(row["dimensions"]), left, right), sy(float(row[metric])))
+                for row in rows
+            ]
+            elements.append(
+                f'<polyline class="domain-dim-line {css_class}" points="'
+                + " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+                + '"/>'
+            )
+            for x, y in points:
+                shape = (
+                    f'<circle class="domain-dim-mark {css_class}" cx="{x:.1f}" '
+                    f'cy="{y:.1f}" r="4.5"/>'
+                    if mode == "non_thinking"
+                    else f'<rect class="domain-dim-mark {css_class}" x="{x-4.5:.1f}" '
+                    f'y="{y-4.5:.1f}" width="9" height="9"/>'
+                )
+                elements.append(shape)
+    elements.append(
+        '<text class="metric-axis-title" x="380" y="319" '
+        'text-anchor="middle">PCA dimensions (fit on layer-selection seeds only)</text>'
+    )
+    return (
+        f'<figure class="metric-figure domain-dim-figure"><h3>{esc(model)} · '
+        f'Logistic dimension sweep</h3><svg viewBox="0 0 {width} {height}" '
+        f'role="img" aria-label="{esc(model)} held-out count accuracy across PCA dimensions">'
+        f'<title>{esc(model)} PCA dimension sensitivity</title><desc>Non-thinking '
+        f'is the dark circle line and native-thinking is the teal square line. The '
+        f'dashed reference is ten-class chance.</desc>{"".join(elements)}</svg></figure>'
+    )
+
+
+def _domain_verdict(model_payload: Mapping[str, Any]) -> str:
+    non = model_payload["non_thinking"]["metrics"]
+    native = model_payload["native_thinking"]["metrics"]
+    transfer_fields = (
+        "logistic_balanced_accuracy",
+        "ncc_balanced_accuracy",
+    )
+    transfer_wins = [
+        float(native["cross_domain_count_mean"][field])
+        > float(non["cross_domain_count_mean"][field])
+        for field in transfer_fields
+    ]
+    leakage_wins = [
+        float(native["count_residual_domain_leakage"][field])
+        < float(non["count_residual_domain_leakage"][field])
+        for field in transfer_fields
+    ]
+    if all(transfer_wins) and all(leakage_wins):
+        return (
+            "两个 count probe 的跨实体迁移都更高，同时两个 residual-domain probe "
+            "都更低；这一组 exploratory 指标与 native-thinking 在 answer endpoint "
+            "保留较少实体类别 nuisance 的解释一致。"
+        )
+    if any(transfer_wins) and any(leakage_wins):
+        return (
+            "证据是混合的：至少一个跨实体 count probe 与一个 residual-domain "
+            "probe 有利于 native-thinking，但没有在两种 probe 上同时复现。"
+        )
+    return (
+        "当前指标不支持“native-thinking 更过滤实体类别 nuisance”的简单结论；"
+        "3-D 视觉分离不能替代 held-out transfer 与 residual-domain probe。"
+    )
+
+
+def _domain_model_block(model: str, payload: Mapping[str, Any]) -> str:
+    slug = "qwen" if model.startswith("Qwen") else "gemma"
+    metrics_rows = []
+    audit_rows = []
+    for mode, label in (
+        ("non_thinking", "non-thinking"),
+        ("native_thinking", "native-thinking"),
+    ):
+        mode_payload = payload[mode]
+        metrics = mode_payload["metrics"]
+        audit = mode_payload["audit"]
+        overall = metrics["overall_count"]
+        transfer = metrics["cross_domain_count_mean"]
+        leakage = metrics["count_residual_domain_leakage"]
+        metrics_rows.append(
+            (
+                label,
+                f"L{int(mode_payload['selected_layer'])}",
+                f"{_pct(overall['logistic_balanced_accuracy'])} / "
+                f"{_pct(overall['ncc_balanced_accuracy'])}",
+                f"{_pct(transfer['logistic_balanced_accuracy'])} / "
+                f"{_pct(transfer['ncc_balanced_accuracy'])}",
+                f"{_pct(leakage['logistic_balanced_accuracy'])} / "
+                f"{_pct(leakage['ncc_balanced_accuracy'])}",
+            )
+        )
+        exact_denominator = int(audit["transfer_exact_count_denominator"])
+        exact_text = (
+            f"{int(audit['transfer_exact_count_rows'])}/{exact_denominator}"
+            if exact_denominator
+            else "n/a"
+        )
+        audit_rows.append(
+            (
+                label,
+                str(int(audit["transfer_answer_states"])),
+                str(int(audit["transfer_running_states"])),
+                exact_text,
+                esc(json.dumps(audit["trace_category_counts"], ensure_ascii=False)),
+            )
+        )
+    return f"""
+<article class="appendix-model"><h3>{esc(model)}</h3>
+<div class="callout"><strong>判读：</strong>{esc(_domain_verdict(payload))}</div>
+<div class="dual-grid domain-grid">
+<figure class="geometry-card"><h3>Answer endpoint · non-thinking</h3><div class="controls"><label>Cohort<select id="domain-{slug}-non-cohort"><option value="all">全部 300</option><option value="evaluation">held-out 150</option></select></label><label>Color<select id="domain-{slug}-non-color"><option value="count">gold count</option><option value="domain">entity domain</option></select></label></div><canvas id="domain-{slug}-non" role="img" aria-label="{esc(model)} non-thinking city flower animal answer geometry"></canvas><p class="rotate-hint">drag to rotate · circle city · triangle flower · square animal</p><p class="panel-stats" id="domain-{slug}-non-stats"></p></figure>
+<figure class="geometry-card"><h3>Answer endpoint · native-thinking</h3><div class="controls"><label>Cohort<select id="domain-{slug}-native-cohort"><option value="all">全部 300</option><option value="evaluation">held-out 150</option></select></label><label>Color<select id="domain-{slug}-native-color"><option value="count">gold count</option><option value="domain">entity domain</option></select></label></div><canvas id="domain-{slug}-native" role="img" aria-label="{esc(model)} native-thinking city flower animal answer geometry"></canvas><p class="rotate-hint">drag to rotate · each mode uses its own selected layer and PCA basis</p><p class="panel-stats" id="domain-{slug}-native-stats"></p></figure>
+</div><div class="domain-legend"><span><i class="domain-city"></i>city</span><span><i class="domain-flower"></i>flower</span><span><i class="domain-animal"></i>animal</span><span>颜色默认表示 N=1…10</span></div>
+{table(('mode', '独立最佳层', 'held-seed count Log/NCC', 'held-domain+seed count Log/NCC', 'count-residual domain Log/NCC ↓'), metrics_rows)}
+<p class="small">前两列 count 指标的 chance=10%；residual-domain 指标的 chance=33.3%，越接近 chance 越符合“实体类别 nuisance 较少”。Residualization 的每个 count centroid 只由 5 个 layer-selection seeds 估计。这里没有新 discovery 200，因此全部结果明确作为 appendix exploratory evidence，而不是主报告的 confirmatory claim。</p>
+{_domain_dimension_svg(model, payload)}
+<details><summary>Capture 完整性与已保存的 running index</summary><p class="small">Flower 与 animal 每种各 100 trajectories。Answer 图每条只用一个 answer-query state；running states 没有被丢弃：non-thinking 保存 prompt 中每个 active-record span end，native-thinking 保存 parser 实际观察到的每个 item end，允许少数、重复与 ragged path，并保存全部 decoder layers。</p>{table(('mode', 'transfer answer states', 'transfer running states', 'final exact / audited', 'native trace categories'), audit_rows)}</details>
+</article>"""
+
+
+def domain_transfer_appendix(
+    analysis_root: Path,
+) -> tuple[str, list[Path], dict[str, Any]]:
+    payload_path = analysis_root / "report_payload.json"
+    manifest_path = analysis_root / "analysis_manifest.json"
+    layer_path = analysis_root / "layer_selection_sweep.csv"
+    dimension_path = analysis_root / "pca_dimension_sweep.csv"
+    payload = read_json(payload_path)
+    if str(payload.get("schema_version")) != "realistic_niah_domain_transfer_geometry_v1":
+        raise ValueError(f"Unexpected domain-transfer payload: {payload_path}")
+    models = payload.get("models", {})
+    if set(models) != set(MODELS):
+        raise ValueError(f"Domain-transfer payload has models {sorted(models)}")
+    visual: dict[str, Any] = {}
+    blocks = []
+    for model in MODELS:
+        model_payload = models[model]
+        if set(model_payload) != {"non_thinking", "native_thinking"}:
+            raise ValueError(f"Domain-transfer modes are incomplete for {model}")
+        blocks.append(_domain_model_block(model, model_payload))
+        visual[model] = {}
+        for mode, short in (("non_thinking", "non"), ("native_thinking", "native")):
+            value = model_payload[mode]
+            points = value["visualization"]["points"]
+            if len(points) != 300:
+                raise ValueError(f"Domain-transfer visualization is not 300 rows: {model}/{mode}")
+            visual[model][short] = {
+                "layer": int(value["selected_layer"]),
+                "evr": [
+                    round(float(component), 7)
+                    for component in value["visualization"]["explained_variance_ratio"]
+                ],
+                "metrics": value["metrics"],
+                "points": [
+                    [
+                        str(point["entity_domain"]),
+                        int(point["seed"]),
+                        int(point["gold_count"]),
+                        str(point["analysis_split"]),
+                        round(float(point["x"]), 5),
+                        round(float(point["y"]), 5),
+                        round(float(point["z"]), 5),
+                    ]
+                    for point in points
+                ],
+            }
+    return f"""
+<section id="appendix-domain-transfer"><h2>Appendix C · Entity-domain transfer：city → flower / animal</h2>
+<div class="definitions"><div><h3>配对刺激</h3><p>同一套 V4.4 confirmation 10 counts × 10 seeds 被逐 cell 改写为 city、flower、animal；haystack、active-record score、N 与 seed 保持不变，只改实体词表及对应 prompt。每个 model × mode 共 300 answer trajectories。</p></div><div><h3>防止同数据选层与报分</h3><p>固定 seeds 1254–1258 只用于各 mode 独立的 layer sweep；L 被冻结后，seeds 1259–1263 才用于表中的 150-row held-seed evaluation。两个 mode 不要求同层。</p></div><div><h3>3-D 图的基准</h3><p>每个 panel 的 StandardScaler/PCA3 只在该 mode 的 50 个 city layer-selection rows 上拟合，再原样 transform flower 与 animal。形状表示 domain、颜色表示 count；左右坐标轴不可直接比较绝对距离。</p></div></div>
+<div class="callout warning"><strong>“更简洁”的可检验含义：</strong>不是肉眼更像一条线，而是在低维 PCA 中仍能解码 count、对未用于 probe 训练的实体类别仍能迁移，同时在减去 count centroid 后更难解码 city/flower/animal。三项没有同时成立时，不作“过滤了无意义内容”的强 claim。</div>
+{''.join(blocks)}
+</section>""", [payload_path, manifest_path, layer_path, dimension_path], visual
+
+
 def _dual_script(dual_visual: Mapping[str, Any]) -> str:
     payload = json.dumps(
         dual_visual, ensure_ascii=False, separators=(",", ":")
@@ -666,6 +907,37 @@ window.addEventListener('resize',()=>{for(const model of Object.keys(BAND)){draw
 """.replace("__BAND__", payload)
 
 
+def _domain_script(domain_visual: Mapping[str, Any]) -> str:
+    if not domain_visual:
+        return ""
+    payload = json.dumps(
+        domain_visual, ensure_ascii=False, separators=(",", ":")
+    ).replace("</", "<\\/")
+    return r"""
+const DOMAIN_TRANSFER=__DOMAIN_TRANSFER__;
+const DOMAIN_VIEWS={};
+const DOMAIN_COLORS={city:'#20242D',flower:'#00A88F',animal:'#E76F51'};
+function domainIds(model,mode){const s=model.startsWith('Qwen')?'qwen':'gemma',base='domain-'+s+'-'+mode;return {canvas:document.getElementById(base),cohort:document.getElementById(base+'-cohort'),color:document.getElementById(base+'-color'),stats:document.getElementById(base+'-stats')}}
+function domainMark(c,domain,x,y,r){c.beginPath();if(domain==='animal'){c.rect(x-r,y-r,2*r,2*r)}else if(domain==='flower'){c.moveTo(x,y-r*1.18);c.lineTo(x+r*1.08,y+r*.88);c.lineTo(x-r*1.08,y+r*.88);c.closePath()}else{c.arc(x,y,r,0,Math.PI*2)}c.fill();c.stroke()}
+function domainPointColor(point,mode){return mode==='domain'?DOMAIN_COLORS[point[0]]:COLORS[Math.max(0,Math.min(9,point[2]-1))]}
+function drawDomain3D(model,mode){
+  const ids=domainIds(model,mode),payload=DOMAIN_TRANSFER[model][mode],cohort=ids.cohort.value,colorMode=ids.color.value,points=payload.points.filter(p=>cohort==='all'||p[3]==='evaluation'),canvas=ids.canvas,rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+  canvas.width=Math.max(1,Math.round(rect.width*dpr));canvas.height=Math.max(1,Math.round(rect.height*dpr));const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);const w=rect.width,h=rect.height;c.clearRect(0,0,w,h);if(!points.length)return;
+  const view=DOMAIN_VIEWS[canvas.id]||(DOMAIN_VIEWS[canvas.id]={yaw:-.72,pitch:.46}),rotated=points.map(p=>({p,r:rotate3(p[4],p[5],p[6],view)})),maxAbs=Math.max(...points.flatMap(p=>[Math.abs(p[4]),Math.abs(p[5]),Math.abs(p[6])]),1e-6),axisLen=maxAbs*.70,axes=[['PC1','#D14B4B',rotate3(axisLen,0,0,view)],['PC2','#008E7B',rotate3(0,axisLen,0,view)],['PC3','#6750E8',rotate3(0,0,axisLen,view)]];
+  const centerGroups=new Map();for(const p of points){if(!centerGroups.has(p[2]))centerGroups.set(p[2],[]);centerGroups.get(p[2]).push(p)}const centers=[...centerGroups.entries()].sort((a,b)=>a[0]-b[0]).map(([count,rows])=>[count,rows.reduce((s,p)=>s+p[4],0)/rows.length,rows.reduce((s,p)=>s+p[5],0)/rows.length,rows.reduce((s,p)=>s+p[6],0)/rows.length]);const rotatedCenters=centers.map(p=>({p,r:rotate3(p[1],p[2],p[3],view)}));
+  const xy=rotated.map(o=>o.r).concat(rotatedCenters.map(o=>o.r),axes.map(a=>a[2]),[[0,0,0]]);let xmin=Math.min(...xy.map(v=>v[0])),xmax=Math.max(...xy.map(v=>v[0])),ymin=Math.min(...xy.map(v=>v[1])),ymax=Math.max(...xy.map(v=>v[1]));const dx=Math.max(xmax-xmin,1e-6),dy=Math.max(ymax-ymin,1e-6);xmin-=dx*.11;xmax+=dx*.11;ymin-=dy*.11;ymax+=dy*.11;const pad={l:24,r:24,t:18,b:23},sx=x=>pad.l+(x-xmin)/(xmax-xmin)*(w-pad.l-pad.r),sy=y=>h-pad.b-(y-ymin)/(ymax-ymin)*(h-pad.t-pad.b);
+  for(const [label,color,end] of axes){c.strokeStyle=color;c.lineWidth=1.2;c.beginPath();c.moveTo(sx(0),sy(0));c.lineTo(sx(end[0]),sy(end[1]));c.stroke();c.fillStyle=color;c.font='10px Consolas';c.fillText(label,sx(end[0])+3,sy(end[1])-3)}
+  if(colorMode==='count'){c.strokeStyle='#4B5563';c.globalAlpha=.72;c.lineWidth=2;c.beginPath();rotatedCenters.forEach((o,i)=>i?c.lineTo(sx(o.r[0]),sy(o.r[1])):c.moveTo(sx(o.r[0]),sy(o.r[1])));c.stroke()}
+  const depths=rotated.map(o=>o.r[2]),zmin=Math.min(...depths),zmax=Math.max(...depths),zspan=Math.max(zmax-zmin,1e-6);rotated.sort((a,b)=>a.r[2]-b.r[2]);for(const o of rotated){const depth=(o.r[2]-zmin)/zspan;c.globalAlpha=.35+.52*depth;c.fillStyle=domainPointColor(o.p,colorMode);c.strokeStyle=o.p[3]==='evaluation'?'#FFFDF8':'#20242D';c.lineWidth=o.p[3]==='evaluation'?1.8:.65;domainMark(c,o.p[0],sx(o.r[0]),sy(o.r[1]),2.5+1.1*depth)}
+  if(colorMode==='count'){c.globalAlpha=1;for(const o of rotatedCenters){c.fillStyle=COLORS[o.p[0]-1];c.strokeStyle='#20242D';c.lineWidth=1.4;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),5.5,0,Math.PI*2);c.fill();c.stroke();c.fillStyle='#20242D';c.font='10px Consolas';c.fillText(String(o.p[0]),sx(o.r[0])+7,sy(o.r[1])-6)}}
+  c.globalAlpha=1;const evr=100*payload.evr.reduce((a,b)=>a+b,0),metric=payload.metrics.cross_domain_count_mean,leak=payload.metrics.count_residual_domain_leakage;ids.stats.textContent=`answer query · L${payload.layer} · ${cohort==='all'?300:150} trajectories · city-selector PCA3 EVR ${evr.toFixed(1)}% · held-domain+seed Log/NCC ${(100*metric.logistic_balanced_accuracy).toFixed(1)}%/${(100*metric.ncc_balanced_accuracy).toFixed(1)}% · residual-domain Log/NCC ${(100*leak.logistic_balanced_accuracy).toFixed(1)}%/${(100*leak.ncc_balanced_accuracy).toFixed(1)}%`;
+}
+function setupDomain(model,mode){const ids=domainIds(model,mode),redraw=()=>drawDomain3D(model,mode);ids.cohort.addEventListener('change',redraw);ids.color.addEventListener('change',redraw);let active=false,lastX=0,lastY=0;ids.canvas.addEventListener('pointerdown',e=>{active=true;lastX=e.clientX;lastY=e.clientY;ids.canvas.setPointerCapture(e.pointerId)});ids.canvas.addEventListener('pointermove',e=>{if(!active)return;const view=DOMAIN_VIEWS[ids.canvas.id]||(DOMAIN_VIEWS[ids.canvas.id]={yaw:-.72,pitch:.46});view.yaw+=(e.clientX-lastX)*.009;view.pitch=Math.max(-1.45,Math.min(1.45,view.pitch+(e.clientY-lastY)*.009));lastX=e.clientX;lastY=e.clientY;drawDomain3D(model,mode)});const stop=()=>{active=false};ids.canvas.addEventListener('pointerup',stop);ids.canvas.addEventListener('pointercancel',stop);redraw()}
+for(const model of Object.keys(DOMAIN_TRANSFER))for(const mode of ['non','native'])setupDomain(model,mode);
+window.addEventListener('resize',()=>{for(const model of Object.keys(DOMAIN_TRANSFER))for(const mode of ['non','native'])drawDomain3D(model,mode)});
+""".replace("__DOMAIN_TRANSFER__", payload)
+
+
 def build_html(
     *,
     dual_results: Mapping[str, Mapping[str, Any]],
@@ -675,20 +947,26 @@ def build_html(
     band_html: str,
     band_visual: Mapping[str, Any],
     band_audits: Mapping[str, Mapping[str, Any]],
+    domain_html: str = "",
+    domain_visual: Mapping[str, Any] | None = None,
 ) -> str:
     css = """
-:root{--paper:#F3EEE4;--surface:#FFFDF8;--ink:#20242D;--muted:#626A74;--line:#C9C2B6;--indigo:#23165C;--teal:#00A88F;--yellow:#D6B52C}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;overflow-x:hidden;background:var(--paper);color:var(--ink);font-family:"Segoe UI",Arial,sans-serif;line-height:1.62}nav{position:sticky;top:0;z-index:5;display:flex;gap:18px;padding:10px 22px;background:rgba(243,238,228,.96);border-bottom:1px solid var(--line);overflow-x:auto}nav a{color:var(--indigo);font-size:13px;font-weight:750;text-decoration:none;white-space:nowrap}main{max-width:1480px;margin:auto;padding:38px 28px 80px}header{max-width:1080px;border-bottom:2px solid var(--ink);padding-bottom:28px}.eyebrow{font:700 12px/1.2 Consolas,monospace;letter-spacing:.12em;color:var(--teal)}h1{font-size:44px;line-height:1.08;margin:10px 0 16px;letter-spacing:-.035em}h2{font-size:29px;margin:0 0 12px}h4{color:var(--indigo)}.lead{font-size:18px;color:#404852;max-width:92ch}section{padding:46px 0;border-bottom:1px solid var(--line)}.callout{max-width:1120px;background:var(--surface);border-left:4px solid var(--teal);padding:15px 19px;margin:20px 0}.warning{border-left-color:var(--yellow)}.definitions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}.definitions.two{grid-template-columns:repeat(2,minmax(0,1fr))}.definitions>div,.geometry-card,.appendix-model{min-width:0;background:var(--surface);border:1px solid var(--line);padding:17px}.definitions h3,.geometry-card h3{color:var(--indigo);margin:0 0 8px;font-size:17px}.definitions p,.geometry-card p{font-size:13px;color:var(--muted);margin:0 0 12px}.controls{display:flex;gap:12px;flex-wrap:wrap}.controls label{font-size:12px;font-weight:700;color:var(--muted)}select{display:block;margin-top:4px;border:1px solid var(--line);background:var(--surface);padding:7px 28px 7px 9px;color:var(--ink)}.dual-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:28px}.geometry-card canvas{display:block;width:100%;height:390px;background:#F8F4EC;border:1px solid #DDD5C9;touch-action:none;cursor:grab}.geometry-card canvas:active{cursor:grabbing}.rotate-hint{margin-top:5px;color:#7A7270;font:10px/1.4 Consolas,monospace}.panel-stats{min-height:70px;margin-top:7px;color:var(--muted);font:12px/1.5 Consolas,monospace}.table-scroll{overflow:auto;background:var(--surface);border:1px solid var(--line);margin:16px 0 22px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid #DED8CE}th{background:#ECE6DA;color:#303744}.muted,.small{color:var(--muted);font-size:12px}.metric-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0 20px}.metric-figure{min-width:0;margin:0;background:var(--surface);border:1px solid var(--line);padding:13px}.metric-figure h3{margin:0;color:var(--indigo);font-size:17px}.metric-figure svg{display:block;width:100%;height:auto}.metric-gridline{stroke:#D9D2C7;stroke-width:1}.metric-zero{stroke:#756E68;stroke-width:1.5}.metric-tick,.metric-label,.metric-value,.metric-axis-title{fill:#303744;font:12px Consolas,monospace}.metric-tick{fill:var(--muted);font-size:11px}.metric-link{stroke:#8A838E;stroke-width:2}.metric-dot{stroke:#FFFDF8;stroke-width:2}.metric-non,.snr-non{fill:#20242D}.metric-native,.snr-native{fill:#00A88F}.snr-upper{fill:#E76F51}.snr-lower{fill:#6750E8}.metric-legend,.band-dynamic-legend{display:flex;gap:15px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:10px 0}.metric-legend span,.band-dynamic-legend span{display:inline-flex;align-items:center;gap:6px}.metric-legend i,.band-dynamic-legend i{display:inline-block;width:11px;height:11px;border-radius:50%;background:#8A838E}.metric-legend .legend-non{background:#20242D}.metric-legend .legend-native{background:#00A88F}.metric-legend .legend-upper{background:#E76F51}.metric-legend .legend-lower{background:#6750E8}.band-dynamic-legend i.square{border-radius:0}.band-dynamic-legend b{font-weight:500}.token-flow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:20px 0}.token-flow article{min-width:0;background:var(--surface);border:1px solid var(--line);padding:17px}.token-flow h3{color:var(--indigo);margin:0 0 8px;font-size:17px}.token-flow p{font-size:13px;color:var(--muted)}.token-strip{display:flex;gap:5px;align-items:flex-start;flex-wrap:wrap;margin:17px 0 26px}.token-strip span{position:relative;background:#ECE6DA;padding:5px 7px;font:12px Consolas,monospace}.token-strip span[data-pos]::after{content:attr(data-pos);position:absolute;left:50%;top:100%;transform:translateX(-50%);font:9px Consolas,monospace;color:#7A7270}.token-strip .picked{background:#00A88F;color:#FFFDF8}.token-strip b{font:11px Consolas,monospace;color:var(--indigo);padding:5px}.boundary-example{display:flex;align-items:stretch;margin:15px 0;font:12px/1.5 Consolas,monospace}.boundary-example span{background:#ECE6DA;padding:8px 10px}.boundary-example i{display:block;width:4px;background:#E76F51}.boundary-example .answer-token{background:#D9F1EA}.band-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0}.band-figure{min-width:0;margin:0;background:#FFFDF8;border:1px solid var(--line);padding:12px}.band-figure h4{font-size:15px;color:var(--indigo);margin:0 0 8px}.band-figure canvas{display:block;width:100%;height:380px;background:#F8F4EC;border:1px solid #DDD5C9;touch-action:none;cursor:grab}.band-figure canvas:active{cursor:grabbing}.band-controls{margin-top:15px}.appendix-model{margin:22px 0}.provenance{font:11px/1.6 Consolas,monospace;color:var(--muted)}details{background:var(--surface);border:1px solid var(--line);margin:18px 0}summary{cursor:pointer;padding:12px 15px;font-weight:750;color:var(--indigo)}@media(max-width:1000px){.dual-grid,.definitions,.definitions.two,.metric-grid,.token-flow,.band-grid{grid-template-columns:1fr}}@media(max-width:650px){main{padding:25px 13px 60px}h1{font-size:34px}.geometry-card canvas,.band-figure canvas{height:330px}.metric-value{font-size:10px}}
+:root{--paper:#F3EEE4;--surface:#FFFDF8;--ink:#20242D;--muted:#626A74;--line:#C9C2B6;--indigo:#23165C;--teal:#00A88F;--yellow:#D6B52C}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;overflow-x:hidden;background:var(--paper);color:var(--ink);font-family:"Segoe UI",Arial,sans-serif;line-height:1.62}nav{position:sticky;top:0;z-index:5;display:flex;gap:18px;padding:10px 22px;background:rgba(243,238,228,.96);border-bottom:1px solid var(--line);overflow-x:auto}nav a{color:var(--indigo);font-size:13px;font-weight:750;text-decoration:none;white-space:nowrap}main{max-width:1480px;margin:auto;padding:38px 28px 80px}header{max-width:1080px;border-bottom:2px solid var(--ink);padding-bottom:28px}.eyebrow{font:700 12px/1.2 Consolas,monospace;letter-spacing:.12em;color:var(--teal)}h1{font-size:44px;line-height:1.08;margin:10px 0 16px;letter-spacing:-.035em}h2{font-size:29px;margin:0 0 12px}h4{color:var(--indigo)}.lead{font-size:18px;color:#404852;max-width:92ch}section{padding:46px 0;border-bottom:1px solid var(--line)}.callout{max-width:1120px;background:var(--surface);border-left:4px solid var(--teal);padding:15px 19px;margin:20px 0}.warning{border-left-color:var(--yellow)}.definitions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}.definitions.two{grid-template-columns:repeat(2,minmax(0,1fr))}.definitions>div,.geometry-card,.appendix-model{min-width:0;background:var(--surface);border:1px solid var(--line);padding:17px}.definitions h3,.geometry-card h3{color:var(--indigo);margin:0 0 8px;font-size:17px}.definitions p,.geometry-card p{font-size:13px;color:var(--muted);margin:0 0 12px}.controls{display:flex;gap:12px;flex-wrap:wrap}.controls label{font-size:12px;font-weight:700;color:var(--muted)}select{display:block;margin-top:4px;border:1px solid var(--line);background:var(--surface);padding:7px 28px 7px 9px;color:var(--ink)}.dual-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:28px}.geometry-card canvas{display:block;width:100%;height:390px;background:#F8F4EC;border:1px solid #DDD5C9;touch-action:none;cursor:grab}.geometry-card canvas:active{cursor:grabbing}.rotate-hint{margin-top:5px;color:#7A7270;font:10px/1.4 Consolas,monospace}.panel-stats{min-height:70px;margin-top:7px;color:var(--muted);font:12px/1.5 Consolas,monospace}.table-scroll{overflow:auto;background:var(--surface);border:1px solid var(--line);margin:16px 0 22px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid #DED8CE}th{background:#ECE6DA;color:#303744}.muted,.small{color:var(--muted);font-size:12px}.metric-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0 20px}.metric-figure{min-width:0;margin:0;background:var(--surface);border:1px solid var(--line);padding:13px}.metric-figure h3{margin:0;color:var(--indigo);font-size:17px}.metric-figure svg{display:block;width:100%;height:auto}.metric-gridline{stroke:#D9D2C7;stroke-width:1}.metric-zero{stroke:#756E68;stroke-width:1.5}.metric-tick,.metric-label,.metric-value,.metric-axis-title{fill:#303744;font:12px Consolas,monospace}.metric-tick{fill:var(--muted);font-size:11px}.metric-link{stroke:#8A838E;stroke-width:2}.metric-dot{stroke:#FFFDF8;stroke-width:2}.metric-non,.snr-non{fill:#20242D}.metric-native,.snr-native{fill:#00A88F}.snr-upper{fill:#E76F51}.snr-lower{fill:#6750E8}.metric-legend,.band-dynamic-legend{display:flex;gap:15px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:10px 0}.metric-legend span,.band-dynamic-legend span{display:inline-flex;align-items:center;gap:6px}.metric-legend i,.band-dynamic-legend i{display:inline-block;width:11px;height:11px;border-radius:50%;background:#8A838E}.metric-legend .legend-non{background:#20242D}.metric-legend .legend-native{background:#00A88F}.metric-legend .legend-upper{background:#E76F51}.metric-legend .legend-lower{background:#6750E8}.band-dynamic-legend i.square{border-radius:0}.band-dynamic-legend b{font-weight:500}.token-flow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:20px 0}.token-flow article{min-width:0;background:var(--surface);border:1px solid var(--line);padding:17px}.token-flow h3{color:var(--indigo);margin:0 0 8px;font-size:17px}.token-flow p{font-size:13px;color:var(--muted)}.token-strip{display:flex;gap:5px;align-items:flex-start;flex-wrap:wrap;margin:17px 0 26px}.token-strip span{position:relative;background:#ECE6DA;padding:5px 7px;font:12px Consolas,monospace}.token-strip span[data-pos]::after{content:attr(data-pos);position:absolute;left:50%;top:100%;transform:translateX(-50%);font:9px Consolas,monospace;color:#7A7270}.token-strip .picked{background:#00A88F;color:#FFFDF8}.token-strip b{font:11px Consolas,monospace;color:var(--indigo);padding:5px}.boundary-example{display:flex;align-items:stretch;margin:15px 0;font:12px/1.5 Consolas,monospace}.boundary-example span{background:#ECE6DA;padding:8px 10px}.boundary-example i{display:block;width:4px;background:#E76F51}.boundary-example .answer-token{background:#D9F1EA}.band-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0}.band-figure{min-width:0;margin:0;background:#FFFDF8;border:1px solid var(--line);padding:12px}.band-figure h4{font-size:15px;color:var(--indigo);margin:0 0 8px}.band-figure canvas{display:block;width:100%;height:380px;background:#F8F4EC;border:1px solid #DDD5C9;touch-action:none;cursor:grab}.band-figure canvas:active{cursor:grabbing}.band-controls{margin-top:15px}.appendix-model{margin:22px 0}.domain-legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:-14px 0 18px}.domain-legend span{display:inline-flex;align-items:center;gap:6px}.domain-legend i{display:inline-block;width:11px;height:11px;background:#20242D}.domain-legend .domain-city{border-radius:50%}.domain-legend .domain-flower{background:#00A88F;clip-path:polygon(50% 0,100% 100%,0 100%)}.domain-legend .domain-animal{background:#E76F51}.domain-dim-figure{margin:18px 0}.domain-dim-line{fill:none;stroke-width:2.3}.domain-line-non{stroke:#20242D;fill:#20242D}.domain-line-native{stroke:#00A88F;fill:#00A88F}.domain-dim-mark{stroke:#FFFDF8;stroke-width:1.4}.domain-chance{stroke:#8A838E;stroke-width:1.3;stroke-dasharray:5 4}.provenance{font:11px/1.6 Consolas,monospace;color:var(--muted)}details{background:var(--surface);border:1px solid var(--line);margin:18px 0}summary{cursor:pointer;padding:12px 15px;font-weight:750;color:var(--indigo)}@media(max-width:1000px){.dual-grid,.definitions,.definitions.two,.metric-grid,.token-flow,.band-grid{grid-template-columns:1fr}}@media(max-width:650px){main{padding:25px 13px 60px}h1{font-size:34px}.geometry-card canvas,.band-figure canvas{height:330px}.metric-value{font-size:10px}}
 """
-    script = _dual_script(dual_visual) + _band_script(band_visual)
+    script = (
+        _dual_script(dual_visual)
+        + _band_script(band_visual)
+        + _domain_script(domain_visual or {})
+    )
     return f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NiaH Geometry Comparison</title><style>{css}</style></head><body>
-<nav><a href="#scope">口径</a><a href="#tokens">Token 提取</a><a href="#dual">主结果</a><a href="#claims">Confirmation 结论</a><a href="#snr">SNR</a><a href="#appendix-markers">Marker appendix</a><a href="#appendix-bands">分层 appendix</a></nav><main>
+<nav><a href="#scope">口径</a><a href="#tokens">Token 提取</a><a href="#dual">主结果</a><a href="#claims">Confirmation 结论</a><a href="#snr">SNR</a><a href="#appendix-markers">Marker appendix</a><a href="#appendix-bands">分层 appendix</a>{'<a href="#appendix-domain-transfer">实体迁移 appendix</a>' if domain_html else ''}</nav><main>
 <header><div class="eyebrow">REALISTIC NIAH · ALL-COUNT GEOMETRY</div><h1>NiaH Geometry Comparison</h1><p class="lead">Running index 与 final count 两组比较都覆盖 N=1…10，并可在完整 300 trajectories 与 confirmation 100 trajectories 之间切换。Running index 固定比较 prompt <code>span_end</code> 与 thinking-trace <code>item_end</code>；两个模式只各自选择最佳 decoder layer。</p></header>
 <section id="scope"><h2>严格比较口径</h2><div class="definitions"><div><h3>Full 300</h3><p>10 个 gold N × 30 seeds。它是 descriptive geometry view；PCA3 仍只由 discovery 200 拟合，避免 confirmation 反向选显示 basis。</p></div><div><h3>Confirmation 100</h3><p>10 个 gold N × 10 held-out seeds。主表的 Logistic、nearest-centroid 与 SNR 都是 discovery-frozen 后在这里评价。</p></div><div><h3>Native running 的 ragged rule</h3><p>每条 trace 只贡献 parser 实际观察到的 1…M。数到 8 就贡献八个 states；不按 gold N 或最终 Total 补到 9/10。</p></div></div></section>
 {token_html}
 {dual_endpoint_section(dual_results, dual_visual)}
 {empirical_claims(dual_results)}
 {snr_section(dual_results, band_audits)}
-{marker_html}{band_html}
+{marker_html}{band_html}{domain_html}
 <section><h2>解释边界</h2><p>这些图和 probes 证明的是 within-task decodability/geometry，不单独证明离散计数器、逐步加一算法或因果使用。两个 mode 的 end token 语义和最佳层仍不同，因此比较的是两个单-token 完成边界上同一任务变量的可读性，而不是共享坐标系中的绝对距离。</p><p class="provenance">Report schema: {REPORT_SCHEMA_VERSION} · pooled 10 counts × 30 seeds · full/confirmation views: 300/100 trajectories · running sites fixed: span_end/item_end · layer selector: pooled discovery only · trace-format sweep: appendix-only diagnostic</p></section>
 </main><script>{script}</script></body></html>"""
 
@@ -703,6 +981,7 @@ def build_report(
     band_root: Path,
     output: Path,
     manifest_path: Path,
+    domain_transfer_root: Path | None = None,
 ) -> dict[str, Any]:
     dual_results, dual_inputs = load_dual_endpoint_results(
         dual_endpoint_root.resolve()
@@ -720,6 +999,13 @@ def build_report(
     band_html, band_inputs, band_visual, band_audits = band_appendix(
         band_root.resolve()
     )
+    domain_html = ""
+    domain_inputs: list[Path] = []
+    domain_visual: dict[str, Any] = {}
+    if domain_transfer_root is not None:
+        domain_html, domain_inputs, domain_visual = domain_transfer_appendix(
+            domain_transfer_root.resolve()
+        )
     document = build_html(
         dual_results=dual_results,
         dual_visual=dual_visual,
@@ -728,6 +1014,8 @@ def build_report(
         band_html=band_html,
         band_visual=band_visual,
         band_audits=band_audits,
+        domain_html=domain_html,
+        domain_visual=domain_visual,
     )
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -738,6 +1026,7 @@ def build_report(
             + visual_inputs
             + band_inputs
             + token_inputs
+            + domain_inputs
             + [parser_audit.resolve()]
         ),
         key=str,
@@ -754,6 +1043,12 @@ def build_report(
         "primary_analysis": "running sites fixed to span_end/item_end; pooled discovery-only layer selection; frozen confirmation evaluation",
         "trace_format_site_layer_sweep": "omitted from main; marker/band diagnostics moved to appendix",
         "native_band_snr": "bands and PCA16 frozen on discovery; per-band confirmation SNR requires at least two states per retained k",
+        "entity_domain_transfer": (
+            "appendix-internal five-seed layer selection and disjoint five-seed "
+            "evaluation; city-anchored PCA3; running endpoints archived at all layers"
+            if domain_transfer_root is not None
+            else "not included"
+        ),
         "inputs": {str(path): sha256(path) for path in inputs},
         "output": str(output),
         "output_sha256": sha256(output),
@@ -775,6 +1070,7 @@ def main() -> None:
     parser.add_argument("--dual-endpoint-root", type=Path, required=True)
     parser.add_argument("--parser-audit", type=Path, required=True)
     parser.add_argument("--band-root", type=Path, required=True)
+    parser.add_argument("--domain-transfer-root", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
@@ -785,6 +1081,7 @@ def main() -> None:
         dual_endpoint_root=args.dual_endpoint_root,
         parser_audit=args.parser_audit,
         band_root=args.band_root,
+        domain_transfer_root=args.domain_transfer_root,
         output=args.output,
         manifest_path=args.manifest,
     )

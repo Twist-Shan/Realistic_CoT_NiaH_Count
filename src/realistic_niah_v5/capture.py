@@ -305,6 +305,7 @@ def capture_trace_record(
         "request_id": row.get("request_id"),
         "model_label": row.get("model_label"),
         "model_family": family,
+        "entity_domain": str(row.get("entity_domain", "city")),
         "seed": row.get("seed"),
         "split": row.get("split"),
         "gold_count": len(gold_records(row)),
@@ -551,6 +552,7 @@ def capture_trace_shards(
                 "request_id": request_id,
                 "stimulus_id": manifest["stimulus_id"],
                 "model_label": manifest["model_label"],
+                "entity_domain": manifest.get("entity_domain", "city"),
                 "seed": manifest["seed"],
                 "split": manifest["split"],
                 "gold_count": manifest["gold_count"],
@@ -596,6 +598,9 @@ def capture_trace_shards(
             ),
             "capture_span_pooling": bool(capture_span_pooling),
             "counts": sorted({int(row["gold_count"]) for row in index_rows}),
+            "entity_domains": sorted(
+                {str(row.get("entity_domain", "city")) for row in index_rows}
+            ),
             "split_trajectory_counts": {
                 split: sum(str(row["split"]) == split for row in index_rows)
                 for split in ("discovery", "confirmation")
