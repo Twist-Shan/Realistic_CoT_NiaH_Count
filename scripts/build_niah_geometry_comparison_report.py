@@ -49,10 +49,14 @@ from realistic_niah_v5.parsing import (  # noqa: E402
     PARSER_UPSTREAM_COMMIT,
     PARSER_UPSTREAM_REPOSITORY,
 )
+from realistic_niah_v5.trace_stratified_geometry import (  # noqa: E402
+    SCHEMA_VERSION as TRACE_STRATIFIED_SCHEMA_VERSION,
+)
 
 
 MODELS = ("Qwen3-8B", "Gemma4-E4B")
 PCA_DIMS = (32,)
+TRACE_STRATIFIED_PCA_DIM = 16
 EXPECTED_FULL_PANEL = {
     "discovery": list(range(1234, 1254)),
     "confirmation": list(range(1254, 1264)),
@@ -128,6 +132,53 @@ def _support_range(audit: Mapping[str, Any], mode: str) -> tuple[int, int]:
         for value in audit["position_support"][mode]["confirmation"].values()
     ]
     return min(values), max(values)
+
+
+def load_trace_stratified_results(
+    root: Path,
+) -> tuple[dict[str, dict[str, Any]], list[Path]]:
+    """Load the marker-kind-stratified discovery-selected site sweep."""
+
+    results: dict[str, dict[str, Any]] = {}
+    inputs: list[Path] = []
+    for model in MODELS:
+        directory = root / model / f"pca{TRACE_STRATIFIED_PCA_DIM}"
+        eligibility_path = directory / "trace_stratum_eligibility.csv"
+        selection_path = directory / "trace_stratum_discovery_selected_sites.csv"
+        metrics_path = directory / "trace_stratum_site_layer_metrics.csv"
+        audit_path = directory / "trace_stratum_site_sweep_audit.json"
+        audit = read_json(audit_path)
+        eligibility = read_csv(eligibility_path)
+        selection = read_csv(selection_path)
+        require(
+            audit.get("schema_version") == TRACE_STRATIFIED_SCHEMA_VERSION,
+            f"trace-stratified schema mismatch for {model}",
+        )
+        require(audit.get("model_label") == model, f"trace-stratified model mismatch for {model}")
+        require(
+            int(audit.get("pca_dim_requested", -1)) == TRACE_STRATIFIED_PCA_DIM,
+            f"trace-stratified PCA mismatch for {model}",
+        )
+        require(
+            audit.get("stratification_variable") == "parser marker_kind",
+            f"trace-stratified grouping mismatch for {model}",
+        )
+        require(
+            all(row.get("model_label") == model for row in eligibility + selection),
+            f"trace-stratified row model mismatch for {model}",
+        )
+        require(
+            {row["selector"] for row in selection}
+            <= {"fixed_item_end", "post_marker_site_search", "all_site_search"},
+            f"unregistered trace-stratified selector for {model}",
+        )
+        results[model] = {
+            "audit": audit,
+            "eligibility": eligibility,
+            "selection": selection,
+        }
+        inputs.extend([eligibility_path, selection_path, metrics_path, audit_path])
+    return results, inputs
 
 
 def load_metric_comparison(
@@ -1054,6 +1105,205 @@ def token_extraction_section(visual: Mapping[str, Any]) -> str:
 </section>"""
 
 
+def _float_or_nan(row: Mapping[str, Any], field: str) -> float:
+    try:
+        return float(row[field])
+    except (KeyError, TypeError, ValueError):
+        return float("nan")
+
+
+def _pct_or_dash(row: Mapping[str, Any], field: str) -> str:
+    value = _float_or_nan(row, field)
+    return "—" if not np.isfinite(value) else pct(value)
+
+
+def _db_or_dash(row: Mapping[str, Any], field: str) -> str:
+    value = _float_or_nan(row, field)
+    return "—" if not np.isfinite(value) else f"{value:+.2f} dB"
+
+
+def trace_stratified_section(
+    results: Mapping[str, Mapping[str, Any]],
+) -> str:
+    cue_labels = {
+        "indexed": "逐项唯一数字（显式 k cue）",
+        "ordinal": "逐项 ordinal word（显式/半显式 k cue）",
+        "bullet": "各项相同 bullet（不唯一标识 k）",
+        "audit_sentence": "句式 fallback（无逐项 marker）",
+        "completion_recap": "recap fallback（无逐项 marker）",
+    }
+    marker_order = {
+        name: index
+        for index, name in enumerate(
+            ["indexed", "ordinal", "bullet", "audit_sentence", "completion_recap"]
+        )
+    }
+    selector_labels = {
+        "fixed_item_end": "fixed item_end",
+        "post_marker_site_search": "post-marker search",
+        "all_site_search": "all-site search",
+    }
+    selector_order = {
+        "fixed_item_end": 0,
+        "post_marker_site_search": 1,
+        "all_site_search": 2,
+    }
+    grade_labels = {
+        "claim_grade": "bounded-claim eligible",
+        "exploratory_only": "exploratory only",
+        "not_evaluable": "not evaluable",
+    }
+
+    eligibility_rows = []
+    selected_rows: list[dict[str, Any]] = []
+    for model in MODELS:
+        payload = results[model]
+        for row in sorted(
+            payload["eligibility"],
+            key=lambda item: marker_order.get(item["marker_kind"], 999),
+        ):
+            labels = [int(value) for value in row["retained_labels"].split()]
+            discovery_support = {
+                int(key): int(value)
+                for key, value in json.loads(row["discovery_support"]).items()
+            }
+            confirmation_support = {
+                int(key): int(value)
+                for key, value in json.loads(row["confirmation_support"]).items()
+            }
+            if labels:
+                support = (
+                    f"D {min(discovery_support[k] for k in labels)}–"
+                    f"{max(discovery_support[k] for k in labels)} / "
+                    f"C {min(confirmation_support[k] for k in labels)}–"
+                    f"{max(confirmation_support[k] for k in labels)}"
+                )
+                retained = f"{min(labels)}–{max(labels)} ({len(labels)} classes)"
+            else:
+                support = "—"
+                retained = "—"
+            eligibility_rows.append(
+                (
+                    esc(model),
+                    f"<code>{esc(row['marker_kind'])}</code>",
+                    esc(cue_labels.get(row["marker_kind"], "unknown")),
+                    f"{row['discovery_seed_count']} / {row['confirmation_seed_count']}",
+                    esc(retained),
+                    esc(support),
+                    esc(grade_labels.get(row["eligibility"], row["eligibility"])),
+                )
+            )
+
+        selections = sorted(
+            payload["selection"],
+            key=lambda item: (
+                marker_order.get(item["marker_kind"], 999),
+                selector_order.get(item["selector"], 999),
+            ),
+        )
+        baselines = {
+            row["marker_kind"]: row
+            for row in selections
+            if row["selector"] == "fixed_item_end"
+        }
+        for row in selections:
+            baseline = baselines[row["marker_kind"]]
+            logistic_delta = 100 * (
+                _float_or_nan(row, "confirmation_logistic_balanced_accuracy")
+                - _float_or_nan(
+                    baseline, "confirmation_logistic_balanced_accuracy"
+                )
+            )
+            ncc_delta = 100 * (
+                _float_or_nan(row, "confirmation_ncc_balanced_accuracy")
+                - _float_or_nan(baseline, "confirmation_ncc_balanced_accuracy")
+            )
+            selected_rows.append(
+                {
+                    "model": model,
+                    "marker_kind": row["marker_kind"],
+                    "eligibility": row["eligibility"],
+                    "selector": row["selector"],
+                    "logistic_delta": logistic_delta,
+                    "ncc_delta": ncc_delta,
+                    "html": (
+                        esc(model),
+                        f"<code>{esc(row['marker_kind'])}</code>",
+                        esc(grade_labels[row["eligibility"]]),
+                        esc(selector_labels[row["selector"]]),
+                        f"<code>{esc(row['site_kind'])}</code> @ L{row['layer']}",
+                        (
+                            f"{_pct_or_dash(row, 'discovery_oof_logistic_balanced_accuracy')} / "
+                            f"{_pct_or_dash(row, 'discovery_oof_ncc_balanced_accuracy')}"
+                        ),
+                        (
+                            f"{_pct_or_dash(row, 'confirmation_logistic_balanced_accuracy')} / "
+                            f"{_pct_or_dash(row, 'confirmation_ncc_balanced_accuracy')}"
+                        ),
+                        f"{logistic_delta:+.1f} / {ncc_delta:+.1f} pp",
+                        _db_or_dash(row, "confirmation_class_balanced_snr_db"),
+                        (
+                            f"{row['confirmation_seed_count']} seeds; "
+                            f"nₖ {row['confirmation_support_min']}–"
+                            f"{row['confirmation_support_max']}"
+                        ),
+                    ),
+                    "row": row,
+                }
+            )
+
+    implicit_claim_rows = [
+        item
+        for item in selected_rows
+        if item["eligibility"] == "claim_grade"
+        and item["marker_kind"] in {"bullet", "completion_recap"}
+        and item["selector"] == "post_marker_site_search"
+    ]
+    implicit_sentences = []
+    for item in implicit_claim_rows:
+        row = item["row"]
+        implicit_sentences.append(
+            f"{esc(item['model'])} <code>{esc(item['marker_kind'])}</code>: "
+            f"discovery 选出 <code>{esc(row['site_kind'])}</code> @ L{row['layer']}；"
+            f"confirmation Logistic/NCC = "
+            f"{_pct_or_dash(row, 'confirmation_logistic_balanced_accuracy')} / "
+            f"{_pct_or_dash(row, 'confirmation_ncc_balanced_accuracy')}，"
+            f"SNR = {_db_or_dash(row, 'confirmation_class_balanced_snr_db')} "
+            f"(chance = {_pct_or_dash(row, 'chance_balanced_accuracy')})"
+        )
+    implicit_summary = (
+        "；".join(implicit_sentences)
+        if implicit_sentences
+        else "没有通过 support gate 的无唯一序号 strata"
+    )
+    post_marker_deltas = [
+        (
+            f"{esc(item['model'])} <code>{esc(item['marker_kind'])}</code> "
+            f"<code>{esc(item['row']['site_kind'])}</code> @ L{item['row']['layer']}: "
+            f"ΔLog/NCC = {item['logistic_delta']:+.1f} / "
+            f"{item['ncc_delta']:+.1f} pp"
+        )
+        for item in selected_rows
+        if item["eligibility"] == "claim_grade"
+        and item["selector"] == "post_marker_site_search"
+    ]
+    post_marker_summary = "；".join(post_marker_deltas)
+
+    return f"""
+<section id="strata"><h2>按 trace 格式分层：token-site × layer sweep</h2>
+<p>这里按 parser 的表面格式 <code>marker_kind</code> 分层，不按 one-to-one/partial 等 <code>trace_category</code> 分层。每个 stratum 尝试 <code>marker_end</code>、<code>city_end</code>、<code>item_end</code> 与紧随 item 的 <code>post_boundary</code> 中语义上存在的站点。站点与层均只按 discovery seeds 的 leave-one-seed-out Logistic/NCC 平均 balanced accuracy 选择；每个 fold 内重新拟合 StandardScaler 与 PCA16，再在 confirmation 上评价选定组合。</p>
+<div class="callout warning"><strong>分析地位：</strong>这是看到 pooled geometry 后新增的 post-hoc robustness analysis，不是预注册的独立复现。程序化选择不读取 confirmation，但这批 confirmation seeds 已在更早的总体分析中出现过。因此它能降低直接的 site/layer overfitting，不能把结果升级为全新的 confirmatory evidence。</div>
+<h3>哪些类别有足够支持？</h3>
+{html_table(['模型', 'marker_kind', '表面 cue', 'D/C seeds', '保留 k', '逐类支持', '证据等级'], eligibility_rows)}
+<h3>Discovery-frozen 位置与 confirmation 结果</h3>
+<p class="small"><code>fixed item_end</code> 是原始统一站点；<code>post-marker search</code> 排除 marker endpoint，检验信息是否在实体/项目边界后仍可读；<code>all-site search</code> 允许显式 marker，主要作为 lexical-cue positive control。Δ 是相对同一 stratum 的 fixed item_end，单位为 percentage points；不是跨类别效应。</p>
+{html_table(['模型', 'stratum', '等级', 'selector', 'D-selected site/layer', 'D OOF Log/NCC', 'C Log/NCC', 'ΔC vs item_end', 'C SNR', 'C support'], [item['html'] for item in selected_rows])}
+<div class="callout"><strong>换 token 会不会普遍更好？</strong>不会。对通过 support gate 的 strata，post-marker selector 相对 fixed item_end 的 confirmation 变化为：{post_marker_summary}。改善集中在 Qwen indexed；无唯一序号的 recap/bullet 没有选出比 item/entity endpoint 更优的新位置。因而合理结论是“结果对若干边界稳健”，不是“找到了一个跨格式最优 token”。</div>
+<div class="callout"><strong>可支持的表述：</strong>“在 native-thinking response 中，ordinal position 在按表面格式分层后仍可由 hidden states held-out 解码；而且这一现象至少在没有逐项唯一序号 token 的格式中存在，因此 pooled decodability 不能完全归结为读取显式编号。”当前无唯一编号、通过 support gate 的 strata 为：{implicit_summary}。</div>
+<div class="callout warning"><strong>不可支持的表述：</strong>这些结果仍不能单独证明离散计数器、count chord 或递增更新机制。即使取 <code>post_boundary</code>，自回归上下文仍包含先前项目；probe 可能读取序列长度、句式进度、重复次数或其他位置相关 cue。indexed 的近满分尤其应解释为显式序号 positive control，而不是内部 counter 的主证据。SNR 与 classification 若方向不一致，应写成“更可解码但不一定更紧密”。</div>
+</section>"""
+
+
 def model_section(model: str, payload: Mapping[str, Any]) -> str:
     slug = "qwen" if model.startswith("Qwen") else "gemma"
     options = "".join(
@@ -1104,6 +1354,7 @@ def build_html(
     comparison: Mapping[str, Mapping[int, Mapping[str, Any]]],
     visual: Mapping[str, Any],
     partials: list[dict[str, Any]],
+    trace_stratified: Mapping[str, Mapping[str, Any]],
 ) -> str:
     gemma_trace_one = comparison["Gemma4-E4B"][32][
         "native_one_to_one_trace_aware"
@@ -1177,7 +1428,7 @@ let timer;window.addEventListener('resize',()=>{clearTimeout(timer);timer=setTim
     partial_confirmation = [row for row in partials if row["split"] == "confirmation"]
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NiaH Geometry Comparison</title><style>{css}</style></head>
-<body><nav><a href="#design">口径</a><a href="#tokens">Token 提取</a><a href="#qwen">Qwen</a><a href="#gemma">Gemma</a><a href="#metrics">指标</a><a href="#partial">部分轨迹</a></nav><main>
+<body><nav><a href="#design">口径</a><a href="#tokens">Token 提取</a><a href="#strata">分类选点</a><a href="#qwen">Qwen</a><a href="#gemma">Gemma</a><a href="#metrics">指标</a><a href="#partial">部分轨迹</a></nav><main>
 <header><div class="eyebrow">REALISTIC NIAH · THREE-COHORT GEOMETRY</div><h1>NiaH Geometry Comparison</h1>
 <p class="lead">同一份报告并列展示 non-thinking、经过 one-to-one 结构清洗的 native-thinking，以及使用共享 30 seeds、按实际出现 ordinal 对齐的 native-thinking。</p></header>
 <section id="design"><h2>比较口径</h2><div class="definitions"><div><h3>1 · Non-thinking</h3><p>固定 V4.4 N=10 prompt；第 k 类是 prompt 中第 k 个真实 needle 的 span-end state。每个 seed 固定有十个位置。</p></div><div><h3>2 · Native · one-to-one</h3><p>第 k 类是 response 中第 k 个 item-end state。要求 parser-observed city multiset 与 gold 严格相等、无重复或遗漏；不筛最终答案正确性。这是 completion-conditioned sensitivity。</p></div><div><h3>3 · Native · ordinal-aligned</h3><p>同一套 30 seeds 上保留所有 parser-hit。模型实际写出的第 k 项标为 k；少写就少观测，不插值、不补齐。</p></div></div>
@@ -1186,6 +1437,7 @@ let timer;window.addEventListener('resize',()=>{clearTimeout(timer);timer=setTim
 <div class="callout"><strong>“少数了”的两种含义：</strong>non-thinking 即使最终输出 6 而不是 10，N=10 prompt 中十个真实 needle endpoints 仍全部存在，所以仍贡献十个位置 state；native-thinking 若 response 只实际写出六项，则只有六个 item-end states。二者都保留错误样本，但只有后者会产生 ragged position support。</div>
 <div class="callout warning"><strong>站点语义边界：</strong>non-thinking 是 prompt needle endpoint，native-thinking 是 response item endpoint。三列比较的是“运行位置几何是否形成”，不是声称三个站点是同一个 token-level random variable。图可在 confirmation-only（10 seeds，nominal 100）与全注册 panel（30 seeds，nominal 300）之间切换；native 列始终另报实际可观测 state 数。</div></section>
 {token_extraction_section(visual)}
+{trace_stratified_section(trace_stratified)}
 {model_section('Qwen3-8B', visual['Qwen3-8B'])}
 {model_section('Gemma4-E4B', visual['Gemma4-E4B'])}
 <section id="metrics"><h2>Held-out 定量比较</h2><p class="small">所有标准化、PCA32、logistic 与 nearest-centroid prototype 只在 discovery 拟合，数值只在 confirmation 评价。Logistic/NCC 报 balanced accuracy，以免 aligned panel 的 late-position 支持较少而改变类权重。SNR 是 confirmation 上的 class-balanced trace ratio：十个 centroid 围绕其等权 grand centroid 的平均平方距离，除以各类内部平均平方残差；同时报告 ratio 与 <code>10 log10(ratio)</code> dB，越高表示单位类内噪声对应的类间信号越强。表中跨层最大值是描述性 layer scan；one-to-one 与 full-panel 的 seed population 不同，不能把差值直接归因于清洗操作。trace-aware 与 item_end 使用相同轨迹和 ordinal support，但 selected token 不同；其差值是 anchor sensitivity，也不能直接解释为内部 counter 增强。</p>
@@ -1193,7 +1445,7 @@ let timer;window.addEventListener('resize',()=>{clearTimeout(timer);timer=setTim
 <section id="partial"><h2>部分轨迹如何进入 aligned 列</h2><p>下面列出 confirmation 中所有非 one-to-one 轨迹。<code>ordinal labels</code> 正是进入第三列的 class；例如只有 <code>1,2</code> 就只贡献两个 state。最终答案可以仍然是 10，这不会虚构第 3–10 个 item-end state。</p><details open><summary>Confirmation partial trajectories · {len(partial_confirmation)} rows</summary>{partial_table(partial_confirmation)}</details>
 <h3>原始 trace 与实际 endpoint</h3><p class="small">下列片段来自服务器 generation 存档，并已按 request ID、prompt token count、output token count 与本地 capture manifest 对账。表中 sequence position 是实际送入对应 forward 的 0-based query index。</p>{partial_trace_details(partial_confirmation)}</section>
 <section><h2>解释优先级</h2><div class="callout"><strong>主结果：</strong>第三列（ordinal-aligned full panel）回答共享 seed panel 上的总体问题。第二列只作为敏感性分析，回答“条件于完整写出十项时，几何怎样”。若两列不同，首先解释为 trajectory-completion selection，而不是几何被“修复”。</div>
-<p class="provenance">Report schema: niah_geometry_comparison_v3_trace_aware_all_layers_3d_snr · display PCA3: discovery-fitted independently per column, anchor and layer · quantitative PCA32: discovery-fitted · probes: discovery fit / confirmation evaluation</p></section>
+<p class="provenance">Report schema: niah_geometry_comparison_v4_trace_stratified_site_sweep · display PCA3: discovery-fitted independently per column, anchor and layer · pooled quantitative PCA32 · marker-stratified sweep PCA16 with leave-one-discovery-seed-out site/layer selection · probes: discovery fit / confirmation evaluation</p></section>
 </main><script>{script}</script></body></html>"""
 
 
@@ -1209,6 +1461,7 @@ def main() -> None:
     parser.add_argument(
         "--trace-aware-one-to-one-geometry-root", type=Path, required=True
     )
+    parser.add_argument("--trace-stratified-geometry-root", type=Path, required=True)
     parser.add_argument(
         "--native-trace-root",
         type=Path,
@@ -1234,14 +1487,19 @@ def main() -> None:
         comparison,
         None if args.native_trace_root is None else args.native_trace_root.resolve(),
     )
-    document = build_html(comparison, visual, partials)
+    trace_stratified, trace_stratified_inputs = load_trace_stratified_results(
+        args.trace_stratified_geometry_root.resolve()
+    )
+    document = build_html(comparison, visual, partials, trace_stratified)
     output = args.output.resolve()
     manifest_path = args.manifest.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(document, encoding="utf-8")
-    all_inputs = sorted(set(metric_inputs + visual_inputs), key=str)
+    all_inputs = sorted(
+        set(metric_inputs + visual_inputs + trace_stratified_inputs), key=str
+    )
     manifest = {
-        "schema_version": "niah_geometry_comparison_v3_trace_aware_all_layers_3d_snr",
+        "schema_version": "niah_geometry_comparison_v4_trace_stratified_site_sweep",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "three_columns": [
             "non_thinking_full_panel",
@@ -1262,6 +1520,13 @@ def main() -> None:
         },
         "display_geometry": "all decoder layers; discovery-fitted PCA3; interactive orthographic rotation",
         "quantitative_geometry": "discovery-fitted PCA32; confirmation-only balanced accuracy and class-balanced SNR",
+        "trace_stratified_site_sweep": {
+            "schema_version": TRACE_STRATIFIED_SCHEMA_VERSION,
+            "pca_dim": TRACE_STRATIFIED_PCA_DIM,
+            "stratification": "parser marker_kind",
+            "selection": "leave-one-discovery-seed-out Logistic/NCC; confirmation excluded from programmed selection",
+            "status": "post-hoc robustness analysis, not an independent preregistered confirmation",
+        },
         "native_primary_site": "parser item_end:k aligned to endpoint_token=prefix_token_count-1",
         "final_correctness_role": "display attribute only; never a geometry class or primary cohort filter",
         "inputs": {str(path): sha256(path) for path in all_inputs},

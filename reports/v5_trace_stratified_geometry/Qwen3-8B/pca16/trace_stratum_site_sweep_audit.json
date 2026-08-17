@@ -1,0 +1,171 @@
+{
+  "candidate_sites_by_marker_kind": {
+    "audit_sentence": [
+      "city_end",
+      "item_end",
+      "post_boundary"
+    ],
+    "bullet": [
+      "marker_end",
+      "city_end",
+      "item_end",
+      "post_boundary"
+    ],
+    "completion_recap": [
+      "city_end",
+      "item_end",
+      "post_boundary"
+    ],
+    "indexed": [
+      "marker_end",
+      "city_end",
+      "item_end",
+      "post_boundary"
+    ],
+    "ordinal": [
+      "marker_end",
+      "city_end",
+      "item_end",
+      "post_boundary"
+    ]
+  },
+  "capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_position_geometry_inputs\\Qwen3-8B\\capture_index.jsonl",
+  "confirmation_role": "computed for the site-sensitivity audit but never read by the programmed site/layer selector; downstream reporting foregrounds only discovery-frozen winners",
+  "eligibility": [
+    {
+      "confirmation_seed_count": 4,
+      "discovery_seed_count": 6,
+      "labels": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "marker_kind": "indexed",
+      "reason": "at least 3 discovery and 2 confirmation seeds; every retained position has discovery n>=3 and confirmation n>=2",
+      "status": "claim_grade"
+    },
+    {
+      "confirmation_seed_count": 1,
+      "discovery_seed_count": 1,
+      "labels": [],
+      "marker_kind": "ordinal",
+      "reason": "insufficient discovery/confirmation seed support or fewer than 5 shared position labels",
+      "status": "not_evaluable"
+    },
+    {
+      "confirmation_seed_count": 0,
+      "discovery_seed_count": 1,
+      "labels": [],
+      "marker_kind": "bullet",
+      "reason": "insufficient discovery/confirmation seed support or fewer than 5 shared position labels",
+      "status": "not_evaluable"
+    },
+    {
+      "confirmation_seed_count": 1,
+      "discovery_seed_count": 4,
+      "labels": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "marker_kind": "audit_sentence",
+      "reason": "confirmation has only one seed or some retained positions have confirmation n=1; point estimates are not claim-grade",
+      "status": "exploratory_only"
+    },
+    {
+      "confirmation_seed_count": 4,
+      "discovery_seed_count": 8,
+      "labels": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "marker_kind": "completion_recap",
+      "reason": "at least 3 discovery and 2 confirmation seeds; every retained position has discovery n>=3 and confirmation n>=2",
+      "status": "claim_grade"
+    }
+  ],
+  "layers": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35
+  ],
+  "model_label": "Qwen3-8B",
+  "pca_dim_requested": 16,
+  "preprocessing": "StandardScaler and PCA refit inside each discovery CV fold; final confirmation transform fit on all discovery rows",
+  "schema_version": "realistic_niah_trace_stratified_site_geometry_v1",
+  "selection_rule": "maximize mean(discovery leave-one-seed-out logistic balanced accuracy, discovery leave-one-seed-out nearest-centroid balanced accuracy); tie-break by NCC, logistic, earlier layer, site name",
+  "selector_site_families": {
+    "all_site_search": [
+      "marker_end",
+      "city_end",
+      "item_end",
+      "post_boundary"
+    ],
+    "fixed_item_end": [
+      "item_end"
+    ],
+    "post_marker_site_search": [
+      "city_end",
+      "item_end",
+      "post_boundary"
+    ]
+  },
+  "snr_definition": "confirmation-only class-balanced centroid signal power divided by class-balanced within-class residual power in the frozen discovery projection",
+  "stratification_variable": "parser marker_kind",
+  "trace_category_role": "descriptive only; never selects a token site"
+}

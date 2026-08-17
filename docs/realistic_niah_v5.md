@@ -224,6 +224,17 @@ python scripts/compare_realistic_niah_position_geometry.py `
   --native-cohort parser_hit `
   --output work/v5/qwen/position_geometry_trace_aware
 
+# Post-hoc marker-kind-stratified site/layer robustness sweep. Selection uses
+# leave-one-discovery-seed-out CV; confirmation does not enter the selector.
+python scripts/analyze_realistic_niah_v5_trace_strata.py `
+  --capture-index work/v5_position_geometry_inputs/Qwen3-8B/capture_index.jsonl `
+  --pca-dim 16 `
+  --output reports/v5_trace_stratified_geometry/Qwen3-8B/pca16
+python scripts/analyze_realistic_niah_v5_trace_strata.py `
+  --capture-index work/v5_position_geometry_inputs/Gemma4-E4B/capture_index.jsonl `
+  --pca-dim 16 `
+  --output reports/v5_trace_stratified_geometry/Gemma4-E4B/pca16
+
 # 4c. Build the standalone three-column geometry report after running the
 #     comparison for both parser_hit and one_to_one, PCA=32, and both
 #     registered models. Final-answer correctness is a display attribute;
@@ -235,6 +246,7 @@ python scripts/build_niah_geometry_comparison_report.py `
   --one-to-one-geometry-root reports/v5_position_geometry_one_to_one `
   --trace-aware-aligned-geometry-root reports/v5_position_geometry_trace_aware `
   --trace-aware-one-to-one-geometry-root reports/v5_position_geometry_one_to_one_trace_aware `
+  --trace-stratified-geometry-root reports/v5_trace_stratified_geometry `
   --native-trace-root work/remote_native_traces_68_209_74_38 `
   --output reports/NiaH_Geometry_Comparison.html `
   --manifest reports/NiaH_Geometry_Comparison.manifest.json
