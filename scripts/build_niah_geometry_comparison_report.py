@@ -59,6 +59,7 @@ from realistic_niah_v5.parsing import (  # noqa: E402
     PARSER_UPSTREAM_REPOSITORY,
 )
 from realistic_niah_v5.trace_stratified_geometry import (  # noqa: E402
+    LAYER_COMPARISON_POLICY as TRACE_STRATIFIED_LAYER_COMPARISON_POLICY,
     SCHEMA_VERSION as TRACE_STRATIFIED_SCHEMA_VERSION,
 )
 
@@ -172,6 +173,11 @@ def load_trace_stratified_results(
         require(
             audit.get("stratification_variable") == "parser marker_kind",
             f"trace-stratified grouping mismatch for {model}",
+        )
+        require(
+            audit.get("layer_comparison_policy")
+            == TRACE_STRATIFIED_LAYER_COMPARISON_POLICY,
+            f"trace-stratified layer policy mismatch for {model}",
         )
         require(
             all(row.get("model_label") == model for row in eligibility + selection),
@@ -1462,6 +1468,7 @@ def trace_stratified_section(
                     "selector": row["selector"],
                     "logistic_delta": logistic_delta,
                     "ncc_delta": ncc_delta,
+                    "baseline_layer": int(baseline["layer"]),
                     "html": (
                         esc(model),
                         f"<code>{esc(row['marker_kind'])}</code>",
@@ -1476,7 +1483,10 @@ def trace_stratified_section(
                             f"{_pct_or_dash(row, 'confirmation_logistic_balanced_accuracy')} / "
                             f"{_pct_or_dash(row, 'confirmation_ncc_balanced_accuracy')}"
                         ),
-                        f"{logistic_delta:+.1f} / {ncc_delta:+.1f} pp",
+                        (
+                            f"vs <code>item_end</code> @ L{baseline['layer']}: "
+                            f"{logistic_delta:+.1f} / {ncc_delta:+.1f} pp"
+                        ),
                         _db_or_dash(row, "confirmation_class_balanced_snr_db"),
                         (
                             f"{row['confirmation_seed_count']} seeds; "
@@ -1516,6 +1526,8 @@ def trace_stratified_section(
         (
             f"{esc(item['model'])} <code>{esc(item['marker_kind'])}</code> "
             f"<code>{esc(item['row']['site_kind'])}</code> @ L{item['row']['layer']}: "
+            f"相对独立选择的 <code>item_end</code> "
+            f"@ L{item['baseline_layer']}, "
             f"ΔLog/NCC = {item['logistic_delta']:+.1f} / "
             f"{item['ncc_delta']:+.1f} pp"
         )
@@ -1527,14 +1539,14 @@ def trace_stratified_section(
 
     return f"""
 <section id="strata"><h2>按 trace 格式分层：token-site × layer sweep</h2>
-<p>这里按 parser 的表面格式 <code>marker_kind</code> 分层，不按 one-to-one/partial 等 <code>trace_category</code> 分层。每个 stratum 尝试 <code>marker_end</code>、<code>city_end</code>、<code>item_end</code> 与紧随 item 的 <code>post_boundary</code> 中语义上存在的站点。站点与层均只按 discovery seeds 的 leave-one-seed-out Logistic/NCC 平均 balanced accuracy 选择；每个 fold 内重新拟合 StandardScaler 与 PCA16，再在 confirmation 上评价选定组合。</p>
+<p>这里按 parser 的表面格式 <code>marker_kind</code> 分层，不按 one-to-one/partial 等 <code>trace_category</code> 分层。每个 stratum 尝试 <code>marker_end</code>、<code>city_end</code>、<code>item_end</code> 与紧随 item 的 <code>post_boundary</code> 中语义上存在的站点。<strong>每个 selector 都在自己的候选 token sites × 全部层中独立选择最佳组合，不要求不同 selector 使用同一层。</strong>选择只使用 discovery seeds 的 leave-one-seed-out Logistic/NCC 平均 balanced accuracy；每个 fold 内重新拟合 StandardScaler 与 PCA16，再在 confirmation 上评价各自选定的组合。</p>
 <div class="callout warning"><strong>分析地位：</strong>这是看到 pooled geometry 后新增的 post-hoc robustness analysis，不是预注册的独立复现。程序化选择不读取 confirmation，但这批 confirmation seeds 已在更早的总体分析中出现过。因此它能降低直接的 site/layer overfitting，不能把结果升级为全新的 confirmatory evidence。</div>
 <h3>哪些类别有足够支持？</h3>
 {html_table(['模型', 'marker_kind', '表面 cue', 'D/C seeds', '保留 k', '逐类支持', '证据等级'], eligibility_rows)}
 <h3>Discovery-frozen 位置与 confirmation 结果</h3>
-<p class="small"><code>fixed item_end</code> 是原始统一站点；<code>post-marker search</code> 排除 marker endpoint，检验信息是否在实体/项目边界后仍可读；<code>all-site search</code> 允许显式 marker，主要作为 lexical-cue positive control。Δ 是相对同一 stratum 的 fixed item_end，单位为 percentage points；不是跨类别效应。</p>
-{html_table(['模型', 'stratum', '等级', 'selector', 'D-selected site/layer', 'D OOF Log/NCC', 'C Log/NCC', 'ΔC vs item_end', 'C SNR', 'C support'], [item['html'] for item in selected_rows])}
-<div class="callout"><strong>换 token 会不会普遍更好？</strong>不会。对通过 support gate 的 strata，post-marker selector 相对 fixed item_end 的 confirmation 变化为：{post_marker_summary}。改善集中在 Qwen indexed；无唯一序号的 recap/bullet 没有选出比 item/entity endpoint 更优的新位置。因而合理结论是“结果对若干边界稳健”，不是“找到了一个跨格式最优 token”。</div>
+<p class="small"><code>fixed item_end</code> 只固定 token-site，层仍由它自己的 discovery sweep 选择；<code>post-marker search</code> 排除 marker endpoint，并独立选择自己的 site/layer；<code>all-site search</code> 允许显式 marker，并同样独立选择自己的 site/layer，主要作为 lexical-cue positive control。Δ 比较同一 stratum 下两个<strong>各自在 discovery 上选出的最佳组合</strong>，单位为 percentage points。它回答“各 selector 最佳可读出性相差多少”，混合了 site 与 layer 的变化，不能解释为控制层后的纯 token-site 效应。</p>
+{html_table(['模型', 'stratum', '等级', 'selector', '各自独立 D-selected site/layer', 'D OOF Log/NCC', 'C Log/NCC', 'ΔC vs 各自最佳 item_end', 'C SNR', 'C support'], [item['html'] for item in selected_rows])}
+<div class="callout"><strong>换 token-site × layer 组合会不会普遍更好？</strong>不会。对通过 support gate 的 strata，post-marker selector 相对各自独立选择的 fixed item_end 的 confirmation 变化为：{post_marker_summary}。改善集中在 Qwen indexed；无唯一序号的 recap/bullet 没有选出更优的新组合。因而合理结论是“各格式在各自最佳层上，对若干合理边界仍可读”，不是“找到了一个跨格式最优 token”，也不是同层控制下的 token-site 效应。</div>
 <div class="callout"><strong>可支持的表述：</strong>“在 native-thinking response 中，ordinal position 在按表面格式分层后仍可由 hidden states held-out 解码；而且这一现象至少在没有逐项唯一序号 token 的格式中存在，因此 pooled decodability 不能完全归结为读取显式编号。”当前无唯一编号、通过 support gate 的 strata 为：{implicit_summary}。</div>
 <div class="callout warning"><strong>不可支持的表述：</strong>这些结果仍不能单独证明离散计数器、count chord 或递增更新机制。即使取 <code>post_boundary</code>，自回归上下文仍包含先前项目；probe 可能读取序列长度、句式进度、重复次数或其他位置相关 cue。indexed 的近满分尤其应解释为显式序号 positive control，而不是内部 counter 的主证据。SNR 与 classification 若方向不一致，应写成“更可解码但不一定更紧密”。</div>
 </section>"""
@@ -1946,6 +1958,7 @@ def main() -> None:
             "pca_dim": TRACE_STRATIFIED_PCA_DIM,
             "stratification": "parser marker_kind",
             "selection": "leave-one-discovery-seed-out Logistic/NCC; confirmation excluded from programmed selection",
+            "layer_policy": TRACE_STRATIFIED_LAYER_COMPARISON_POLICY,
             "status": "post-hoc robustness analysis, not an independent preregistered confirmation",
         },
         "dual_endpoint_analysis": {

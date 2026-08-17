@@ -1,10 +1,12 @@
 """Marker-stratified native-thinking token-site geometry.
 
 This module treats parser ``marker_kind`` as a surface-form stratum and keeps
-``trace_category`` descriptive.  Candidate token sites and decoder layers are
-ranked only by leave-one-discovery-seed-out classification.  Confirmation
-metrics are retained as a site-sensitivity audit but never enter the programmed
-ranking; downstream reporting foregrounds only discovery-frozen winners.
+``trace_category`` descriptive.  Within each selector, candidate token sites
+and decoder layers are ranked jointly and independently of every other
+selector, using only leave-one-discovery-seed-out classification.  There is no
+shared-layer constraint.  Confirmation metrics are retained as a
+site-sensitivity audit but never enter the programmed ranking; downstream
+reporting foregrounds only discovery-frozen winners.
 """
 
 from __future__ import annotations
@@ -29,6 +31,10 @@ from realistic_niah_v5.cross_mode_geometry import (
 
 
 SCHEMA_VERSION = "realistic_niah_trace_stratified_site_geometry_v1"
+LAYER_COMPARISON_POLICY = (
+    "independent token-site x layer selection within each selector; "
+    "no same-layer matching across selectors or trace strata"
+)
 SITE_ROLES = {
     "marker_end": "explicit_or_invariant_marker_endpoint",
     "city_end": "entity_endpoint",
@@ -553,10 +559,13 @@ def analyze_trace_stratified_geometry(
                 key: list(value) for key, value in SELECTOR_SITE_FAMILIES.items()
             },
             "selection_rule": (
-                "maximize mean(discovery leave-one-seed-out logistic balanced "
-                "accuracy, discovery leave-one-seed-out nearest-centroid balanced "
-                "accuracy); tie-break by NCC, logistic, earlier layer, site name"
+                "within each selector, independently maximize over its candidate "
+                "token sites and all registered layers the mean(discovery "
+                "leave-one-seed-out logistic balanced accuracy, discovery "
+                "leave-one-seed-out nearest-centroid balanced accuracy); tie-break "
+                "by NCC, logistic, earlier layer, site name"
             ),
+            "layer_comparison_policy": LAYER_COMPARISON_POLICY,
             "confirmation_role": (
                 "computed for the site-sensitivity audit but never read by the "
                 "programmed site/layer selector; downstream reporting foregrounds "

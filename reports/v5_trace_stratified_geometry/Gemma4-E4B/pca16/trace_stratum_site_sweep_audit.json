@@ -131,11 +131,12 @@
     40,
     41
   ],
+  "layer_comparison_policy": "independent token-site x layer selection within each selector; no same-layer matching across selectors or trace strata",
   "model_label": "Gemma4-E4B",
   "pca_dim_requested": 16,
   "preprocessing": "StandardScaler and PCA refit inside each discovery CV fold; final confirmation transform fit on all discovery rows",
   "schema_version": "realistic_niah_trace_stratified_site_geometry_v1",
-  "selection_rule": "maximize mean(discovery leave-one-seed-out logistic balanced accuracy, discovery leave-one-seed-out nearest-centroid balanced accuracy); tie-break by NCC, logistic, earlier layer, site name",
+  "selection_rule": "within each selector, independently maximize over its candidate token sites and all registered layers the mean(discovery leave-one-seed-out logistic balanced accuracy, discovery leave-one-seed-out nearest-centroid balanced accuracy); tie-break by NCC, logistic, earlier layer, site name",
   "selector_site_families": {
     "all_site_search": [
       "marker_end",
