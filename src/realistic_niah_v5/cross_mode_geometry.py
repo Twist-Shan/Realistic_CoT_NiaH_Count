@@ -295,10 +295,17 @@ def load_native_thinking_capture(
                 f"Unexpected {selected_site_kind} occurrences {unexpected} for "
                 f"{row.get('request_id')}"
             )
-        if cohort in {"one_to_one", "one_to_one_correct"} and sorted(
-            occurrences
-        ) != list(CLASSES):
-            continue
+        if cohort in {"one_to_one", "one_to_one_correct"}:
+            expected_occurrences = list(
+                range(1, int(row["gold_count"]) + 1)
+            )
+            if sorted(occurrences) != expected_occurrences:
+                raise ValueError(
+                    f"Index marks {row.get('request_id')} as {cohort}, but "
+                    f"{selected_site_kind} occurrences are {sorted(occurrences)}; "
+                    f"expected {expected_occurrences} for gold N="
+                    f"{int(row['gold_count'])}"
+                )
         order = np.argsort(np.asarray(occurrences, dtype=int))
         ordered_sites = np.asarray(site_indices, dtype=int)[order].tolist()
         ordered_occurrences = np.asarray(occurrences, dtype=int)[order].tolist()

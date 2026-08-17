@@ -33,7 +33,7 @@ from realistic_niah_v5.trace_stratified_geometry import (
 )
 
 
-SCHEMA_VERSION = "realistic_niah_dual_endpoint_geometry_v3_all_counts"
+SCHEMA_VERSION = "realistic_niah_dual_endpoint_geometry_v4_pooled_all_counts"
 RUNNING_NON_THINKING_SITES = ("span_end", "span_mean")
 RUNNING_NATIVE_PRIMARY_SITES = (
     "pre_city",
@@ -541,9 +541,12 @@ def _running_index_analysis(
             f"missing_native={sorted(non_thinking_trajectories - native_trajectories)}, "
             f"extra_native={sorted(native_trajectories - non_thinking_trajectories)}"
         )
+    # The report's core estimand is the pooled registered panel.  Marker-format
+    # strata are parser diagnostics with small, unequal supports; searching a
+    # separate site x layer winner inside every stratum adds multiplicity but
+    # does not answer the cross-mode representation question.
     eligibility = [
-        determine_group_eligibility(item_dataset.metadata, group)
-        for group in TRACE_GROUP_MEMBERS
+        determine_group_eligibility(item_dataset.metadata, "all_traces")
     ]
     eligible = {
         item.analysis_group: item
@@ -576,59 +579,6 @@ def _running_index_analysis(
                     )
                 )
 
-    format_aware = load_native_thinking_capture(
-        native_thinking_index,
-        site_policy="trace_aware_pre_label",
-        cohort="parser_hit",
-    )
-    for analysis_group, item in eligible.items():
-        metadata, mask = _subset_group(format_aware, analysis_group, item.labels)
-        for layer, states in sorted(format_aware.states_by_layer.items()):
-            candidate_rows.append(
-                _candidate_row(
-                    endpoint="running_index",
-                    dataset=format_aware,
-                    analysis_group=analysis_group,
-                    selector="format_aware_pre_label",
-                    token_site="trace_aware_pre_label",
-                    layer=layer,
-                    states=states[mask],
-                    metadata=metadata,
-                    labels=item.labels,
-                    pca_dim=pca_dim,
-                    cv_folds=cv_folds,
-                    random_state=random_state,
-                )
-            )
-
-    explicit = eligible.get("explicit_count_marker")
-    if explicit is not None:
-        dataset = load_native_thinking_capture(
-            native_thinking_index,
-            site_kind="marker_end",
-            cohort="parser_hit",
-        )
-        metadata, mask = _subset_group(
-            dataset, "explicit_count_marker", explicit.labels
-        )
-        for layer, states in sorted(dataset.states_by_layer.items()):
-            candidate_rows.append(
-                _candidate_row(
-                    endpoint="running_index",
-                    dataset=dataset,
-                    analysis_group="explicit_count_marker_control",
-                    selector="lexical_marker_positive_control",
-                    token_site="marker_end",
-                    layer=layer,
-                    states=states[mask],
-                    metadata=metadata,
-                    labels=explicit.labels,
-                    pca_dim=pca_dim,
-                    cv_folds=cv_folds,
-                    random_state=random_state,
-                )
-            )
-
     candidates = pd.DataFrame(candidate_rows)
     winners = select_discovery_winners(candidates)
     selected_rows: list[dict[str, Any]] = []
@@ -659,27 +609,15 @@ def _running_index_analysis(
 
     native_winners = winners.loc[winners["mode"].eq("native_thinking")]
     for site, frame in native_winners.groupby("token_site", sort=False):
-        if str(site) == "trace_aware_pre_label":
-            dataset = load_native_thinking_capture(
-                native_thinking_index,
-                site_policy="trace_aware_pre_label",
-                cohort="parser_hit",
-            )
-        else:
-            dataset = load_native_thinking_capture(
-                native_thinking_index,
-                site_kind=str(site),
-                cohort="parser_hit",
-            )
+        dataset = load_native_thinking_capture(
+            native_thinking_index,
+            site_kind=str(site),
+            cohort="parser_hit",
+        )
         for winner in frame.to_dict(orient="records"):
             group = str(winner["analysis_group"])
-            source_group = (
-                "explicit_count_marker"
-                if group == "explicit_count_marker_control"
-                else group
-            )
             labels = tuple(map(int, str(winner["retained_labels"]).split()))
-            metadata, mask = _subset_group(dataset, source_group, labels)
+            metadata, mask = _subset_group(dataset, group, labels)
             metrics = _heldout_metrics(
                 dataset.states_by_layer[int(winner["layer"])][mask],
                 metadata,
@@ -961,25 +899,23 @@ def analyze_dual_endpoint_geometry(
                     ),
                     "item_end": "last token of a completed parsed trace item",
                     "post_boundary": "first token after the parsed item boundary",
-                    "trace_aware_pre_label": (
-                        "pre_marker for indexed/ordinal/inline-count traces; item_end "
-                        "for invariant bullets and implicit evidence sequences"
-                    ),
                 },
-                "native_thinking_control": {
-                    "marker_end": (
-                        "explicit ordinal/index/Count marker endpoint; lexical positive "
-                        "control, excluded from the primary trace-site selector"
-                    )
-                },
+                "excluded_from_primary_search": (
+                    "pre_marker/marker_end and format-conditioned selectors are "
+                    "omitted because they mix lexical marker cues with the pooled "
+                    "representation estimand"
+                ),
             },
             "running_index_analysis_unit": (
                 "all 10 registered counts x 30 seeds = 300 trajectories per model; "
                 "trajectory i contributes only its observed labels 1..M_i"
             ),
             "trace_groups": {
-                key: ("all registered marker kinds" if value is None else list(value))
-                for key, value in TRACE_GROUP_MEMBERS.items()
+                "evaluated": ["all_traces"],
+                "marker_strata_role": (
+                    "descriptive appendix only; no stratum-specific site/layer "
+                    "winner search in the primary analysis"
+                ),
             },
             "final_count_token_sites": {
                 "non_thinking": (

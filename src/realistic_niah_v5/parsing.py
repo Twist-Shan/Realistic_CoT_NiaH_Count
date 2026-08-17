@@ -32,6 +32,7 @@ PARSER_UPSTREAM_COMMIT = "8ebf6b7af4770d8c91e6540d474505e23ad57c8c"
 PARSER_IMPLEMENTATION = "realistic_niah_v5.parse_hybrid_trace"
 _PARSER_DIRECTORY = Path(__file__).resolve().parent
 PARSER_FILE_SHA256 = {
+    "parsing.py": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
     "city_list_termination.py": "bb2cd01275a4dbfd339a388a3a830c4c2aa762ec14ad89ca04fd98bbc1b64728",
     "first_list_cutoff.py": "72781f9060d21fd6c693da4c0b0c0ad58831a031d37bc50fed21ee860ded66b7",
     "gold_city_cutoff.py": "bc5c37f410b96008023724f3f88895f82fdd39d9a0a05163427f1d3e017c03a9",
@@ -40,7 +41,7 @@ PARSER_FILE_SHA256 = {
     ).hexdigest(),
 }
 PARSER_SCHEMA_VERSION = "realistic_niah_v5_hybrid_rank_trace_v3"
-SITE_SCHEMA_VERSION = "realistic_niah_v5_trace_sites_v3"
+SITE_SCHEMA_VERSION = "realistic_niah_v5_trace_sites_v4"
 PARSER_SELECTION_RULE = (
     "Extract gold-city observations paired with local explicit rank evidence, "
     "segment a new episode at every rank-1 restart, and select the longest "
@@ -926,9 +927,55 @@ def _answer_query_v3_span(
     return match.start("label"), match.start("value")
 
 
+def _answer_query_char_sites(
+    raw_text: str, reasoning_end: int | None
+) -> list[TraceCharSite]:
+    """Extract final-answer sites independently of running-trace parsing.
+
+    A response can contain a perfectly valid ``Total: <integer>`` boundary
+    even when no running-count episode is recoverable.  Keeping these sites
+    independent prevents a running-parser miss from silently deleting a
+    final-count representation sample.
+    """
+
+    sites: list[TraceCharSite] = []
+    answer = _answer_query_span(raw_text, reasoning_end)
+    if answer is not None:
+        sites.append(
+            TraceCharSite(
+                site_id="answer_query",
+                site_kind="answer_query",
+                occurrence=None,
+                city=None,
+                marker=None,
+                boundary_kind="total_colon",
+                char_start=answer[0],
+                char_end=answer[1],
+                primary=False,
+            )
+        )
+    answer_v3 = _answer_query_v3_span(raw_text, reasoning_end)
+    if answer_v3 is not None:
+        sites.append(
+            TraceCharSite(
+                site_id="answer_query_v3",
+                site_kind="answer_query_v3",
+                occurrence=None,
+                city=None,
+                marker=None,
+                boundary_kind="literal_token_before_numeric_answer_v3",
+                char_start=answer_v3[0],
+                char_end=answer_v3[1],
+                primary=False,
+            )
+        )
+    return sites
+
+
 def trace_char_sites(raw_text: str, parser: CityListTerminationCut) -> list[TraceCharSite]:
+    answer_sites = _answer_query_char_sites(raw_text, parser.reasoning_end_char)
     if not parser.detected:
-        return []
+        return answer_sites
     lengths = {
         len(parser.item_markers),
         len(parser.item_gold_cities),
@@ -1056,36 +1103,7 @@ def trace_char_sites(raw_text: str, parser: CityListTerminationCut) -> list[Trac
                 primary=False,
             )
         )
-    answer = _answer_query_span(raw_text, parser.reasoning_end_char)
-    if answer is not None:
-        sites.append(
-            TraceCharSite(
-                site_id="answer_query",
-                site_kind="answer_query",
-                occurrence=None,
-                city=None,
-                marker=None,
-                boundary_kind="total_colon",
-                char_start=answer[0],
-                char_end=answer[1],
-                primary=False,
-            )
-        )
-    answer_v3 = _answer_query_v3_span(raw_text, parser.reasoning_end_char)
-    if answer_v3 is not None:
-        sites.append(
-            TraceCharSite(
-                site_id="answer_query_v3",
-                site_kind="answer_query_v3",
-                occurrence=None,
-                city=None,
-                marker=None,
-                boundary_kind="literal_token_before_numeric_answer_v3",
-                char_start=answer_v3[0],
-                char_end=answer_v3[1],
-                primary=False,
-            )
-        )
+    sites.extend(answer_sites)
     return sites
 
 

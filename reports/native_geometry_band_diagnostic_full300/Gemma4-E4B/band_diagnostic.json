@@ -1,0 +1,3982 @@
+{
+  "capture_index": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_geometry_full_panel\\running\\Gemma4-E4B\\capture_index.jsonl",
+  "categorical_associations": [
+    {
+      "column": "occurrence",
+      "counts": {
+        "1": {
+          "lower": 0,
+          "upper": 100
+        },
+        "10": {
+          "lower": 3,
+          "upper": 2
+        },
+        "2": {
+          "lower": 77,
+          "upper": 19
+        },
+        "3": {
+          "lower": 69,
+          "upper": 11
+        },
+        "4": {
+          "lower": 60,
+          "upper": 7
+        },
+        "5": {
+          "lower": 50,
+          "upper": 6
+        },
+        "6": {
+          "lower": 41,
+          "upper": 4
+        },
+        "7": {
+          "lower": 30,
+          "upper": 5
+        },
+        "8": {
+          "lower": 21,
+          "upper": 3
+        },
+        "9": {
+          "lower": 9,
+          "upper": 2
+        }
+      },
+      "levels": 10,
+      "nmi": 0.21833122170673006,
+      "weighted_band_purity": 0.8863198458574181
+    },
+    {
+      "column": "baseline_endpoint_token_id",
+      "counts": {
+        "1018": {
+          "lower": 28,
+          "upper": 6
+        },
+        "12016": {
+          "lower": 27,
+          "upper": 5
+        },
+        "1288": {
+          "lower": 0,
+          "upper": 1
+        },
+        "1781": {
+          "lower": 2,
+          "upper": 38
+        },
+        "193135": {
+          "lower": 0,
+          "upper": 1
+        },
+        "236761": {
+          "lower": 14,
+          "upper": 31
+        },
+        "236768": {
+          "lower": 199,
+          "upper": 43
+        },
+        "236770": {
+          "lower": 0,
+          "upper": 3
+        },
+        "236778": {
+          "lower": 0,
+          "upper": 2
+        },
+        "236800": {
+          "lower": 1,
+          "upper": 1
+        },
+        "236810": {
+          "lower": 0,
+          "upper": 1
+        },
+        "236812": {
+          "lower": 1,
+          "upper": 0
+        },
+        "236825": {
+          "lower": 0,
+          "upper": 1
+        },
+        "236828": {
+          "lower": 0,
+          "upper": 2
+        },
+        "24391": {
+          "lower": 0,
+          "upper": 1
+        },
+        "27071": {
+          "lower": 0,
+          "upper": 1
+        },
+        "62902": {
+          "lower": 58,
+          "upper": 13
+        },
+        "9603": {
+          "lower": 30,
+          "upper": 9
+        }
+      },
+      "levels": 18,
+      "nmi": 0.13741348678663418,
+      "weighted_band_purity": 0.8208092485549133
+    },
+    {
+      "column": "city",
+      "counts": {
+        "Almaty": {
+          "lower": 22,
+          "upper": 3
+        },
+        "Astana": {
+          "lower": 2,
+          "upper": 0
+        },
+        "Bangkok": {
+          "lower": 9,
+          "upper": 0
+        },
+        "Barcelona": {
+          "lower": 2,
+          "upper": 11
+        },
+        "Bengaluru": {
+          "lower": 9,
+          "upper": 0
+        },
+        "Bogota": {
+          "lower": 8,
+          "upper": 12
+        },
+        "Brussels": {
+          "lower": 5,
+          "upper": 2
+        },
+        "Bucharest": {
+          "lower": 6,
+          "upper": 0
+        },
+        "Budapest": {
+          "lower": 0,
+          "upper": 10
+        },
+        "Buenos Aires": {
+          "lower": 10,
+          "upper": 1
+        },
+        "Busan": {
+          "lower": 0,
+          "upper": 11
+        },
+        "Chennai": {
+          "lower": 4,
+          "upper": 4
+        },
+        "Copenhagen": {
+          "lower": 9,
+          "upper": 0
+        },
+        "Dublin": {
+          "lower": 7,
+          "upper": 12
+        },
+        "Fukuoka": {
+          "lower": 0,
+          "upper": 11
+        },
+        "Geneva": {
+          "lower": 0,
+          "upper": 10
+        },
+        "Harbin": {
+          "lower": 0,
+          "upper": 10
+        },
+        "Helsinki": {
+          "lower": 2,
+          "upper": 1
+        },
+        "Hong Kong": {
+          "lower": 7,
+          "upper": 0
+        },
+        "Hyderabad": {
+          "lower": 10,
+          "upper": 2
+        },
+        "Islamabad": {
+          "lower": 8,
+          "upper": 1
+        },
+        "Jakarta": {
+          "lower": 2,
+          "upper": 0
+        },
+        "Kaohsiung": {
+          "lower": 8,
+          "upper": 1
+        },
+        "Kyoto": {
+          "lower": 8,
+          "upper": 0
+        },
+        "Lahore": {
+          "lower": 10,
+          "upper": 1
+        },
+        "Lima": {
+          "lower": 8,
+          "upper": 3
+        },
+        "Lisbon": {
+          "lower": 6,
+          "upper": 1
+        },
+        "London": {
+          "lower": 7,
+          "upper": 1
+        },
+        "Madrid": {
+          "lower": 6,
+          "upper": 2
+        },
+        "Manila": {
+          "lower": 11,
+          "upper": 10
+        },
+        "Mexico City": {
+          "lower": 4,
+          "upper": 0
+        },
+        "Mumbai": {
+          "lower": 5,
+          "upper": 0
+        },
+        "Nagoya": {
+          "lower": 2,
+          "upper": 0
+        },
+        "Oslo": {
+          "lower": 25,
+          "upper": 2
+        },
+        "Paris": {
+          "lower": 7,
+          "upper": 3
+        },
+        "Phnom Penh": {
+          "lower": 2,
+          "upper": 0
+        },
+        "Porto": {
+          "lower": 5,
+          "upper": 1
+        },
+        "Prague": {
+          "lower": 7,
+          "upper": 0
+        },
+        "Reykjavik": {
+          "lower": 3,
+          "upper": 12
+        },
+        "Riga": {
+          "lower": 4,
+          "upper": 2
+        },
+        "Rome": {
+          "lower": 3,
+          "upper": 0
+        },
+        "Sao Paulo": {
+          "lower": 12,
+          "upper": 4
+        },
+        "Sarajevo": {
+          "lower": 7,
+          "upper": 1
+        },
+        "Seoul": {
+          "lower": 8,
+          "upper": 1
+        },
+        "Skopje": {
+          "lower": 5,
+          "upper": 1
+        },
+        "Stockholm": {
+          "lower": 5,
+          "upper": 0
+        },
+        "Taipei": {
+          "lower": 4,
+          "upper": 1
+        },
+        "Tallinn": {
+          "lower": 9,
+          "upper": 1
+        },
+        "Tashkent": {
+          "lower": 9,
+          "upper": 1
+        },
+        "Tbilisi": {
+          "lower": 3,
+          "upper": 1
+        },
+        "Tokyo": {
+          "lower": 5,
+          "upper": 0
+        },
+        "Toronto": {
+          "lower": 6,
+          "upper": 0
+        },
+        "Ulaanbaatar": {
+          "lower": 3,
+          "upper": 0
+        },
+        "Vienna": {
+          "lower": 5,
+          "upper": 4
+        },
+        "Vilnius": {
+          "lower": 7,
+          "upper": 2
+        },
+        "Warsaw": {
+          "lower": 2,
+          "upper": 1
+        },
+        "Wuhan": {
+          "lower": 2,
+          "upper": 1
+        },
+        "Xi’an": {
+          "lower": 4,
+          "upper": 0
+        },
+        "Yerevan": {
+          "lower": 7,
+          "upper": 0
+        },
+        "Zagreb": {
+          "lower": 4,
+          "upper": 0
+        }
+      },
+      "levels": 60,
+      "nmi": 0.12431337644124954,
+      "weighted_band_purity": 0.8458574181117534
+    },
+    {
+      "column": "boundary_kind",
+      "counts": {
+        "newline": {
+          "lower": 0,
+          "upper": 9
+        },
+        "period": {
+          "lower": 0,
+          "upper": 6
+        },
+        "semantic_end:indexed_prefix": {
+          "lower": 1,
+          "upper": 0
+        },
+        "semantic_end:labeled_rank": {
+          "lower": 359,
+          "upper": 140
+        },
+        "semantic_end:numeric_commit": {
+          "lower": 0,
+          "upper": 1
+        },
+        "semantic_end:ordinal_prefix": {
+          "lower": 0,
+          "upper": 3
+        }
+      },
+      "levels": 6,
+      "nmi": 0.10978410795192821,
+      "weighted_band_purity": 0.7302504816955684
+    },
+    {
+      "column": "marker_kind",
+      "counts": {
+        "bullet": {
+          "lower": 0,
+          "upper": 15
+        },
+        "inline_count": {
+          "lower": 360,
+          "upper": 141
+        },
+        "ordinal": {
+          "lower": 0,
+          "upper": 3
+        }
+      },
+      "levels": 3,
+      "nmi": 0.10853756893457897,
+      "weighted_band_purity": 0.7283236994219653
+    },
+    {
+      "column": "item_line_number",
+      "counts": {
+        "10": {
+          "lower": 19,
+          "upper": 21
+        },
+        "11": {
+          "lower": 34,
+          "upper": 12
+        },
+        "12": {
+          "lower": 21,
+          "upper": 22
+        },
+        "13": {
+          "lower": 26,
+          "upper": 9
+        },
+        "14": {
+          "lower": 26,
+          "upper": 3
+        },
+        "15": {
+          "lower": 24,
+          "upper": 4
+        },
+        "16": {
+          "lower": 15,
+          "upper": 5
+        },
+        "17": {
+          "lower": 21,
+          "upper": 3
+        },
+        "18": {
+          "lower": 22,
+          "upper": 2
+        },
+        "19": {
+          "lower": 8,
+          "upper": 1
+        },
+        "20": {
+          "lower": 8,
+          "upper": 1
+        },
+        "21": {
+          "lower": 13,
+          "upper": 1
+        },
+        "22": {
+          "lower": 4,
+          "upper": 5
+        },
+        "23": {
+          "lower": 17,
+          "upper": 1
+        },
+        "24": {
+          "lower": 15,
+          "upper": 0
+        },
+        "25": {
+          "lower": 10,
+          "upper": 2
+        },
+        "26": {
+          "lower": 9,
+          "upper": 0
+        },
+        "27": {
+          "lower": 6,
+          "upper": 0
+        },
+        "28": {
+          "lower": 2,
+          "upper": 1
+        },
+        "29": {
+          "lower": 7,
+          "upper": 0
+        },
+        "30": {
+          "lower": 11,
+          "upper": 0
+        },
+        "31": {
+          "lower": 1,
+          "upper": 0
+        },
+        "32": {
+          "lower": 0,
+          "upper": 1
+        },
+        "33": {
+          "lower": 1,
+          "upper": 0
+        },
+        "36": {
+          "lower": 10,
+          "upper": 0
+        },
+        "39": {
+          "lower": 1,
+          "upper": 0
+        },
+        "42": {
+          "lower": 7,
+          "upper": 0
+        },
+        "46": {
+          "lower": 1,
+          "upper": 0
+        },
+        "48": {
+          "lower": 3,
+          "upper": 0
+        },
+        "54": {
+          "lower": 3,
+          "upper": 0
+        },
+        "6": {
+          "lower": 0,
+          "upper": 6
+        },
+        "7": {
+          "lower": 3,
+          "upper": 4
+        },
+        "8": {
+          "lower": 3,
+          "upper": 19
+        },
+        "9": {
+          "lower": 9,
+          "upper": 36
+        }
+      },
+      "levels": 34,
+      "nmi": 0.10693324135507301,
+      "weighted_band_purity": 0.7996146435452793
+    },
+    {
+      "column": "trace_category",
+      "counts": {
+        "full_coverage_with_duplicates": {
+          "lower": 0,
+          "upper": 12
+        },
+        "one_to_one": {
+          "lower": 212,
+          "upper": 105
+        },
+        "partial_unique": {
+          "lower": 148,
+          "upper": 42
+        }
+      },
+      "levels": 3,
+      "nmi": 0.05085702314621102,
+      "weighted_band_purity": 0.7167630057803468
+    },
+    {
+      "column": "seed",
+      "counts": {
+        "1254": {
+          "lower": 41,
+          "upper": 13
+        },
+        "1255": {
+          "lower": 35,
+          "upper": 19
+        },
+        "1256": {
+          "lower": 38,
+          "upper": 11
+        },
+        "1257": {
+          "lower": 34,
+          "upper": 13
+        },
+        "1258": {
+          "lower": 41,
+          "upper": 11
+        },
+        "1259": {
+          "lower": 29,
+          "upper": 24
+        },
+        "1260": {
+          "lower": 28,
+          "upper": 26
+        },
+        "1261": {
+          "lower": 35,
+          "upper": 19
+        },
+        "1262": {
+          "lower": 38,
+          "upper": 12
+        },
+        "1263": {
+          "lower": 41,
+          "upper": 11
+        }
+      },
+      "levels": 10,
+      "nmi": 0.014544993341260574,
+      "weighted_band_purity": 0.6936416184971098
+    },
+    {
+      "column": "alignment_strategy",
+      "counts": {
+        "literal_baseline_token_prefix": {
+          "lower": 360,
+          "upper": 158
+        },
+        "text_exact_boundary_retokenization": {
+          "lower": 0,
+          "upper": 1
+        }
+      },
+      "levels": 2,
+      "nmi": 0.007248055462613967,
+      "weighted_band_purity": 0.6955684007707129
+    },
+    {
+      "column": "retokenized_suffix_tokens",
+      "counts": {
+        "0": {
+          "lower": 360,
+          "upper": 158
+        },
+        "1": {
+          "lower": 0,
+          "upper": 1
+        }
+      },
+      "levels": 2,
+      "nmi": 0.007248055462613967,
+      "weighted_band_purity": 0.6955684007707129
+    }
+  ],
+  "display_pca3": {
+    "confirmation_two_band": {
+      "cluster_sizes": {
+        "lower": 360,
+        "upper": 159
+      },
+      "display_vertical_means": {
+        "lower": -4.847663879394531,
+        "upper": 16.667177200317383
+      },
+      "silhouette": 0.4923272132873535
+    },
+    "explained_variance_ratio": [
+      0.17826896905899048,
+      0.0964551791548729,
+      0.06003289669752121
+    ],
+    "explained_variance_ratio_sum": 0.3347570598125458,
+    "fit_split": "discovery",
+    "full_panel_two_band": {
+      "cluster_sizes": {
+        "lower": 1224,
+        "upper": 340
+      },
+      "display_vertical_means": {
+        "lower": -3.8193583488464355,
+        "upper": 16.411224365234375
+      },
+      "silhouette": 0.5246825218200684
+    }
+  },
+  "full_panel_categorical_associations": [
+    {
+      "column": "occurrence",
+      "counts": {
+        "1": {
+          "lower": 0,
+          "upper": 300
+        },
+        "10": {
+          "lower": 14,
+          "upper": 0
+        },
+        "2": {
+          "lower": 241,
+          "upper": 39
+        },
+        "3": {
+          "lower": 239,
+          "upper": 1
+        },
+        "4": {
+          "lower": 204,
+          "upper": 0
+        },
+        "5": {
+          "lower": 173,
+          "upper": 0
+        },
+        "6": {
+          "lower": 140,
+          "upper": 0
+        },
+        "7": {
+          "lower": 108,
+          "upper": 0
+        },
+        "8": {
+          "lower": 70,
+          "upper": 0
+        },
+        "9": {
+          "lower": 35,
+          "upper": 0
+        }
+      },
+      "levels": 10,
+      "nmi": 0.3424000684226639,
+      "weighted_band_purity": 0.9744245524296675
+    },
+    {
+      "column": "item_line_number",
+      "counts": {
+        "10": {
+          "lower": 88,
+          "upper": 59
+        },
+        "11": {
+          "lower": 122,
+          "upper": 28
+        },
+        "12": {
+          "lower": 112,
+          "upper": 37
+        },
+        "13": {
+          "lower": 106,
+          "upper": 24
+        },
+        "14": {
+          "lower": 107,
+          "upper": 3
+        },
+        "15": {
+          "lower": 95,
+          "upper": 3
+        },
+        "16": {
+          "lower": 72,
+          "upper": 7
+        },
+        "17": {
+          "lower": 62,
+          "upper": 5
+        },
+        "18": {
+          "lower": 66,
+          "upper": 4
+        },
+        "19": {
+          "lower": 29,
+          "upper": 2
+        },
+        "20": {
+          "lower": 39,
+          "upper": 2
+        },
+        "21": {
+          "lower": 28,
+          "upper": 5
+        },
+        "22": {
+          "lower": 15,
+          "upper": 4
+        },
+        "23": {
+          "lower": 21,
+          "upper": 2
+        },
+        "24": {
+          "lower": 32,
+          "upper": 0
+        },
+        "25": {
+          "lower": 24,
+          "upper": 1
+        },
+        "26": {
+          "lower": 14,
+          "upper": 0
+        },
+        "27": {
+          "lower": 17,
+          "upper": 0
+        },
+        "28": {
+          "lower": 7,
+          "upper": 0
+        },
+        "29": {
+          "lower": 14,
+          "upper": 1
+        },
+        "30": {
+          "lower": 21,
+          "upper": 0
+        },
+        "31": {
+          "lower": 4,
+          "upper": 0
+        },
+        "32": {
+          "lower": 3,
+          "upper": 1
+        },
+        "33": {
+          "lower": 9,
+          "upper": 0
+        },
+        "34": {
+          "lower": 5,
+          "upper": 0
+        },
+        "35": {
+          "lower": 1,
+          "upper": 0
+        },
+        "36": {
+          "lower": 19,
+          "upper": 0
+        },
+        "37": {
+          "lower": 5,
+          "upper": 0
+        },
+        "39": {
+          "lower": 4,
+          "upper": 0
+        },
+        "41": {
+          "lower": 4,
+          "upper": 0
+        },
+        "42": {
+          "lower": 12,
+          "upper": 0
+        },
+        "45": {
+          "lower": 4,
+          "upper": 0
+        },
+        "46": {
+          "lower": 2,
+          "upper": 0
+        },
+        "48": {
+          "lower": 7,
+          "upper": 0
+        },
+        "51": {
+          "lower": 3,
+          "upper": 0
+        },
+        "54": {
+          "lower": 4,
+          "upper": 0
+        },
+        "55": {
+          "lower": 1,
+          "upper": 0
+        },
+        "57": {
+          "lower": 1,
+          "upper": 0
+        },
+        "6": {
+          "lower": 0,
+          "upper": 7
+        },
+        "62": {
+          "lower": 1,
+          "upper": 0
+        },
+        "7": {
+          "lower": 4,
+          "upper": 12
+        },
+        "8": {
+          "lower": 12,
+          "upper": 30
+        },
+        "9": {
+          "lower": 28,
+          "upper": 103
+        }
+      },
+      "levels": 43,
+      "nmi": 0.09206019698295018,
+      "weighted_band_purity": 0.8516624040920716
+    },
+    {
+      "column": "city",
+      "counts": {
+        "Almaty": {
+          "lower": 26,
+          "upper": 2
+        },
+        "Amsterdam": {
+          "lower": 13,
+          "upper": 10
+        },
+        "Antwerp": {
+          "lower": 11,
+          "upper": 0
+        },
+        "Astana": {
+          "lower": 13,
+          "upper": 0
+        },
+        "Athens": {
+          "lower": 0,
+          "upper": 10
+        },
+        "Baku": {
+          "lower": 19,
+          "upper": 1
+        },
+        "Bangkok": {
+          "lower": 23,
+          "upper": 0
+        },
+        "Barcelona": {
+          "lower": 14,
+          "upper": 11
+        },
+        "Beijing": {
+          "lower": 7,
+          "upper": 13
+        },
+        "Belgrade": {
+          "lower": 7,
+          "upper": 2
+        },
+        "Bengaluru": {
+          "lower": 17,
+          "upper": 1
+        },
+        "Berlin": {
+          "lower": 1,
+          "upper": 0
+        },
+        "Bogota": {
+          "lower": 23,
+          "upper": 23
+        },
+        "Brussels": {
+          "lower": 10,
+          "upper": 10
+        },
+        "Bucharest": {
+          "lower": 19,
+          "upper": 0
+        },
+        "Budapest": {
+          "lower": 1,
+          "upper": 10
+        },
+        "Buenos Aires": {
+          "lower": 11,
+          "upper": 0
+        },
+        "Busan": {
+          "lower": 11,
+          "upper": 11
+        },
+        "Chengdu": {
+          "lower": 1,
+          "upper": 0
+        },
+        "Chennai": {
+          "lower": 22,
+          "upper": 0
+        },
+        "Chicago": {
+          "lower": 8,
+          "upper": 10
+        },
+        "Colombo": {
+          "lower": 9,
+          "upper": 0
+        },
+        "Copenhagen": {
+          "lower": 26,
+          "upper": 0
+        },
+        "Delhi": {
+          "lower": 2,
+          "upper": 0
+        },
+        "Dhaka": {
+          "lower": 0,
+          "upper": 10
+        },
+        "Dublin": {
+          "lower": 8,
+          "upper": 11
+        },
+        "Fukuoka": {
+          "lower": 10,
+          "upper": 11
+        },
+        "Geneva": {
+          "lower": 17,
+          "upper": 11
+        },
+        "Guangzhou": {
+          "lower": 14,
+          "upper": 10
+        },
+        "Hanoi": {
+          "lower": 2,
+          "upper": 0
+        },
+        "Harbin": {
+          "lower": 18,
+          "upper": 13
+        },
+        "Helsinki": {
+          "lower": 14,
+          "upper": 10
+        },
+        "Hong Kong": {
+          "lower": 15,
+          "upper": 0
+        },
+        "Hyderabad": {
+          "lower": 12,
+          "upper": 10
+        },
+        "Islamabad": {
+          "lower": 10,
+          "upper": 0
+        },
+        "Istanbul": {
+          "lower": 8,
+          "upper": 0
+        },
+        "Jakarta": {
+          "lower": 15,
+          "upper": 10
+        },
+        "Kaohsiung": {
+          "lower": 17,
+          "upper": 1
+        },
+        "Karachi": {
+          "lower": 1,
+          "upper": 0
+        },
+        "Kathmandu": {
+          "lower": 20,
+          "upper": 10
+        },
+        "Kuala Lumpur": {
+          "lower": 7,
+          "upper": 0
+        },
+        "Kyoto": {
+          "lower": 15,
+          "upper": 0
+        },
+        "Lahore": {
+          "lower": 28,
+          "upper": 0
+        },
+        "Lima": {
+          "lower": 14,
+          "upper": 0
+        },
+        "Lisbon": {
+          "lower": 32,
+          "upper": 0
+        },
+        "Ljubljana": {
+          "lower": 5,
+          "upper": 0
+        },
+        "London": {
+          "lower": 20,
+          "upper": 0
+        },
+        "Los Angeles": {
+          "lower": 8,
+          "upper": 0
+        },
+        "Lyon": {
+          "lower": 2,
+          "upper": 0
+        },
+        "Macau": {
+          "lower": 7,
+          "upper": 0
+        },
+        "Madrid": {
+          "lower": 12,
+          "upper": 0
+        },
+        "Manila": {
+          "lower": 36,
+          "upper": 10
+        },
+        "Mexico City": {
+          "lower": 7,
+          "upper": 0
+        },
+        "Milan": {
+          "lower": 15,
+          "upper": 0
+        },
+        "Mumbai": {
+          "lower": 10,
+          "upper": 0
+        },
+        "Nagoya": {
+          "lower": 18,
+          "upper": 10
+        },
+        "Nanjing": {
+          "lower": 9,
+          "upper": 0
+        },
+        "New York": {
+          "lower": 0,
+          "upper": 11
+        },
+        "Osaka": {
+          "lower": 13,
+          "upper": 0
+        },
+        "Oslo": {
+          "lower": 34,
+          "upper": 2
+        },
+        "Paris": {
+          "lower": 10,
+          "upper": 1
+        },
+        "Phnom Penh": {
+          "lower": 10,
+          "upper": 0
+        },
+        "Porto": {
+          "lower": 20,
+          "upper": 11
+        },
+        "Prague": {
+          "lower": 15,
+          "upper": 0
+        },
+        "Reykjavik": {
+          "lower": 12,
+          "upper": 11
+        },
+        "Riga": {
+          "lower": 21,
+          "upper": 0
+        },
+        "Rome": {
+          "lower": 23,
+          "upper": 0
+        },
+        "Rotterdam": {
+          "lower": 10,
+          "upper": 0
+        },
+        "Sao Paulo": {
+          "lower": 23,
+          "upper": 1
+        },
+        "Sapporo": {
+          "lower": 6,
+          "upper": 0
+        },
+        "Sarajevo": {
+          "lower": 21,
+          "upper": 10
+        },
+        "Seoul": {
+          "lower": 22,
+          "upper": 0
+        },
+        "Shenzhen": {
+          "lower": 23,
+          "upper": 0
+        },
+        "Singapore": {
+          "lower": 18,
+          "upper": 4
+        },
+        "Skopje": {
+          "lower": 5,
+          "upper": 1
+        },
+        "Sofia": {
+          "lower": 6,
+          "upper": 0
+        },
+        "Stockholm": {
+          "lower": 12,
+          "upper": 0
+        },
+        "Taipei": {
+          "lower": 20,
+          "upper": 0
+        },
+        "Tallinn": {
+          "lower": 16,
+          "upper": 0
+        },
+        "Tashkent": {
+          "lower": 18,
+          "upper": 1
+        },
+        "Tbilisi": {
+          "lower": 4,
+          "upper": 0
+        },
+        "Tirana": {
+          "lower": 12,
+          "upper": 0
+        },
+        "Tokyo": {
+          "lower": 5,
+          "upper": 0
+        },
+        "Toronto": {
+          "lower": 7,
+          "upper": 0
+        },
+        "Ulaanbaatar": {
+          "lower": 3,
+          "upper": 0
+        },
+        "Vancouver": {
+          "lower": 5,
+          "upper": 21
+        },
+        "Vienna": {
+          "lower": 14,
+          "upper": 4
+        },
+        "Vientiane": {
+          "lower": 7,
+          "upper": 0
+        },
+        "Vilnius": {
+          "lower": 14,
+          "upper": 1
+        },
+        "Warsaw": {
+          "lower": 16,
+          "upper": 0
+        },
+        "Wuhan": {
+          "lower": 3,
+          "upper": 10
+        },
+        "Xi’an": {
+          "lower": 20,
+          "upper": 0
+        },
+        "Yangon": {
+          "lower": 8,
+          "upper": 0
+        },
+        "Yerevan": {
+          "lower": 13,
+          "upper": 0
+        },
+        "Zagreb": {
+          "lower": 15,
+          "upper": 10
+        }
+      },
+      "levels": 95,
+      "nmi": 0.0890831049026931,
+      "weighted_band_purity": 0.8305626598465473
+    },
+    {
+      "column": "boundary_kind",
+      "counts": {
+        "newline": {
+          "lower": 1,
+          "upper": 23
+        },
+        "period": {
+          "lower": 0,
+          "upper": 6
+        },
+        "semantic_end:indexed_prefix": {
+          "lower": 4,
+          "upper": 0
+        },
+        "semantic_end:labeled_rank": {
+          "lower": 1209,
+          "upper": 305
+        },
+        "semantic_end:numeric_commit": {
+          "lower": 0,
+          "upper": 1
+        },
+        "semantic_end:ordinal_prefix": {
+          "lower": 10,
+          "upper": 5
+        }
+      },
+      "levels": 6,
+      "nmi": 0.08077920363092113,
+      "weighted_band_purity": 0.801150895140665
+    },
+    {
+      "column": "marker_kind",
+      "counts": {
+        "bullet": {
+          "lower": 1,
+          "upper": 29
+        },
+        "inline_count": {
+          "lower": 1213,
+          "upper": 306
+        },
+        "ordinal": {
+          "lower": 10,
+          "upper": 5
+        }
+      },
+      "levels": 3,
+      "nmi": 0.07951241028350883,
+      "weighted_band_purity": 0.8005115089514067
+    },
+    {
+      "column": "baseline_endpoint_token_id",
+      "counts": {
+        "1018": {
+          "lower": 41,
+          "upper": 11
+        },
+        "12016": {
+          "lower": 56,
+          "upper": 12
+        },
+        "1288": {
+          "lower": 1,
+          "upper": 0
+        },
+        "1765": {
+          "lower": 0,
+          "upper": 1
+        },
+        "1781": {
+          "lower": 43,
+          "upper": 20
+        },
+        "193135": {
+          "lower": 0,
+          "upper": 1
+        },
+        "236761": {
+          "lower": 79,
+          "upper": 43
+        },
+        "236768": {
+          "lower": 707,
+          "upper": 144
+        },
+        "236770": {
+          "lower": 0,
+          "upper": 13
+        },
+        "236771": {
+          "lower": 1,
+          "upper": 0
+        },
+        "236778": {
+          "lower": 0,
+          "upper": 12
+        },
+        "236800": {
+          "lower": 9,
+          "upper": 1
+        },
+        "236810": {
+          "lower": 6,
+          "upper": 1
+        },
+        "236812": {
+          "lower": 8,
+          "upper": 0
+        },
+        "236819": {
+          "lower": 2,
+          "upper": 0
+        },
+        "236825": {
+          "lower": 6,
+          "upper": 1
+        },
+        "236828": {
+          "lower": 4,
+          "upper": 2
+        },
+        "236829": {
+          "lower": 1,
+          "upper": 3
+        },
+        "236832": {
+          "lower": 4,
+          "upper": 0
+        },
+        "24391": {
+          "lower": 0,
+          "upper": 1
+        },
+        "27071": {
+          "lower": 0,
+          "upper": 1
+        },
+        "30318": {
+          "lower": 0,
+          "upper": 1
+        },
+        "45255": {
+          "lower": 0,
+          "upper": 1
+        },
+        "62902": {
+          "lower": 188,
+          "upper": 43
+        },
+        "769": {
+          "lower": 1,
+          "upper": 4
+        },
+        "9603": {
+          "lower": 66,
+          "upper": 23
+        },
+        "99382": {
+          "lower": 1,
+          "upper": 1
+        }
+      },
+      "levels": 27,
+      "nmi": 0.04331437929089635,
+      "weighted_band_purity": 0.8056265984654731
+    },
+    {
+      "column": "trace_category",
+      "counts": {
+        "full_coverage_with_duplicates": {
+          "lower": 0,
+          "upper": 20
+        },
+        "one_to_one": {
+          "lower": 815,
+          "upper": 238
+        },
+        "partial_unique": {
+          "lower": 409,
+          "upper": 82
+        }
+      },
+      "levels": 3,
+      "nmi": 0.036635053801426704,
+      "weighted_band_purity": 0.7953964194373402
+    },
+    {
+      "column": "alignment_strategy",
+      "counts": {
+        "literal_baseline_token_prefix": {
+          "lower": 1223,
+          "upper": 339
+        },
+        "text_exact_boundary_retokenization": {
+          "lower": 1,
+          "upper": 1
+        }
+      },
+      "levels": 2,
+      "nmi": 0.0009241918633321683,
+      "weighted_band_purity": 0.782608695652174
+    },
+    {
+      "column": "retokenized_suffix_tokens",
+      "counts": {
+        "0": {
+          "lower": 1223,
+          "upper": 339
+        },
+        "1": {
+          "lower": 1,
+          "upper": 1
+        }
+      },
+      "levels": 2,
+      "nmi": 0.0009241918633321683,
+      "weighted_band_purity": 0.782608695652174
+    },
+    {
+      "column": "seed",
+      "counts": {
+        "1234": {
+          "lower": 44,
+          "upper": 11
+        },
+        "1235": {
+          "lower": 42,
+          "upper": 12
+        },
+        "1236": {
+          "lower": 40,
+          "upper": 14
+        },
+        "1237": {
+          "lower": 37,
+          "upper": 10
+        },
+        "1238": {
+          "lower": 45,
+          "upper": 10
+        },
+        "1239": {
+          "lower": 41,
+          "upper": 10
+        },
+        "1240": {
+          "lower": 39,
+          "upper": 12
+        },
+        "1241": {
+          "lower": 39,
+          "upper": 11
+        },
+        "1242": {
+          "lower": 45,
+          "upper": 11
+        },
+        "1243": {
+          "lower": 39,
+          "upper": 10
+        },
+        "1244": {
+          "lower": 45,
+          "upper": 10
+        },
+        "1245": {
+          "lower": 44,
+          "upper": 11
+        },
+        "1246": {
+          "lower": 42,
+          "upper": 11
+        },
+        "1247": {
+          "lower": 39,
+          "upper": 12
+        },
+        "1248": {
+          "lower": 38,
+          "upper": 10
+        },
+        "1249": {
+          "lower": 41,
+          "upper": 10
+        },
+        "1250": {
+          "lower": 41,
+          "upper": 12
+        },
+        "1251": {
+          "lower": 41,
+          "upper": 10
+        },
+        "1252": {
+          "lower": 40,
+          "upper": 13
+        },
+        "1253": {
+          "lower": 41,
+          "upper": 12
+        },
+        "1254": {
+          "lower": 43,
+          "upper": 11
+        },
+        "1255": {
+          "lower": 44,
+          "upper": 10
+        },
+        "1256": {
+          "lower": 38,
+          "upper": 11
+        },
+        "1257": {
+          "lower": 35,
+          "upper": 12
+        },
+        "1258": {
+          "lower": 41,
+          "upper": 11
+        },
+        "1259": {
+          "lower": 40,
+          "upper": 13
+        },
+        "1260": {
+          "lower": 39,
+          "upper": 15
+        },
+        "1261": {
+          "lower": 42,
+          "upper": 12
+        },
+        "1262": {
+          "lower": 38,
+          "upper": 12
+        },
+        "1263": {
+          "lower": 41,
+          "upper": 11
+        }
+      },
+      "levels": 30,
+      "nmi": 0.000822589841929173,
+      "weighted_band_purity": 0.782608695652174
+    }
+  ],
+  "full_panel_trajectory_band_summary": {
+    "fully_single_band_trajectories": 34,
+    "mean_within_trajectory_band_purity": 0.7957910052910053,
+    "trajectory_count": 300
+  },
+  "hidden_space_variance": {
+    "between_trajectory_fraction_after_discovery_scaling": 0.3128881005811785,
+    "definition": "weighted between-trajectory sum of squares / total sum of squares"
+  },
+  "interpretation_guardrail": "A high seed/format association or collapse after trajectory centering supports a trajectory-level offset explanation.  It does not by itself identify a mechanistic cause, and PCA3 separation is not evidence of a cleaner ordinal representation.",
+  "layer": 22,
+  "model_label": "Gemma4-E4B",
+  "numeric_associations": [
+    {
+      "available_rows": 519,
+      "column": "endpoint_token",
+      "lower_mean": 328.55833333333334,
+      "standardized_mean_difference": -1.1245291076941661,
+      "upper_mean": 207.33962264150944
+    },
+    {
+      "available_rows": 519,
+      "column": "prefix_token_count",
+      "lower_mean": 329.55833333333334,
+      "standardized_mean_difference": -1.1245291076941661,
+      "upper_mean": 208.33962264150944
+    },
+    {
+      "available_rows": 519,
+      "column": "occurrence",
+      "lower_mean": 4.405555555555556,
+      "standardized_mean_difference": -1.0733776459419464,
+      "upper_mean": 2.20125786163522
+    },
+    {
+      "available_rows": 519,
+      "column": "output_token_count",
+      "lower_mean": 499.64722222222224,
+      "standardized_mean_difference": -0.5826456321132585,
+      "upper_mean": 433.44654088050316
+    },
+    {
+      "available_rows": 519,
+      "column": "baseline_endpoint_token_id",
+      "lower_mean": 153327.78333333333,
+      "standardized_mean_difference": -0.19029459814367417,
+      "upper_mean": 133160.22641509434
+    },
+    {
+      "available_rows": 519,
+      "column": "item_char_length",
+      "lower_mean": 51.68333333333333,
+      "standardized_mean_difference": 0.10502862860950836,
+      "upper_mean": 54.874213836477985
+    }
+  ],
+  "ordinal_decodability": {
+    "centering_caveat": "Per-trajectory centering uses all observed states in each trajectory; it is a diagnostic nuisance removal, not a deployable causal estimator.",
+    "raw": {
+      "confirmation_class_balanced_snr_db": -3.189902953711885,
+      "confirmation_logistic_balanced_accuracy": 0.7837129315543494,
+      "confirmation_ncc_balanced_accuracy": 0.6925055216342529,
+      "confirmation_noise_power": 9.272369527816773,
+      "confirmation_rows": 519,
+      "confirmation_seed_count": 10,
+      "confirmation_signal_power": 4.448365211486816,
+      "confirmation_support_max": 100,
+      "confirmation_support_min": 5
+    },
+    "within_trajectory_centered_diagnostic": {
+      "confirmation_class_balanced_snr_db": -2.648349574875833,
+      "confirmation_logistic_balanced_accuracy": 0.7493073350778574,
+      "confirmation_ncc_balanced_accuracy": 0.7327461878917102,
+      "confirmation_noise_power": 8.929815578460694,
+      "confirmation_rows": 519,
+      "confirmation_seed_count": 10,
+      "confirmation_signal_power": 4.852969169616699,
+      "confirmation_support_max": 100,
+      "confirmation_support_min": 5
+    }
+  },
+  "schema_version": "native_geometry_band_diagnostic_v1",
+  "scope": {
+    "confirmation_states": 519,
+    "confirmation_trajectories": 100,
+    "discovery_states": 1045,
+    "discovery_trajectories": 200,
+    "full_states": 1564,
+    "full_trajectories": 300,
+    "gold_counts": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "trajectory_panel": "registered counts 1,2,3,4,5,6,7,8,9,10"
+  },
+  "site_kind": "item_end",
+  "site_layer_sensitivity": {
+    "selected_layer_sites": [
+      {
+        "centered_marker_kind_nmi": 0.00599690838655927,
+        "centered_silhouette": 0.6044490933418274,
+        "confirmation_states": 519,
+        "layer": 22,
+        "raw_marker_kind_nmi": 0.014233007877470637,
+        "raw_mean_trajectory_purity": 0.9690000000000001,
+        "raw_occurrence_nmi": 0.01289562431015154,
+        "raw_seed_nmi": 0.08638460529969597,
+        "raw_silhouette": 0.5067291259765625,
+        "raw_vs_centered_band_nmi": 0.006133194034854975,
+        "reason": "",
+        "site_kind": "city_end",
+        "status": "ok",
+        "sweep": "site_at_selected_layer"
+      },
+      {
+        "centered_marker_kind_nmi": 0.018682234644423847,
+        "centered_silhouette": 0.5585845708847046,
+        "confirmation_states": 519,
+        "layer": 22,
+        "raw_marker_kind_nmi": 0.041243637014503544,
+        "raw_mean_trajectory_purity": 0.8760079365079366,
+        "raw_occurrence_nmi": 0.08664555681632918,
+        "raw_seed_nmi": 0.07176626381359559,
+        "raw_silhouette": 0.4353012442588806,
+        "raw_vs_centered_band_nmi": 0.16008018920722122,
+        "reason": "",
+        "site_kind": "city_unit_end",
+        "status": "ok",
+        "sweep": "site_at_selected_layer"
+      },
+      {
+        "centered_marker_kind_nmi": 0.02082196373472118,
+        "centered_silhouette": 0.5446337461471558,
+        "confirmation_states": 519,
+        "layer": 22,
+        "raw_marker_kind_nmi": 0.10853756893457897,
+        "raw_mean_trajectory_purity": 0.8224087301587302,
+        "raw_occurrence_nmi": 0.21833122170673006,
+        "raw_seed_nmi": 0.014544993341260574,
+        "raw_silhouette": 0.4923272132873535,
+        "raw_vs_centered_band_nmi": 0.44628094297115695,
+        "reason": "",
+        "site_kind": "item_end",
+        "status": "ok",
+        "sweep": "site_at_selected_layer"
+      },
+      {
+        "centered_marker_kind_nmi": 0.021142861018532445,
+        "centered_silhouette": 0.49949973821640015,
+        "confirmation_states": 519,
+        "layer": 22,
+        "raw_marker_kind_nmi": 0.025008922657651977,
+        "raw_mean_trajectory_purity": 0.9463809523809523,
+        "raw_occurrence_nmi": 0.05038774200407705,
+        "raw_seed_nmi": 0.1254960125586486,
+        "raw_silhouette": 0.5180211663246155,
+        "raw_vs_centered_band_nmi": 0.09372115130468091,
+        "reason": "",
+        "site_kind": "post_boundary",
+        "status": "ok",
+        "sweep": "site_at_selected_layer"
+      },
+      {
+        "centered_marker_kind_nmi": 0.00580490225482255,
+        "centered_silhouette": 0.6109517216682434,
+        "confirmation_states": 519,
+        "layer": 22,
+        "raw_marker_kind_nmi": 0.01232457336064926,
+        "raw_mean_trajectory_purity": 0.9896666666666667,
+        "raw_occurrence_nmi": 0.0025289643171554853,
+        "raw_seed_nmi": 0.07287874645863311,
+        "raw_silhouette": 0.5109990239143372,
+        "raw_vs_centered_band_nmi": 9.404368145880594e-05,
+        "reason": "",
+        "site_kind": "pre_city",
+        "status": "ok",
+        "sweep": "site_at_selected_layer"
+      }
+    ],
+    "selected_site_layer_count": 42,
+    "selected_site_peak_marker_nmi": {
+      "layer": 10,
+      "raw_marker_kind_nmi": 0.12935470521895406,
+      "raw_silhouette": 0.5477668046951294
+    }
+  },
+  "trace_archive": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\remote_native_traces_68_209_74_38\\Gemma4-E4B\\generations.jsonl",
+  "trajectory_band_summary": {
+    "fully_single_band_trajectories": 20,
+    "mean_within_trajectory_band_purity": 0.8224087301587304,
+    "rows": [
+      {
+        "band_purity": 1.0,
+        "gold_count": 1,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 586,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N1_seed1254",
+        "seed": 1254,
+        "split": "confirmation",
+        "states": 1,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.5,
+        "gold_count": 2,
+        "lower_states": 1,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 333,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N2_seed1254",
+        "seed": 1254,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 3,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "ordinal",
+        "output_token_count": 347,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N3_seed1254",
+        "seed": 1254,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "one_to_one",
+        "upper_states": 3
+      },
+      {
+        "band_purity": 0.5,
+        "gold_count": 4,
+        "lower_states": 2,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 623,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N4_seed1254",
+        "seed": 1254,
+        "split": "confirmation",
+        "states": 4,
+        "trace_category": "one_to_one",
+        "upper_states": 2
+      },
+      {
+        "band_purity": 0.8,
+        "gold_count": 5,
+        "lower_states": 4,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 547,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N5_seed1254",
+        "seed": 1254,
+        "split": "confirmation",
+        "states": 5,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8333333333333334,
+        "gold_count": 6,
+        "lower_states": 5,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 615,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N6_seed1254",
+        "seed": 1254,
+        "split": "confirmation",
+        "states": 6,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8571428571428571,
+        "gold_count": 7,
+        "lower_states": 6,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 622,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N7_seed1254",
+        "seed": 1254,
+        "split": "confirmation",
+        "states": 7,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.875,
+        "gold_count": 8,
+        "lower_states": 7,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 657,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N8_seed1254",
+        "seed": 1254,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.875,
+        "gold_count": 9,
+        "lower_states": 7,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 624,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N9_seed1254",
+        "seed": 1254,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.9,
+        "gold_count": 10,
+        "lower_states": 9,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 697,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N10_seed1254",
+        "seed": 1254,
+        "split": "confirmation",
+        "states": 10,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 1,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 331,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N1_seed1255",
+        "seed": 1255,
+        "split": "confirmation",
+        "states": 1,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.5,
+        "gold_count": 2,
+        "lower_states": 1,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 364,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N2_seed1255",
+        "seed": 1255,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.6666666666666666,
+        "gold_count": 3,
+        "lower_states": 2,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 312,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N3_seed1255",
+        "seed": 1255,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.75,
+        "gold_count": 4,
+        "lower_states": 3,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 383,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N4_seed1255",
+        "seed": 1255,
+        "split": "confirmation",
+        "states": 4,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8,
+        "gold_count": 5,
+        "lower_states": 4,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 406,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N5_seed1255",
+        "seed": 1255,
+        "split": "confirmation",
+        "states": 5,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8333333333333334,
+        "gold_count": 6,
+        "lower_states": 5,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 362,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N6_seed1255",
+        "seed": 1255,
+        "split": "confirmation",
+        "states": 6,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8571428571428571,
+        "gold_count": 7,
+        "lower_states": 6,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 403,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N7_seed1255",
+        "seed": 1255,
+        "split": "confirmation",
+        "states": 7,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.875,
+        "gold_count": 8,
+        "lower_states": 7,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 447,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N8_seed1255",
+        "seed": 1255,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.875,
+        "gold_count": 9,
+        "lower_states": 7,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 435,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N9_seed1255",
+        "seed": 1255,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 10,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 489,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N10_seed1255",
+        "seed": 1255,
+        "split": "confirmation",
+        "states": 10,
+        "trace_category": "one_to_one",
+        "upper_states": 10
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 1,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "bullet",
+        "output_token_count": 327,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N1_seed1256",
+        "seed": 1256,
+        "split": "confirmation",
+        "states": 1,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 2,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "bullet",
+        "output_token_count": 282,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N2_seed1256",
+        "seed": 1256,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "one_to_one",
+        "upper_states": 2
+      },
+      {
+        "band_purity": 0.6666666666666666,
+        "gold_count": 3,
+        "lower_states": 2,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 393,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N3_seed1256",
+        "seed": 1256,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.6666666666666666,
+        "gold_count": 4,
+        "lower_states": 2,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 390,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N4_seed1256",
+        "seed": 1256,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.6666666666666666,
+        "gold_count": 5,
+        "lower_states": 2,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 389,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N5_seed1256",
+        "seed": 1256,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.75,
+        "gold_count": 6,
+        "lower_states": 3,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 335,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N6_seed1256",
+        "seed": 1256,
+        "split": "confirmation",
+        "states": 4,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8571428571428571,
+        "gold_count": 7,
+        "lower_states": 6,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 527,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N7_seed1256",
+        "seed": 1256,
+        "split": "confirmation",
+        "states": 7,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.875,
+        "gold_count": 8,
+        "lower_states": 7,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 646,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N8_seed1256",
+        "seed": 1256,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8888888888888888,
+        "gold_count": 9,
+        "lower_states": 8,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 706,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N9_seed1256",
+        "seed": 1256,
+        "split": "confirmation",
+        "states": 9,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8888888888888888,
+        "gold_count": 10,
+        "lower_states": 8,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 706,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N10_seed1256",
+        "seed": 1256,
+        "split": "confirmation",
+        "states": 9,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 1,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "bullet",
+        "output_token_count": 333,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N1_seed1257",
+        "seed": 1257,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "full_coverage_with_duplicates",
+        "upper_states": 2
+      },
+      {
+        "band_purity": 0.5,
+        "gold_count": 2,
+        "lower_states": 1,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 315,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N2_seed1257",
+        "seed": 1257,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 3,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 349,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N3_seed1257",
+        "seed": 1257,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "one_to_one",
+        "upper_states": 3
+      },
+      {
+        "band_purity": 0.75,
+        "gold_count": 4,
+        "lower_states": 3,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 413,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N4_seed1257",
+        "seed": 1257,
+        "split": "confirmation",
+        "states": 4,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.75,
+        "gold_count": 5,
+        "lower_states": 3,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 421,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N5_seed1257",
+        "seed": 1257,
+        "split": "confirmation",
+        "states": 4,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8,
+        "gold_count": 6,
+        "lower_states": 4,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 535,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N6_seed1257",
+        "seed": 1257,
+        "split": "confirmation",
+        "states": 5,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8333333333333334,
+        "gold_count": 7,
+        "lower_states": 5,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 512,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N7_seed1257",
+        "seed": 1257,
+        "split": "confirmation",
+        "states": 6,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8333333333333334,
+        "gold_count": 8,
+        "lower_states": 5,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 456,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N8_seed1257",
+        "seed": 1257,
+        "split": "confirmation",
+        "states": 6,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8571428571428571,
+        "gold_count": 9,
+        "lower_states": 6,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 484,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N9_seed1257",
+        "seed": 1257,
+        "split": "confirmation",
+        "states": 7,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.875,
+        "gold_count": 10,
+        "lower_states": 7,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 535,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N10_seed1257",
+        "seed": 1257,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 1,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "bullet",
+        "output_token_count": 294,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N1_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "full_coverage_with_duplicates",
+        "upper_states": 2
+      },
+      {
+        "band_purity": 0.5,
+        "gold_count": 2,
+        "lower_states": 1,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 308,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N2_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.6666666666666666,
+        "gold_count": 3,
+        "lower_states": 2,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 341,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N3_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.75,
+        "gold_count": 4,
+        "lower_states": 3,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 389,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N4_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 4,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.75,
+        "gold_count": 5,
+        "lower_states": 3,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 390,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N5_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 4,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8,
+        "gold_count": 6,
+        "lower_states": 4,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 547,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N6_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 5,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8333333333333334,
+        "gold_count": 7,
+        "lower_states": 5,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 563,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N7_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 6,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.875,
+        "gold_count": 8,
+        "lower_states": 7,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 694,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N8_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.875,
+        "gold_count": 9,
+        "lower_states": 7,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 533,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N9_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.9,
+        "gold_count": 10,
+        "lower_states": 9,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 613,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N10_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 10,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 1,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "bullet",
+        "output_token_count": 308,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N1_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "full_coverage_with_duplicates",
+        "upper_states": 2
+      },
+      {
+        "band_purity": 0.5,
+        "gold_count": 2,
+        "lower_states": 1,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 319,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N2_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.6666666666666666,
+        "gold_count": 3,
+        "lower_states": 2,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 350,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N3_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.75,
+        "gold_count": 4,
+        "lower_states": 3,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 405,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N4_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 4,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8,
+        "gold_count": 5,
+        "lower_states": 4,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 436,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N5_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 5,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8,
+        "gold_count": 6,
+        "lower_states": 4,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 443,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N6_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 5,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8571428571428571,
+        "gold_count": 7,
+        "lower_states": 1,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 425,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N7_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 7,
+        "trace_category": "one_to_one",
+        "upper_states": 6
+      },
+      {
+        "band_purity": 0.8571428571428571,
+        "gold_count": 8,
+        "lower_states": 6,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 507,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N8_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 7,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8888888888888888,
+        "gold_count": 9,
+        "lower_states": 8,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 611,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N9_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 9,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 10,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 491,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N10_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 9,
+        "trace_category": "partial_unique",
+        "upper_states": 9
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 1,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "bullet",
+        "output_token_count": 274,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N1_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "full_coverage_with_duplicates",
+        "upper_states": 2
+      },
+      {
+        "band_purity": 0.5,
+        "gold_count": 2,
+        "lower_states": 1,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 317,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N2_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 3,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 299,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N3_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "one_to_one",
+        "upper_states": 3
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 4,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 360,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N4_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 4,
+        "trace_category": "one_to_one",
+        "upper_states": 4
+      },
+      {
+        "band_purity": 0.8,
+        "gold_count": 5,
+        "lower_states": 4,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 524,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N5_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 5,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 6,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 417,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N6_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 5,
+        "trace_category": "partial_unique",
+        "upper_states": 5
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 7,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 450,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N7_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 7,
+        "trace_category": "one_to_one",
+        "upper_states": 7
+      },
+      {
+        "band_purity": 0.8571428571428571,
+        "gold_count": 8,
+        "lower_states": 6,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 328,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N8_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 7,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8888888888888888,
+        "gold_count": 9,
+        "lower_states": 8,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 392,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N9_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 9,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.9,
+        "gold_count": 10,
+        "lower_states": 9,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 416,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N10_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 10,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 1,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 327,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N1_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 1,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.5,
+        "gold_count": 2,
+        "lower_states": 1,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 294,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N2_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.6666666666666666,
+        "gold_count": 3,
+        "lower_states": 1,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 411,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N3_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "one_to_one",
+        "upper_states": 2
+      },
+      {
+        "band_purity": 0.75,
+        "gold_count": 4,
+        "lower_states": 3,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 315,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N4_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 4,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8,
+        "gold_count": 5,
+        "lower_states": 4,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 454,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N5_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 5,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8333333333333334,
+        "gold_count": 6,
+        "lower_states": 5,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 347,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N6_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 6,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8571428571428571,
+        "gold_count": 7,
+        "lower_states": 6,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 393,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N7_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 7,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.875,
+        "gold_count": 8,
+        "lower_states": 7,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 393,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N8_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.875,
+        "gold_count": 9,
+        "lower_states": 7,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 391,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N9_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.9,
+        "gold_count": 10,
+        "lower_states": 1,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 458,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N10_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 10,
+        "trace_category": "one_to_one",
+        "upper_states": 9
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 1,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "bullet",
+        "output_token_count": 270,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N1_seed1262",
+        "seed": 1262,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "full_coverage_with_duplicates",
+        "upper_states": 2
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 2,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 368,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N2_seed1262",
+        "seed": 1262,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "one_to_one",
+        "upper_states": 2
+      },
+      {
+        "band_purity": 0.6666666666666666,
+        "gold_count": 3,
+        "lower_states": 2,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 329,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N3_seed1262",
+        "seed": 1262,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.75,
+        "gold_count": 4,
+        "lower_states": 3,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 463,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N4_seed1262",
+        "seed": 1262,
+        "split": "confirmation",
+        "states": 4,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8,
+        "gold_count": 5,
+        "lower_states": 4,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 462,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N5_seed1262",
+        "seed": 1262,
+        "split": "confirmation",
+        "states": 5,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8333333333333334,
+        "gold_count": 6,
+        "lower_states": 5,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 572,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N6_seed1262",
+        "seed": 1262,
+        "split": "confirmation",
+        "states": 6,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8333333333333334,
+        "gold_count": 7,
+        "lower_states": 5,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 568,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N7_seed1262",
+        "seed": 1262,
+        "split": "confirmation",
+        "states": 6,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8333333333333334,
+        "gold_count": 8,
+        "lower_states": 5,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 610,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N8_seed1262",
+        "seed": 1262,
+        "split": "confirmation",
+        "states": 6,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.875,
+        "gold_count": 9,
+        "lower_states": 7,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 666,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N9_seed1262",
+        "seed": 1262,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.875,
+        "gold_count": 10,
+        "lower_states": 7,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 670,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N10_seed1262",
+        "seed": 1262,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 1,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "bullet",
+        "output_token_count": 229,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N1_seed1263",
+        "seed": 1263,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "full_coverage_with_duplicates",
+        "upper_states": 2
+      },
+      {
+        "band_purity": 0.5,
+        "gold_count": 2,
+        "lower_states": 1,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 280,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N2_seed1263",
+        "seed": 1263,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.6666666666666666,
+        "gold_count": 3,
+        "lower_states": 2,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 327,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N3_seed1263",
+        "seed": 1263,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.6666666666666666,
+        "gold_count": 4,
+        "lower_states": 2,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 294,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N4_seed1263",
+        "seed": 1263,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8,
+        "gold_count": 5,
+        "lower_states": 4,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 454,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N5_seed1263",
+        "seed": 1263,
+        "split": "confirmation",
+        "states": 5,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8333333333333334,
+        "gold_count": 6,
+        "lower_states": 5,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 436,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N6_seed1263",
+        "seed": 1263,
+        "split": "confirmation",
+        "states": 6,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8571428571428571,
+        "gold_count": 7,
+        "lower_states": 6,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 486,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N7_seed1263",
+        "seed": 1263,
+        "split": "confirmation",
+        "states": 7,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8571428571428571,
+        "gold_count": 8,
+        "lower_states": 6,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 384,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N8_seed1263",
+        "seed": 1263,
+        "split": "confirmation",
+        "states": 7,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.875,
+        "gold_count": 9,
+        "lower_states": 7,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 425,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N9_seed1263",
+        "seed": 1263,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 0.8888888888888888,
+        "gold_count": 10,
+        "lower_states": 8,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 513,
+        "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N10_seed1263",
+        "seed": 1263,
+        "split": "confirmation",
+        "states": 9,
+        "trace_category": "partial_unique",
+        "upper_states": 1
+      }
+    ],
+    "trajectory_count": 100
+  },
+  "within_trajectory_centered_pca3": {
+    "categorical_associations": [
+      {
+        "column": "occurrence",
+        "counts": {
+          "1": {
+            "lower": 14,
+            "upper": 86
+          },
+          "10": {
+            "lower": 5,
+            "upper": 0
+          },
+          "2": {
+            "lower": 96,
+            "upper": 0
+          },
+          "3": {
+            "lower": 80,
+            "upper": 0
+          },
+          "4": {
+            "lower": 67,
+            "upper": 0
+          },
+          "5": {
+            "lower": 56,
+            "upper": 0
+          },
+          "6": {
+            "lower": 45,
+            "upper": 0
+          },
+          "7": {
+            "lower": 35,
+            "upper": 0
+          },
+          "8": {
+            "lower": 24,
+            "upper": 0
+          },
+          "9": {
+            "lower": 11,
+            "upper": 0
+          }
+        },
+        "levels": 10,
+        "nmi": 0.29284576087147596,
+        "weighted_band_purity": 0.9730250481695568
+      },
+      {
+        "column": "city",
+        "counts": {
+          "Almaty": {
+            "lower": 25,
+            "upper": 0
+          },
+          "Astana": {
+            "lower": 2,
+            "upper": 0
+          },
+          "Bangkok": {
+            "lower": 9,
+            "upper": 0
+          },
+          "Barcelona": {
+            "lower": 4,
+            "upper": 9
+          },
+          "Bengaluru": {
+            "lower": 9,
+            "upper": 0
+          },
+          "Bogota": {
+            "lower": 11,
+            "upper": 9
+          },
+          "Brussels": {
+            "lower": 7,
+            "upper": 0
+          },
+          "Bucharest": {
+            "lower": 6,
+            "upper": 0
+          },
+          "Budapest": {
+            "lower": 1,
+            "upper": 9
+          },
+          "Buenos Aires": {
+            "lower": 11,
+            "upper": 0
+          },
+          "Busan": {
+            "lower": 2,
+            "upper": 9
+          },
+          "Chennai": {
+            "lower": 8,
+            "upper": 0
+          },
+          "Copenhagen": {
+            "lower": 9,
+            "upper": 0
+          },
+          "Dublin": {
+            "lower": 10,
+            "upper": 9
+          },
+          "Fukuoka": {
+            "lower": 2,
+            "upper": 9
+          },
+          "Geneva": {
+            "lower": 2,
+            "upper": 8
+          },
+          "Harbin": {
+            "lower": 2,
+            "upper": 8
+          },
+          "Helsinki": {
+            "lower": 3,
+            "upper": 0
+          },
+          "Hong Kong": {
+            "lower": 7,
+            "upper": 0
+          },
+          "Hyderabad": {
+            "lower": 12,
+            "upper": 0
+          },
+          "Islamabad": {
+            "lower": 9,
+            "upper": 0
+          },
+          "Jakarta": {
+            "lower": 2,
+            "upper": 0
+          },
+          "Kaohsiung": {
+            "lower": 9,
+            "upper": 0
+          },
+          "Kyoto": {
+            "lower": 8,
+            "upper": 0
+          },
+          "Lahore": {
+            "lower": 11,
+            "upper": 0
+          },
+          "Lima": {
+            "lower": 11,
+            "upper": 0
+          },
+          "Lisbon": {
+            "lower": 7,
+            "upper": 0
+          },
+          "London": {
+            "lower": 8,
+            "upper": 0
+          },
+          "Madrid": {
+            "lower": 8,
+            "upper": 0
+          },
+          "Manila": {
+            "lower": 13,
+            "upper": 8
+          },
+          "Mexico City": {
+            "lower": 4,
+            "upper": 0
+          },
+          "Mumbai": {
+            "lower": 5,
+            "upper": 0
+          },
+          "Nagoya": {
+            "lower": 2,
+            "upper": 0
+          },
+          "Oslo": {
+            "lower": 27,
+            "upper": 0
+          },
+          "Paris": {
+            "lower": 10,
+            "upper": 0
+          },
+          "Phnom Penh": {
+            "lower": 2,
+            "upper": 0
+          },
+          "Porto": {
+            "lower": 6,
+            "upper": 0
+          },
+          "Prague": {
+            "lower": 7,
+            "upper": 0
+          },
+          "Reykjavik": {
+            "lower": 7,
+            "upper": 8
+          },
+          "Riga": {
+            "lower": 6,
+            "upper": 0
+          },
+          "Rome": {
+            "lower": 3,
+            "upper": 0
+          },
+          "Sao Paulo": {
+            "lower": 16,
+            "upper": 0
+          },
+          "Sarajevo": {
+            "lower": 8,
+            "upper": 0
+          },
+          "Seoul": {
+            "lower": 9,
+            "upper": 0
+          },
+          "Skopje": {
+            "lower": 6,
+            "upper": 0
+          },
+          "Stockholm": {
+            "lower": 5,
+            "upper": 0
+          },
+          "Taipei": {
+            "lower": 5,
+            "upper": 0
+          },
+          "Tallinn": {
+            "lower": 10,
+            "upper": 0
+          },
+          "Tashkent": {
+            "lower": 10,
+            "upper": 0
+          },
+          "Tbilisi": {
+            "lower": 4,
+            "upper": 0
+          },
+          "Tokyo": {
+            "lower": 5,
+            "upper": 0
+          },
+          "Toronto": {
+            "lower": 6,
+            "upper": 0
+          },
+          "Ulaanbaatar": {
+            "lower": 3,
+            "upper": 0
+          },
+          "Vienna": {
+            "lower": 9,
+            "upper": 0
+          },
+          "Vilnius": {
+            "lower": 9,
+            "upper": 0
+          },
+          "Warsaw": {
+            "lower": 3,
+            "upper": 0
+          },
+          "Wuhan": {
+            "lower": 3,
+            "upper": 0
+          },
+          "Xi’an": {
+            "lower": 4,
+            "upper": 0
+          },
+          "Yerevan": {
+            "lower": 7,
+            "upper": 0
+          },
+          "Zagreb": {
+            "lower": 4,
+            "upper": 0
+          }
+        },
+        "levels": 60,
+        "nmi": 0.13220179385093964,
+        "weighted_band_purity": 0.9113680154142582
+      },
+      {
+        "column": "item_line_number",
+        "counts": {
+          "10": {
+            "lower": 26,
+            "upper": 14
+          },
+          "11": {
+            "lower": 41,
+            "upper": 5
+          },
+          "12": {
+            "lower": 30,
+            "upper": 13
+          },
+          "13": {
+            "lower": 32,
+            "upper": 3
+          },
+          "14": {
+            "lower": 29,
+            "upper": 0
+          },
+          "15": {
+            "lower": 28,
+            "upper": 0
+          },
+          "16": {
+            "lower": 20,
+            "upper": 0
+          },
+          "17": {
+            "lower": 23,
+            "upper": 1
+          },
+          "18": {
+            "lower": 24,
+            "upper": 0
+          },
+          "19": {
+            "lower": 9,
+            "upper": 0
+          },
+          "20": {
+            "lower": 9,
+            "upper": 0
+          },
+          "21": {
+            "lower": 14,
+            "upper": 0
+          },
+          "22": {
+            "lower": 5,
+            "upper": 4
+          },
+          "23": {
+            "lower": 18,
+            "upper": 0
+          },
+          "24": {
+            "lower": 15,
+            "upper": 0
+          },
+          "25": {
+            "lower": 11,
+            "upper": 1
+          },
+          "26": {
+            "lower": 9,
+            "upper": 0
+          },
+          "27": {
+            "lower": 6,
+            "upper": 0
+          },
+          "28": {
+            "lower": 3,
+            "upper": 0
+          },
+          "29": {
+            "lower": 7,
+            "upper": 0
+          },
+          "30": {
+            "lower": 11,
+            "upper": 0
+          },
+          "31": {
+            "lower": 1,
+            "upper": 0
+          },
+          "32": {
+            "lower": 1,
+            "upper": 0
+          },
+          "33": {
+            "lower": 1,
+            "upper": 0
+          },
+          "36": {
+            "lower": 10,
+            "upper": 0
+          },
+          "39": {
+            "lower": 1,
+            "upper": 0
+          },
+          "42": {
+            "lower": 7,
+            "upper": 0
+          },
+          "46": {
+            "lower": 1,
+            "upper": 0
+          },
+          "48": {
+            "lower": 3,
+            "upper": 0
+          },
+          "54": {
+            "lower": 3,
+            "upper": 0
+          },
+          "6": {
+            "lower": 1,
+            "upper": 5
+          },
+          "7": {
+            "lower": 6,
+            "upper": 1
+          },
+          "8": {
+            "lower": 9,
+            "upper": 13
+          },
+          "9": {
+            "lower": 19,
+            "upper": 26
+          }
+        },
+        "levels": 34,
+        "nmi": 0.09635113083886274,
+        "weighted_band_purity": 0.8631984585741811
+      },
+      {
+        "column": "boundary_kind",
+        "counts": {
+          "newline": {
+            "lower": 9,
+            "upper": 0
+          },
+          "period": {
+            "lower": 6,
+            "upper": 0
+          },
+          "semantic_end:indexed_prefix": {
+            "lower": 1,
+            "upper": 0
+          },
+          "semantic_end:labeled_rank": {
+            "lower": 413,
+            "upper": 86
+          },
+          "semantic_end:numeric_commit": {
+            "lower": 1,
+            "upper": 0
+          },
+          "semantic_end:ordinal_prefix": {
+            "lower": 3,
+            "upper": 0
+          }
+        },
+        "levels": 6,
+        "nmi": 0.021532494195850595,
+        "weighted_band_purity": 0.8342967244701349
+      },
+      {
+        "column": "marker_kind",
+        "counts": {
+          "bullet": {
+            "lower": 15,
+            "upper": 0
+          },
+          "inline_count": {
+            "lower": 415,
+            "upper": 86
+          },
+          "ordinal": {
+            "lower": 3,
+            "upper": 0
+          }
+        },
+        "levels": 3,
+        "nmi": 0.02082196373472118,
+        "weighted_band_purity": 0.8342967244701349
+      },
+      {
+        "column": "baseline_endpoint_token_id",
+        "counts": {
+          "1018": {
+            "lower": 28,
+            "upper": 6
+          },
+          "12016": {
+            "lower": 27,
+            "upper": 5
+          },
+          "1288": {
+            "lower": 1,
+            "upper": 0
+          },
+          "1781": {
+            "lower": 37,
+            "upper": 3
+          },
+          "193135": {
+            "lower": 1,
+            "upper": 0
+          },
+          "236761": {
+            "lower": 35,
+            "upper": 10
+          },
+          "236768": {
+            "lower": 202,
+            "upper": 40
+          },
+          "236770": {
+            "lower": 2,
+            "upper": 1
+          },
+          "236778": {
+            "lower": 2,
+            "upper": 0
+          },
+          "236800": {
+            "lower": 2,
+            "upper": 0
+          },
+          "236810": {
+            "lower": 1,
+            "upper": 0
+          },
+          "236812": {
+            "lower": 1,
+            "upper": 0
+          },
+          "236825": {
+            "lower": 1,
+            "upper": 0
+          },
+          "236828": {
+            "lower": 2,
+            "upper": 0
+          },
+          "24391": {
+            "lower": 1,
+            "upper": 0
+          },
+          "27071": {
+            "lower": 1,
+            "upper": 0
+          },
+          "62902": {
+            "lower": 58,
+            "upper": 13
+          },
+          "9603": {
+            "lower": 31,
+            "upper": 8
+          }
+        },
+        "levels": 18,
+        "nmi": 0.008428052175749582,
+        "weighted_band_purity": 0.8342967244701349
+      },
+      {
+        "column": "trace_category",
+        "counts": {
+          "full_coverage_with_duplicates": {
+            "lower": 12,
+            "upper": 0
+          },
+          "one_to_one": {
+            "lower": 261,
+            "upper": 56
+          },
+          "partial_unique": {
+            "lower": 160,
+            "upper": 30
+          }
+        },
+        "levels": 3,
+        "nmi": 0.007519825699858398,
+        "weighted_band_purity": 0.8342967244701349
+      },
+      {
+        "column": "alignment_strategy",
+        "counts": {
+          "literal_baseline_token_prefix": {
+            "lower": 432,
+            "upper": 86
+          },
+          "text_exact_boundary_retokenization": {
+            "lower": 1,
+            "upper": 0
+          }
+        },
+        "levels": 2,
+        "nmi": 0.0015095174633106433,
+        "weighted_band_purity": 0.8342967244701349
+      },
+      {
+        "column": "retokenized_suffix_tokens",
+        "counts": {
+          "0": {
+            "lower": 432,
+            "upper": 86
+          },
+          "1": {
+            "lower": 1,
+            "upper": 0
+          }
+        },
+        "levels": 2,
+        "nmi": 0.0015095174633106433,
+        "weighted_band_purity": 0.8342967244701349
+      },
+      {
+        "column": "seed",
+        "counts": {
+          "1254": {
+            "lower": 46,
+            "upper": 8
+          },
+          "1255": {
+            "lower": 46,
+            "upper": 8
+          },
+          "1256": {
+            "lower": 41,
+            "upper": 8
+          },
+          "1257": {
+            "lower": 38,
+            "upper": 9
+          },
+          "1258": {
+            "lower": 43,
+            "upper": 9
+          },
+          "1259": {
+            "lower": 44,
+            "upper": 9
+          },
+          "1260": {
+            "lower": 45,
+            "upper": 9
+          },
+          "1261": {
+            "lower": 45,
+            "upper": 9
+          },
+          "1262": {
+            "lower": 42,
+            "upper": 8
+          },
+          "1263": {
+            "lower": 43,
+            "upper": 9
+          }
+        },
+        "levels": 10,
+        "nmi": 0.00036910058246969945,
+        "weighted_band_purity": 0.8342967244701349
+      }
+    ],
+    "confirmation_two_band": {
+      "cluster_sizes": {
+        "lower": 433,
+        "upper": 86
+      },
+      "display_vertical_means": {
+        "lower": -5.18749475479126,
+        "upper": 26.118436813354492
+      },
+      "silhouette": 0.5446337461471558
+    },
+    "explained_variance_ratio": [
+      0.21390897035598755,
+      0.1271553635597229,
+      0.054290421307086945
+    ],
+    "explained_variance_ratio_sum": 0.3953547477722168,
+    "fit_split": "discovery after per-trajectory mean subtraction",
+    "full_panel_two_band": {
+      "cluster_sizes": {
+        "lower": 1306,
+        "upper": 258
+      },
+      "display_vertical_means": {
+        "lower": -4.847848415374756,
+        "upper": 24.539884567260742
+      },
+      "silhouette": 0.5477049946784973
+    },
+    "raw_vs_centered_band_nmi": 0.44628094297115695
+  }
+}

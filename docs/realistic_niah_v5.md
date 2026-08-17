@@ -222,14 +222,27 @@ python scripts/run_realistic_niah_v5.py generate `
   --model Qwen3-8B `
   --stimuli work/v4/stimuli.jsonl `
   --output work/v5/qwen/generations.jsonl
+```
 
-# 3. Capture registered sites and all decoder layers.
-#    A full generations archive contains 300 rows and capture retains all 300.
-python scripts/run_realistic_niah_v5.py capture `
-  --model Qwen3-8B `
-  --generations work/v5/qwen/generations.jsonl `
-  --output work/v5/qwen/capture
+```bash
+# 3. On the GPU host, capture the strict all-count geometry panel.
+#    One forward campaign saves five low-leakage running sites plus
+#    answer_query_v3. The latter is then materialized as an independent
+#    final-count capture without another model forward pass.
+GENERATIONS_ROOT=/path/to/native_traces \
+OUTPUT_ROOT=/path/to/v5_geometry_full_panel \
+HF_CACHE=/path/to/huggingface_cache \
+bash scripts/launch_realistic_niah_v5_geometry_full_panel.sh
 
+# The fail-closed audit requires, per model:
+# - 10 counts x 30 seeds = 300 trajectories;
+# - 200 discovery / 100 confirmation trajectories;
+# - exactly one answer_query_v3 per trajectory;
+# - complete pre_city/city_end/city_unit_end/item_end/post_boundary sites for
+#   every parser-observed running occurrence 1..M.
+```
+
+```powershell
 # 3b. Capture the matching non-thinking prompt states for all 300 V4.4 rows.
 python scripts/run_realistic_niah_v4.py `
   --stage representation-capture `
@@ -240,69 +253,25 @@ python scripts/run_realistic_niah_v4.py `
   --variants v4.4 `
   --representation-all-counts
 
-# 4. Fit discovery probes and evaluate confirmation geometry.
-python scripts/run_realistic_niah_v5.py representation `
-  --capture-index work/v5/qwen/capture/capture_index.jsonl `
-  --output work/v5/qwen/representation
-
-# 4b. Compare V4 non-thinking and V5 native-thinking on the same full
-#     10-count x 30-seed panel. parser_hit retains all 300 trajectories and
-#     every observed position from partial traces.
-python scripts/compare_realistic_niah_position_geometry.py `
-  --non-thinking-capture-index work/v4/qwen/capture/capture_index.jsonl `
-  --native-thinking-capture-index work/v5/qwen/capture/capture_index.jsonl `
-  --native-cohort parser_hit `
-  --output work/v5/qwen/position_geometry
-
-# Registered explicit-cue sensitivity: indexed/ordinal/inline_count ->
-# marker_end; bullet/audit_sentence/completion_recap/evidence_sequence ->
-# item_end. Do not use
-# trace_category to choose a token, because it encodes trajectory coverage.
-python scripts/compare_realistic_niah_position_geometry.py `
-  --non-thinking-capture-index work/v4/qwen/capture/capture_index.jsonl `
-  --native-thinking-capture-index work/v5/qwen/capture/capture_index.jsonl `
-  --native-site-policy trace_aware_count_boundary `
-  --native-cohort parser_hit `
-  --output work/v5/qwen/position_geometry_trace_aware
-
-# Lower-leakage format-aware sensitivity: take pre_marker before explicit k,
-# and item_end for formats with no explicit count label.
-python scripts/compare_realistic_niah_position_geometry.py `
-  --non-thinking-capture-index work/v4/qwen/capture/capture_index.jsonl `
-  --native-thinking-capture-index work/v5/qwen/capture/capture_index.jsonl `
-  --native-site-policy trace_aware_pre_label `
-  --native-cohort parser_hit `
-  --output work/v5/qwen/position_geometry_pre_label
-
-# Post-hoc marker-kind-stratified site/layer robustness sweep. Selection uses
-# leave-one-discovery-seed-out CV; confirmation does not enter the selector.
-python scripts/analyze_realistic_niah_v5_trace_strata.py `
-  --capture-index work/v5_position_geometry_inputs/Qwen3-8B/capture_index.jsonl `
-  --pca-dim 16 `
-  --output reports/v5_trace_stratified_geometry/Qwen3-8B/pca16
-python scripts/analyze_realistic_niah_v5_trace_strata.py `
-  --capture-index work/v5_position_geometry_inputs/Gemma4-E4B/capture_index.jsonl `
-  --pca-dim 16 `
-  --output reports/v5_trace_stratified_geometry/Gemma4-E4B/pca16
-
-# 4c. Build the standalone three-column geometry report after running the
-#     comparison for both parser_hit and one_to_one, PCA=32, and both
-#     registered models. Final-answer correctness is a display attribute;
-#     the geometry class remains the observed ordinal 1-10.
-python scripts/build_niah_geometry_comparison_report.py `
-  --non-thinking-export-root work/v4/all_count_geometry `
-  --non-thinking-outcome-root exports/run_20260731_v4_numeric_presentation_v3 `
-  --native-capture-root work/v5_position_geometry_inputs `
-  --aligned-geometry-root reports/v5_position_geometry `
-  --one-to-one-geometry-root reports/v5_position_geometry_one_to_one `
-  --trace-aware-aligned-geometry-root reports/v5_position_geometry_trace_aware `
-  --trace-aware-one-to-one-geometry-root reports/v5_position_geometry_one_to_one_trace_aware `
-  --trace-stratified-geometry-root reports/v5_trace_stratified_geometry `
-  --dual-endpoint-root reports/v5_dual_endpoint_geometry `
-  --native-final-count-root work/v5_position_geometry_inputs `
+# 4. Download running/ and final/ from the GPU host. The remaining pipeline is
+#    CPU-only: independently select each mode's best site/layer on discovery,
+#    evaluate the frozen choice on confirmation, diagnose Qwen and Gemma bands,
+#    and build the compact report.
+python scripts/run_niah_geometry_comparison_full_panel.py `
+  --non-thinking-root work/nonthinking_v44_geometry_300_150_136_166_78 `
+  --native-running-root work/v5_geometry_full_panel/running `
+  --native-final-root work/v5_geometry_full_panel/final `
   --native-trace-root work/remote_native_traces_68_209_74_38 `
+  --parser-audit work/hybrid_parser_audit_600.jsonl `
+  --analysis-root reports/v5_dual_endpoint_geometry_full300 `
+  --band-root reports/native_geometry_band_diagnostic_full300 `
   --output reports/NiaH_Geometry_Comparison.html `
   --manifest reports/NiaH_Geometry_Comparison.manifest.json
+
+# The report intentionally omits the marker-format-specific token-site x layer
+# winner sweep from the main text. Sparse, unequal marker strata and many
+# post-hoc choices do not answer the pooled cross-mode estimand. Marker
+# proportions and trajectory-band associations remain as appendices.
 
 # 5. Capture attention and freeze causal head banks.
 python scripts/run_realistic_niah_v5.py attention `

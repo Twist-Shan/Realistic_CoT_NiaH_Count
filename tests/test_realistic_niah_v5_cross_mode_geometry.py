@@ -303,6 +303,19 @@ def test_all_count_loaders_keep_every_trajectory_and_ragged_event(tmp_path):
     ]
     assert ragged["occurrence"].tolist() == [1, 2]
 
+    one_to_one = load_native_thinking_capture(
+        native_index, cohort="one_to_one"
+    )
+    one_to_one_trajectories = one_to_one.metadata[
+        ["split", "seed", "gold_count"]
+    ].drop_duplicates()
+    assert len(one_to_one_trajectories) == 5
+    assert set(
+        one_to_one_trajectories.loc[
+            one_to_one_trajectories["split"].eq("discovery"), "gold_count"
+        ]
+    ) == {1, 2, 3}
+
 
 def test_trace_aware_pre_label_policy_avoids_explicit_k_token(tmp_path):
     index = _write_native(

@@ -97,6 +97,8 @@ def command_capture(args: argparse.Namespace) -> None:
         config=config,
         output_dir=args.output,
         layers=args.layers,
+        site_kinds=args.site_kinds,
+        capture_span_pooling=not args.skip_span_pooling,
         overwrite=args.overwrite,
     )
     print(f"[v5 capture] index: {index}")
@@ -647,6 +649,19 @@ def build_parser() -> argparse.ArgumentParser:
     capture.add_argument("--generations", type=Path, required=True)
     capture.add_argument("--output", type=Path, required=True)
     capture.add_argument("--layers", type=int, nargs="+")
+    capture.add_argument(
+        "--site-kinds",
+        nargs="+",
+        help=(
+            "Optional registered site subset. Use answer_query_v3 for a "
+            "small final-count-only shard, or list running sites separately."
+        ),
+    )
+    capture.add_argument(
+        "--skip-span-pooling",
+        action="store_true",
+        help="Do not save auxiliary item-span mean/end arrays.",
+    )
     capture.add_argument("--overwrite", action="store_true")
     capture.set_defaults(func=command_capture)
 

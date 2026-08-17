@@ -1,0 +1,2 @@
+model_label,analysis_group,status,retained_labels,retained_class_count,discovery_seed_count,confirmation_seed_count,discovery_support,confirmation_support,reason
+Gemma4-E4B,all_traces,evaluable,1 2 3 4 5 6 7 8 9 10,10,20,10,"{""1"": 200, ""2"": 184, ""3"": 160, ""4"": 137, ""5"": 117, ""6"": 95, ""7"": 73, ""8"": 46, ""9"": 24, ""10"": 9}","{""1"": 100, ""2"": 96, ""3"": 80, ""4"": 67, ""5"": 56, ""6"": 45, ""7"": 35, ""8"": 24, ""9"": 11, ""10"": 5}",retained 10 labels with discovery support >= 3 and confirmation support >= 2

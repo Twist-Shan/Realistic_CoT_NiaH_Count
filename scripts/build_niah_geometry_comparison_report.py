@@ -1733,11 +1733,12 @@ def dual_endpoint_section(
                 f'<option value="{layer}"{(" selected" if layer == payload["default_layer"] else "")}>L{layer}</option>'
                 for layer in payload["layers"]
             )
-            evaluation_label = "registered confirmation · 100 trajectories"
+            full_label = "full panel · 300 trajectories · N=1…10"
+            evaluation_label = "confirmation · 100 trajectories · N=1…10"
             cards.append(
                 f"""<article class="geometry-card dual-card"><h3>{esc(title)}</h3>
 <p>{esc(description)}</p><div class="controls"><label>Layer<select id="dual-{slug}-{panel}-layer">{options}</select></label>
-<label>Rows<select id="dual-{slug}-{panel}-split"><option value="confirmation">{esc(evaluation_label)}</option><option value="all">selection + evaluation</option></select></label></div>
+<label>Rows<select id="dual-{slug}-{panel}-split"><option value="all">{esc(full_label)}</option><option value="confirmation">{esc(evaluation_label)}</option></select></label></div>
 <canvas id="dual-{slug}-{panel}" data-model="{esc(model)}" data-panel="{panel}"></canvas>
 <div class="rotate-hint">drag to rotate · every layer available · discovery-fitted PCA3</div>
 <div class="panel-stats" id="dual-{slug}-{panel}-stats"></div></article>"""
@@ -1746,6 +1747,14 @@ def dual_endpoint_section(
             f"<h3>{esc(model)}</h3><div class=\"dual-grid\">{''.join(cards)}</div>"
         )
 
+    category_html = ""
+    if category_rows:
+        category_html = f"""
+<details><summary>Appendix diagnostic · pooled trace-format groups</summary>
+<p class="small">这些是格式异质性诊断，不参与主结果的 site/layer 选择。</p>
+{html_table(['模型', 'pooled group', '角色', '保留 k', 'D-selected site/layer', 'D OOF', '冻结层 held-out', 'SNR'], category_rows)}
+</details>"""
+
     return f"""
 <section id="dual"><h2>两个 endpoint，各自在自己的最佳表征上比较</h2>
 <p>这里不再要求 non-thinking 与 native-thinking 使用同一层。每个模式分别在 discovery 中搜索自己的 token site 与 decoder layer；程序按 5-fold seed-grouped OOF Logistic/NCC balanced accuracy 的平均值选赢家，confirmation 不进入 selector。定量空间是每 fold 内重拟合的 StandardScaler + whitened PCA16；下方 3D 仅作显示，每层独立用 discovery 拟合 PCA3。</p>
@@ -1753,10 +1762,7 @@ def dual_endpoint_section(
 <div class="callout"><strong>判读规则：</strong>每个 endpoint、mode 都使用自己的 discovery-frozen 最佳 token-site/layer。只有 held-out Logistic 与 NCC 同向提高时才写“更可解码”；只有 SNR 也提高时才进一步写“类间/类内比更高”。三项不一致时分别报告，不能笼统写成“几何更紧”。</div>
 <div class="callout"><strong>统一 split：</strong>running-index 与 final-count 都使用注册的 20-seed discovery / 10-seed confirmation。每个 final-count 模式的 confirmation 恰好是 10 counts × 10 seeds = 100 个 states；同一 seed 的十个 count 条件始终在同一侧。</div>
 {html_table(['模型', 'endpoint', '模式', 'D-selected site/layer', 'D OOF', '冻结层 held-out', 'held-out SNR', 'support'], summary_rows)}
-<h3>稀疏 trace 类型合并后的 native running-index 诊断</h3>
-<p class="small"><code>explicit_count_marker = indexed + ordinal + inline_count</code>；<code>implicit_or_invariant_progress = bullet + audit_sentence + completion_recap + evidence_sequence</code>。每类只保留 discovery≥3 且 confirmation≥2 的 k。<code>marker_end</code> 只作为显式数字 cue 的 positive control；主搜索包含 format-aware <code>pre_marker</code> 与其他低泄漏边界。</p>
-{html_table(['模型', 'pooled group', '角色', '保留 k', 'D-selected site/layer', 'D OOF', '冻结层 held-out', 'SNR'], category_rows)}
-<div class="callout warning"><strong>类别结果的边界：</strong>显式 count-marker 组必须同时查看 <code>pre_marker</code> 主候选与 <code>marker_end</code> lexical positive control；无显式编号组则检查低泄漏站点是否仍能 held-out 解码。只有多种格式方向一致时，才可支持跨格式的共享 representation；否则应报告格式依赖。</div>
+{category_html}
 <h3>每层 3D：四个 panel 各自切 layer</h3>
 <p class="small">每张图固定使用该 panel 由 discovery 选中的 token site，但 layer 可独立浏览全部 decoder blocks；因此不会把两个模式锁到同一层。点色是 running k 或 gold final count N。统计栏同时显示该层的 discovery OOF 与 held-out Logistic/NCC/SNR；all-layer held-out 曲线仅作透明诊断，程序化赢家仍只读取 discovery 列。</p>
 {''.join(model_blocks)}
@@ -1978,9 +1984,40 @@ def main() -> None:
             "raw partial-trace excerpts and character/token endpoint audits are embedded."
         ),
     )
+    parser.add_argument(
+        "--parser-audit",
+        type=Path,
+        help=(
+            "Optional 600-row hybrid parser audit used for marker and trace-category "
+            "proportion sections. Must be supplied together with the "
+            "two Qwen band-diagnostic inputs."
+        ),
+    )
+    parser.add_argument(
+        "--qwen-band-audit",
+        type=Path,
+        help="Optional JSON from analyze_native_geometry_bands.py.",
+    )
+    parser.add_argument(
+        "--qwen-band-points",
+        type=Path,
+        help="Optional confirmation_points.csv from the Qwen band diagnostic.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
+    diagnostic_inputs = (
+        args.parser_audit,
+        args.qwen_band_audit,
+        args.qwen_band_points,
+    )
+    if any(value is not None for value in diagnostic_inputs) and not all(
+        value is not None for value in diagnostic_inputs
+    ):
+        parser.error(
+            "--parser-audit, --qwen-band-audit, and --qwen-band-points must "
+            "be supplied together"
+        )
 
     comparison, aligned_peak, metric_inputs = load_metric_comparison(
         args.aligned_geometry_root.resolve(),
@@ -2099,6 +2136,24 @@ def main() -> None:
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    if all(value is not None for value in diagnostic_inputs):
+        from augment_niah_geometry_comparison_report import update_report
+
+        update_report(
+            report=output,
+            manifest=manifest_path,
+            parser_audit=args.parser_audit.resolve(),
+            native_capture_root=args.native_capture_root.resolve(),
+            native_trace_root=(
+                None
+                if args.native_trace_root is None
+                else args.native_trace_root.resolve()
+            ),
+            dual_root=args.dual_endpoint_root.resolve(),
+            band_audit=args.qwen_band_audit.resolve(),
+            band_points=args.qwen_band_points.resolve(),
+        )
+        manifest = read_json(manifest_path)
     print(json.dumps(manifest, ensure_ascii=False, indent=2))
 
 

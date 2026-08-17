@@ -37,7 +37,7 @@ from .parsing import (
 from .spec import V5Config
 
 
-CAPTURE_SCHEMA_VERSION = "realistic_niah_v5_trace_capture_v3"
+CAPTURE_SCHEMA_VERSION = "realistic_niah_v5_trace_capture_v4"
 ATTENTION_SCHEMA_VERSION = "realistic_niah_v5_mechanism_attention_v3"
 
 
@@ -79,9 +79,19 @@ def _save_npz(path: Path, **arrays: np.ndarray) -> None:
 
 
 def _selected_sites(
-    token_sites: Sequence[TraceTokenSite], config: V5Config
+    token_sites: Sequence[TraceTokenSite],
+    config: V5Config,
+    site_kinds: Sequence[str] | None = None,
 ) -> list[TraceTokenSite]:
     registered = set(config.registered_sites)
+    if site_kinds is not None:
+        requested = set(map(str, site_kinds))
+        unknown = sorted(requested - registered)
+        if unknown:
+            raise ValueError(f"Unregistered V5 trace sites requested: {unknown}")
+        if not requested:
+            raise ValueError("site_kinds cannot be empty")
+        registered = requested
     result = [
         site
         for site in token_sites
@@ -150,6 +160,8 @@ def capture_trace_record(
     config: V5Config,
     output_dir: str | Path,
     layers: Iterable[int] | None = None,
+    site_kinds: Sequence[str] | None = None,
+    capture_span_pooling: bool = True,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     config.validate()
@@ -172,6 +184,19 @@ def capture_trace_record(
                 f"Existing V5 layer grid differs in {manifest_path}; "
                 "use --overwrite or a new output directory."
             )
+        expected_site_kinds = sorted(
+            set(config.registered_sites if site_kinds is None else site_kinds)
+        )
+        if saved.get("selected_site_kinds") != expected_site_kinds:
+            raise RuntimeError(
+                f"Existing V5 site grid differs in {manifest_path}; "
+                "use --overwrite or a new output directory."
+            )
+        if bool(saved.get("capture_span_pooling")) != bool(capture_span_pooling):
+            raise RuntimeError(
+                f"Existing V5 span-pooling policy differs in {manifest_path}; "
+                "use --overwrite or a new output directory."
+            )
         return saved
     family = infer_model_family(row)
     raw = raw_output_text(row)
@@ -186,7 +211,7 @@ def capture_trace_record(
         baseline_output_token_ids=output_token_ids(row),
         sites=trace_char_sites(raw, parser),
     )
-    sites = _selected_sites(token_sites, config)
+    sites = _selected_sites(token_sites, config, site_kinds)
     if not sites:
         raise ValueError("No aligned registered V5 trace sites")
     started = time.perf_counter()
@@ -251,7 +276,11 @@ def capture_trace_record(
         "layer_indices": layer_indices.numpy(),
         "site_states": states.numpy().astype(numpy_dtype, copy=False),
     }
-    item_spans = _literal_item_spans(token_sites, prompt_count)
+    item_spans = (
+        _literal_item_spans(token_sites, prompt_count)
+        if capture_span_pooling
+        else []
+    )
     span_site_ids: list[str] = []
     if item_spans:
         pooled = capture_span_states(
@@ -296,6 +325,10 @@ def capture_trace_record(
         "prompt_token_count": prompt_count,
         "output_token_count": len(output_token_ids(row)),
         "layers": layer_indices.tolist(),
+        "selected_site_kinds": sorted(
+            set(config.registered_sites if site_kinds is None else site_kinds)
+        ),
+        "capture_span_pooling": bool(capture_span_pooling),
         "site_rows": [site.to_dict() for site in sites],
         "span_site_ids": span_site_ids,
         "states_file": "states.npz",
@@ -489,6 +522,8 @@ def capture_trace_shards(
     config: V5Config,
     output_dir: str | Path,
     layers: Iterable[int] | None = None,
+    site_kinds: Sequence[str] | None = None,
+    capture_span_pooling: bool = True,
     overwrite: bool = False,
 ) -> Path:
     output = Path(output_dir)
@@ -505,6 +540,8 @@ def capture_trace_shards(
             config=config,
             output_dir=output / relative,
             layers=layers,
+            site_kinds=site_kinds,
+            capture_span_pooling=capture_span_pooling,
             overwrite=overwrite,
         )
         index_rows.append(
@@ -554,6 +591,10 @@ def capture_trace_shards(
             "site_schema_version": SITE_SCHEMA_VERSION,
             "primary_trace_site": config.primary_trace_site,
             "registered_sites": list(config.registered_sites),
+            "selected_site_kinds": sorted(
+                set(config.registered_sites if site_kinds is None else site_kinds)
+            ),
+            "capture_span_pooling": bool(capture_span_pooling),
             "counts": sorted({int(row["gold_count"]) for row in index_rows}),
             "split_trajectory_counts": {
                 split: sum(str(row["split"]) == split for row in index_rows)

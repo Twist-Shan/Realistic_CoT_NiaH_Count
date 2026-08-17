@@ -127,6 +127,7 @@ def test_hybrid_oracle_parser_and_registered_sites(family: str) -> None:
         "first_list_cutoff.py",
         "gold_city_cutoff.py",
         "hybrid_trace_parser.py",
+        "parsing.py",
     }
     assert result["alignment_summary"]["eligible"] == len(result["token_sites"])
     item_sites = [

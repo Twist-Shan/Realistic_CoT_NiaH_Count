@@ -148,6 +148,20 @@ def test_final_total_does_not_set_or_pad_trace_labels() -> None:
     assert raw[answer_query_v3["char_end"]] == "2"
 
 
+def test_answer_query_v3_survives_a_running_parser_miss() -> None:
+    raw = "<think>There is no recoverable city-count episode here.</think>\nTotal: 7"
+    result = parse_trace_record(_row(raw, family="qwen3", cities=["Nowhere"]))
+
+    assert result["parser"]["detected"] is False
+    sites = {site["site_kind"]: site for site in result["char_sites"]}
+    assert set(sites) == {"answer_query", "answer_query_v3"}
+    answer_query_v3 = sites["answer_query_v3"]
+    assert raw[
+        answer_query_v3["char_start"] : answer_query_v3["char_end"]
+    ] == "Total: "
+    assert raw[answer_query_v3["char_end"]] == "7"
+
+
 def test_unmarked_score_supported_prose_is_a_trace_sequence() -> None:
     raw = (
         "<think>\n"
