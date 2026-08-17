@@ -45,6 +45,15 @@ from realistic_niah_v5.cross_mode_geometry import (  # noqa: E402
     load_native_thinking_capture,
     load_non_thinking_capture,
 )
+from realistic_niah_v5.dual_endpoint_geometry import (  # noqa: E402
+    PCA_WHITEN,
+    SCHEMA_VERSION as DUAL_ENDPOINT_SCHEMA_VERSION,
+    SHARED_EVALUATION_SEEDS,
+    SHARED_SELECTION_SEEDS,
+    load_native_thinking_final_count,
+    load_non_thinking_final_count,
+    relabel_seed_panel,
+)
 from realistic_niah_v5.parsing import (  # noqa: E402
     PARSER_UPSTREAM_COMMIT,
     PARSER_UPSTREAM_REPOSITORY,
@@ -57,6 +66,7 @@ from realistic_niah_v5.trace_stratified_geometry import (  # noqa: E402
 MODELS = ("Qwen3-8B", "Gemma4-E4B")
 PCA_DIMS = (32,)
 TRACE_STRATIFIED_PCA_DIM = 16
+DUAL_ENDPOINT_DIRECTORY = "pca16_whiten"
 EXPECTED_FULL_PANEL = {
     "discovery": list(range(1234, 1254)),
     "confirmation": list(range(1254, 1264)),
@@ -179,6 +189,60 @@ def load_trace_stratified_results(
         }
         inputs.extend([eligibility_path, selection_path, metrics_path, audit_path])
     return results, inputs
+
+
+def load_dual_endpoint_results(
+    root: Path,
+) -> tuple[dict[str, dict[str, Any]], list[Path]]:
+    """Load independently selected running-index and final-count results."""
+
+    results: dict[str, dict[str, Any]] = {}
+    inputs: list[Path] = []
+    for model in MODELS:
+        directory = root / model / DUAL_ENDPOINT_DIRECTORY
+        paths = {
+            "running_candidates": directory / "running_index_candidate_metrics.csv",
+            "running_selected": directory / "running_index_selected.csv",
+            "eligibility": directory / "running_index_group_eligibility.csv",
+            "final_candidates": directory / "final_count_candidate_metrics.csv",
+            "final_selected": directory / "final_count_selected.csv",
+            "audit": directory / "dual_endpoint_geometry_audit.json",
+            "runtime": directory / "runtime_log.json",
+        }
+        audit = read_json(paths["audit"])
+        require(
+            audit.get("schema_version") == DUAL_ENDPOINT_SCHEMA_VERSION,
+            f"dual-endpoint schema mismatch for {model}",
+        )
+        require(audit.get("model_label") == model, f"dual-endpoint model mismatch for {model}")
+        require(bool(audit.get("pca_whiten")) == PCA_WHITEN, "dual PCA whitening mismatch")
+        payload = {
+            "audit": audit,
+            "runtime": read_json(paths["runtime"]),
+            "running_candidates": read_csv(paths["running_candidates"]),
+            "running_selected": read_csv(paths["running_selected"]),
+            "eligibility": read_csv(paths["eligibility"]),
+            "final_candidates": read_csv(paths["final_candidates"]),
+            "final_selected": read_csv(paths["final_selected"]),
+        }
+        for key in ("running_selected", "final_selected"):
+            require(
+                all(row.get("model_label") == model for row in payload[key]),
+                f"dual-endpoint row model mismatch for {model}/{key}",
+            )
+        results[model] = payload
+        inputs.extend(paths.values())
+    return results, inputs
+
+
+def _one_row(rows: Iterable[Mapping[str, Any]], **criteria: str) -> Mapping[str, Any]:
+    matches = [
+        row
+        for row in rows
+        if all(str(row.get(key)) == str(value) for key, value in criteria.items())
+    ]
+    require(len(matches) == 1, f"expected one row for {criteria}; found {len(matches)}")
+    return matches[0]
 
 
 def load_metric_comparison(
@@ -766,6 +830,178 @@ def fit_display_coordinates(
     return result
 
 
+def fit_dual_display_coordinates(dataset: ModeDataset) -> dict[str, Any]:
+    """Fit a separate discovery-only PCA3 display for every available layer."""
+
+    metadata = dataset.metadata.reset_index(drop=True)
+    discovery = metadata["split"].astype(str).eq("discovery").to_numpy()
+    require(discovery.sum() >= 3, f"{dataset.mode}: too few dual-endpoint discovery rows")
+    result: dict[str, Any] = {}
+    for layer, values in sorted(dataset.states_by_layer.items()):
+        states = np.asarray(values, dtype=np.float32)
+        scaler = StandardScaler().fit(states[discovery])
+        scaled_discovery = scaler.transform(states[discovery])
+        pca = PCA(n_components=3, svd_solver="randomized", random_state=0).fit(
+            scaled_discovery
+        )
+        coordinates = pca.transform(scaler.transform(states))
+        points = [
+            [
+                str(row.split),
+                int(row.seed),
+                int(row.occurrence),
+                round(float(coordinates[index, 0]), 5),
+                round(float(coordinates[index, 1]), 5),
+                round(float(coordinates[index, 2]), 5),
+            ]
+            for index, row in enumerate(metadata.itertuples(index=False))
+        ]
+        result[str(layer)] = {
+            "evr": [round(float(value), 6) for value in pca.explained_variance_ratio_],
+            "points": points,
+        }
+    return result
+
+
+def _dual_metric_curve(
+    candidates: Iterable[Mapping[str, Any]], selected: Mapping[str, Any]
+) -> dict[str, Any]:
+    criteria = {
+        key: str(selected[key])
+        for key in ("mode", "analysis_group", "selector", "token_site")
+    }
+    rows = [
+        row
+        for row in candidates
+        if all(str(row.get(key)) == value for key, value in criteria.items())
+    ]
+    require(rows, f"no dual candidate curve for {criteria}")
+    result = {}
+    for row in rows:
+        result[str(int(row["layer"]))] = {
+            "discovery_logistic": float(
+                row["discovery_oof_logistic_balanced_accuracy"]
+            ),
+            "discovery_ncc": float(row["discovery_oof_ncc_balanced_accuracy"]),
+            "discovery_score": float(row["discovery_selection_score"]),
+            "confirmation_logistic": float(
+                row["confirmation_logistic_balanced_accuracy"]
+            ),
+            "confirmation_ncc": float(row["confirmation_ncc_balanced_accuracy"]),
+            "confirmation_snr_db": float(
+                row["confirmation_class_balanced_snr_db"]
+            ),
+        }
+    return result
+
+
+def build_dual_visual_data(
+    export_root: Path,
+    native_running_root: Path,
+    native_final_root: Path,
+    dual_results: Mapping[str, Mapping[str, Any]],
+) -> tuple[dict[str, Any], list[Path]]:
+    visual: dict[str, Any] = {}
+    inputs: list[Path] = []
+    for model in MODELS:
+        payload = dual_results[model]
+        running_selected = payload["running_selected"]
+        final_selected = payload["final_selected"]
+        running_non_row = _one_row(
+            running_selected, mode="non_thinking", analysis_group="all_traces"
+        )
+        running_native_row = _one_row(
+            running_selected,
+            mode="native_thinking",
+            analysis_group="all_traces",
+        )
+        final_non_row = _one_row(final_selected, mode="non_thinking")
+        final_native_row = _one_row(final_selected, mode="native_thinking")
+
+        non_running_index = (
+            export_root
+            / model
+            / "numeric"
+            / "representation"
+            / "capture"
+            / "capture_index.jsonl"
+        )
+        native_running_index = native_running_root / model / "capture_index.jsonl"
+        non_final_index = (
+            export_root
+            / model
+            / "numeric"
+            / "representation"
+            / "answer_query_all_layers_v1"
+            / "capture_index.jsonl"
+        )
+        native_final_index = (
+            native_final_root
+            / model
+            / "representation"
+            / "capture_primary"
+            / "capture_index.jsonl"
+        )
+        datasets = {
+            "running_non": load_non_thinking_capture(
+                non_running_index,
+                design_variant="v4.4",
+                pooling=str(running_non_row["token_site"]),
+            ),
+            "running_native": load_native_thinking_capture(
+                native_running_index,
+                site_kind=str(running_native_row["token_site"]),
+                cohort="parser_hit",
+            ),
+            "final_non": relabel_seed_panel(
+                load_non_thinking_final_count(non_final_index),
+                discovery_seeds=SHARED_SELECTION_SEEDS,
+                confirmation_seeds=SHARED_EVALUATION_SEEDS,
+            ),
+            "final_native": relabel_seed_panel(
+                load_native_thinking_final_count(native_final_index),
+                discovery_seeds=SHARED_SELECTION_SEEDS,
+                confirmation_seeds=SHARED_EVALUATION_SEEDS,
+            ),
+        }
+        selected_rows = {
+            "running_non": running_non_row,
+            "running_native": running_native_row,
+            "final_non": final_non_row,
+            "final_native": final_native_row,
+        }
+        candidate_rows = {
+            "running_non": payload["running_candidates"],
+            "running_native": payload["running_candidates"],
+            "final_non": payload["final_candidates"],
+            "final_native": payload["final_candidates"],
+        }
+        panels: dict[str, Any] = {}
+        for key, dataset in datasets.items():
+            selected = selected_rows[key]
+            panels[key] = {
+                "endpoint": str(selected["endpoint"]),
+                "mode": str(selected["mode"]),
+                "token_site": str(selected["token_site"]),
+                "default_layer": int(selected["layer"]),
+                "layers": sorted(dataset.states_by_layer),
+                "coordinates": fit_dual_display_coordinates(dataset),
+                "metrics": _dual_metric_curve(candidate_rows[key], selected),
+            }
+        visual[model] = {"panels": panels}
+        inputs.extend(
+            [
+                non_running_index,
+                native_running_index,
+                non_final_index,
+                native_final_index,
+            ]
+        )
+        del datasets
+        gc.collect()
+    return visual, inputs
+
+
 def build_visual_data(
     export_root: Path,
     native_capture_root: Path,
@@ -1304,6 +1540,141 @@ def trace_stratified_section(
 </section>"""
 
 
+def dual_endpoint_section(
+    dual_results: Mapping[str, Mapping[str, Any]],
+    dual_visual: Mapping[str, Any],
+) -> str:
+    summary_rows = []
+    category_rows = []
+    for model in MODELS:
+        payload = dual_results[model]
+        selected = payload["running_selected"] + payload["final_selected"]
+        for row in selected:
+            if str(row["analysis_group"]) not in {"all_traces", "all_counts"}:
+                continue
+            original = "—"
+            if row["endpoint"] == "final_count" and row["mode"] == "native_thinking":
+                original = (
+                    f"Log {pct(row['native_original_confirmation_logistic_balanced_accuracy'])} / "
+                    f"NCC {pct(row['native_original_confirmation_ncc_balanced_accuracy'])} / "
+                    f"{float(row['native_original_confirmation_class_balanced_snr_db']):.2f} dB"
+                )
+            summary_rows.append(
+                (
+                    esc(model),
+                    "running index" if row["endpoint"] == "running_index" else "final count",
+                    "non-thinking" if row["mode"] == "non_thinking" else "native-thinking",
+                    f"<code>{esc(row['token_site'])}</code> @ L{int(row['layer'])}",
+                    (
+                        f"Log {pct(row['discovery_oof_logistic_balanced_accuracy'])} / "
+                        f"NCC {pct(row['discovery_oof_ncc_balanced_accuracy'])}"
+                    ),
+                    (
+                        f"Log {pct(row['confirmation_logistic_balanced_accuracy'])} / "
+                        f"NCC {pct(row['confirmation_ncc_balanced_accuracy'])}"
+                    ),
+                    f"{float(row['confirmation_class_balanced_snr_db']):.2f} dB",
+                    (
+                        f"{int(float(row['confirmation_rows']))} states / "
+                        f"{int(float(row['confirmation_seed_count']))} seeds / "
+                        f"nₖ {int(float(row['confirmation_support_min']))}–"
+                        f"{int(float(row['confirmation_support_max']))}"
+                    ),
+                    original,
+                )
+            )
+        for row in payload["running_selected"]:
+            if str(row["mode"]) != "native_thinking" or str(
+                row["analysis_group"]
+            ) == "all_traces":
+                continue
+            group = str(row["analysis_group"])
+            role = (
+                "lexical positive control"
+                if group == "explicit_ordinal_marker_control"
+                else "post-marker primary search"
+            )
+            category_rows.append(
+                (
+                    esc(model),
+                    f"<code>{esc(group)}</code>",
+                    esc(role),
+                    esc(row["retained_labels"]),
+                    f"<code>{esc(row['token_site'])}</code> @ L{int(row['layer'])}",
+                    (
+                        f"Log {pct(row['discovery_oof_logistic_balanced_accuracy'])} / "
+                        f"NCC {pct(row['discovery_oof_ncc_balanced_accuracy'])}"
+                    ),
+                    (
+                        f"Log {pct(row['confirmation_logistic_balanced_accuracy'])} / "
+                        f"NCC {pct(row['confirmation_ncc_balanced_accuracy'])}"
+                    ),
+                    f"{float(row['confirmation_class_balanced_snr_db']):.2f} dB",
+                )
+            )
+
+    panel_labels = {
+        "running_non": (
+            "Running index · non-thinking",
+            "Prompt evidence span；位置由 discovery 在 span_end/span_mean 中选择。",
+        ),
+        "running_native": (
+            "Running index · native-thinking",
+            "Thinking trace item；主 selector 排除显式 marker endpoint。",
+        ),
+        "final_non": (
+            "Final count · non-thinking",
+            "Prompt 末尾 Total: query state；类别是 gold N=1…10。",
+        ),
+        "final_native": (
+            "Final count · native-thinking",
+            "Thinking trace 中紧邻 numeric final answer 之前的最后一个 literal token。",
+        ),
+    }
+    model_blocks = []
+    for model in MODELS:
+        slug = "qwen" if model.startswith("Qwen") else "gemma"
+        cards = []
+        for panel, (title, description) in panel_labels.items():
+            payload = dual_visual[model]["panels"][panel]
+            options = "".join(
+                f'<option value="{layer}"{(" selected" if layer == payload["default_layer"] else "")}>L{layer}</option>'
+                for layer in payload["layers"]
+            )
+            evaluation_label = (
+                "original confirmation only"
+                if panel.startswith("running")
+                else "shared 5-seed held-out only"
+            )
+            cards.append(
+                f"""<article class="geometry-card dual-card"><h3>{esc(title)}</h3>
+<p>{esc(description)}</p><div class="controls"><label>Layer<select id="dual-{slug}-{panel}-layer">{options}</select></label>
+<label>Rows<select id="dual-{slug}-{panel}-split"><option value="confirmation">{esc(evaluation_label)}</option><option value="all">selection + evaluation</option></select></label></div>
+<canvas id="dual-{slug}-{panel}" data-model="{esc(model)}" data-panel="{panel}"></canvas>
+<div class="rotate-hint">drag to rotate · every layer available · discovery-fitted PCA3</div>
+<div class="panel-stats" id="dual-{slug}-{panel}-stats"></div></article>"""
+            )
+        model_blocks.append(
+            f"<h3>{esc(model)}</h3><div class=\"dual-grid\">{''.join(cards)}</div>"
+        )
+
+    return f"""
+<section id="dual"><h2>两个 endpoint，各自在自己的最佳表征上比较</h2>
+<p>这里不再要求 non-thinking 与 native-thinking 使用同一层。每个模式分别在 discovery 中搜索自己的 token site 与 decoder layer；程序按 5-fold seed-grouped OOF Logistic/NCC balanced accuracy 的平均值选赢家，confirmation 不进入 selector。定量空间是每 fold 内重拟合的 StandardScaler + whitened PCA16；下方 3D 仅作显示，每层独立用 discovery 拟合 PCA3。</p>
+<div class="definitions two"><div><h3>Running index</h3><p><strong>non-thinking：</strong>prompt 中第 k 个 evidence span。<strong>native-thinking：</strong>thinking trace 中 parser-observed 的第 k 项。两边类别都是 k=1…10，但 token 语义不同。</p></div><div><h3>Final count</h3><p><strong>non-thinking：</strong>prompt-final <code>Total:</code> query。<strong>native-thinking：</strong>numeric final answer 前的最后一个 thinking token。两边类别都是 gold N=1…10。</p></div></div>
+<div class="callout"><strong>主结论：</strong>在各自 discovery-frozen 的最佳层/位置上，两模型的两个 endpoint 都显示 native-thinking 的 held-out Logistic 与 NCC 高于 non-thinking。running-index 的 SNR 并非完全同向：Qwen native 的分类更高，但 SNR 略低；所以最稳妥表述是“更可解码”，不是笼统的“几何一定更紧”。</div>
+<div class="callout warning"><strong>Final-count split 限制：</strong>non-thinking 没有原始 confirmation hidden-state capture。因此 direct comparison 预先固定在共有 20 个 discovery seeds 内，用 1234–1248 选择、1249–1253 评价；这是 post-hoc shared held-out audit，不是新的预注册 confirmation。native 原始 1254–1263 只作为额外单模式复验，列在最右侧。</div>
+{html_table(['模型', 'endpoint', '模式', 'D-selected site/layer', 'D OOF', '冻结层 held-out', 'held-out SNR', 'support', 'native 原始 C 复验'], summary_rows)}
+<h3>稀疏 trace 类型合并后的 native running-index 诊断</h3>
+<p class="small"><code>explicit_ordinal = indexed + ordinal</code>；<code>non_explicit_progress = bullet + audit_sentence + completion_recap</code>。每类只保留 discovery≥3 且 confirmation≥2 的 k。<code>marker_end</code> 只作为显式数字 cue 的 positive control，不进入 post-marker 主 selector。</p>
+{html_table(['模型', 'pooled group', '角色', '保留 k', 'D-selected site/layer', 'D OOF', '冻结层 held-out', 'SNR'], category_rows)}
+<div class="callout warning"><strong>类别结果不是统一增强：</strong>Qwen 的 explicit 与 non-explicit 两组都能较好解码；Gemma 的 non-explicit 仍有中等信号，但 explicit 在排除 marker 后较弱，而 marker positive control 为满分。这说明 pooled native 优势不能全部解释成显式编号读取，但也不能声称所有 trace 格式共享同一个稳定 counter geometry。</div>
+<h3>每层 3D：四个 panel 各自切 layer</h3>
+<p class="small">每张图固定使用该 panel 由 discovery 选中的 token site，但 layer 可独立浏览全部 decoder blocks；因此不会把两个模式锁到同一层。点色是 running k 或 gold final count N。统计栏同时显示该层的 discovery OOF 与 held-out Logistic/NCC/SNR；all-layer held-out 曲线仅作透明诊断，程序化赢家仍只读取 discovery 列。</p>
+{''.join(model_blocks)}
+</section>"""
+
+
 def model_section(model: str, payload: Mapping[str, Any]) -> str:
     slug = "qwen" if model.startswith("Qwen") else "gemma"
     options = "".join(
@@ -1355,6 +1726,8 @@ def build_html(
     visual: Mapping[str, Any],
     partials: list[dict[str, Any]],
     trace_stratified: Mapping[str, Mapping[str, Any]],
+    dual_results: Mapping[str, Mapping[str, Any]],
+    dual_visual: Mapping[str, Any],
 ) -> str:
     gemma_trace_one = comparison["Gemma4-E4B"][32][
         "native_one_to_one_trace_aware"
@@ -1362,13 +1735,18 @@ def build_html(
     visual_json = json.dumps(visual, ensure_ascii=False, separators=(",", ":")).replace(
         "</", "<\\/"
     )
+    dual_visual_json = json.dumps(
+        dual_visual, ensure_ascii=False, separators=(",", ":")
+    ).replace("</", "<\\/")
     css = """
 :root{--paper:#F3EEE4;--surface:#FFFDF8;--ink:#20242D;--muted:#626A74;--line:#C9C2B6;--indigo:#23165C;--violet:#6750E8;--teal:#00A88F;--yellow:#D6B52C}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font-family:"Segoe UI",Arial,sans-serif;line-height:1.62}nav{position:sticky;top:0;z-index:5;display:flex;gap:18px;padding:10px 22px;background:rgba(243,238,228,.96);border-bottom:1px solid var(--line)}nav a{color:var(--indigo);font-size:13px;font-weight:750;text-decoration:none}main{max-width:1480px;margin:auto;padding:38px 28px 80px}header{max-width:1080px;border-bottom:2px solid var(--ink);padding-bottom:28px}.eyebrow{font:700 12px/1.2 Consolas,monospace;letter-spacing:.12em;color:var(--teal)}h1{font-size:44px;line-height:1.08;margin:10px 0 16px;letter-spacing:-.035em}h2{font-size:29px;margin:0}.lead{font-size:18px;color:#404852;max-width:92ch}section{padding:46px 0;border-bottom:1px solid var(--line)}.callout{max-width:1080px;background:var(--surface);border-left:4px solid var(--teal);padding:15px 19px;margin:20px 0}.warning{border-left-color:var(--yellow)}.definitions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}.definitions.two{grid-template-columns:repeat(2,minmax(0,1fr))}.definitions>div,.geometry-card{background:var(--surface);border:1px solid var(--line);padding:17px}.definitions h3,.geometry-card h3{color:var(--indigo);margin:0 0 8px;font-size:17px}.definitions p,.geometry-card p{font-size:13px;color:var(--muted);margin:0 0 12px}.section-title{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:18px}.controls{display:flex;gap:12px;flex-wrap:wrap}.controls label{font-size:12px;font-weight:700;color:var(--muted)}select{display:block;margin-top:4px;border:1px solid var(--line);background:var(--surface);padding:7px 28px 7px 9px;color:var(--ink)}.geometry-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.geometry-card canvas{display:block;width:100%;height:360px;background:#F8F4EC;border:1px solid #DDD5C9;touch-action:none;cursor:grab}.geometry-card canvas:active{cursor:grabbing}.rotate-hint{margin-top:5px;color:#7A7270;font:10px/1.4 Consolas,monospace}.panel-stats{min-height:70px;margin-top:7px;color:var(--muted);font:12px/1.5 Consolas,monospace}.metric-block{margin-top:24px}.metric-block h3{color:var(--indigo);margin-bottom:2px}.metric-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:12px}.metric-grid article{background:var(--surface);border:1px solid var(--line);padding:12px}.metric-grid h4{font-size:13px;color:var(--indigo);margin:0 0 7px}.metric-grid canvas{width:100%;height:190px;display:block;background:#F8F4EC;border:1px solid #DDD5C9;cursor:crosshair}.table-scroll{overflow:auto;background:var(--surface);border:1px solid var(--line);margin:16px 0 22px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid #DED8CE}th{position:sticky;top:0;background:#ECE6DA;color:#303744}.muted{color:var(--muted);font-size:11px}.legend{display:flex;gap:18px;flex-wrap:wrap;margin:12px 0;font-size:13px}.dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:-1px;background:var(--violet)}.dot.correct{border:3px solid white;box-shadow:0 0 0 1px #49515B}.dot.wrong{border:2px solid #20242D}.small{font-size:13px;color:var(--muted);max-width:110ch}details{background:var(--surface);border:1px solid var(--line);margin:18px 0}summary{cursor:pointer;padding:12px 15px;font-weight:750;color:var(--indigo)}details .table-scroll{border:0;border-top:1px solid var(--line);margin:0}.trace{white-space:pre-wrap;overflow-wrap:anywhere;background:#F8F4EC;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:0;padding:16px;font:12px/1.55 Consolas,monospace}.provenance{font:11px/1.6 Consolas,monospace;color:var(--muted)}
-@media(max-width:1050px){.geometry-grid,.definitions,.definitions.two,.metric-grid{grid-template-columns:1fr}.geometry-card canvas{height:390px}.section-title{align-items:flex-start;flex-direction:column}}@media(max-width:650px){main{padding:25px 13px 60px}h1{font-size:34px}.geometry-card canvas{height:330px}}
+.dual-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:28px}.dual-card .controls{margin:10px 0}.dual-card canvas{height:390px}
+@media(max-width:1050px){.geometry-grid,.dual-grid,.definitions,.definitions.two,.metric-grid{grid-template-columns:1fr}.geometry-card canvas{height:390px}.section-title{align-items:flex-start;flex-direction:column}}@media(max-width:650px){main{padding:25px 13px 60px}h1{font-size:34px}.geometry-card canvas{height:330px}}
 """
     script = """
 const DATA=__VISUAL_DATA__;
+const DUAL=__DUAL_VISUAL_DATA__;
 const COLORS=['#6750E8','#00A9D8','#00A88F','#2DBE77','#A7C957','#D6B52C','#F29E4C','#E76F51','#D94B86','#8E5DB7'];
 const PANEL_COLORS={non_thinking:'#20242D',native_one_to_one:'#D6A900',native_aligned:'#00A88F'};
 const PANELS=['non_thinking','native_one_to_one','native_aligned'];
@@ -1422,13 +1800,30 @@ function drawMetric(canvas,model,field){
 function redraw(model){const ctl=controls(model),s=slug(model);for(const panel of PANELS)draw3D(document.getElementById(s+'-'+panel),model,panel,ctl.layer,ctl.split,ctl.outcome,ctl.anchor);for(const field of ['logistic','ncc','snr_db'])drawMetric(document.getElementById(s+'-metric-'+field),model,field)}
 function setup3D(canvas,model,panel){let active=false,lastX=0,lastY=0;canvas.addEventListener('pointerdown',e=>{active=true;lastX=e.clientX;lastY=e.clientY;canvas.setPointerCapture(e.pointerId)});canvas.addEventListener('pointermove',e=>{if(!active)return;const view=VIEWS[canvas.id]||(VIEWS[canvas.id]={yaw:-.72,pitch:.46});view.yaw+=(e.clientX-lastX)*.009;view.pitch=Math.max(-1.45,Math.min(1.45,view.pitch+(e.clientY-lastY)*.009));lastX=e.clientX;lastY=e.clientY;const ctl=controls(model);draw3D(canvas,model,panel,ctl.layer,ctl.split,ctl.outcome,ctl.anchor)});const stop=()=>{active=false};canvas.addEventListener('pointerup',stop);canvas.addEventListener('pointercancel',stop)}
 for(const model of Object.keys(DATA)){const s=slug(model);for(const key of ['layer','split','anchor','outcome'])document.getElementById(s+'-'+key).addEventListener('change',()=>redraw(model));for(const panel of PANELS)setup3D(document.getElementById(s+'-'+panel),model,panel);redraw(model)}
-let timer;window.addEventListener('resize',()=>{clearTimeout(timer);timer=setTimeout(()=>Object.keys(DATA).forEach(redraw),100)});
-""".replace("__VISUAL_DATA__", visual_json)
+function dualIds(model,panel){const base='dual-'+slug(model)+'-'+panel;return {base,layer:document.getElementById(base+'-layer'),split:document.getElementById(base+'-split'),canvas:document.getElementById(base)}}
+function drawDual3D(model,panel){
+  const ids=dualIds(model,panel),payload=DUAL[model].panels[panel],layer=+ids.layer.value,split=ids.split.value,block=payload.coordinates[String(layer)],points=block.points.filter(p=>split==='all'||p[0]==='confirmation'),canvas=ids.canvas,rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+  canvas.width=Math.max(1,Math.round(rect.width*dpr));canvas.height=Math.max(1,Math.round(rect.height*dpr));const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);const w=rect.width,h=rect.height,stat=document.getElementById(ids.base+'-stats');c.clearRect(0,0,w,h);
+  if(!points.length){c.fillStyle='#6A727D';c.font='14px Segoe UI';c.fillText('No states match this split.',20,30);stat.textContent=`L${layer} · no states`;return}
+  const view=VIEWS[canvas.id]||(VIEWS[canvas.id]={yaw:-.72,pitch:.46}),groups=new Map();for(const p of points){if(!groups.has(p[2]))groups.set(p[2],[]);groups.get(p[2]).push(p)}
+  const cent=[...groups.entries()].sort((a,b)=>a[0]-b[0]).map(([k,ps])=>[k,ps.reduce((s,p)=>s+p[3],0)/ps.length,ps.reduce((s,p)=>s+p[4],0)/ps.length,ps.reduce((s,p)=>s+p[5],0)/ps.length,ps.length]);
+  const rotated=points.map(p=>({p,r:rotate3(p[3],p[4],p[5],view)})),rcent=cent.map(p=>({p,r:rotate3(p[1],p[2],p[3],view)})),maxAbs=Math.max(...points.flatMap(p=>[Math.abs(p[3]),Math.abs(p[4]),Math.abs(p[5])]),1e-6),axisLen=maxAbs*.72,axes=[['PC1','#D14B4B',rotate3(axisLen,0,0,view)],['PC2','#008E7B',rotate3(0,axisLen,0,view)],['PC3','#6750E8',rotate3(0,0,axisLen,view)]];
+  const xy=rotated.map(o=>o.r).concat(axes.map(a=>a[2]),[[0,0,0]]);let xmin=Math.min(...xy.map(v=>v[0])),xmax=Math.max(...xy.map(v=>v[0])),ymin=Math.min(...xy.map(v=>v[1])),ymax=Math.max(...xy.map(v=>v[1]));const dx=Math.max(xmax-xmin,1e-6),dy=Math.max(ymax-ymin,1e-6);xmin-=dx*.11;xmax+=dx*.11;ymin-=dy*.11;ymax+=dy*.11;const pad={l:23,r:23,t:18,b:22},sx=x=>pad.l+(x-xmin)/(xmax-xmin)*(w-pad.l-pad.r),sy=y=>h-pad.b-(y-ymin)/(ymax-ymin)*(h-pad.t-pad.b);
+  for(const [label,color,end] of axes){c.strokeStyle=color;c.lineWidth=1.25;c.beginPath();c.moveTo(sx(0),sy(0));c.lineTo(sx(end[0]),sy(end[1]));c.stroke();c.fillStyle=color;c.font='10px Consolas';c.fillText(label,sx(end[0])+3,sy(end[1])-3)}
+  c.strokeStyle='#2C3440';c.globalAlpha=.8;c.lineWidth=2;c.beginPath();rcent.forEach((o,i)=>i?c.lineTo(sx(o.r[0]),sy(o.r[1])):c.moveTo(sx(o.r[0]),sy(o.r[1])));c.stroke();const depths=rotated.map(o=>o.r[2]),zmin=Math.min(...depths),zmax=Math.max(...depths),zspan=Math.max(zmax-zmin,1e-6);rotated.sort((a,b)=>a.r[2]-b.r[2]);
+  for(const o of rotated){const p=o.p,depth=(o.r[2]-zmin)/zspan;c.globalAlpha=.42+.45*depth;c.fillStyle=COLORS[p[2]-1];c.strokeStyle=p[0]==='confirmation'?'#FFFDF8':'#20242D';c.lineWidth=p[0]==='confirmation'?2.2:1;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),2.7+1.25*depth,0,Math.PI*2);c.fill();c.stroke()}
+  c.globalAlpha=1;for(const o of rcent){const p=o.p;c.fillStyle=COLORS[p[0]-1];c.strokeStyle='#20242D';c.lineWidth=1.3;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),5.8,0,Math.PI*2);c.fill();c.stroke();c.fillStyle='#20242D';c.font='10px Consolas';c.fillText(String(p[0]),sx(o.r[0])+7,sy(o.r[1])-6)}
+  const seeds=new Set(points.map(p=>p[0]+':'+p[1])).size,counts=cent.map(p=>p[4]),metric=payload.metrics[String(layer)],evr=block.evr.reduce((a,b)=>a+b,0);stat.textContent=`${payload.token_site} · L${layer} · ${points.length} states / ${seeds} seeds · nₖ ${Math.min(...counts)}–${Math.max(...counts)} · EVR3 ${(100*evr).toFixed(1)}% · D OOF Log/NCC ${(100*metric.discovery_logistic).toFixed(1)}%/${(100*metric.discovery_ncc).toFixed(1)}% · held-out Log/NCC ${(100*metric.confirmation_logistic).toFixed(1)}%/${(100*metric.confirmation_ncc).toFixed(1)}% · SNR ${metric.confirmation_snr_db.toFixed(2)} dB`;
+}
+function setupDual3D(model,panel){const ids=dualIds(model,panel);ids.layer.addEventListener('change',()=>drawDual3D(model,panel));ids.split.addEventListener('change',()=>drawDual3D(model,panel));let active=false,lastX=0,lastY=0;ids.canvas.addEventListener('pointerdown',e=>{active=true;lastX=e.clientX;lastY=e.clientY;ids.canvas.setPointerCapture(e.pointerId)});ids.canvas.addEventListener('pointermove',e=>{if(!active)return;const view=VIEWS[ids.canvas.id]||(VIEWS[ids.canvas.id]={yaw:-.72,pitch:.46});view.yaw+=(e.clientX-lastX)*.009;view.pitch=Math.max(-1.45,Math.min(1.45,view.pitch+(e.clientY-lastY)*.009));lastX=e.clientX;lastY=e.clientY;drawDual3D(model,panel)});const stop=()=>{active=false};ids.canvas.addEventListener('pointerup',stop);ids.canvas.addEventListener('pointercancel',stop);drawDual3D(model,panel)}
+for(const model of Object.keys(DUAL))for(const panel of Object.keys(DUAL[model].panels))setupDual3D(model,panel);
+let timer;window.addEventListener('resize',()=>{clearTimeout(timer);timer=setTimeout(()=>{Object.keys(DATA).forEach(redraw);for(const model of Object.keys(DUAL))for(const panel of Object.keys(DUAL[model].panels))drawDual3D(model,panel)},100)});
+""".replace("__VISUAL_DATA__", visual_json).replace("__DUAL_VISUAL_DATA__", dual_visual_json)
 
     partial_confirmation = [row for row in partials if row["split"] == "confirmation"]
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NiaH Geometry Comparison</title><style>{css}</style></head>
-<body><nav><a href="#design">口径</a><a href="#tokens">Token 提取</a><a href="#strata">分类选点</a><a href="#qwen">Qwen</a><a href="#gemma">Gemma</a><a href="#metrics">指标</a><a href="#partial">部分轨迹</a></nav><main>
+<body><nav><a href="#design">口径</a><a href="#tokens">Token 提取</a><a href="#dual">独立最佳层</a><a href="#strata">分类选点</a><a href="#qwen">Qwen</a><a href="#gemma">Gemma</a><a href="#metrics">指标</a><a href="#partial">部分轨迹</a></nav><main>
 <header><div class="eyebrow">REALISTIC NIAH · THREE-COHORT GEOMETRY</div><h1>NiaH Geometry Comparison</h1>
 <p class="lead">同一份报告并列展示 non-thinking、经过 one-to-one 结构清洗的 native-thinking，以及使用共享 30 seeds、按实际出现 ordinal 对齐的 native-thinking。</p></header>
 <section id="design"><h2>比较口径</h2><div class="definitions"><div><h3>1 · Non-thinking</h3><p>固定 V4.4 N=10 prompt；第 k 类是 prompt 中第 k 个真实 needle 的 span-end state。每个 seed 固定有十个位置。</p></div><div><h3>2 · Native · one-to-one</h3><p>第 k 类是 response 中第 k 个 item-end state。要求 parser-observed city multiset 与 gold 严格相等、无重复或遗漏；不筛最终答案正确性。这是 completion-conditioned sensitivity。</p></div><div><h3>3 · Native · ordinal-aligned</h3><p>同一套 30 seeds 上保留所有 parser-hit。模型实际写出的第 k 项标为 k；少写就少观测，不插值、不补齐。</p></div></div>
@@ -1437,6 +1832,7 @@ let timer;window.addEventListener('resize',()=>{clearTimeout(timer);timer=setTim
 <div class="callout"><strong>“少数了”的两种含义：</strong>non-thinking 即使最终输出 6 而不是 10，N=10 prompt 中十个真实 needle endpoints 仍全部存在，所以仍贡献十个位置 state；native-thinking 若 response 只实际写出六项，则只有六个 item-end states。二者都保留错误样本，但只有后者会产生 ragged position support。</div>
 <div class="callout warning"><strong>站点语义边界：</strong>non-thinking 是 prompt needle endpoint，native-thinking 是 response item endpoint。三列比较的是“运行位置几何是否形成”，不是声称三个站点是同一个 token-level random variable。图可在 confirmation-only（10 seeds，nominal 100）与全注册 panel（30 seeds，nominal 300）之间切换；native 列始终另报实际可观测 state 数。</div></section>
 {token_extraction_section(visual)}
+{dual_endpoint_section(dual_results, dual_visual)}
 {trace_stratified_section(trace_stratified)}
 {model_section('Qwen3-8B', visual['Qwen3-8B'])}
 {model_section('Gemma4-E4B', visual['Gemma4-E4B'])}
@@ -1445,7 +1841,7 @@ let timer;window.addEventListener('resize',()=>{clearTimeout(timer);timer=setTim
 <section id="partial"><h2>部分轨迹如何进入 aligned 列</h2><p>下面列出 confirmation 中所有非 one-to-one 轨迹。<code>ordinal labels</code> 正是进入第三列的 class；例如只有 <code>1,2</code> 就只贡献两个 state。最终答案可以仍然是 10，这不会虚构第 3–10 个 item-end state。</p><details open><summary>Confirmation partial trajectories · {len(partial_confirmation)} rows</summary>{partial_table(partial_confirmation)}</details>
 <h3>原始 trace 与实际 endpoint</h3><p class="small">下列片段来自服务器 generation 存档，并已按 request ID、prompt token count、output token count 与本地 capture manifest 对账。表中 sequence position 是实际送入对应 forward 的 0-based query index。</p>{partial_trace_details(partial_confirmation)}</section>
 <section><h2>解释优先级</h2><div class="callout"><strong>主结果：</strong>第三列（ordinal-aligned full panel）回答共享 seed panel 上的总体问题。第二列只作为敏感性分析，回答“条件于完整写出十项时，几何怎样”。若两列不同，首先解释为 trajectory-completion selection，而不是几何被“修复”。</div>
-<p class="provenance">Report schema: niah_geometry_comparison_v4_trace_stratified_site_sweep · display PCA3: discovery-fitted independently per column, anchor and layer · pooled quantitative PCA32 · marker-stratified sweep PCA16 with leave-one-discovery-seed-out site/layer selection · probes: discovery fit / confirmation evaluation</p></section>
+<p class="provenance">Report schema: niah_geometry_comparison_v5_dual_endpoint_independent_layer · display PCA3: discovery-fitted independently per panel and layer · dual endpoint quantitative PCA16-whiten with grouped-CV site/layer selection · pooled legacy quantitative PCA32 · probes: discovery selection / frozen held-out evaluation</p></section>
 </main><script>{script}</script></body></html>"""
 
 
@@ -1462,6 +1858,8 @@ def main() -> None:
         "--trace-aware-one-to-one-geometry-root", type=Path, required=True
     )
     parser.add_argument("--trace-stratified-geometry-root", type=Path, required=True)
+    parser.add_argument("--dual-endpoint-root", type=Path, required=True)
+    parser.add_argument("--native-final-count-root", type=Path, required=True)
     parser.add_argument(
         "--native-trace-root",
         type=Path,
@@ -1490,16 +1888,39 @@ def main() -> None:
     trace_stratified, trace_stratified_inputs = load_trace_stratified_results(
         args.trace_stratified_geometry_root.resolve()
     )
-    document = build_html(comparison, visual, partials, trace_stratified)
+    dual_results, dual_result_inputs = load_dual_endpoint_results(
+        args.dual_endpoint_root.resolve()
+    )
+    dual_visual, dual_visual_inputs = build_dual_visual_data(
+        args.non_thinking_export_root.resolve(),
+        args.native_capture_root.resolve(),
+        args.native_final_count_root.resolve(),
+        dual_results,
+    )
+    document = build_html(
+        comparison,
+        visual,
+        partials,
+        trace_stratified,
+        dual_results,
+        dual_visual,
+    )
     output = args.output.resolve()
     manifest_path = args.manifest.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(document, encoding="utf-8")
     all_inputs = sorted(
-        set(metric_inputs + visual_inputs + trace_stratified_inputs), key=str
+        set(
+            metric_inputs
+            + visual_inputs
+            + trace_stratified_inputs
+            + dual_result_inputs
+            + dual_visual_inputs
+        ),
+        key=str,
     )
     manifest = {
-        "schema_version": "niah_geometry_comparison_v4_trace_stratified_site_sweep",
+        "schema_version": "niah_geometry_comparison_v5_dual_endpoint_independent_layer",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "three_columns": [
             "non_thinking_full_panel",
@@ -1526,6 +1947,19 @@ def main() -> None:
             "stratification": "parser marker_kind",
             "selection": "leave-one-discovery-seed-out Logistic/NCC; confirmation excluded from programmed selection",
             "status": "post-hoc robustness analysis, not an independent preregistered confirmation",
+        },
+        "dual_endpoint_analysis": {
+            "schema_version": DUAL_ENDPOINT_SCHEMA_VERSION,
+            "pca_dim": 16,
+            "pca_whiten": PCA_WHITEN,
+            "comparisons": [
+                "non-thinking prompt running index vs native thinking-trace running index",
+                "non-thinking prompt-final count vs native thinking-trace final count",
+            ],
+            "layer_policy": "independently selected within mode from discovery grouped CV",
+            "display": "all decoder layers at each panel's discovery-selected token site",
+            "final_count_shared_selection_seeds": list(SHARED_SELECTION_SEEDS),
+            "final_count_shared_evaluation_seeds": list(SHARED_EVALUATION_SEEDS),
         },
         "native_primary_site": "parser item_end:k aligned to endpoint_token=prefix_token_count-1",
         "final_correctness_role": "display attribute only; never a geometry class or primary cohort filter",

@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import StandardScaler
 
 from realistic_niah_v5.cross_mode_geometry import (
@@ -185,6 +186,7 @@ def _fit_projection_and_predict(
     *,
     pca_dim: int,
     random_state: int,
+    pca_whiten: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     label_array = np.asarray(labels, dtype=int)
     if set(train_y.tolist()) != set(label_array.tolist()):
@@ -202,6 +204,7 @@ def _fit_projection_and_predict(
     pca = PCA(
         n_components=components,
         svd_solver="randomized",
+        whiten=pca_whiten,
         random_state=random_state,
     ).fit(train_scaled)
     train_projected = pca.transform(train_scaled)
@@ -229,6 +232,8 @@ def grouped_discovery_cv_metrics(
     *,
     pca_dim: int = 16,
     random_state: int = 0,
+    folds: int | None = None,
+    pca_whiten: bool = False,
 ) -> dict[str, Any]:
     discovery_mask = metadata["split"].astype(str).eq("discovery").to_numpy()
     label_mask = metadata["occurrence"].astype(int).isin(labels).to_numpy()
@@ -241,12 +246,29 @@ def grouped_discovery_cv_metrics(
     logistic_predictions: list[np.ndarray] = []
     ncc_predictions: list[np.ndarray] = []
     fold_components: list[int] = []
-    for held_seed in sorted(set(seeds.tolist())):
-        test = seeds == held_seed
-        train = ~test
+    unique_seeds = sorted(set(seeds.tolist()))
+    if len(unique_seeds) < 2:
+        raise ValueError("Discovery grouped CV requires at least two seeds")
+    if folds is None:
+        fold_indices = [
+            (np.flatnonzero(seeds != held_seed), np.flatnonzero(seeds == held_seed))
+            for held_seed in unique_seeds
+        ]
+    else:
+        fold_count = min(int(folds), len(unique_seeds))
+        if fold_count < 2:
+            raise ValueError("Discovery grouped CV requires at least two folds")
+        splitter = GroupKFold(n_splits=fold_count)
+        fold_indices = list(splitter.split(x, y, groups=seeds))
+    for train_index, test_index in fold_indices:
+        train = np.zeros(len(y), dtype=bool)
+        test = np.zeros(len(y), dtype=bool)
+        train[train_index] = True
+        test[test_index] = True
         if set(y[train].tolist()) != set(map(int, labels)):
+            held_seeds = sorted(set(seeds[test].tolist()))
             raise ValueError(
-                f"Holding out discovery seed {held_seed} removes a retained label"
+                f"Holding out discovery seeds {held_seeds} removes a retained label"
             )
         logistic, ncc, _projected, components = _fit_projection_and_predict(
             x[train],
@@ -255,6 +277,7 @@ def grouped_discovery_cv_metrics(
             labels,
             pca_dim=pca_dim,
             random_state=random_state,
+            pca_whiten=pca_whiten,
         )
         logistic_truth.append(y[test])
         logistic_predictions.append(logistic)
@@ -283,6 +306,7 @@ def confirmation_metrics(
     *,
     pca_dim: int = 16,
     random_state: int = 0,
+    pca_whiten: bool = False,
 ) -> dict[str, Any]:
     label_mask = metadata["occurrence"].astype(int).isin(labels).to_numpy()
     discovery = metadata["split"].astype(str).eq("discovery").to_numpy() & label_mask
@@ -298,6 +322,7 @@ def confirmation_metrics(
         labels,
         pca_dim=pca_dim,
         random_state=random_state,
+        pca_whiten=pca_whiten,
     )
     class_means = np.stack(
         [projected[confirmation_y == label].mean(axis=0) for label in labels]

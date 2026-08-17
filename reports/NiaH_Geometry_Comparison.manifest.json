@@ -1,6 +1,6 @@
 {
-  "schema_version": "niah_geometry_comparison_v4_trace_stratified_site_sweep",
-  "generated_at": "2026-08-17T00:27:44.366884+00:00",
+  "schema_version": "niah_geometry_comparison_v5_dual_endpoint_independent_layer",
+  "generated_at": "2026-08-17T01:17:11.034919+00:00",
   "three_columns": [
     "non_thinking_full_panel",
     "native_thinking_one_to_one",
@@ -33,15 +33,66 @@
     "selection": "leave-one-discovery-seed-out Logistic/NCC; confirmation excluded from programmed selection",
     "status": "post-hoc robustness analysis, not an independent preregistered confirmation"
   },
+  "dual_endpoint_analysis": {
+    "schema_version": "realistic_niah_dual_endpoint_geometry_v1",
+    "pca_dim": 16,
+    "pca_whiten": true,
+    "comparisons": [
+      "non-thinking prompt running index vs native thinking-trace running index",
+      "non-thinking prompt-final count vs native thinking-trace final count"
+    ],
+    "layer_policy": "independently selected within mode from discovery grouped CV",
+    "display": "all decoder layers at each panel's discovery-selected token site",
+    "final_count_shared_selection_seeds": [
+      1234,
+      1235,
+      1236,
+      1237,
+      1238,
+      1239,
+      1240,
+      1241,
+      1242,
+      1243,
+      1244,
+      1245,
+      1246,
+      1247,
+      1248
+    ],
+    "final_count_shared_evaluation_seeds": [
+      1249,
+      1250,
+      1251,
+      1252,
+      1253
+    ]
+  },
   "native_primary_site": "parser item_end:k aligned to endpoint_token=prefix_token_count-1",
   "final_correctness_role": "display attribute only; never a geometry class or primary cohort filter",
   "inputs": {
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\exports\\run_20260731_v4_numeric_presentation_v3\\Gemma4-E4B\\numeric\\representation\\analysis\\outcomes\\shared_pca_span_end_layer_22_labeled.csv": "0de27c94bee2347cc57768499131a5e0a5a796b4f09b1eee8013666e2a1d77e1",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\exports\\run_20260731_v4_numeric_presentation_v3\\Gemma4-E4B\\numeric\\representation\\answer_query_all_layers_v1\\capture_index.jsonl": "eeeb4914ad4f9f931acefa20983cef8594b2c8950190794d914549bed42df050",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\exports\\run_20260731_v4_numeric_presentation_v3\\Gemma4-E4B\\numeric\\representation\\capture\\capture_index.jsonl": "b41b0739220d4a6f4e7a2931221736b318fca83a1da1176b5aaa002fa1893e4b",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\exports\\run_20260731_v4_numeric_presentation_v3\\Gemma4-E4B\\numeric\\representation\\capture\\capture_manifest.json": "6179d4cfcff89572a97ecc26ec775bfd5c5947358ad58f38a43937139c0ecc69",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\exports\\run_20260731_v4_numeric_presentation_v3\\Qwen3-8B\\numeric\\representation\\analysis\\outcomes\\shared_pca_span_end_layer_1_labeled.csv": "f8d993004a29d71b7ff30ec1feb595265bcba3a098700c54a280bf75db1f844a",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\exports\\run_20260731_v4_numeric_presentation_v3\\Qwen3-8B\\numeric\\representation\\answer_query_all_layers_v1\\capture_index.jsonl": "db8bf40d928691501061a7acf93794cad469a021ced97a864038585cd266da1e",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\exports\\run_20260731_v4_numeric_presentation_v3\\Qwen3-8B\\numeric\\representation\\capture\\capture_index.jsonl": "210989af71ba24b050d3df2dcbe98b4dbbbc3036e80d4f7ccb8129441f13dd89",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\exports\\run_20260731_v4_numeric_presentation_v3\\Qwen3-8B\\numeric\\representation\\capture\\capture_manifest.json": "94c053f7be1d477aa2b589a3c15ec01e9c8aaa8ec858c495ece69231c36b329c",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry\\Gemma4-E4B\\pca16_whiten\\dual_endpoint_geometry_audit.json": "7853b03bd3b33eb604374aa6096aae5accc3fe483efdec01f0d64511aeb46644",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry\\Gemma4-E4B\\pca16_whiten\\final_count_candidate_metrics.csv": "9b50894d5c1982a9ae6bf314038951fa4549853943a0513ee81002c5a0abb041",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry\\Gemma4-E4B\\pca16_whiten\\final_count_selected.csv": "fd072933efd91fa0f03f53f7afbbe013137d6c3361f14a574e44e3f951f0dcfe",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry\\Gemma4-E4B\\pca16_whiten\\running_index_candidate_metrics.csv": "b774e13ab5d7681258b71be302ecc17d2cbcd9ec60b29959c860d40bbe04e759",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry\\Gemma4-E4B\\pca16_whiten\\running_index_group_eligibility.csv": "5b499dc4db2df196aec37b37611d0db09b0936453d94d45bcb634277b467e8e3",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry\\Gemma4-E4B\\pca16_whiten\\running_index_selected.csv": "76f09b9793fb0ca71ebc09237ae34227cf218c34e44fc612e69f676482db1eb8",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry\\Gemma4-E4B\\pca16_whiten\\runtime_log.json": "1fc3e0cd11838b70075a328554cbdcb3525c0098a6a95f0fa510ecf8bcaa2917",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry\\Qwen3-8B\\pca16_whiten\\dual_endpoint_geometry_audit.json": "ab8aee810e8a5b2e52b27cd64e127374ea2310d9de6d558ef0ed4166738334d3",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry\\Qwen3-8B\\pca16_whiten\\final_count_candidate_metrics.csv": "944d5904bb07e2f57fafb7fd02055ebfc3ae7abbdda8ea540df8233804a061a1",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry\\Qwen3-8B\\pca16_whiten\\final_count_selected.csv": "d98efbb395946dd9c8715cd6052b5f363727a342132c1a04eb92af0c23de6c87",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry\\Qwen3-8B\\pca16_whiten\\running_index_candidate_metrics.csv": "1c6cfdd75c917817364fc49c47c253f7ef374ae05a694c3c3a2f17fa884dbc00",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry\\Qwen3-8B\\pca16_whiten\\running_index_group_eligibility.csv": "cf5f3572e90c5beea669f82dc1eb0864e11a695f7e611534831f0bbff5e01ae1",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry\\Qwen3-8B\\pca16_whiten\\running_index_selected.csv": "d35deb3bd24d24450f050192775d67adf776c3cb7b90b8b8ca7d804206413ce8",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_dual_endpoint_geometry\\Qwen3-8B\\pca16_whiten\\runtime_log.json": "020594cc78c0a3329cc1d497b9829078d215f0d056f59d7b92524fd025e6b190",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_position_geometry\\Gemma4-E4B\\pca32\\cross_mode_geometry_audit.json": "35f68f2b6765e5b6472fbd9ad26af369420f7c5bb72905029d6116ae7860815c",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_position_geometry\\Gemma4-E4B\\pca32\\global_covariance_geometry.csv": "812b3107c80c6ba932cd9858d555f704c89caec891c6e8f63c621c863a635f3f",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_position_geometry\\Qwen3-8B\\pca32\\cross_mode_geometry_audit.json": "a6f708e86e982a341e2f677cea0f773e46e72004fdee263f694722f8c410d2b7",
@@ -68,11 +119,13 @@
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_trace_stratified_geometry\\Qwen3-8B\\pca16\\trace_stratum_site_sweep_audit.json": "172b5cab57a9ffaa836ad4ba445794e02c8e97a4c35aa7cef93a58618385f09a",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\remote_native_traces_68_209_74_38\\Gemma4-E4B\\generations.jsonl": "063d701df7e01bc4cfed83680da0e960fd27777115f7415339a4520ae28367aa",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\remote_native_traces_68_209_74_38\\Qwen3-8B\\generations.jsonl": "b2414fb44e9b07f42e4ee224aada6567b99cabf388d374e36ac1f671cab8c0bd",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_final_count_inputs\\Gemma4-E4B\\representation\\capture_primary\\capture_index.jsonl": "c6d9c6936a75a86d2c8d577af4c53ee724c49bd4c1dd1b95d28e2fe729810237",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_final_count_inputs\\Qwen3-8B\\representation\\capture_primary\\capture_index.jsonl": "df29c4c0dc9b75328fb8efae518d7b491ae7889bf2bcb40a3a19041408d50f69",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_position_geometry_inputs\\Gemma4-E4B\\capture_index.jsonl": "626b0e76a07427fcef17b1f15fde0cb9b5828aec9aeecb863773a38f87ecdc3c",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_position_geometry_inputs\\Gemma4-E4B\\export_audit.json": "cbb247b805513f39937e7a3ac0681752c9eb680f19b5a7bcd7a53c497e17265c",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_position_geometry_inputs\\Qwen3-8B\\capture_index.jsonl": "9b0fbdbcfb10f40cca14614899a8d5135dad7b0d6facc20aa1683b06cc8f705e",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_position_geometry_inputs\\Qwen3-8B\\export_audit.json": "ba616304b0f1da4c0dbf784f55bded88d5539d96c3a9d3c344b9decf74d74972"
   },
   "output": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\NiaH_Geometry_Comparison.html",
-  "output_sha256": "762e24d2fa3881f256b09eb5ad5041f21b3a493d8d3fa39d089e328c422a76e3"
+  "output_sha256": "22c6b33f346133daf1d20979287915ea99498ec76b1574ac940e20569348431b"
 }

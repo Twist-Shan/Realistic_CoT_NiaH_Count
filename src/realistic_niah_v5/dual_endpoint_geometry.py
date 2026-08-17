@@ -1,0 +1,944 @@
+"""CPU analysis for independently selected running-index and final-count geometry.
+
+The two modes are never forced onto a common decoder layer.  Candidate token
+sites and layers are ranked inside each mode using discovery-only grouped
+cross-validation.  A frozen winner is then evaluated on held-out seeds.  The
+native-thinking running-index analysis additionally pools sparse parser surface
+forms into explicit-ordinal and non-explicit-progress groups.
+"""
+
+from __future__ import annotations
+
+import json
+import platform
+import sys
+import time
+from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+import numpy as np
+import pandas as pd
+
+from realistic_niah_v5.cross_mode_geometry import (
+    CLASSES,
+    ModeDataset,
+    load_native_thinking_capture,
+    load_non_thinking_capture,
+)
+from realistic_niah_v5.trace_stratified_geometry import (
+    confirmation_metrics,
+    grouped_discovery_cv_metrics,
+)
+
+
+SCHEMA_VERSION = "realistic_niah_dual_endpoint_geometry_v1"
+RUNNING_NON_THINKING_SITES = ("span_end", "span_mean")
+RUNNING_NATIVE_PRIMARY_SITES = ("city_end", "item_end", "post_boundary")
+TRACE_GROUP_MEMBERS = {
+    "all_traces": None,
+    "explicit_ordinal": ("indexed", "ordinal"),
+    "non_explicit_progress": (
+        "bullet",
+        "audit_sentence",
+        "completion_recap",
+    ),
+}
+SHARED_SELECTION_SEEDS = tuple(range(1234, 1249))
+SHARED_EVALUATION_SEEDS = tuple(range(1249, 1254))
+NATIVE_ORIGINAL_CONFIRMATION_SEEDS = tuple(range(1254, 1264))
+PCA_WHITEN = True
+
+
+@dataclass(frozen=True)
+class GroupEligibility:
+    analysis_group: str
+    status: str
+    labels: tuple[int, ...]
+    discovery_seed_count: int
+    confirmation_seed_count: int
+    discovery_support: dict[int, int]
+    confirmation_support: dict[int, int]
+    reason: str
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    with path.open("r", encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]
+
+
+def _atomic_csv(path: Path, frame: pd.DataFrame) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    frame.to_csv(temporary, index=False)
+    temporary.replace(path)
+
+
+def _atomic_json(path: Path, value: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(
+        json.dumps(dict(value), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def _package_version(package: str) -> str:
+    try:
+        return version(package)
+    except PackageNotFoundError:
+        return "not-installed"
+
+
+def load_non_thinking_final_count(
+    capture_index: str | Path,
+    *,
+    design_variant: str = "v4.4",
+) -> ModeDataset:
+    """Load prompt-final ``Total:`` states with gold count as the class label."""
+
+    index_path = Path(capture_index)
+    rows = [
+        row
+        for row in _read_jsonl(index_path)
+        if str(row.get("design_variant")) == design_variant
+    ]
+    rows.sort(key=lambda row: (int(row["seed"]), int(row["count"])))
+    if not rows:
+        raise ValueError(f"No {design_variant} rows in {index_path}")
+    first_path = index_path.parent / str(rows[0]["shard_path"])
+    with np.load(first_path, allow_pickle=False) as archive:
+        layer_indices = archive["layer_indices"].astype(int)
+        first_states = np.asarray(archive["query_states"])
+        hidden_size = int(first_states.shape[-1])
+    states = {
+        int(layer): np.empty((len(rows), hidden_size), dtype=np.float16)
+        for layer in layer_indices
+    }
+    metadata_rows: list[dict[str, Any]] = []
+    for row_index, row in enumerate(rows):
+        shard = index_path.parent / str(row["shard_path"])
+        with np.load(shard, allow_pickle=False) as archive:
+            layers = archive["layer_indices"].astype(int)
+            values = np.asarray(archive["query_states"])
+            if not np.array_equal(layers, layer_indices):
+                raise ValueError(f"Layer mismatch in {shard}")
+            if values.shape != (len(layer_indices), hidden_size):
+                raise ValueError(f"Unexpected query_states shape {values.shape} in {shard}")
+            for layer_axis, layer in enumerate(layer_indices):
+                states[int(layer)][row_index] = values[layer_axis]
+        metadata_rows.append(
+            {
+                "split": str(row["split"]),
+                "seed": int(row["seed"]),
+                "occurrence": int(row["count"]),
+                "gold_count": int(row["count"]),
+                "stimulus_id": str(row["stimulus_id"]),
+                "token_site": str(row.get("position", "prompt_final_total_query")),
+                "design_variant": str(row["design_variant"]),
+            }
+        )
+    dataset = ModeDataset(
+        mode="non_thinking",
+        model_label=str(rows[0]["model_label"]),
+        metadata=pd.DataFrame(metadata_rows),
+        states_by_layer=states,
+    )
+    dataset.validate()
+    return dataset
+
+
+def load_native_thinking_final_count(capture_index: str | Path) -> ModeDataset:
+    """Load the token immediately before the native-thinking numeric answer."""
+
+    index_path = Path(capture_index)
+    descriptors: list[tuple[dict[str, Any], int]] = []
+    for row in _read_jsonl(index_path):
+        manifest_path = index_path.parent / str(row["manifest_path"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        matching = [
+            site_index
+            for site_index, site in enumerate(manifest.get("site_rows", []))
+            if str(site.get("site_kind")) == "answer_query_v3"
+        ]
+        if len(matching) != 1:
+            raise ValueError(
+                f"Expected one answer_query_v3 site for {row.get('request_id')}; "
+                f"found {len(matching)}"
+            )
+        descriptors.append((row, matching[0]))
+    descriptors.sort(key=lambda item: (int(item[0]["seed"]), int(item[0]["gold_count"])))
+    if not descriptors:
+        raise ValueError(f"No final-count rows in {index_path}")
+    first_row, _ = descriptors[0]
+    first_path = index_path.parent / str(first_row["states_path"])
+    with np.load(first_path, allow_pickle=False) as archive:
+        layer_indices = archive["layer_indices"].astype(int)
+        hidden_size = int(archive["site_states"].shape[-1])
+    states = {
+        int(layer): np.empty((len(descriptors), hidden_size), dtype=np.float16)
+        for layer in layer_indices
+    }
+    metadata_rows: list[dict[str, Any]] = []
+    for row_index, (row, site_index) in enumerate(descriptors):
+        shard = index_path.parent / str(row["states_path"])
+        with np.load(shard, allow_pickle=False) as archive:
+            layers = archive["layer_indices"].astype(int)
+            values = np.asarray(archive["site_states"])
+            if not np.array_equal(layers, layer_indices):
+                raise ValueError(f"Layer mismatch in {shard}")
+            if values.ndim != 3 or values.shape[1:] != (
+                len(layer_indices),
+                hidden_size,
+            ):
+                raise ValueError(f"Unexpected site_states shape {values.shape} in {shard}")
+            for layer_axis, layer in enumerate(layer_indices):
+                states[int(layer)][row_index] = values[site_index, layer_axis]
+        metadata_rows.append(
+            {
+                "split": str(row["split"]),
+                "seed": int(row["seed"]),
+                "occurrence": int(row["gold_count"]),
+                "gold_count": int(row["gold_count"]),
+                "stimulus_id": str(row["stimulus_id"]),
+                "token_site": "answer_query_v3",
+                "marker_kind": row.get("marker_kind"),
+                "trace_category": row.get("trace_category"),
+                "exact_count": bool(row.get("exact_count")),
+            }
+        )
+    dataset = ModeDataset(
+        mode="native_thinking",
+        model_label=str(first_row["model_label"]),
+        metadata=pd.DataFrame(metadata_rows),
+        states_by_layer=states,
+    )
+    dataset.validate()
+    return dataset
+
+
+def relabel_seed_panel(
+    dataset: ModeDataset,
+    *,
+    discovery_seeds: Sequence[int],
+    confirmation_seeds: Sequence[int],
+) -> ModeDataset:
+    discovery_set = set(map(int, discovery_seeds))
+    confirmation_set = set(map(int, confirmation_seeds))
+    overlap = sorted(discovery_set & confirmation_set)
+    if overlap:
+        raise ValueError(f"Discovery/confirmation seeds overlap: {overlap}")
+    retained = dataset.metadata["seed"].astype(int).isin(
+        discovery_set | confirmation_set
+    ).to_numpy()
+    selected = dataset.metadata.loc[retained].copy()
+    selected["source_split"] = selected["split"].astype(str)
+    selected["split"] = np.where(
+        selected["seed"].astype(int).isin(discovery_set),
+        "discovery",
+        "confirmation",
+    )
+    selected["_old_index"] = np.flatnonzero(retained)
+    selected = selected.sort_values(["split", "seed", "occurrence"], kind="mergesort")
+    old_index = selected.pop("_old_index").to_numpy(dtype=int)
+    result = ModeDataset(
+        mode=dataset.mode,
+        model_label=dataset.model_label,
+        metadata=selected.reset_index(drop=True),
+        states_by_layer={
+            layer: values[old_index] for layer, values in dataset.states_by_layer.items()
+        },
+    )
+    result.validate()
+    observed_discovery = set(
+        result.metadata.loc[result.metadata["split"].eq("discovery"), "seed"].astype(int)
+    )
+    observed_confirmation = set(
+        result.metadata.loc[
+            result.metadata["split"].eq("confirmation"), "seed"
+        ].astype(int)
+    )
+    if observed_discovery != discovery_set:
+        raise ValueError(
+            "Missing requested discovery seeds: "
+            f"{sorted(discovery_set - observed_discovery)}"
+        )
+    if observed_confirmation != confirmation_set:
+        raise ValueError(
+            "Missing requested confirmation seeds: "
+            f"{sorted(confirmation_set - observed_confirmation)}"
+        )
+    return result
+
+
+def _trace_group_mask(metadata: pd.DataFrame, analysis_group: str) -> np.ndarray:
+    if analysis_group not in TRACE_GROUP_MEMBERS:
+        raise ValueError(f"Unknown trace group: {analysis_group}")
+    members = TRACE_GROUP_MEMBERS[analysis_group]
+    if members is None:
+        return np.ones(len(metadata), dtype=bool)
+    return metadata["marker_kind"].astype(str).isin(members).to_numpy()
+
+
+def determine_group_eligibility(
+    metadata: pd.DataFrame,
+    analysis_group: str,
+    *,
+    min_discovery_support: int = 3,
+    min_confirmation_support: int = 2,
+    min_classes: int = 5,
+) -> GroupEligibility:
+    grouped = metadata.loc[_trace_group_mask(metadata, analysis_group)].copy()
+    discovery = grouped.loc[grouped["split"].astype(str).eq("discovery")]
+    confirmation = grouped.loc[grouped["split"].astype(str).eq("confirmation")]
+    discovery_support = {
+        label: int((discovery["occurrence"].astype(int) == label).sum())
+        for label in CLASSES
+    }
+    confirmation_support = {
+        label: int((confirmation["occurrence"].astype(int) == label).sum())
+        for label in CLASSES
+    }
+    labels = tuple(
+        label
+        for label in CLASSES
+        if discovery_support[label] >= min_discovery_support
+        and confirmation_support[label] >= min_confirmation_support
+    )
+    if len(labels) >= min_classes:
+        status = "evaluable"
+        reason = (
+            f"retained {len(labels)} labels with discovery support >= "
+            f"{min_discovery_support} and confirmation support >= "
+            f"{min_confirmation_support}"
+        )
+    else:
+        status = "not_evaluable"
+        reason = (
+            f"only {len(labels)} labels passed the support gate; "
+            f"requires at least {min_classes}"
+        )
+    return GroupEligibility(
+        analysis_group=analysis_group,
+        status=status,
+        labels=labels,
+        discovery_seed_count=int(discovery["seed"].nunique()),
+        confirmation_seed_count=int(confirmation["seed"].nunique()),
+        discovery_support=discovery_support,
+        confirmation_support=confirmation_support,
+        reason=reason,
+    )
+
+
+def _subset_group(
+    dataset: ModeDataset,
+    analysis_group: str,
+    labels: Sequence[int],
+) -> tuple[pd.DataFrame, np.ndarray]:
+    mask = _trace_group_mask(dataset.metadata, analysis_group)
+    mask &= dataset.metadata["occurrence"].astype(int).isin(labels).to_numpy()
+    return dataset.metadata.loc[mask].reset_index(drop=True), mask
+
+
+def _candidate_row(
+    *,
+    endpoint: str,
+    dataset: ModeDataset,
+    analysis_group: str,
+    selector: str,
+    token_site: str,
+    layer: int,
+    states: np.ndarray,
+    metadata: pd.DataFrame,
+    labels: Sequence[int],
+    pca_dim: int,
+    cv_folds: int,
+    random_state: int,
+) -> dict[str, Any]:
+    metrics = grouped_discovery_cv_metrics(
+        states,
+        metadata,
+        labels,
+        pca_dim=pca_dim,
+        random_state=random_state,
+        folds=cv_folds,
+        pca_whiten=PCA_WHITEN,
+    )
+    heldout = confirmation_metrics(
+        states,
+        metadata,
+        labels,
+        pca_dim=pca_dim,
+        random_state=random_state,
+        pca_whiten=PCA_WHITEN,
+    )
+    return {
+        "endpoint": endpoint,
+        "model_label": dataset.model_label,
+        "mode": dataset.mode,
+        "analysis_group": analysis_group,
+        "selector": selector,
+        "token_site": token_site,
+        "layer": int(layer),
+        "retained_labels": " ".join(map(str, labels)),
+        "retained_class_count": len(labels),
+        **metrics,
+        **heldout,
+    }
+
+
+def select_discovery_winners(
+    candidates: pd.DataFrame,
+    *,
+    group_columns: Sequence[str] = (
+        "endpoint",
+        "model_label",
+        "mode",
+        "analysis_group",
+        "selector",
+    ),
+) -> pd.DataFrame:
+    if candidates.empty:
+        raise ValueError("Cannot select from an empty candidate table")
+    rows = []
+    for _, frame in candidates.groupby(list(group_columns), sort=False, dropna=False):
+        selected = frame.sort_values(
+            [
+                "discovery_selection_score",
+                "discovery_oof_ncc_balanced_accuracy",
+                "discovery_oof_logistic_balanced_accuracy",
+                "layer",
+                "token_site",
+            ],
+            ascending=[False, False, False, True, True],
+            kind="mergesort",
+        ).iloc[0]
+        rows.append(selected.to_dict())
+    return pd.DataFrame(rows)
+
+
+def _heldout_metrics(
+    states: np.ndarray,
+    metadata: pd.DataFrame,
+    labels: Sequence[int],
+    *,
+    pca_dim: int,
+    random_state: int,
+) -> dict[str, Any]:
+    return confirmation_metrics(
+        states,
+        metadata,
+        labels,
+        pca_dim=pca_dim,
+        random_state=random_state,
+        pca_whiten=PCA_WHITEN,
+    )
+
+
+def _running_index_analysis(
+    non_thinking_index: Path,
+    native_thinking_index: Path,
+    *,
+    pca_dim: int,
+    cv_folds: int,
+    random_state: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, Any]]:
+    candidate_rows: list[dict[str, Any]] = []
+    non_thinking_reference: ModeDataset | None = None
+    for pooling in RUNNING_NON_THINKING_SITES:
+        dataset = load_non_thinking_capture(
+            non_thinking_index,
+            design_variant="v4.4",
+            pooling=pooling,
+        )
+        if non_thinking_reference is None:
+            non_thinking_reference = dataset
+        for layer, states in sorted(dataset.states_by_layer.items()):
+            candidate_rows.append(
+                _candidate_row(
+                    endpoint="running_index",
+                    dataset=dataset,
+                    analysis_group="all_traces",
+                    selector="prompt_span_site_search",
+                    token_site=pooling,
+                    layer=layer,
+                    states=states,
+                    metadata=dataset.metadata,
+                    labels=CLASSES,
+                    pca_dim=pca_dim,
+                    cv_folds=cv_folds,
+                    random_state=random_state,
+                )
+            )
+
+    item_dataset = load_native_thinking_capture(
+        native_thinking_index,
+        site_kind="item_end",
+        cohort="parser_hit",
+    )
+    if non_thinking_reference is None:
+        raise RuntimeError("Non-thinking running-index candidates were not loaded")
+    if non_thinking_reference.model_label != item_dataset.model_label:
+        raise ValueError(
+            "Running-index inputs use different model labels: "
+            f"{non_thinking_reference.model_label!r} versus "
+            f"{item_dataset.model_label!r}"
+        )
+
+    def seed_panel(frame: pd.DataFrame) -> dict[str, list[int]]:
+        return {
+            split: sorted(
+                frame.loc[frame["split"].astype(str).eq(split), "seed"]
+                .astype(int)
+                .unique()
+                .tolist()
+            )
+            for split in ("discovery", "confirmation")
+        }
+
+    non_thinking_panel = seed_panel(non_thinking_reference.metadata)
+    native_panel = seed_panel(item_dataset.metadata)
+    if non_thinking_panel != native_panel:
+        raise ValueError(
+            "Running-index inputs do not share the same seed panel: "
+            f"non_thinking={non_thinking_panel}, native_thinking={native_panel}"
+        )
+    eligibility = [
+        determine_group_eligibility(item_dataset.metadata, group)
+        for group in TRACE_GROUP_MEMBERS
+    ]
+    eligible = {
+        item.analysis_group: item
+        for item in eligibility
+        if item.status == "evaluable"
+    }
+    for site in RUNNING_NATIVE_PRIMARY_SITES:
+        dataset = load_native_thinking_capture(
+            native_thinking_index,
+            site_kind=site,
+            cohort="parser_hit",
+        )
+        for analysis_group, item in eligible.items():
+            metadata, mask = _subset_group(dataset, analysis_group, item.labels)
+            for layer, states in sorted(dataset.states_by_layer.items()):
+                candidate_rows.append(
+                    _candidate_row(
+                        endpoint="running_index",
+                        dataset=dataset,
+                        analysis_group=analysis_group,
+                        selector="post_marker_site_search",
+                        token_site=site,
+                        layer=layer,
+                        states=states[mask],
+                        metadata=metadata,
+                        labels=item.labels,
+                        pca_dim=pca_dim,
+                        cv_folds=cv_folds,
+                        random_state=random_state,
+                    )
+                )
+
+    explicit = eligible.get("explicit_ordinal")
+    if explicit is not None:
+        dataset = load_native_thinking_capture(
+            native_thinking_index,
+            site_kind="marker_end",
+            cohort="parser_hit",
+        )
+        metadata, mask = _subset_group(dataset, "explicit_ordinal", explicit.labels)
+        for layer, states in sorted(dataset.states_by_layer.items()):
+            candidate_rows.append(
+                _candidate_row(
+                    endpoint="running_index",
+                    dataset=dataset,
+                    analysis_group="explicit_ordinal_marker_control",
+                    selector="lexical_marker_positive_control",
+                    token_site="marker_end",
+                    layer=layer,
+                    states=states[mask],
+                    metadata=metadata,
+                    labels=explicit.labels,
+                    pca_dim=pca_dim,
+                    cv_folds=cv_folds,
+                    random_state=random_state,
+                )
+            )
+
+    candidates = pd.DataFrame(candidate_rows)
+    winners = select_discovery_winners(candidates)
+    selected_rows: list[dict[str, Any]] = []
+
+    non_thinking_winners = winners.loc[winners["mode"].eq("non_thinking")]
+    for pooling, frame in non_thinking_winners.groupby("token_site", sort=False):
+        dataset = load_non_thinking_capture(
+            non_thinking_index,
+            design_variant="v4.4",
+            pooling=str(pooling),
+        )
+        for winner in frame.to_dict(orient="records"):
+            labels = tuple(map(int, str(winner["retained_labels"]).split()))
+            metrics = _heldout_metrics(
+                dataset.states_by_layer[int(winner["layer"])],
+                dataset.metadata,
+                labels,
+                pca_dim=pca_dim,
+                random_state=random_state,
+            )
+            selected_rows.append(
+                {
+                    **winner,
+                    "evaluation_split_role": "original_confirmation",
+                    **metrics,
+                }
+            )
+
+    native_winners = winners.loc[winners["mode"].eq("native_thinking")]
+    for site, frame in native_winners.groupby("token_site", sort=False):
+        dataset = load_native_thinking_capture(
+            native_thinking_index,
+            site_kind=str(site),
+            cohort="parser_hit",
+        )
+        for winner in frame.to_dict(orient="records"):
+            group = str(winner["analysis_group"])
+            source_group = (
+                "explicit_ordinal"
+                if group == "explicit_ordinal_marker_control"
+                else group
+            )
+            labels = tuple(map(int, str(winner["retained_labels"]).split()))
+            metadata, mask = _subset_group(dataset, source_group, labels)
+            metrics = _heldout_metrics(
+                dataset.states_by_layer[int(winner["layer"])][mask],
+                metadata,
+                labels,
+                pca_dim=pca_dim,
+                random_state=random_state,
+            )
+            selected_rows.append(
+                {
+                    **winner,
+                    "evaluation_split_role": "original_confirmation",
+                    **metrics,
+                }
+            )
+
+    eligibility_rows = [
+        {
+            "model_label": item_dataset.model_label,
+            "analysis_group": item.analysis_group,
+            "status": item.status,
+            "retained_labels": " ".join(map(str, item.labels)),
+            "retained_class_count": len(item.labels),
+            "discovery_seed_count": item.discovery_seed_count,
+            "confirmation_seed_count": item.confirmation_seed_count,
+            "discovery_support": json.dumps(item.discovery_support, sort_keys=True),
+            "confirmation_support": json.dumps(
+                item.confirmation_support, sort_keys=True
+            ),
+            "reason": item.reason,
+        }
+        for item in eligibility
+    ]
+    audit = {
+        "non_thinking_layers": sorted(non_thinking_reference.states_by_layer),
+        "native_thinking_layers": sorted(item_dataset.states_by_layer),
+        "non_thinking_seed_panel": non_thinking_panel,
+        "native_thinking_seed_panel": native_panel,
+    }
+    return (
+        candidates,
+        pd.DataFrame(selected_rows),
+        pd.DataFrame(eligibility_rows),
+        audit,
+    )
+
+
+def _final_count_analysis(
+    non_thinking_index: Path,
+    native_thinking_index: Path,
+    *,
+    pca_dim: int,
+    cv_folds: int,
+    random_state: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
+    raw_non_thinking = load_non_thinking_final_count(non_thinking_index)
+    raw_native = load_native_thinking_final_count(native_thinking_index)
+    if raw_non_thinking.model_label != raw_native.model_label:
+        raise ValueError(
+            "Final-count inputs use different model labels: "
+            f"{raw_non_thinking.model_label!r} versus {raw_native.model_label!r}"
+        )
+    shared = [
+        relabel_seed_panel(
+            dataset,
+            discovery_seeds=SHARED_SELECTION_SEEDS,
+            confirmation_seeds=SHARED_EVALUATION_SEEDS,
+        )
+        for dataset in (raw_non_thinking, raw_native)
+    ]
+    candidate_rows: list[dict[str, Any]] = []
+    for dataset in shared:
+        token_sites = sorted(set(dataset.metadata["token_site"].astype(str)))
+        if len(token_sites) != 1:
+            raise ValueError(f"Final-count dataset has token sites {token_sites}")
+        for layer, states in sorted(dataset.states_by_layer.items()):
+            candidate_rows.append(
+                _candidate_row(
+                    endpoint="final_count",
+                    dataset=dataset,
+                    analysis_group="all_counts",
+                    selector="independent_layer_search",
+                    token_site=token_sites[0],
+                    layer=layer,
+                    states=states,
+                    metadata=dataset.metadata,
+                    labels=CLASSES,
+                    pca_dim=pca_dim,
+                    cv_folds=cv_folds,
+                    random_state=random_state,
+                )
+            )
+    candidates = pd.DataFrame(candidate_rows)
+    winners = select_discovery_winners(candidates)
+    shared_by_mode = {dataset.mode: dataset for dataset in shared}
+    raw_by_mode = {
+        raw_non_thinking.mode: raw_non_thinking,
+        raw_native.mode: raw_native,
+    }
+    selected_rows: list[dict[str, Any]] = []
+    for winner in winners.to_dict(orient="records"):
+        mode = str(winner["mode"])
+        dataset = shared_by_mode[mode]
+        layer = int(winner["layer"])
+        shared_metrics = _heldout_metrics(
+            dataset.states_by_layer[layer],
+            dataset.metadata,
+            CLASSES,
+            pca_dim=pca_dim,
+            random_state=random_state,
+        )
+        selected = {
+            **winner,
+            "evaluation_split_role": "shared_posthoc_seed_holdout",
+            **shared_metrics,
+        }
+        if mode == "native_thinking":
+            original_confirmation = relabel_seed_panel(
+                raw_by_mode[mode],
+                discovery_seeds=SHARED_SELECTION_SEEDS,
+                confirmation_seeds=NATIVE_ORIGINAL_CONFIRMATION_SEEDS,
+            )
+            replication = _heldout_metrics(
+                original_confirmation.states_by_layer[layer],
+                original_confirmation.metadata,
+                CLASSES,
+                pca_dim=pca_dim,
+                random_state=random_state,
+            )
+            selected.update(
+                {
+                    f"native_original_{key}": value
+                    for key, value in replication.items()
+                }
+            )
+        selected_rows.append(selected)
+
+    support_audit: dict[str, Any] = {}
+    for dataset in shared:
+        support_audit[dataset.mode] = {
+            split: {
+                str(label): int(
+                    (
+                        dataset.metadata.loc[
+                            dataset.metadata["split"].astype(str).eq(split),
+                            "occurrence",
+                        ].astype(int)
+                        == label
+                    ).sum()
+                )
+                for label in CLASSES
+            }
+            for split in ("discovery", "confirmation")
+        }
+    audit = {
+        "shared_selection_seeds": list(SHARED_SELECTION_SEEDS),
+        "shared_evaluation_seeds": list(SHARED_EVALUATION_SEEDS),
+        "native_original_confirmation_seeds": list(
+            NATIVE_ORIGINAL_CONFIRMATION_SEEDS
+        ),
+        "support": support_audit,
+        "non_thinking_layers": sorted(raw_non_thinking.states_by_layer),
+        "native_thinking_layers": sorted(raw_native.states_by_layer),
+    }
+    return candidates, pd.DataFrame(selected_rows), audit
+
+
+def analyze_dual_endpoint_geometry(
+    *,
+    non_thinking_running_index: str | Path,
+    native_thinking_running_index: str | Path,
+    non_thinking_final_count: str | Path,
+    native_thinking_final_count: str | Path,
+    output_dir: str | Path,
+    pca_dim: int = 16,
+    cv_folds: int = 5,
+    random_state: int = 0,
+    command: str | None = None,
+) -> dict[str, Path]:
+    started = time.perf_counter()
+    timings: dict[str, float] = {}
+    phase_started = time.perf_counter()
+    running_candidates, running_selected, eligibility, running_audit = (
+        _running_index_analysis(
+            Path(non_thinking_running_index),
+            Path(native_thinking_running_index),
+            pca_dim=pca_dim,
+            cv_folds=cv_folds,
+            random_state=random_state,
+        )
+    )
+    timings["running_index_seconds"] = time.perf_counter() - phase_started
+    phase_started = time.perf_counter()
+    final_candidates, final_selected, final_audit = _final_count_analysis(
+        Path(non_thinking_final_count),
+        Path(native_thinking_final_count),
+        pca_dim=pca_dim,
+        cv_folds=cv_folds,
+        random_state=random_state,
+    )
+    timings["final_count_seconds"] = time.perf_counter() - phase_started
+    timings["total_seconds"] = time.perf_counter() - started
+
+    output = Path(output_dir)
+    paths = {
+        "running_candidates": output / "running_index_candidate_metrics.csv",
+        "running_selected": output / "running_index_selected.csv",
+        "running_eligibility": output / "running_index_group_eligibility.csv",
+        "final_candidates": output / "final_count_candidate_metrics.csv",
+        "final_selected": output / "final_count_selected.csv",
+        "audit": output / "dual_endpoint_geometry_audit.json",
+        "runtime": output / "runtime_log.json",
+    }
+    _atomic_csv(paths["running_candidates"], running_candidates)
+    _atomic_csv(paths["running_selected"], running_selected)
+    _atomic_csv(paths["running_eligibility"], eligibility)
+    _atomic_csv(paths["final_candidates"], final_candidates)
+    _atomic_csv(paths["final_selected"], final_selected)
+    _atomic_json(
+        paths["audit"],
+        {
+            "schema_version": SCHEMA_VERSION,
+            "model_label": str(running_candidates.iloc[0]["model_label"]),
+            "estimands": {
+                "running_index": (
+                    "decodability of k=1..10 from non-thinking prompt occurrence "
+                    "states versus native-thinking parsed thinking-trace item states"
+                ),
+                "final_count": (
+                    "decodability of gold N=1..10 at the prompt-final Total: query "
+                    "state versus the thinking-trace token immediately before the "
+                    "numeric final answer"
+                ),
+            },
+            "independent_layer_rule": (
+                "token site and layer are selected separately within each mode; "
+                "layer numbers are never matched across modes"
+            ),
+            "selection_rule": (
+                "maximize the mean of discovery grouped-CV logistic and nearest-"
+                "centroid balanced accuracy; tie-break by NCC, logistic, earlier "
+                "within-model layer, then token-site name"
+            ),
+            "confirmation_rule": (
+                "all-layer held-out curves are saved for transparent diagnostics, "
+                "but the programmed winner reads discovery columns only; the "
+                "reported selected row is therefore discovery-frozen"
+            ),
+            "pca_dim_requested": int(pca_dim),
+            "pca_whiten": PCA_WHITEN,
+            "cv_folds_requested": int(cv_folds),
+            "random_state": int(random_state),
+            "preprocessing": (
+                "StandardScaler and whitened PCA refit inside every grouped "
+                "discovery fold; the held-out projection is fit on all selection "
+                "rows"
+            ),
+            "metrics": (
+                "multiclass balanced accuracy for class-weighted logistic regression "
+                "and nearest centroid; class-balanced centroid signal/noise ratio in "
+                "the frozen discovery projection"
+            ),
+            "running_index_token_sites": {
+                "non_thinking": {
+                    "span_end": "last token of each prompt evidence span",
+                    "span_mean": "mean over tokens in each prompt evidence span",
+                },
+                "native_thinking_primary": {
+                    "city_end": "last city/entity token in a parsed trace item",
+                    "item_end": "last token of a completed parsed trace item",
+                    "post_boundary": "first token after the parsed item boundary",
+                },
+                "native_thinking_control": {
+                    "marker_end": (
+                        "explicit ordinal/index marker endpoint; lexical positive "
+                        "control, excluded from the primary post-marker selector"
+                    )
+                },
+            },
+            "trace_groups": {
+                key: ("all registered marker kinds" if value is None else list(value))
+                for key, value in TRACE_GROUP_MEMBERS.items()
+            },
+            "final_count_token_sites": {
+                "non_thinking": (
+                    "prompt_final_total_query: final prompt Total: token immediately "
+                    "before answer generation"
+                ),
+                "native_thinking": (
+                    "answer_query_v3: last literal thinking-trace token immediately "
+                    "before the numeric final answer"
+                ),
+            },
+            "final_count_split_caveat": (
+                "non-thinking lacks the original confirmation capture; the shared "
+                "15/5 seed split is a post-hoc held-out audit, not a preregistered "
+                "confirmation. Native original confirmation is an additional "
+                "mode-specific replication."
+            ),
+            "inputs": {
+                "non_thinking_running_index": str(
+                    Path(non_thinking_running_index).resolve()
+                ),
+                "native_thinking_running_index": str(
+                    Path(native_thinking_running_index).resolve()
+                ),
+                "non_thinking_final_count": str(
+                    Path(non_thinking_final_count).resolve()
+                ),
+                "native_thinking_final_count": str(
+                    Path(native_thinking_final_count).resolve()
+                ),
+            },
+            "running_index_audit": running_audit,
+            "final_count_audit": final_audit,
+        },
+    )
+    _atomic_json(
+        paths["runtime"],
+        {
+            "schema_version": SCHEMA_VERSION,
+            "command": command,
+            "device": "CPU",
+            "python": sys.version,
+            "platform": platform.platform(),
+            "package_versions": {
+                package: _package_version(package)
+                for package in ("numpy", "pandas", "scikit-learn")
+            },
+            "timings_seconds": timings,
+        },
+    )
+    return paths
