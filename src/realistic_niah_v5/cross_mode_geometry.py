@@ -3,10 +3,10 @@
 Each running/enumeration index is treated as one class. Discovery rows fit all
 preprocessing and probes; confirmation rows measure class-specific probe
 quality and covariance-aware cluster quality. The primary comparison keeps the
-same registered N=10 seed panel in both modes. Native-thinking traces may be
-ragged: every parser-observed item position is retained without requiring a
-one-to-one trace or a correct final answer, and position-specific support is
-reported explicitly.
+same registered 10-count x 30-seed trajectory panel in both modes. Each trace
+contributes its actually observed positions 1..M; native-thinking traces may be
+ragged and are retained without requiring a one-to-one trace or a correct final
+answer. Position-specific support is reported explicitly.
 """
 
 from __future__ import annotations
@@ -32,20 +32,39 @@ from sklearn.metrics import (
 from sklearn.preprocessing import StandardScaler
 
 
-SCHEMA_VERSION = "realistic_niah_cross_mode_position_geometry_v3_snr"
+SCHEMA_VERSION = "realistic_niah_cross_mode_position_geometry_v4_all_counts"
 CLASSES = tuple(range(1, 11))
-NATIVE_SITE_POLICIES = ("uniform", "trace_aware_count_boundary")
+NATIVE_SITE_POLICIES = (
+    "uniform",
+    "trace_aware_count_boundary",
+    "trace_aware_pre_label",
+)
 TRACE_AWARE_SITE_BY_MARKER_KIND = {
     # These marker spans carry an explicit ordinal/index cue.  The resulting
     # geometry is a sensitivity analysis because the cue itself can make k
     # decodable; it is not the primary completed-item estimand.
     "indexed": "marker_end",
     "ordinal": "marker_end",
+    "inline_count": "marker_end",
     # A repeated bullet does not identify k, and the fallback parsers have no
     # genuine marker token.  Use the completed item boundary for those traces.
     "bullet": "item_end",
     "audit_sentence": "item_end",
     "completion_recap": "item_end",
+    "evidence_sequence": "item_end",
+}
+TRACE_AWARE_PRE_LABEL_SITE_BY_MARKER_KIND = {
+    # These sites are immediately before the explicit k cue.  For inline
+    # Count/Record markers this is also after the city evidence has been read.
+    "indexed": "pre_marker",
+    "ordinal": "pre_marker",
+    "inline_count": "pre_marker",
+    # Invariant bullets and implicit chains do not expose a count label, so the
+    # completed item endpoint is the closest comparable update boundary.
+    "bullet": "item_end",
+    "audit_sentence": "item_end",
+    "completion_recap": "item_end",
+    "evidence_sequence": "item_end",
 }
 QUALITY_DIRECTION = {
     "logistic_precision": "higher",
@@ -80,9 +99,18 @@ class ModeDataset:
             raise ValueError(
                 f"{self.mode} states/metadata mismatch: {lengths}/{len(self.metadata)}"
             )
-        keys = self.metadata[["split", "seed", "occurrence"]]
+        key_columns = ["split", "seed"]
+        if "gold_count" in self.metadata.columns:
+            key_columns.append("gold_count")
+        if "stimulus_id" in self.metadata.columns:
+            key_columns.append("stimulus_id")
+        key_columns.append("occurrence")
+        keys = self.metadata[key_columns]
         if keys.duplicated().any():
-            raise ValueError(f"{self.mode} has duplicate split/seed/occurrence rows")
+            raise ValueError(
+                f"{self.mode} has duplicate trajectory/occurrence rows on "
+                f"{key_columns}"
+            )
 
 
 @dataclass
@@ -130,17 +158,17 @@ def load_non_thinking_capture(
         row
         for row in _read_jsonl(index_path)
         if str(row.get("design_variant")) == design_variant
-        and int(row.get("count", -1)) == 10
     ]
+    rows.sort(key=lambda row: (int(row["seed"]), int(row["count"])))
     if not rows:
-        raise ValueError(f"No {design_variant}/N10 rows in {index_path}")
+        raise ValueError(f"No {design_variant} rows in {index_path}")
     first_path = index_path.parent / str(rows[0]["shard_path"])
     with np.load(first_path, allow_pickle=False) as archive:
         if pooling not in archive.files:
             raise ValueError(f"Pooling {pooling!r} is absent from {first_path}")
         layer_indices = archive["layer_indices"].astype(int)
         hidden_size = int(archive[pooling].shape[-1])
-    total = len(rows) * len(CLASSES)
+    total = sum(int(row["count"]) for row in rows)
     states = {
         int(layer): np.empty((total, hidden_size), dtype=np.float16)
         for layer in layer_indices
@@ -148,26 +176,28 @@ def load_non_thinking_capture(
     metadata_rows: list[dict[str, Any]] = []
     offset = 0
     for row in rows:
+        count = int(row["count"])
         shard = index_path.parent / str(row["shard_path"])
         with np.load(shard, allow_pickle=False) as archive:
             layers = archive["layer_indices"].astype(int)
             if not np.array_equal(layers, layer_indices):
                 raise ValueError(f"Layer mismatch in {shard}")
             values = np.asarray(archive[pooling])
-            if values.shape[:2] != (len(layer_indices), len(CLASSES)):
+            if values.shape[:2] != (len(layer_indices), count):
                 raise ValueError(f"Unexpected {pooling} shape {values.shape} in {shard}")
             for layer_axis, layer in enumerate(layer_indices):
-                states[int(layer)][offset : offset + len(CLASSES)] = values[layer_axis]
-        for occurrence in CLASSES:
+                states[int(layer)][offset : offset + count] = values[layer_axis]
+        for occurrence in range(1, count + 1):
             metadata_rows.append(
                 {
                     "split": str(row["split"]),
                     "seed": int(row["seed"]),
                     "occurrence": int(occurrence),
+                    "gold_count": count,
                     "stimulus_id": str(row["stimulus_id"]),
                 }
             )
-        offset += len(CLASSES)
+        offset += count
     dataset = ModeDataset(
         mode="non_thinking",
         model_label=str(rows[0]["model_label"]),
@@ -202,8 +232,6 @@ def load_native_thinking_capture(
         ]
     ] = []
     for row in _read_jsonl(index_path):
-        if int(row.get("gold_count", -1)) != 10:
-            continue
         if cohort in {"one_to_one", "one_to_one_correct"} and not bool(
             row.get("trace_one_to_one")
         ):
@@ -233,13 +261,18 @@ def load_native_thinking_capture(
             )
         )
         selected_site_kind = site_kind
-        if site_policy == "trace_aware_count_boundary":
-            if marker_kind not in TRACE_AWARE_SITE_BY_MARKER_KIND:
+        if site_policy != "uniform":
+            policy = (
+                TRACE_AWARE_SITE_BY_MARKER_KIND
+                if site_policy == "trace_aware_count_boundary"
+                else TRACE_AWARE_PRE_LABEL_SITE_BY_MARKER_KIND
+            )
+            if marker_kind not in policy:
                 raise ValueError(
-                    "trace_aware_count_boundary requires a registered marker_kind; "
+                    f"{site_policy} requires a registered marker_kind; "
                     f"got {marker_kind!r} for {row.get('request_id')}"
                 )
-            selected_site_kind = TRACE_AWARE_SITE_BY_MARKER_KIND[marker_kind]
+            selected_site_kind = policy[marker_kind]
         site_indices = [
             index
             for index, site in enumerate(manifest["site_rows"])
@@ -280,9 +313,11 @@ def load_native_thinking_capture(
             )
         )
         index_rows.append(row)
+    descriptors.sort(key=lambda item: (int(item[0]["seed"]), int(item[0]["gold_count"])))
+    index_rows.sort(key=lambda row: (int(row["seed"]), int(row["gold_count"])))
     if not descriptors:
         raise ValueError(
-            f"No observed N10 {site_policy}:{site_kind}/{cohort} trajectories "
+            f"No observed {site_policy}:{site_kind}/{cohort} trajectories "
             f"in {index_path}"
         )
     (
@@ -332,6 +367,7 @@ def load_native_thinking_capture(
                     "split": str(row["split"]),
                     "seed": int(row["seed"]),
                     "occurrence": int(occurrence),
+                    "gold_count": int(row["gold_count"]),
                     "stimulus_id": str(row["stimulus_id"]),
                     "trace_category": row.get("trace_category"),
                     "marker_kind": marker_kind,
@@ -350,41 +386,65 @@ def load_native_thinking_capture(
     return dataset
 
 
-def _seed_keys(metadata: pd.DataFrame) -> set[tuple[str, int]]:
+def _trajectory_key_columns(metadata: pd.DataFrame) -> list[str]:
+    columns = ["split", "seed"]
+    if "gold_count" in metadata.columns:
+        columns.append("gold_count")
+    return columns
+
+
+def _seed_keys(metadata: pd.DataFrame) -> set[tuple[Any, ...]]:
+    columns = _trajectory_key_columns(metadata)
     return {
-        (str(split), int(seed))
-        for split, seed in metadata[["split", "seed"]]
+        tuple(
+            str(value) if column == "split" else int(value)
+            for column, value in zip(columns, values)
+        )
+        for values in metadata[columns]
         .drop_duplicates()
         .itertuples(index=False, name=None)
     }
 
 
-def _stimulus_ids_by_seed(metadata: pd.DataFrame) -> dict[tuple[str, int], str]:
-    result: dict[tuple[str, int], str] = {}
-    for (split, seed), frame in metadata.groupby(["split", "seed"], sort=False):
+def _stimulus_ids_by_seed(metadata: pd.DataFrame) -> dict[tuple[Any, ...], str]:
+    columns = _trajectory_key_columns(metadata)
+    result: dict[tuple[Any, ...], str] = {}
+    for raw_key, frame in metadata.groupby(columns, sort=False):
+        values = raw_key if isinstance(raw_key, tuple) else (raw_key,)
+        key = tuple(
+            str(value) if column == "split" else int(value)
+            for column, value in zip(columns, values)
+        )
         stimulus_ids = sorted(set(frame["stimulus_id"].astype(str)))
         if len(stimulus_ids) != 1:
             raise ValueError(
-                f"Seed {(str(split), int(seed))} maps to stimulus IDs {stimulus_ids}"
+                f"Trajectory {key} maps to stimulus IDs {stimulus_ids}"
             )
-        result[(str(split), int(seed))] = stimulus_ids[0]
+        result[key] = stimulus_ids[0]
     return result
 
 
 def _subset_seed_keys(
-    dataset: ModeDataset, keys: set[tuple[str, int]]
+    dataset: ModeDataset, keys: set[tuple[Any, ...]]
 ) -> ModeDataset:
+    columns = _trajectory_key_columns(dataset.metadata)
     mask = np.fromiter(
         (
-            (str(split), int(seed)) in keys
-            for split, seed in zip(dataset.metadata["split"], dataset.metadata["seed"])
+            tuple(
+                str(value) if column == "split" else int(value)
+                for column, value in zip(columns, values)
+            )
+            in keys
+            for values in dataset.metadata[columns].itertuples(
+                index=False, name=None
+            )
         ),
         dtype=bool,
         count=len(dataset.metadata),
     )
     selected = dataset.metadata.loc[mask].copy()
     selected["_old_index"] = np.flatnonzero(mask)
-    selected = selected.sort_values(["split", "seed", "occurrence"])
+    selected = selected.sort_values(columns + ["occurrence"])
     old_index = selected.pop("_old_index").to_numpy(dtype=int)
     result = ModeDataset(
         mode=dataset.mode,
@@ -398,9 +458,11 @@ def _subset_seed_keys(
     return result
 
 
-def _panel_seeds(keys: set[tuple[str, int]]) -> dict[str, list[int]]:
+def _panel_seeds(keys: set[tuple[Any, ...]]) -> dict[str, list[int]]:
     seeds = {
-        split: sorted(seed for candidate_split, seed in keys if candidate_split == split)
+        split: sorted(
+            {int(key[1]) for key in keys if str(key[0]) == split}
+        )
         for split in ("discovery", "confirmation")
     }
     if not seeds["discovery"] or not seeds["confirmation"]:
@@ -419,10 +481,19 @@ def _position_support(dataset: ModeDataset) -> dict[str, dict[str, int]]:
     return support
 
 
+def _trajectory_support(dataset: ModeDataset) -> dict[str, int]:
+    columns = _trajectory_key_columns(dataset.metadata)
+    trajectories = dataset.metadata[columns].drop_duplicates()
+    return {
+        split: int(trajectories["split"].astype(str).eq(split).sum())
+        for split in ("discovery", "confirmation")
+    }
+
+
 def match_registered_seed_panel(
     non_thinking: ModeDataset, native_thinking: ModeDataset
 ) -> tuple[ModeDataset, ModeDataset, dict[str, list[int]]]:
-    """Require the two modes to use the same seed panel, allowing ragged positions."""
+    """Require identical split/seed/count trajectories, allowing ragged positions."""
 
     if non_thinking.model_label != native_thinking.model_label:
         raise ValueError("Cross-mode comparison requires the same model checkpoint")
@@ -432,7 +503,7 @@ def match_registered_seed_panel(
         missing_native = sorted(non_thinking_keys - native_thinking_keys)
         extra_native = sorted(native_thinking_keys - non_thinking_keys)
         raise ValueError(
-            "The registered seed panels differ: "
+            "The registered trajectory panels differ: "
             f"missing_native={missing_native}, extra_native={extra_native}"
         )
     non_thinking_stimuli = _stimulus_ids_by_seed(non_thinking.metadata)
@@ -444,7 +515,7 @@ def match_registered_seed_panel(
     }
     if stimulus_mismatches:
         raise ValueError(
-            "The registered seed panel has cross-mode stimulus mismatches: "
+            "The registered trajectory panel has cross-mode stimulus mismatches: "
             f"{stimulus_mismatches}"
         )
     seeds = _panel_seeds(non_thinking_keys)
@@ -461,21 +532,35 @@ def pair_complete_trajectories(
     if non_thinking.model_label != native_thinking.model_label:
         raise ValueError("Cross-mode comparison requires the same model checkpoint")
 
-    def complete(metadata: pd.DataFrame) -> set[tuple[str, int]]:
-        result = set()
-        for (split, seed), group in metadata.groupby(["split", "seed"]):
-            if sorted(group["occurrence"].astype(int).tolist()) == list(CLASSES):
-                result.add((str(split), int(seed)))
+    def complete(metadata: pd.DataFrame) -> set[tuple[Any, ...]]:
+        columns = _trajectory_key_columns(metadata)
+        result: set[tuple[Any, ...]] = set()
+        for raw_key, group in metadata.groupby(columns):
+            values = raw_key if isinstance(raw_key, tuple) else (raw_key,)
+            key = tuple(
+                str(value) if column == "split" else int(value)
+                for column, value in zip(columns, values)
+            )
+            expected_count = (
+                int(group["gold_count"].iloc[0])
+                if "gold_count" in group.columns
+                else len(CLASSES)
+            )
+            if sorted(group["occurrence"].astype(int).tolist()) == list(
+                range(1, expected_count + 1)
+            ):
+                result.add(key)
         return result
 
     common = complete(non_thinking.metadata) & complete(native_thinking.metadata)
     if not common:
-        raise ValueError("The two modes have no common complete N10 seed trajectory")
+        raise ValueError("The two modes have no common complete trajectory")
 
     left = _subset_seed_keys(non_thinking, common)
     right = _subset_seed_keys(native_thinking, common)
-    left_keys = left.metadata[["split", "seed", "occurrence"]].to_records(index=False)
-    right_keys = right.metadata[["split", "seed", "occurrence"]].to_records(index=False)
+    key_columns = _trajectory_key_columns(left.metadata) + ["occurrence"]
+    left_keys = left.metadata[key_columns].to_records(index=False)
+    right_keys = right.metadata[key_columns].to_records(index=False)
     if not np.array_equal(left_keys, right_keys):
         raise RuntimeError("Paired cross-mode metadata keys are not identical")
     seeds = _panel_seeds(common)
@@ -1015,7 +1100,11 @@ def compare_position_geometry(
             "native_site_policy_mapping": (
                 dict(TRACE_AWARE_SITE_BY_MARKER_KIND)
                 if native_site_policy == "trace_aware_count_boundary"
-                else None
+                else (
+                    dict(TRACE_AWARE_PRE_LABEL_SITE_BY_MARKER_KIND)
+                    if native_site_policy == "trace_aware_pre_label"
+                    else None
+                )
             ),
             "native_selected_site_support": {
                 str(site): int(count)
@@ -1031,8 +1120,12 @@ def compare_position_geometry(
             },
             "native_cohort": native_cohort,
             "analysis_design": analysis_design,
-            "stimulus_alignment": "exact split/seed/stimulus_id match",
+            "stimulus_alignment": "exact split/seed/gold_count/stimulus_id match",
             "registered_seed_panel": seed_panel,
+            "registered_trajectory_panel": {
+                "non_thinking": _trajectory_support(non_thinking),
+                "native_thinking": _trajectory_support(native_thinking),
+            },
             "position_support": {
                 "non_thinking": _position_support(non_thinking),
                 "native_thinking": _position_support(native_thinking),

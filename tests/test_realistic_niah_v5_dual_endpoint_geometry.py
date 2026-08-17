@@ -7,6 +7,7 @@ import pandas as pd
 
 from realistic_niah_v5.cross_mode_geometry import ModeDataset
 from realistic_niah_v5.dual_endpoint_geometry import (
+    _final_count_analysis,
     determine_group_eligibility,
     load_native_thinking_final_count,
     load_non_thinking_final_count,
@@ -89,6 +90,86 @@ def test_final_count_loaders_preserve_all_layers_and_gold_labels(tmp_path):
     assert native.metadata["occurrence"].tolist() == [1, 2]
     np.testing.assert_array_equal(non.states_by_layer[1][:, 2], [1, 1])
     np.testing.assert_array_equal(native.states_by_layer[1][:, 2], [3, 3])
+
+
+def test_final_count_analysis_uses_registered_trajectory_split(tmp_path):
+    non_root = tmp_path / "non_full"
+    native_root = tmp_path / "native_full"
+    non_root.mkdir()
+    native_root.mkdir()
+    non_rows = []
+    native_rows = []
+    for seed in range(1, 6):
+        split = "discovery" if seed <= 3 else "confirmation"
+        for count in range(1, 11):
+            vector = np.asarray(
+                [count, count**2 / 10, seed / 10, 1.0], dtype=np.float32
+            )
+            non_shard = non_root / f"non_{seed}_{count}.npz"
+            np.savez(
+                non_shard,
+                layer_indices=np.asarray([0]),
+                query_states=vector[None, :],
+            )
+            stimulus_id = f"V4_4_N{count}_seed{seed}"
+            non_rows.append(
+                {
+                    "design_variant": "v4.4",
+                    "split": split,
+                    "seed": seed,
+                    "count": count,
+                    "stimulus_id": stimulus_id,
+                    "model_label": "toy",
+                    "position": "prompt_final_total_query",
+                    "shard_path": non_shard.name,
+                }
+            )
+            native_shard = native_root / f"native_{seed}_{count}.npz"
+            np.savez(
+                native_shard,
+                layer_indices=np.asarray([0]),
+                site_states=(vector + 0.01)[None, None, :],
+            )
+            manifest = native_root / f"manifest_{seed}_{count}.json"
+            manifest.write_text(
+                json.dumps({"site_rows": [{"site_kind": "answer_query_v3"}]}),
+                encoding="utf-8",
+            )
+            native_rows.append(
+                {
+                    "split": split,
+                    "seed": seed,
+                    "gold_count": count,
+                    "stimulus_id": stimulus_id,
+                    "model_label": "toy",
+                    "manifest_path": manifest.name,
+                    "states_path": native_shard.name,
+                    "request_id": f"toy/{seed}/{count}",
+                    "exact_count": True,
+                }
+            )
+    non_index = non_root / "capture_index.jsonl"
+    native_index = native_root / "capture_index.jsonl"
+    _write_jsonl(non_index, non_rows)
+    _write_jsonl(native_index, native_rows)
+
+    _candidates, selected, audit = _final_count_analysis(
+        non_index,
+        native_index,
+        pca_dim=2,
+        cv_folds=3,
+        random_state=0,
+    )
+    assert set(selected["evaluation_split_role"]) == {"registered_confirmation"}
+    assert set(selected["confirmation_rows"].astype(int)) == {20}
+    assert audit["registered_trajectory_counts"] == {
+        "discovery": 30,
+        "confirmation": 20,
+    }
+    assert audit["registered_seed_panel"] == {
+        "discovery": [1, 2, 3],
+        "confirmation": [4, 5],
+    }
 
 
 def test_seed_panel_relabeling_is_disjoint_and_preserves_state_alignment():

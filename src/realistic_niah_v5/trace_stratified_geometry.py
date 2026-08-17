@@ -30,30 +30,92 @@ from realistic_niah_v5.cross_mode_geometry import (
 )
 
 
-SCHEMA_VERSION = "realistic_niah_trace_stratified_site_geometry_v1"
+SCHEMA_VERSION = "realistic_niah_trace_stratified_site_geometry_v2"
 LAYER_COMPARISON_POLICY = (
     "independent token-site x layer selection within each selector; "
     "no same-layer matching across selectors or trace strata"
 )
 SITE_ROLES = {
+    "pre_marker": "immediately_before_explicit_count_marker",
     "marker_end": "explicit_or_invariant_marker_endpoint",
+    "pre_city": "immediately_before_city_entity",
     "city_end": "entity_endpoint",
+    "city_unit_end": "city_sentence_or_line_endpoint",
     "item_end": "completed_item_endpoint",
     "post_boundary": "after_item_boundary",
 }
 SITE_CANDIDATES_BY_MARKER_KIND = {
-    "indexed": ("marker_end", "city_end", "item_end", "post_boundary"),
-    "ordinal": ("marker_end", "city_end", "item_end", "post_boundary"),
+    "indexed": (
+        "pre_marker",
+        "marker_end",
+        "pre_city",
+        "city_end",
+        "city_unit_end",
+        "item_end",
+        "post_boundary",
+    ),
+    "ordinal": (
+        "pre_marker",
+        "marker_end",
+        "pre_city",
+        "city_end",
+        "city_unit_end",
+        "item_end",
+        "post_boundary",
+    ),
     # marker_end is retained as an invariant-marker negative control.  It is
     # excluded from the post-marker selector below.
-    "bullet": ("marker_end", "city_end", "item_end", "post_boundary"),
-    "audit_sentence": ("city_end", "item_end", "post_boundary"),
-    "completion_recap": ("city_end", "item_end", "post_boundary"),
+    "bullet": (
+        "pre_marker",
+        "marker_end",
+        "pre_city",
+        "city_end",
+        "city_unit_end",
+        "item_end",
+        "post_boundary",
+    ),
+    "inline_count": (
+        "pre_marker",
+        "marker_end",
+        "pre_city",
+        "city_end",
+        "city_unit_end",
+        "item_end",
+        "post_boundary",
+    ),
+    "audit_sentence": (
+        "pre_city", "city_end", "city_unit_end", "item_end", "post_boundary"
+    ),
+    "completion_recap": (
+        "pre_city", "city_end", "city_unit_end", "item_end", "post_boundary"
+    ),
+    "evidence_sequence": (
+        "pre_city", "city_end", "city_unit_end", "item_end", "post_boundary"
+    ),
 }
 SELECTOR_SITE_FAMILIES = {
     "fixed_item_end": ("item_end",),
-    "post_marker_site_search": ("city_end", "item_end", "post_boundary"),
-    "all_site_search": ("marker_end", "city_end", "item_end", "post_boundary"),
+    "post_marker_site_search": (
+        "city_end", "city_unit_end", "item_end", "post_boundary"
+    ),
+    "pre_label_site_search": ("pre_marker",),
+    "low_leakage_site_search": (
+        "pre_marker",
+        "pre_city",
+        "city_end",
+        "city_unit_end",
+        "item_end",
+        "post_boundary",
+    ),
+    "all_site_search": (
+        "pre_marker",
+        "marker_end",
+        "pre_city",
+        "city_end",
+        "city_unit_end",
+        "item_end",
+        "post_boundary",
+    ),
 }
 
 
@@ -101,8 +163,8 @@ def _balanced_accuracy(
 def _site_role(marker_kind: str, site_kind: str) -> str:
     if site_kind != "marker_end":
         return SITE_ROLES[site_kind]
-    if marker_kind in {"indexed", "ordinal"}:
-        return "explicit_ordinal_cue_endpoint"
+    if marker_kind in {"indexed", "ordinal", "inline_count"}:
+        return "explicit_count_cue_endpoint"
     if marker_kind == "bullet":
         return "invariant_marker_negative_control"
     raise ValueError(f"{marker_kind} has no registered marker_end site")

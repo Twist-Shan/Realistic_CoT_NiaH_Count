@@ -17,14 +17,15 @@ from realistic_niah_v4.modeling import (
     position_attention_outputs,
 )
 from realistic_niah_v4.prompts import TokenSpan
-from realistic_niah_v3.city_list_termination import (
-    find_first_terminated_gold_city_list,
-)
-
 from .encoding import build_native_trace_encoding
 from .parsing import (
+    PARSER_IMPLEMENTATION,
+    PARSER_SCHEMA_VERSION,
+    PARSER_SELECTION_RULE,
+    SITE_SCHEMA_VERSION,
     TraceTokenSite,
     align_trace_sites,
+    find_trace_count_sequence,
     gold_records,
     infer_model_family,
     output_token_ids,
@@ -36,7 +37,7 @@ from .parsing import (
 from .spec import V5Config
 
 
-CAPTURE_SCHEMA_VERSION = "realistic_niah_v5_trace_capture_v1"
+CAPTURE_SCHEMA_VERSION = "realistic_niah_v5_trace_capture_v3"
 ATTENTION_SCHEMA_VERSION = "realistic_niah_v5_mechanism_attention_v3"
 
 
@@ -155,10 +156,26 @@ def capture_trace_record(
     output = Path(output_dir)
     manifest_path = output / "capture_manifest.json"
     if manifest_path.exists() and not overwrite:
-        return json.loads(manifest_path.read_text(encoding="utf-8"))
+        saved = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if (
+            saved.get("schema_version") != CAPTURE_SCHEMA_VERSION
+            or saved.get("parser_implementation") != PARSER_IMPLEMENTATION
+        ):
+            raise RuntimeError(
+                f"Incompatible existing V5 capture shard: {manifest_path}. "
+                "Use --overwrite or a new output directory."
+            )
+        if layers is not None and saved.get("layers") != sorted(
+            {int(layer) for layer in layers}
+        ):
+            raise RuntimeError(
+                f"Existing V5 layer grid differs in {manifest_path}; "
+                "use --overwrite or a new output directory."
+            )
+        return saved
     family = infer_model_family(row)
     raw = raw_output_text(row)
-    parser = find_first_terminated_gold_city_list(
+    parser = find_trace_count_sequence(
         raw,
         model_family=family,
         gold_records=gold_records(row),
@@ -265,7 +282,16 @@ def capture_trace_record(
         "parsed_count": parsed["parsed_count"],
         "exact_count": parsed["exact_count"],
         "parser_implementation": parsed["parser_implementation"],
+        "parser_schema_version": parsed["schema_version"],
+        "parser_selection_rule": parsed["parser_selection_rule"],
+        "rank_episode_schema_version": parsed["rank_episode_schema_version"],
+        "rank_episode_selection_policy": parsed[
+            "rank_episode_selection_policy"
+        ],
+        "site_schema_version": SITE_SCHEMA_VERSION,
         "parser_file_sha256": parsed["parser_file_sha256"],
+        "sequence_source": parsed["sequence_source"],
+        "episode_parse": parsed["episode_parse"],
         "parser": parsed["parser"],
         "prompt_token_count": prompt_count,
         "output_token_count": len(output_token_ids(row)),
@@ -321,7 +347,7 @@ def capture_trace_attention_metrics(
     if not bool(parsed["parser"]["detected"]):
         return pd.DataFrame()
     raw = raw_output_text(row)
-    parser = find_first_terminated_gold_city_list(
+    parser = find_trace_count_sequence(
         raw,
         model_family=parsed["model_family"],
         gold_records=gold_records(row),
@@ -496,6 +522,14 @@ def capture_trace_shards(
                 "trace_one_to_one": manifest["parser"]["trace_one_to_one"],
                 "trace_category": manifest["parser"]["trace_category"],
                 "marker_kind": manifest["parser"]["marker_kind"],
+                "trace_item_count": int(manifest["parser"]["item_count"]),
+                "sequence_source": manifest["sequence_source"],
+                "rank_supported_event_count": int(
+                    manifest["episode_parse"]["rank_supported_event_count"]
+                ),
+                "raw_sequence_count": int(
+                    manifest["episode_parse"]["raw_sequence_count"]
+                ),
                 "manifest_path": (relative / "capture_manifest.json").as_posix(),
                 "states_path": (relative / "states.npz").as_posix(),
             }
@@ -514,11 +548,24 @@ def capture_trace_shards(
         {
             "schema_version": CAPTURE_SCHEMA_VERSION,
             "rows": len(index_rows),
-            "parser_implementation": (
-                "realistic_niah_v3.find_first_terminated_gold_city_list"
-            ),
+            "parser_implementation": PARSER_IMPLEMENTATION,
+            "parser_schema_version": PARSER_SCHEMA_VERSION,
+            "parser_selection_rule": PARSER_SELECTION_RULE,
+            "site_schema_version": SITE_SCHEMA_VERSION,
             "primary_trace_site": config.primary_trace_site,
             "registered_sites": list(config.registered_sites),
+            "counts": sorted({int(row["gold_count"]) for row in index_rows}),
+            "split_trajectory_counts": {
+                split: sum(str(row["split"]) == split for row in index_rows)
+                for split in ("discovery", "confirmation")
+            },
+            "trace_item_states": sum(
+                int(row["trace_item_count"]) for row in index_rows
+            ),
+            "sequence_source_counts": {
+                source: sum(row["sequence_source"] == source for row in index_rows)
+                for source in sorted({str(row["sequence_source"]) for row in index_rows})
+            },
             "restartable_shards": True,
             "full_sequence_hidden_states_materialized": False,
         },

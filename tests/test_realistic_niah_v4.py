@@ -75,6 +75,7 @@ from realistic_niah_v4.prompts import (
 from realistic_niah_v4.representation import (
     analyze_representation_captures,
     capture_answer_query_representation_shards,
+    capture_representation_shards,
     label_representation_analysis_by_generation,
 )
 from realistic_niah_v4.prompt_counter_attention import (
@@ -909,6 +910,45 @@ def test_answer_query_representation_capture_is_all_layer_and_restartable(
     assert manifest["rows"] == 1
     assert manifest["layer_indices"] == [0, 1]
     assert manifest["full_sequence_hidden_states_materialized"] is False
+
+
+def test_prompt_representation_capture_accepts_variable_gold_counts(
+    tmp_path: Path,
+) -> None:
+    model = ToyLM().eval()
+    adapter = discover_decoder_adapter(model)
+    count_two = _toy_encoding((1, 2, 3, 4))
+    count_one = replace(
+        count_two,
+        stimulus_id="toy_n1",
+        count=1,
+        needle_spans=count_two.needle_spans[:1],
+    )
+    count_two = replace(count_two, stimulus_id="toy_n2")
+    output = tmp_path / "prompt_all_counts"
+
+    index_path = capture_representation_shards(
+        model,
+        adapter,
+        [count_one, count_two],
+        output_dir=output,
+        save_dtype="float32",
+    )
+    records = [
+        json.loads(line)
+        for line in index_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [row["count"] for row in records] == [1, 2]
+    assert [row["array_shape"] for row in records] == [[2, 1, 4], [2, 2, 4]]
+    for row in records:
+        with np.load(output / row["shard_path"], allow_pickle=False) as saved:
+            assert saved["span_end"].shape[1] == row["count"]
+            assert saved["span_mean"].shape == saved["span_end"].shape
+    manifest = json.loads(
+        (output / "capture_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["rows"] == 2
+    assert manifest["counts"] == [1, 2]
 
 
 def test_prompt_counter_attention_metrics_separate_query_and_key_pooling() -> None:

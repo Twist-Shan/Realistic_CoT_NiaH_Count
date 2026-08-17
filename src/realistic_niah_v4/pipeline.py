@@ -589,6 +589,7 @@ def run_model_stage(
     variants: Sequence[str] | None = None,
     seeds: Sequence[int] | None = None,
     counts: Sequence[int] | None = None,
+    representation_all_counts: bool = False,
     overwrite: bool = False,
     forward_smoke: bool = False,
     generation_max_new_tokens: int = 16,
@@ -707,7 +708,8 @@ def run_model_stage(
         representation_rows = [
             row
             for row in selected
-            if int(row["gold_count"]) == config.representation_count
+            if representation_all_counts
+            or int(row["gold_count"]) == config.representation_count
         ]
         with logger.timer(
             "representation_capture",

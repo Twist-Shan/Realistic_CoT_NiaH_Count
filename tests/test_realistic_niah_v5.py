@@ -114,7 +114,7 @@ def _row(family: str = "qwen3") -> dict[str, object]:
 
 
 @pytest.mark.parametrize("family", ["qwen3", "gemma4"])
-def test_frozen_oracle_parser_and_registered_sites(family: str) -> None:
+def test_hybrid_oracle_parser_and_registered_sites(family: str) -> None:
     result = parse_and_align_record(_row(family), CharacterTokenizer())
     assert result["parser"]["trace_category"] == "one_to_one"
     assert result["parser"]["trace_one_to_one"] is True
@@ -126,6 +126,7 @@ def test_frozen_oracle_parser_and_registered_sites(family: str) -> None:
         "city_list_termination.py",
         "first_list_cutoff.py",
         "gold_city_cutoff.py",
+        "hybrid_trace_parser.py",
     }
     assert result["alignment_summary"]["eligible"] == len(result["token_sites"])
     item_sites = [
@@ -138,6 +139,9 @@ def test_frozen_oracle_parser_and_registered_sites(family: str) -> None:
         for site in item_sites
     )
     assert any(site["site_id"] == "answer_query" for site in result["token_sites"])
+    assert any(
+        site["site_id"] == "answer_query_v3" for site in result["token_sites"]
+    )
 
 
 def test_parser_version_is_provenance_not_a_fake_rule_id() -> None:

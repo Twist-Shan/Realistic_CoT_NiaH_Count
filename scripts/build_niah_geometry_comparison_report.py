@@ -48,11 +48,8 @@ from realistic_niah_v5.cross_mode_geometry import (  # noqa: E402
 from realistic_niah_v5.dual_endpoint_geometry import (  # noqa: E402
     PCA_WHITEN,
     SCHEMA_VERSION as DUAL_ENDPOINT_SCHEMA_VERSION,
-    SHARED_EVALUATION_SEEDS,
-    SHARED_SELECTION_SEEDS,
     load_native_thinking_final_count,
     load_non_thinking_final_count,
-    relabel_seed_panel,
 )
 from realistic_niah_v5.parsing import (  # noqa: E402
     PARSER_UPSTREAM_COMMIT,
@@ -72,6 +69,31 @@ EXPECTED_FULL_PANEL = {
     "discovery": list(range(1234, 1254)),
     "confirmation": list(range(1254, 1264)),
 }
+EXPECTED_COUNTS = tuple(range(1, 11))
+EXPECTED_TRAJECTORIES = 300
+
+
+def expected_trajectory_keys() -> set[tuple[str, int, int]]:
+    return {
+        (split, int(seed), int(gold_count))
+        for split, seeds in EXPECTED_FULL_PANEL.items()
+        for seed in seeds
+        for gold_count in EXPECTED_COUNTS
+    }
+
+
+def require_full_trajectory_panel(
+    keys: Iterable[tuple[str, int, int]], context: str
+) -> None:
+    observed = set(keys)
+    expected = expected_trajectory_keys()
+    missing = sorted(expected - observed)
+    extra = sorted(observed - expected)
+    require(
+        observed == expected,
+        f"{context} is not the registered 10-count x 30-seed panel: "
+        f"missing={missing[:8]}, extra={extra[:8]}",
+    )
 
 
 def require(condition: bool, message: str) -> None:
@@ -108,10 +130,6 @@ def sha256(path: Path) -> str:
 
 def esc(value: Any) -> str:
     return html.escape(str(value))
-
-
-def truth(value: Any) -> bool:
-    return str(value).strip().lower() in {"1", "true", "yes"}
 
 
 def pct(value: Any) -> str:
@@ -185,7 +203,13 @@ def load_trace_stratified_results(
         )
         require(
             {row["selector"] for row in selection}
-            <= {"fixed_item_end", "post_marker_site_search", "all_site_search"},
+            <= {
+                "fixed_item_end",
+                "post_marker_site_search",
+                "pre_label_site_search",
+                "low_leakage_site_search",
+                "all_site_search",
+            },
             f"unregistered trace-stratified selector for {model}",
         )
         results[model] = {
@@ -351,15 +375,37 @@ def load_metric_comparison(
                 aligned_audit["registered_seed_panel"] == EXPECTED_FULL_PANEL,
                 "aligned seed panel is not the registered 30-seed panel",
             )
+            expected_split_trajectories = {
+                "discovery": 200,
+                "confirmation": 100,
+            }
+            require(
+                aligned_audit.get("registered_trajectory_panel")
+                == {
+                    "non_thinking": expected_split_trajectories,
+                    "native_thinking": expected_split_trajectories,
+                },
+                "aligned analysis is not the registered 300-trajectory panel",
+            )
             require(
                 trace_aligned_audit["registered_seed_panel"]
                 == aligned_audit["registered_seed_panel"],
                 "trace-aware aligned seed panel changed",
             )
             require(
+                trace_aligned_audit.get("registered_trajectory_panel")
+                == aligned_audit.get("registered_trajectory_panel"),
+                "trace-aware aligned trajectory panel changed",
+            )
+            require(
                 trace_complete_audit["registered_seed_panel"]
                 == complete_audit["registered_seed_panel"],
                 "trace-aware one-to-one seed panel changed",
+            )
+            require(
+                trace_complete_audit.get("registered_trajectory_panel")
+                == complete_audit.get("registered_trajectory_panel"),
+                "trace-aware one-to-one trajectory panel changed",
             )
             for audit in (
                 aligned_audit,
@@ -493,56 +539,60 @@ def load_metric_comparison(
 
 def non_thinking_outcomes(
     export_root: Path, model: str
-) -> tuple[dict[tuple[str, int], dict[str, Any]], Path]:
-    candidates = sorted(
-        (
-            export_root
-            / model
-            / "numeric"
-            / "representation"
-            / "analysis"
-            / "outcomes"
-        ).glob("shared_pca_span_end_layer_*_labeled.csv")
+) -> tuple[dict[tuple[str, int, int], dict[str, Any]], Path]:
+    path = (
+        export_root
+        / model
+        / "numeric"
+        / "behavior"
+        / "capture"
+        / "generation_label_index.jsonl"
     )
-    require(candidates, f"no non-thinking outcome table for {model}")
-    path = candidates[0]
-    mapping: dict[tuple[str, int], dict[str, Any]] = {}
-    for row in read_csv(path):
+    mapping: dict[tuple[str, int, int], dict[str, Any]] = {}
+    for row in read_jsonl(path):
         if row["design_variant"] != "v4.4":
             continue
-        key = (row["split"], int(row["seed"]))
+        key = (str(row["split"]), int(row["seed"]), int(row["gold_count"]))
         value = {
-            "exact_count": truth(row["is_correct"]),
-            "parsed_count": int(row["parsed_count"]) if row["parsed_count"] else None,
-            "count_error": int(row["count_error"]) if row["count_error"] else None,
+            "exact_count": bool(row["is_correct"]),
+            "parsed_count": (
+                int(row["parsed_count"])
+                if row.get("parsed_count") is not None
+                else None
+            ),
+            "count_error": (
+                int(row["count_error"])
+                if row.get("count_error") is not None
+                else None
+            ),
         }
         if key in mapping:
             require(mapping[key] == value, f"inconsistent non-thinking outcome {model}/{key}")
         else:
             mapping[key] = value
-    require(len(mapping) == 30, f"expected 30 non-thinking N10 outcomes for {model}")
+    require_full_trajectory_panel(mapping, f"non-thinking outcomes for {model}")
     return mapping, path
 
 
 def native_outcomes(
     capture_index: Path,
-) -> tuple[dict[tuple[str, int], dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[dict[tuple[str, int, int], dict[str, Any]], list[dict[str, Any]]]:
     rows = read_jsonl(capture_index)
-    mapping: dict[tuple[str, int], dict[str, Any]] = {}
+    mapping: dict[tuple[str, int, int], dict[str, Any]] = {}
     for row in rows:
-        if int(row.get("gold_count", -1)) != 10:
-            continue
-        key = (str(row["split"]), int(row["seed"]))
+        gold_count = int(row["gold_count"])
+        key = (str(row["split"]), int(row["seed"]), gold_count)
+        require(key not in mapping, f"duplicate native outcome {key} in {capture_index}")
         mapping[key] = {
             "exact_count": bool(row.get("exact_count")),
             "parsed_count": row.get("parsed_count"),
             "count_error": (
-                int(row["parsed_count"]) - 10
+                int(row["parsed_count"]) - gold_count
                 if row.get("parsed_count") is not None
                 else None
             ),
         }
-    require(len(mapping) == 30, f"expected 30 native N10 outcomes in {capture_index}")
+    require_full_trajectory_panel(mapping, f"native outcomes in {capture_index}")
     return mapping, rows
 
 
@@ -553,7 +603,7 @@ def partial_trace_rows(
 ) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for row in index_rows:
-        if int(row.get("gold_count", -1)) != 10 or bool(row.get("trace_one_to_one")):
+        if bool(row.get("trace_one_to_one")):
             continue
         manifest_path = capture_index.parent / str(row["manifest_path"])
         manifest = read_json(manifest_path)
@@ -566,6 +616,7 @@ def partial_trace_rows(
                 "request_id": row["request_id"],
                 "split": row["split"],
                 "seed": int(row["seed"]),
+                "gold_count": int(row["gold_count"]),
                 "observed": len(item_sites),
                 "occurrences": [int(site["occurrence"]) for site in item_sites],
                 "cities": [str(site.get("city")) for site in item_sites],
@@ -609,7 +660,10 @@ def partial_trace_rows(
                     endpoint["char_start"] : endpoint["char_end"]
                 ].strip()
         result.append(value)
-    return sorted(result, key=lambda row: (row["split"], row["seed"]))
+    return sorted(
+        result,
+        key=lambda row: (row["split"], row["seed"], row["gold_count"]),
+    )
 
 
 def display_layers(dataset: ModeDataset, aligned_peak: int) -> list[int]:
@@ -624,10 +678,16 @@ def load_trace_archive(
     if trace_root is None:
         return None, None
     path = trace_root / model / "generations.jsonl"
-    rows = [row for row in read_jsonl(path) if int(row.get("gold_count", -1)) == 10]
-    require(len(rows) == 30, f"expected 30 N10 generation rows for {model}")
+    rows = read_jsonl(path)
     mapping = {str(row["request_id"]): row for row in rows}
-    require(len(mapping) == 30, f"duplicate N10 request IDs for {model}")
+    require(len(mapping) == len(rows), f"duplicate request IDs for {model}")
+    require_full_trajectory_panel(
+        (
+            (str(row["split"]), int(row["seed"]), int(row["gold_count"]))
+            for row in rows
+        ),
+        f"native trace archive for {model}",
+    )
     return mapping, path
 
 
@@ -640,11 +700,13 @@ def native_alignment_summary(
     examples: dict[str, dict[str, Any]] = {}
     ordered_rows = sorted(
         index_rows,
-        key=lambda row: (str(row["split"]) != "confirmation", int(row["seed"])),
+        key=lambda row: (
+            str(row["split"]) != "confirmation",
+            int(row["seed"]),
+            int(row["gold_count"]),
+        ),
     )
     for row in ordered_rows:
-        if int(row.get("gold_count", -1)) != 10:
-            continue
         manifest = read_json(capture_index.parent / str(row["manifest_path"]))
         trace = (
             None
@@ -672,6 +734,7 @@ def native_alignment_summary(
                 "model": str(row["model_label"]),
                 "split": str(row["split"]),
                 "seed": int(row["seed"]),
+                "gold_count": int(row["gold_count"]),
                 "occurrence": int(site["occurrence"]),
                 "city": str(site.get("city")),
                 "char_start": int(site["char_start"]),
@@ -705,8 +768,6 @@ def native_trace_policy_summary(
 
     grouped: dict[str, dict[str, Any]] = {}
     for row in index_rows:
-        if int(row.get("gold_count", -1)) != 10:
-            continue
         marker_kind = str(row.get("marker_kind"))
         require(
             marker_kind in TRACE_AWARE_SITE_BY_MARKER_KIND,
@@ -791,14 +852,17 @@ def native_trace_policy_summary(
                 ),
             }
         )
-    require(sum(row["trace_count"] for row in result) == 30, "trace policy row loss")
+    require(
+        sum(row["trace_count"] for row in result) == EXPECTED_TRAJECTORIES,
+        "trace policy trajectory loss",
+    )
     return result
 
 
 def fit_display_coordinates(
     dataset: ModeDataset,
     layers: Iterable[int],
-    outcomes: Mapping[tuple[str, int], Mapping[str, Any]],
+    outcomes: Mapping[tuple[str, int, int], Mapping[str, Any]],
 ) -> dict[str, Any]:
     metadata = dataset.metadata.reset_index(drop=True)
     discovery = metadata["split"].astype(str).eq("discovery").to_numpy()
@@ -816,7 +880,8 @@ def fit_display_coordinates(
         for index, row in metadata.iterrows():
             split = str(row["split"])
             seed = int(row["seed"])
-            outcome = outcomes[(split, seed)]
+            gold_count = int(row["gold_count"])
+            outcome = outcomes[(split, seed, gold_count)]
             points.append(
                 [
                     split,
@@ -827,6 +892,7 @@ def fit_display_coordinates(
                     round(float(coordinates[index, 0]), 5),
                     round(float(coordinates[index, 1]), 5),
                     round(float(coordinates[index, 2]), 5),
+                    gold_count,
                 ]
             )
         result[str(layer)] = {
@@ -859,6 +925,7 @@ def fit_dual_display_coordinates(dataset: ModeDataset) -> dict[str, Any]:
                 round(float(coordinates[index, 0]), 5),
                 round(float(coordinates[index, 1]), 5),
                 round(float(coordinates[index, 2]), 5),
+                int(row.gold_count),
             ]
             for index, row in enumerate(metadata.itertuples(index=False))
         ]
@@ -941,12 +1008,17 @@ def build_dual_visual_data(
             / "answer_query_all_layers_v1"
             / "capture_index.jsonl"
         )
-        native_final_index = (
+        native_final_candidates = (
+            native_final_root / model / "capture_index.jsonl",
             native_final_root
             / model
             / "representation"
             / "capture_primary"
-            / "capture_index.jsonl"
+            / "capture_index.jsonl",
+        )
+        native_final_index = next(
+            (path for path in native_final_candidates if path.is_file()),
+            native_final_candidates[0],
         )
         datasets = {
             "running_non": load_non_thinking_capture(
@@ -959,16 +1031,8 @@ def build_dual_visual_data(
                 site_kind=str(running_native_row["token_site"]),
                 cohort="parser_hit",
             ),
-            "final_non": relabel_seed_panel(
-                load_non_thinking_final_count(non_final_index),
-                discovery_seeds=SHARED_SELECTION_SEEDS,
-                confirmation_seeds=SHARED_EVALUATION_SEEDS,
-            ),
-            "final_native": relabel_seed_panel(
-                load_native_thinking_final_count(native_final_index),
-                discovery_seeds=SHARED_SELECTION_SEEDS,
-                confirmation_seeds=SHARED_EVALUATION_SEEDS,
-            ),
+            "final_non": load_non_thinking_final_count(non_final_index),
+            "final_native": load_native_thinking_final_count(native_final_index),
         }
         selected_rows = {
             "running_non": running_non_row,
@@ -1010,6 +1074,7 @@ def build_dual_visual_data(
 
 def build_visual_data(
     export_root: Path,
+    outcome_root: Path,
     native_capture_root: Path,
     aligned_peak_layer: Mapping[str, int],
     comparison: Mapping[str, Mapping[int, Mapping[str, Any]]],
@@ -1028,7 +1093,7 @@ def build_visual_data(
             / "capture_index.jsonl"
         )
         native_index = native_capture_root / model / "capture_index.jsonl"
-        non_outcome, outcome_path = non_thinking_outcomes(export_root, model)
+        non_outcome, outcome_path = non_thinking_outcomes(outcome_root, model)
         native_outcome, native_rows = native_outcomes(native_index)
         trace_by_request, trace_path = load_trace_archive(trace_root, model)
         partials.extend(
@@ -1161,6 +1226,7 @@ def partial_table(partials: Iterable[Mapping[str, Any]]) -> str:
                 esc(row["model"]),
                 esc(row["split"]),
                 str(row["seed"]),
+                str(row["gold_count"]),
                 str(row["observed"]),
                 esc(", ".join(map(str, row["occurrences"]))),
                 esc(", ".join(row["cities"])),
@@ -1174,6 +1240,7 @@ def partial_table(partials: Iterable[Mapping[str, Any]]) -> str:
             "模型",
             "split",
             "seed",
+            "gold N",
             "observed items",
             "ordinal labels",
             "parser-observed cities",
@@ -1227,6 +1294,7 @@ def partial_trace_details(partials: Iterable[Mapping[str, Any]]) -> str:
         blocks.append(
             "<details>"
             f"<summary>{esc(row['model'])} · {esc(row['split'])} · seed {row['seed']} · "
+            f"gold N={row['gold_count']} · "
             f"{row['observed']} observed item_end states · final {esc(row['parsed_count'])}</summary>"
             f"<pre class=\"trace\">{esc(row['raw_excerpt'])}</pre>"
             f"{endpoint_table(row['endpoint_sites'])}</details>"
@@ -1256,7 +1324,8 @@ def token_extraction_section(visual: Mapping[str, Any]) -> str:
             example_rows.append(
                 (
                     esc(model),
-                    f"{esc(example['split'])} / {example['seed']} / k={example['occurrence']}",
+                    f"{esc(example['split'])} / {example['seed']} / "
+                    f"N={example['gold_count']} / k={example['occurrence']}",
                     esc(example["city"]),
                     esc(example.get("item_text", "archive text unavailable")),
                     f"[{example['char_start']}, {example['char_end']})",
@@ -1297,7 +1366,7 @@ def token_extraction_section(visual: Mapping[str, Any]) -> str:
     counts = html_table(
         [
             "模型",
-            "N10 item_end sites",
+            "all-count item_end sites",
             "literal full-sequence",
             "retokenized prefix",
             "raw archive verified",
@@ -1322,7 +1391,7 @@ def token_extraction_section(visual: Mapping[str, Any]) -> str:
             "模型",
             "marker_kind",
             "trace-aware site",
-            "N10 traces",
+            "all-count trajectories",
             "one-to-one",
             "all D/C traces",
             "1:1 D/C traces",
@@ -1334,16 +1403,16 @@ def token_extraction_section(visual: Mapping[str, Any]) -> str:
     )
     return f"""
 <section id="tokens"><h2>Trace → token → hidden state</h2>
-<p>Native trace 先由注册 parser 找到第一个满足终止规则的 gold-city list。第 k 个 parser item 的字符区间是 <code>[char_start, char_end)</code>，主站点 <code>item_end:k</code> 取该区间结束边界。随后用原始生成时保存的 <code>output_token_ids</code> 做 text-exact 对齐；只有 <code>alignment_eligible=true</code> 的站点进入 geometry。</p>
+<p>Native trace 先由 hybrid parser 构造 span-supported 的 <code>1..M</code> episode：优先配对局部 city span 与显式 rank evidence，在每次 rank-1 restart 处分段；若 structural parser 的 city sequence 以该 ranked episode 为精确前缀并继续加入新城市，则保留这段无标号续接。相同 <code>(rank, city)</code> 的重复 evidence 会合并，但 rank 前进时重复 city 不会被去重。注册 gold N 与最终 <code>Total</code> 都不参与 episode 构造或选择；synthetic evidence fallback 单独标记且不能进入 one-to-one cohort。第 k 个 parser item 的字符区间是 <code>[char_start, char_end)</code>，主站点 <code>item_end:k</code> 取该区间结束边界。随后用原始生成时保存的 <code>output_token_ids</code> 做 text-exact 对齐；只有 <code>alignment_eligible=true</code> 的站点进入 geometry。</p>
 <div class="callout"><strong>实际 capture 公式：</strong>相对 output 的 0-based endpoint 是 <code>endpoint_token = prefix_token_count - 1</code>；模型输入中的 0-based query position 是 <code>prompt_token_count + endpoint_token</code>。forward hook 读取每个 decoder block 的输出在该位置的 residual-stream vector，所以 L0 表示第 0 个 decoder block 的输出，而不是 embedding layer。</div>
 <div class="definitions two"><div><h3>Literal baseline boundary</h3><p>若 <code>raw_text[:char_end]</code> 与原始 output token prefix 完全同边界，则在一次完整 <code>prompt + output</code> forward 中直接取上述位置。</p></div><div><h3>Text-exact boundary retokenization</h3><p>若字符边界切开 tokenizer 的合并，不能错误地借用跨边界 token。此时将 <code>raw_text[:char_end]</code> 精确重分词，单独 forward <code>prompt + retokenized prefix</code>，取最后一个 token；该 state 与原 trace 共享边界前的 baseline prefix，但不是完整 trace forward 中某个 token 的冒名替代。</p></div></div>
 <div class="callout warning"><strong>Non-thinking 对照：</strong>站点不来自 response trace，而来自 prompt 中第 k 个 exact needle token span <code>[start,end)</code>；<code>span_end</code> 明确定义为每层 block 输出的 <code>hidden[0, end-1]</code>。因此三列共享 ordinal k，但 native 与 non-thinking 的 token 语义不同。</div>
 {counts}<details><summary>Representative character/token alignments</summary>{examples}</details>
 <h3>Parser-aware anchor sensitivity</h3>
-<p>parser 同时给出完整性类别 <code>trace_category</code> 和表面格式 <code>marker_kind</code>。实现固定到 <a href="{esc(PARSER_UPSTREAM_REPOSITORY)}/commit/{esc(PARSER_UPSTREAM_COMMIT)}"><code>{esc(PARSER_UPSTREAM_COMMIT[:12])}</code></a>。这里<strong>不让 trace_category 决定 token</strong>：one-to-one/partial/duplicate 是整条轨迹的覆盖结果，用它反向挑 token 会把 completion selection 写进 measurement。敏感性策略只读取 marker_kind：<code>indexed/ordinal → marker_end</code>；<code>bullet/audit_sentence/completion_recap → item_end</code>。bullet 符号在各项相同，不携带 k；两个 fallback 没有真实 marker。</p>
+<p>parser 同时给出完整性类别 <code>trace_category</code> 和表面格式 <code>marker_kind</code>。实现固定到 <a href="{esc(PARSER_UPSTREAM_REPOSITORY)}/commit/{esc(PARSER_UPSTREAM_COMMIT)}"><code>{esc(PARSER_UPSTREAM_COMMIT[:12])}</code></a>。这里<strong>不让 trace_category 决定 token</strong>：one-to-one/partial/duplicate 是整条轨迹的覆盖结果，用它反向挑 token 会把 completion selection 写进 measurement。敏感性策略只读取 marker_kind：<code>indexed/ordinal/inline_count → marker_end</code>；<code>bullet/audit_sentence/completion_recap/evidence_sequence → item_end</code>。无显式序号的格式没有可读取的 k marker。</p>
 <div class="callout warning"><strong>解释边界：</strong>trace-aware 是异质站点的诊断，不替代统一 <code>item_end</code> 主分析。尤其 indexed/ordinal 的 marker 本身可能直接暴露 k，分类变好可能只是显式文本 cue，而不是更紧密的内部 count state。报告因此允许切换两套 anchor，并分别重算每层 PCA、probe 与 SNR。</div>
 {policy}
-<div class="callout warning"><strong>已观测到的 split/site 混杂：</strong>Gemma one-to-one 的 confirmation 只有 3 条 seed，且三条全部是 <code>indexed → marker_end</code>；对应 discovery 则是 indexed 3、bullet 3、audit_sentence 1 的异质混合。因此这一格 trace-aware 的早层极高分数同时包含显式数字 token 与跨 split 站点构成变化，不能作为内部 counter 更紧的证据。</div>
+<div class="callout warning"><strong>split/site composition audit：</strong>上表分别列出 discovery/confirmation 的 marker-kind、one-to-one 与 selected-site 支持。若两侧格式构成不同，异质 trace-aware 分数会同时包含位置可读性与 site-composition shift；这种结果只能作敏感性诊断，不能单独作为内部 counter 更紧的证据。</div>
 </section>"""
 
 
@@ -1371,24 +1440,38 @@ def trace_stratified_section(
         "indexed": "逐项唯一数字（显式 k cue）",
         "ordinal": "逐项 ordinal word（显式/半显式 k cue）",
         "bullet": "各项相同 bullet（不唯一标识 k）",
+        "inline_count": "city 后 Count/Record k（显式 k cue）",
         "audit_sentence": "句式 fallback（无逐项 marker）",
         "completion_recap": "recap fallback（无逐项 marker）",
+        "evidence_sequence": "score-supported evidence chain（无逐项 marker）",
     }
     marker_order = {
         name: index
         for index, name in enumerate(
-            ["indexed", "ordinal", "bullet", "audit_sentence", "completion_recap"]
+            [
+                "indexed",
+                "ordinal",
+                "inline_count",
+                "bullet",
+                "audit_sentence",
+                "completion_recap",
+                "evidence_sequence",
+            ]
         )
     }
     selector_labels = {
         "fixed_item_end": "fixed item_end",
         "post_marker_site_search": "post-marker search",
+        "pre_label_site_search": "pre-marker / pre-label",
+        "low_leakage_site_search": "low-leakage site search",
         "all_site_search": "all-site search",
     }
     selector_order = {
         "fixed_item_end": 0,
         "post_marker_site_search": 1,
-        "all_site_search": 2,
+        "pre_label_site_search": 2,
+        "low_leakage_site_search": 3,
+        "all_site_search": 4,
     }
     grade_labels = {
         "claim_grade": "bounded-claim eligible",
@@ -1502,8 +1585,9 @@ def trace_stratified_section(
         item
         for item in selected_rows
         if item["eligibility"] == "claim_grade"
-        and item["marker_kind"] in {"bullet", "completion_recap"}
-        and item["selector"] == "post_marker_site_search"
+        and item["marker_kind"]
+        in {"bullet", "audit_sentence", "completion_recap", "evidence_sequence"}
+        and item["selector"] == "low_leakage_site_search"
     ]
     implicit_sentences = []
     for item in implicit_claim_rows:
@@ -1539,14 +1623,14 @@ def trace_stratified_section(
 
     return f"""
 <section id="strata"><h2>按 trace 格式分层：token-site × layer sweep</h2>
-<p>这里按 parser 的表面格式 <code>marker_kind</code> 分层，不按 one-to-one/partial 等 <code>trace_category</code> 分层。每个 stratum 尝试 <code>marker_end</code>、<code>city_end</code>、<code>item_end</code> 与紧随 item 的 <code>post_boundary</code> 中语义上存在的站点。<strong>每个 selector 都在自己的候选 token sites × 全部层中独立选择最佳组合，不要求不同 selector 使用同一层。</strong>选择只使用 discovery seeds 的 leave-one-seed-out Logistic/NCC 平均 balanced accuracy；每个 fold 内重新拟合 StandardScaler 与 PCA16，再在 confirmation 上评价各自选定的组合。</p>
+<p>这里按 parser 的表面格式 <code>marker_kind</code> 分层，不按 one-to-one/partial 等 <code>trace_category</code> 分层。每个 stratum 在语义存在时尝试 <code>pre_marker</code>、<code>marker_end</code>、<code>pre_city</code>、<code>city_end</code>、<code>city_unit_end</code>、<code>item_end</code> 与 <code>post_boundary</code>。其中 <code>city_unit_end</code> 是包含该城市的 sentence/physical-line 末端，用来保留 senior parser 的语义单元边界优势。<strong>每个 selector 都在自己的候选 token sites × 全部层中独立选择最佳组合，不要求不同 selector 或两个模式使用同一层。</strong>选择只使用 discovery seeds 的 seed-grouped Logistic/NCC 平均 balanced accuracy；同一 seed 的十个 count 条件不会跨 train/test。每个 fold 内重新拟合 StandardScaler 与 PCA16，再在 confirmation 上评价冻结组合。</p>
 <div class="callout warning"><strong>分析地位：</strong>这是看到 pooled geometry 后新增的 post-hoc robustness analysis，不是预注册的独立复现。程序化选择不读取 confirmation，但这批 confirmation seeds 已在更早的总体分析中出现过。因此它能降低直接的 site/layer overfitting，不能把结果升级为全新的 confirmatory evidence。</div>
 <h3>哪些类别有足够支持？</h3>
 {html_table(['模型', 'marker_kind', '表面 cue', 'D/C seeds', '保留 k', '逐类支持', '证据等级'], eligibility_rows)}
 <h3>Discovery-frozen 位置与 confirmation 结果</h3>
-<p class="small"><code>fixed item_end</code> 只固定 token-site，层仍由它自己的 discovery sweep 选择；<code>post-marker search</code> 排除 marker endpoint，并独立选择自己的 site/layer；<code>all-site search</code> 允许显式 marker，并同样独立选择自己的 site/layer，主要作为 lexical-cue positive control。Δ 比较同一 stratum 下两个<strong>各自在 discovery 上选出的最佳组合</strong>，单位为 percentage points。它回答“各 selector 最佳可读出性相差多少”，混合了 site 与 layer 的变化，不能解释为控制层后的纯 token-site 效应。</p>
+<p class="small"><code>fixed item_end</code> 只固定 token-site，层仍由自己的 discovery sweep 选择；<code>pre-label</code> 取显式 marker 之前；<code>low-leakage</code> 排除 <code>marker_end</code>；<code>all-site</code> 允许显式 marker，作为 lexical-cue positive control。Δ 比较同一 stratum 下两个<strong>各自在 discovery 上选出的最佳组合</strong>，混合 site 与 layer 变化，不能解释为同层控制后的纯 token-site 效应。</p>
 {html_table(['模型', 'stratum', '等级', 'selector', '各自独立 D-selected site/layer', 'D OOF Log/NCC', 'C Log/NCC', 'ΔC vs 各自最佳 item_end', 'C SNR', 'C support'], [item['html'] for item in selected_rows])}
-<div class="callout"><strong>换 token-site × layer 组合会不会普遍更好？</strong>不会。对通过 support gate 的 strata，post-marker selector 相对各自独立选择的 fixed item_end 的 confirmation 变化为：{post_marker_summary}。改善集中在 Qwen indexed；无唯一序号的 recap/bullet 没有选出更优的新组合。因而合理结论是“各格式在各自最佳层上，对若干合理边界仍可读”，不是“找到了一个跨格式最优 token”，也不是同层控制下的 token-site 效应。</div>
+<div class="callout"><strong>位置搜索结果：</strong>对通过 support gate 的 strata，post-marker selector 相对各自独立选择的 fixed item_end 的 confirmation 变化为：{post_marker_summary or '没有可比较的 claim-grade stratum'}。是否改善必须逐行判断；报告不会预设某个 token site 跨格式占优。</div>
 <div class="callout"><strong>可支持的表述：</strong>“在 native-thinking response 中，ordinal position 在按表面格式分层后仍可由 hidden states held-out 解码；而且这一现象至少在没有逐项唯一序号 token 的格式中存在，因此 pooled decodability 不能完全归结为读取显式编号。”当前无唯一编号、通过 support gate 的 strata 为：{implicit_summary}。</div>
 <div class="callout warning"><strong>不可支持的表述：</strong>这些结果仍不能单独证明离散计数器、count chord 或递增更新机制。即使取 <code>post_boundary</code>，自回归上下文仍包含先前项目；probe 可能读取序列长度、句式进度、重复次数或其他位置相关 cue。indexed 的近满分尤其应解释为显式序号 positive control，而不是内部 counter 的主证据。SNR 与 classification 若方向不一致，应写成“更可解码但不一定更紧密”。</div>
 </section>"""
@@ -1564,13 +1648,6 @@ def dual_endpoint_section(
         for row in selected:
             if str(row["analysis_group"]) not in {"all_traces", "all_counts"}:
                 continue
-            original = "—"
-            if row["endpoint"] == "final_count" and row["mode"] == "native_thinking":
-                original = (
-                    f"Log {pct(row['native_original_confirmation_logistic_balanced_accuracy'])} / "
-                    f"NCC {pct(row['native_original_confirmation_ncc_balanced_accuracy'])} / "
-                    f"{float(row['native_original_confirmation_class_balanced_snr_db']):.2f} dB"
-                )
             summary_rows.append(
                 (
                     esc(model),
@@ -1592,7 +1669,6 @@ def dual_endpoint_section(
                         f"nₖ {int(float(row['confirmation_support_min']))}–"
                         f"{int(float(row['confirmation_support_max']))}"
                     ),
-                    original,
                 )
             )
         for row in payload["running_selected"]:
@@ -1603,8 +1679,12 @@ def dual_endpoint_section(
             group = str(row["analysis_group"])
             role = (
                 "lexical positive control"
-                if group == "explicit_ordinal_marker_control"
-                else "post-marker primary search"
+                if str(row.get("selector")) == "lexical_marker_positive_control"
+                else (
+                    "format-aware pre-label search"
+                    if str(row.get("selector")) == "format_aware_pre_label"
+                    else "low-leakage site/layer search"
+                )
             )
             category_rows.append(
                 (
@@ -1653,11 +1733,7 @@ def dual_endpoint_section(
                 f'<option value="{layer}"{(" selected" if layer == payload["default_layer"] else "")}>L{layer}</option>'
                 for layer in payload["layers"]
             )
-            evaluation_label = (
-                "original confirmation only"
-                if panel.startswith("running")
-                else "shared 5-seed held-out only"
-            )
+            evaluation_label = "registered confirmation · 100 trajectories"
             cards.append(
                 f"""<article class="geometry-card dual-card"><h3>{esc(title)}</h3>
 <p>{esc(description)}</p><div class="controls"><label>Layer<select id="dual-{slug}-{panel}-layer">{options}</select></label>
@@ -1674,13 +1750,13 @@ def dual_endpoint_section(
 <section id="dual"><h2>两个 endpoint，各自在自己的最佳表征上比较</h2>
 <p>这里不再要求 non-thinking 与 native-thinking 使用同一层。每个模式分别在 discovery 中搜索自己的 token site 与 decoder layer；程序按 5-fold seed-grouped OOF Logistic/NCC balanced accuracy 的平均值选赢家，confirmation 不进入 selector。定量空间是每 fold 内重拟合的 StandardScaler + whitened PCA16；下方 3D 仅作显示，每层独立用 discovery 拟合 PCA3。</p>
 <div class="definitions two"><div><h3>Running index</h3><p><strong>non-thinking：</strong>prompt 中第 k 个 evidence span。<strong>native-thinking：</strong>thinking trace 中 parser-observed 的第 k 项。两边类别都是 k=1…10，但 token 语义不同。</p></div><div><h3>Final count</h3><p><strong>non-thinking：</strong>prompt-final <code>Total:</code> query。<strong>native-thinking：</strong>numeric final answer 前的最后一个 thinking token。两边类别都是 gold N=1…10。</p></div></div>
-<div class="callout"><strong>主结论：</strong>在各自 discovery-frozen 的最佳层/位置上，两模型的两个 endpoint 都显示 native-thinking 的 held-out Logistic 与 NCC 高于 non-thinking。running-index 的 SNR 并非完全同向：Qwen native 的分类更高，但 SNR 略低；所以最稳妥表述是“更可解码”，不是笼统的“几何一定更紧”。</div>
-<div class="callout warning"><strong>Final-count split 限制：</strong>non-thinking 没有原始 confirmation hidden-state capture。因此 direct comparison 预先固定在共有 20 个 discovery seeds 内，用 1234–1248 选择、1249–1253 评价；这是 post-hoc shared held-out audit，不是新的预注册 confirmation。native 原始 1254–1263 只作为额外单模式复验，列在最右侧。</div>
-{html_table(['模型', 'endpoint', '模式', 'D-selected site/layer', 'D OOF', '冻结层 held-out', 'held-out SNR', 'support', 'native 原始 C 复验'], summary_rows)}
+<div class="callout"><strong>判读规则：</strong>每个 endpoint、mode 都使用自己的 discovery-frozen 最佳 token-site/layer。只有 held-out Logistic 与 NCC 同向提高时才写“更可解码”；只有 SNR 也提高时才进一步写“类间/类内比更高”。三项不一致时分别报告，不能笼统写成“几何更紧”。</div>
+<div class="callout"><strong>统一 split：</strong>running-index 与 final-count 都使用注册的 20-seed discovery / 10-seed confirmation。每个 final-count 模式的 confirmation 恰好是 10 counts × 10 seeds = 100 个 states；同一 seed 的十个 count 条件始终在同一侧。</div>
+{html_table(['模型', 'endpoint', '模式', 'D-selected site/layer', 'D OOF', '冻结层 held-out', 'held-out SNR', 'support'], summary_rows)}
 <h3>稀疏 trace 类型合并后的 native running-index 诊断</h3>
-<p class="small"><code>explicit_ordinal = indexed + ordinal</code>；<code>non_explicit_progress = bullet + audit_sentence + completion_recap</code>。每类只保留 discovery≥3 且 confirmation≥2 的 k。<code>marker_end</code> 只作为显式数字 cue 的 positive control，不进入 post-marker 主 selector。</p>
+<p class="small"><code>explicit_count_marker = indexed + ordinal + inline_count</code>；<code>implicit_or_invariant_progress = bullet + audit_sentence + completion_recap + evidence_sequence</code>。每类只保留 discovery≥3 且 confirmation≥2 的 k。<code>marker_end</code> 只作为显式数字 cue 的 positive control；主搜索包含 format-aware <code>pre_marker</code> 与其他低泄漏边界。</p>
 {html_table(['模型', 'pooled group', '角色', '保留 k', 'D-selected site/layer', 'D OOF', '冻结层 held-out', 'SNR'], category_rows)}
-<div class="callout warning"><strong>类别结果不是统一增强：</strong>Qwen 的 explicit 与 non-explicit 两组都能较好解码；Gemma 的 non-explicit 仍有中等信号，但 explicit 在排除 marker 后较弱，而 marker positive control 为满分。这说明 pooled native 优势不能全部解释成显式编号读取，但也不能声称所有 trace 格式共享同一个稳定 counter geometry。</div>
+<div class="callout warning"><strong>类别结果的边界：</strong>显式 count-marker 组必须同时查看 <code>pre_marker</code> 主候选与 <code>marker_end</code> lexical positive control；无显式编号组则检查低泄漏站点是否仍能 held-out 解码。只有多种格式方向一致时，才可支持跨格式的共享 representation；否则应报告格式依赖。</div>
 <h3>每层 3D：四个 panel 各自切 layer</h3>
 <p class="small">每张图固定使用该 panel 由 discovery 选中的 token site，但 layer 可独立浏览全部 decoder blocks；因此不会把两个模式锁到同一层。点色是 running k 或 gold final count N。统计栏同时显示该层的 discovery OOF 与 held-out Logistic/NCC/SNR；all-layer held-out 曲线仅作透明诊断，程序化赢家仍只读取 discovery 列。</p>
 {''.join(model_blocks)}
@@ -1698,7 +1774,7 @@ def model_section(model: str, payload: Mapping[str, Any]) -> str:
         (
             "non_thinking",
             "1 · Non-thinking",
-            "Prompt 中第 k 个真实 needle 的 span-end；共享 30 seeds。",
+            "10 个 gold count × 30 seeds；prompt 中第 k 个真实 needle 的 span-end。",
         ),
         (
             "native_one_to_one",
@@ -1708,7 +1784,7 @@ def model_section(model: str, payload: Mapping[str, Any]) -> str:
         (
             "native_aligned",
             "3 · Native-thinking · ordinal-aligned",
-            "共享 30 seeds；实际写出的第 k 项就是位置 k，允许后段缺失。",
+            "完整 300 条轨迹；实际写出的第 k 项就是位置 k，允许后段缺失。",
         ),
     )
     for key, title, description in definitions:
@@ -1723,7 +1799,7 @@ def model_section(model: str, payload: Mapping[str, Any]) -> str:
 <section id="{slug}">
   <div class="section-title"><div><div class="eyebrow">MODEL COMPARISON</div><h2>{esc(model)}</h2></div>
   <div class="controls"><label>Layer <select id="{slug}-layer">{options}</select></label>
-  <label>Displayed panel <select id="{slug}-split"><option value="confirmation">confirmation only · 10 seeds / nominal 100</option><option value="all">all registered · 30 seeds / nominal 300</option></select></label>
+  <label>Displayed panel <select id="{slug}-split"><option value="confirmation">confirmation · 100 trajectories</option><option value="all">all · 300 trajectories</option></select></label>
   <label>Native anchor <select id="{slug}-anchor"><option value="uniform">uniform item_end · primary</option><option value="trace_aware">trace-aware count boundary · sensitivity</option></select></label>
   <label>Final outcome <select id="{slug}-outcome"><option value="all">all</option><option value="correct">correct</option><option value="wrong">wrong</option></select></label></div></div>
   <div class="geometry-grid">{''.join(cards)}</div>
@@ -1741,9 +1817,6 @@ def build_html(
     dual_results: Mapping[str, Mapping[str, Any]],
     dual_visual: Mapping[str, Any],
 ) -> str:
-    gemma_trace_one = comparison["Gemma4-E4B"][32][
-        "native_one_to_one_trace_aware"
-    ]
     visual_json = json.dumps(visual, ensure_ascii=False, separators=(",", ":")).replace(
         "</", "<\\/"
     )
@@ -1794,9 +1867,9 @@ function draw3D(canvas,model,panel,layer,split,outcome,anchor){
   const depths=rotated.map(o=>o.r[2]),zmin=Math.min(...depths),zmax=Math.max(...depths),zspan=Math.max(zmax-zmin,1e-6);rotated.sort((a,b)=>a.r[2]-b.r[2]);
   for(const o of rotated){const p=o.p,depth=(o.r[2]-zmin)/zspan;c.globalAlpha=.42+.45*depth;c.fillStyle=COLORS[p[2]-1];c.strokeStyle=p[3]===1?'#FFFDF8':'#20242D';c.lineWidth=p[3]===1?2.25:1.05;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),2.7+1.25*depth,0,Math.PI*2);c.fill();c.stroke()}
   c.globalAlpha=1;for(const o of rcent){const p=o.p;c.fillStyle=COLORS[p[0]-1];c.strokeStyle='#20242D';c.lineWidth=1.3;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),5.8,0,Math.PI*2);c.fill();c.stroke();c.fillStyle='#20242D';c.font='10px Consolas';c.fillText(String(p[0]),sx(o.r[0])+7,sy(o.r[1])-6)}
-  const seeds=new Set(points.map(p=>p[0]+':'+p[1])).size,counts=cent.map(p=>p[4]),nominal=split==='confirmation'?100:300,metric=DATA[model].metrics[key][String(layer)],anchorText=panel==='non_thinking'?'prompt span_end':(anchor==='uniform'?'uniform item_end':'trace-aware boundary');
+  const seeds=new Set(points.map(p=>p[0]+':'+p[1])).size,trajectories=new Set(points.map(p=>p[0]+':'+p[1]+':'+p[8])).size,counts=cent.map(p=>p[4]),registered=split==='confirmation'?100:300,metric=DATA[model].metrics[key][String(layer)],anchorText=panel==='non_thinking'?'prompt span_end':(anchor==='uniform'?'uniform item_end':'trace-aware boundary');
   const metricText=metric?`held-out C: logistic BA ${(100*metric.logistic).toFixed(1)}% · NCC BA ${(100*metric.ncc).toFixed(1)}% · SNR ${metric.snr.toFixed(3)} (${metric.snr_db.toFixed(2)} dB)`:'';
-  stat.textContent=`${anchorText} · L${layer} · nominal ${nominal} · actual ${points.length} states · ${seeds} seeds · nₖ ${Math.min(...counts)}–${Math.max(...counts)} · EVR(PC1–3) ${(100*evr.reduce((a,b)=>a+b,0)).toFixed(1)}% · ${metricText}`;
+  stat.textContent=`${anchorText} · L${layer} · registered ${registered} trajectories · displayed ${trajectories} trajectories / ${points.length} states · ${seeds} seeds · nₖ ${Math.min(...counts)}–${Math.max(...counts)} · EVR(PC1–3) ${(100*evr.reduce((a,b)=>a+b,0)).toFixed(1)}% · ${metricText}`;
 }
 function drawMetric(canvas,model,field){
   const rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;canvas.width=Math.max(1,Math.round(rect.width*dpr));canvas.height=Math.max(1,Math.round(rect.height*dpr));const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);const w=rect.width,h=rect.height,pad={l:39,r:10,t:13,b:27},layers=DATA[model].layers,ctl=controls(model),current=ctl.layer;
@@ -1825,7 +1898,7 @@ function drawDual3D(model,panel){
   c.strokeStyle='#2C3440';c.globalAlpha=.8;c.lineWidth=2;c.beginPath();rcent.forEach((o,i)=>i?c.lineTo(sx(o.r[0]),sy(o.r[1])):c.moveTo(sx(o.r[0]),sy(o.r[1])));c.stroke();const depths=rotated.map(o=>o.r[2]),zmin=Math.min(...depths),zmax=Math.max(...depths),zspan=Math.max(zmax-zmin,1e-6);rotated.sort((a,b)=>a.r[2]-b.r[2]);
   for(const o of rotated){const p=o.p,depth=(o.r[2]-zmin)/zspan;c.globalAlpha=.42+.45*depth;c.fillStyle=COLORS[p[2]-1];c.strokeStyle=p[0]==='confirmation'?'#FFFDF8':'#20242D';c.lineWidth=p[0]==='confirmation'?2.2:1;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),2.7+1.25*depth,0,Math.PI*2);c.fill();c.stroke()}
   c.globalAlpha=1;for(const o of rcent){const p=o.p;c.fillStyle=COLORS[p[0]-1];c.strokeStyle='#20242D';c.lineWidth=1.3;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),5.8,0,Math.PI*2);c.fill();c.stroke();c.fillStyle='#20242D';c.font='10px Consolas';c.fillText(String(p[0]),sx(o.r[0])+7,sy(o.r[1])-6)}
-  const seeds=new Set(points.map(p=>p[0]+':'+p[1])).size,counts=cent.map(p=>p[4]),metric=payload.metrics[String(layer)],evr=block.evr.reduce((a,b)=>a+b,0);stat.textContent=`${payload.token_site} · L${layer} · ${points.length} states / ${seeds} seeds · nₖ ${Math.min(...counts)}–${Math.max(...counts)} · EVR3 ${(100*evr).toFixed(1)}% · D OOF Log/NCC ${(100*metric.discovery_logistic).toFixed(1)}%/${(100*metric.discovery_ncc).toFixed(1)}% · held-out Log/NCC ${(100*metric.confirmation_logistic).toFixed(1)}%/${(100*metric.confirmation_ncc).toFixed(1)}% · SNR ${metric.confirmation_snr_db.toFixed(2)} dB`;
+  const seeds=new Set(points.map(p=>p[0]+':'+p[1])).size,trajectories=new Set(points.map(p=>p[0]+':'+p[1]+':'+p[6])).size,counts=cent.map(p=>p[4]),metric=payload.metrics[String(layer)],evr=block.evr.reduce((a,b)=>a+b,0);stat.textContent=`${payload.token_site} · L${layer} · ${trajectories} trajectories / ${points.length} states / ${seeds} seeds · nₖ ${Math.min(...counts)}–${Math.max(...counts)} · EVR3 ${(100*evr).toFixed(1)}% · D OOF Log/NCC ${(100*metric.discovery_logistic).toFixed(1)}%/${(100*metric.discovery_ncc).toFixed(1)}% · held-out Log/NCC ${(100*metric.confirmation_logistic).toFixed(1)}%/${(100*metric.confirmation_ncc).toFixed(1)}% · SNR ${metric.confirmation_snr_db.toFixed(2)} dB`;
 }
 function setupDual3D(model,panel){const ids=dualIds(model,panel);ids.layer.addEventListener('change',()=>drawDual3D(model,panel));ids.split.addEventListener('change',()=>drawDual3D(model,panel));let active=false,lastX=0,lastY=0;ids.canvas.addEventListener('pointerdown',e=>{active=true;lastX=e.clientX;lastY=e.clientY;ids.canvas.setPointerCapture(e.pointerId)});ids.canvas.addEventListener('pointermove',e=>{if(!active)return;const view=VIEWS[ids.canvas.id]||(VIEWS[ids.canvas.id]={yaw:-.72,pitch:.46});view.yaw+=(e.clientX-lastX)*.009;view.pitch=Math.max(-1.45,Math.min(1.45,view.pitch+(e.clientY-lastY)*.009));lastX=e.clientX;lastY=e.clientY;drawDual3D(model,panel)});const stop=()=>{active=false};ids.canvas.addEventListener('pointerup',stop);ids.canvas.addEventListener('pointercancel',stop);drawDual3D(model,panel)}
 for(const model of Object.keys(DUAL))for(const panel of Object.keys(DUAL[model].panels))setupDual3D(model,panel);
@@ -1837,29 +1910,46 @@ let timer;window.addEventListener('resize',()=>{clearTimeout(timer);timer=setTim
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NiaH Geometry Comparison</title><style>{css}</style></head>
 <body><nav><a href="#design">口径</a><a href="#tokens">Token 提取</a><a href="#dual">独立最佳层</a><a href="#strata">分类选点</a><a href="#qwen">Qwen</a><a href="#gemma">Gemma</a><a href="#metrics">指标</a><a href="#partial">部分轨迹</a></nav><main>
 <header><div class="eyebrow">REALISTIC NIAH · THREE-COHORT GEOMETRY</div><h1>NiaH Geometry Comparison</h1>
-<p class="lead">同一份报告并列展示 non-thinking、经过 one-to-one 结构清洗的 native-thinking，以及使用共享 30 seeds、按实际出现 ordinal 对齐的 native-thinking。</p></header>
-<section id="design"><h2>比较口径</h2><div class="definitions"><div><h3>1 · Non-thinking</h3><p>固定 V4.4 N=10 prompt；第 k 类是 prompt 中第 k 个真实 needle 的 span-end state。每个 seed 固定有十个位置。</p></div><div><h3>2 · Native · one-to-one</h3><p>第 k 类是 response 中第 k 个 item-end state。要求 parser-observed city multiset 与 gold 严格相等、无重复或遗漏；不筛最终答案正确性。这是 completion-conditioned sensitivity。</p></div><div><h3>3 · Native · ordinal-aligned</h3><p>同一套 30 seeds 上保留所有 parser-hit。模型实际写出的第 k 项标为 k；少写就少观测，不插值、不补齐。</p></div></div>
+<p class="lead">同一份报告并列展示 non-thinking、经过 one-to-one 结构清洗的 native-thinking，以及按实际出现 ordinal 对齐的 native-thinking；每个模型都从完整的 10 counts × 30 seeds = 300 条注册轨迹出发。</p></header>
+<section id="design"><h2>比较口径</h2><div class="definitions"><div><h3>1 · Non-thinking</h3><p>V4.4 的 gold N=1…10 各配 30 seeds。第 k 类是 prompt 中第 k 个真实 needle 的 span-end state；一条 gold-N 轨迹贡献 k=1…N。</p></div><div><h3>2 · Native · one-to-one</h3><p>从同一批 300 条注册轨迹出发，只保留 parser-observed city multiset 与 gold 严格相等、无重复或遗漏者；不筛最终答案正确性。这是 completion-conditioned sensitivity。</p></div><div><h3>3 · Native · ordinal-aligned</h3><p>300 条 parser-hit 全部保留。模型实际写出的第 k 个计数事件标为 k；若一条轨迹只写到 M，就只贡献 1…M，不插值、不补到 gold N。</p></div></div>
 <div class="legend"><span><i class="dot"></i>填充颜色 = 位置 k</span><span><i class="dot correct"></i>白色粗边 = 最终答对</span><span><i class="dot wrong"></i>深色边 = 最终答错</span></div>
 <div class="callout"><strong>标签分离：</strong>位置标签始终是 <code>occurrence=k</code>；<code>final exact_count</code> 只控制点的轮廓，不参与 PCA、probe class 或 aligned cohort 入选。</div>
-<div class="callout"><strong>“少数了”的两种含义：</strong>non-thinking 即使最终输出 6 而不是 10，N=10 prompt 中十个真实 needle endpoints 仍全部存在，所以仍贡献十个位置 state；native-thinking 若 response 只实际写出六项，则只有六个 item-end states。二者都保留错误样本，但只有后者会产生 ragged position support。</div>
-<div class="callout warning"><strong>站点语义边界：</strong>non-thinking 是 prompt needle endpoint，native-thinking 是 response item endpoint。三列比较的是“运行位置几何是否形成”，不是声称三个站点是同一个 token-level random variable。图可在 confirmation-only（10 seeds，nominal 100）与全注册 panel（30 seeds，nominal 300）之间切换；native 列始终另报实际可观测 state 数。</div></section>
+<div class="callout"><strong>trajectory 与 state 不混用：</strong>confirmation 是 10 counts × 10 seeds = 100 条轨迹，discovery 是 10 counts × 20 seeds = 200 条轨迹。non-thinking 的 300 条轨迹固定贡献 30×(1+…+10)=1650 个 running-index states；native-thinking 每条按实际 trace 长度 Mᵢ 贡献 Mᵢ 个 states，因此总 state 数可不同。</div>
+<div class="callout"><strong>“少数了”的处理：</strong>gold N=10 的 native trace 即使只数到 8，也仍作为一条样本进入，只贡献标签 1…8；最终输出是否正确是独立的轨迹属性，不决定 running-index 标签，也不会虚构 9、10 两个 state。</div>
+<div class="callout warning"><strong>站点语义边界：</strong>non-thinking 是 prompt needle endpoint，native-thinking 是 response count-event endpoint。三列比较的是“运行位置几何是否形成”，不是声称它们是同一个 token-level random variable。图可在 confirmation 100 条轨迹与全注册 300 条轨迹之间切换，并始终另报实际可观测 state 数。</div></section>
 {token_extraction_section(visual)}
 {dual_endpoint_section(dual_results, dual_visual)}
 {trace_stratified_section(trace_stratified)}
 {model_section('Qwen3-8B', visual['Qwen3-8B'])}
 {model_section('Gemma4-E4B', visual['Gemma4-E4B'])}
 <section id="metrics"><h2>Held-out 定量比较</h2><p class="small">所有标准化、PCA32、logistic 与 nearest-centroid prototype 只在 discovery 拟合，数值只在 confirmation 评价。Logistic/NCC 报 balanced accuracy，以免 aligned panel 的 late-position 支持较少而改变类权重。SNR 是 confirmation 上的 class-balanced trace ratio：十个 centroid 围绕其等权 grand centroid 的平均平方距离，除以各类内部平均平方残差；同时报告 ratio 与 <code>10 log10(ratio)</code> dB，越高表示单位类内噪声对应的类间信号越强。表中跨层最大值是描述性 layer scan；one-to-one 与 full-panel 的 seed population 不同，不能把差值直接归因于清洗操作。trace-aware 与 item_end 使用相同轨迹和 ordinal support，但 selected token 不同；其差值是 anchor sensitivity，也不能直接解释为内部 counter 增强。</p>
-<div class="callout warning"><strong>不要误读最高值：</strong>Gemma one-to-one trace-aware 的 Logistic 峰值为 {pct(gemma_trace_one['logistic'])} @ L{gemma_trace_one['logistic_layer']}，SNR 峰值为 {gemma_trace_one['snr']:.3f} / {gemma_trace_one['snr_db']:.2f} dB @ L{gemma_trace_one['snr_layer']}。但 confirmation 只有 3 个 indexed seeds，测到的是显式数字 marker 的可分性并叠加 split/site composition shift；这项数值是 artifact diagnostic，不进入机制主证据。</div>{metric_table(comparison)}</section>
-<section id="partial"><h2>部分轨迹如何进入 aligned 列</h2><p>下面列出 confirmation 中所有非 one-to-one 轨迹。<code>ordinal labels</code> 正是进入第三列的 class；例如只有 <code>1,2</code> 就只贡献两个 state。最终答案可以仍然是 10，这不会虚构第 3–10 个 item-end state。</p><details open><summary>Confirmation partial trajectories · {len(partial_confirmation)} rows</summary>{partial_table(partial_confirmation)}</details>
+<div class="callout warning"><strong>不要误读跨层最大值：</strong>表中每个指标的峰值可能位于不同层，且 one-to-one 与 full-panel 的轨迹构成不同。<code>marker_end</code> 还直接包含显式 k cue；它只能作为 lexical positive control。机制主张应优先依据 discovery-frozen、低泄漏站点上的 held-out 结果及其逐类支持。</div>{metric_table(comparison)}</section>
+<section id="partial"><h2>部分轨迹如何进入 aligned 列</h2><p>下面列出 confirmation 中所有非 one-to-one 轨迹。<code>ordinal labels</code> 正是进入第三列的 class；例如一条 gold N=10 轨迹只出现 <code>1…8</code>，就只贡献八个 state。final Total 只用于审计，不会补出第 9、10 个 endpoint。</p><details open><summary>Confirmation partial trajectories · {len(partial_confirmation)} rows</summary>{partial_table(partial_confirmation)}</details>
 <h3>原始 trace 与实际 endpoint</h3><p class="small">下列片段来自服务器 generation 存档，并已按 request ID、prompt token count、output token count 与本地 capture manifest 对账。表中 sequence position 是实际送入对应 forward 的 0-based query index。</p>{partial_trace_details(partial_confirmation)}</section>
-<section><h2>解释优先级</h2><div class="callout"><strong>主结果：</strong>第三列（ordinal-aligned full panel）回答共享 seed panel 上的总体问题。第二列只作为敏感性分析，回答“条件于完整写出十项时，几何怎样”。若两列不同，首先解释为 trajectory-completion selection，而不是几何被“修复”。</div>
-<p class="provenance">Report schema: niah_geometry_comparison_v5_dual_endpoint_independent_layer · display PCA3: discovery-fitted independently per panel and layer · dual endpoint quantitative PCA16-whiten with grouped-CV site/layer selection · pooled legacy quantitative PCA32 · probes: discovery selection / frozen held-out evaluation</p></section>
+<section><h2>解释优先级</h2><div class="callout"><strong>主结果：</strong>第三列（ordinal-aligned full 300-trajectory panel）回答总体问题。第二列只作为敏感性分析，回答“条件于 trace 对其各自 gold N 完整且一一对应时，几何怎样”。若两列不同，首先解释为 trajectory-completion selection，而不是几何被“修复”。</div>
+<p class="provenance">Report schema: niah_geometry_comparison_v6_all_counts · 10 counts × 30 seeds per model · display PCA3: discovery-fitted independently per panel and layer · dual endpoint quantitative PCA16-whiten with seed-grouped-CV site/layer selection · pooled quantitative PCA32 · probes: discovery selection / frozen held-out evaluation</p></section>
 </main><script>{script}</script></body></html>"""
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--non-thinking-export-root", type=Path, required=True)
+    parser.add_argument(
+        "--non-thinking-export-root",
+        type=Path,
+        required=True,
+        help=(
+            "Root containing the all-count V4.4 representation/capture and "
+            "answer_query_all_layers_v1 trees."
+        ),
+    )
+    parser.add_argument(
+        "--non-thinking-outcome-root",
+        type=Path,
+        help=(
+            "Optional separate V4 export root containing behavior/capture/"
+            "generation_label_index.jsonl. Defaults to --non-thinking-export-root."
+        ),
+    )
     parser.add_argument("--native-capture-root", type=Path, required=True)
     parser.add_argument("--aligned-geometry-root", type=Path, required=True)
     parser.add_argument("--one-to-one-geometry-root", type=Path, required=True)
@@ -1871,7 +1961,15 @@ def main() -> None:
     )
     parser.add_argument("--trace-stratified-geometry-root", type=Path, required=True)
     parser.add_argument("--dual-endpoint-root", type=Path, required=True)
-    parser.add_argument("--native-final-count-root", type=Path, required=True)
+    parser.add_argument(
+        "--native-final-count-root",
+        type=Path,
+        required=True,
+        help=(
+            "Root containing <model>/capture_index.jsonl with answer_query_v3; "
+            "the same unified all-count V5 capture root may be used."
+        ),
+    )
     parser.add_argument(
         "--native-trace-root",
         type=Path,
@@ -1892,6 +1990,11 @@ def main() -> None:
     )
     visual, partials, visual_inputs = build_visual_data(
         args.non_thinking_export_root.resolve(),
+        (
+            args.non_thinking_export_root.resolve()
+            if args.non_thinking_outcome_root is None
+            else args.non_thinking_outcome_root.resolve()
+        ),
         args.native_capture_root.resolve(),
         aligned_peak,
         comparison,
@@ -1932,7 +2035,7 @@ def main() -> None:
         key=str,
     )
     manifest = {
-        "schema_version": "niah_geometry_comparison_v5_dual_endpoint_independent_layer",
+        "schema_version": "niah_geometry_comparison_v6_all_counts",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "three_columns": [
             "non_thinking_full_panel",
@@ -1940,6 +2043,17 @@ def main() -> None:
             "native_thinking_ordinal_aligned_full_panel",
         ],
         "position_label": "ordinal occurrence 1-10",
+        "registered_trajectory_panel": {
+            "counts": list(EXPECTED_COUNTS),
+            "seeds": EXPECTED_FULL_PANEL,
+            "discovery_trajectories": 200,
+            "confirmation_trajectories": 100,
+            "total_trajectories_per_model": EXPECTED_TRAJECTORIES,
+            "running_state_rule": (
+                "trajectory i contributes actual parser-observed occurrences 1..M_i; "
+                "never pad to gold N or final Total"
+            ),
+        },
         "native_anchor_options": {
             "primary": "uniform item_end",
             "sensitivity": {
@@ -1971,8 +2085,8 @@ def main() -> None:
             ],
             "layer_policy": "independently selected within mode from discovery grouped CV",
             "display": "all decoder layers at each panel's discovery-selected token site",
-            "final_count_shared_selection_seeds": list(SHARED_SELECTION_SEEDS),
-            "final_count_shared_evaluation_seeds": list(SHARED_EVALUATION_SEEDS),
+            "registered_split": EXPECTED_FULL_PANEL,
+            "final_count_confirmation_trajectories_per_mode": 100,
         },
         "native_primary_site": "parser item_end:k aligned to endpoint_token=prefix_token_count-1",
         "final_correctness_role": "display attribute only; never a geometry class or primary cohort filter",

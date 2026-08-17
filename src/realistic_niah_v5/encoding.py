@@ -9,15 +9,13 @@ from .parsing import (
     TraceCharSite,
     TraceTokenSite,
     align_trace_sites,
+    find_trace_count_sequence,
     gold_records,
     infer_model_family,
     output_token_ids,
     prompt_token_ids,
     raw_output_text,
     trace_char_sites,
-)
-from realistic_niah_v3.city_list_termination import (
-    find_first_terminated_gold_city_list,
 )
 
 
@@ -77,7 +75,7 @@ def _as_token_site(
     model_family: str,
 ) -> tuple[TraceTokenSite, list[TraceTokenSite]]:
     raw = raw_output_text(row)
-    parser = find_first_terminated_gold_city_list(
+    parser = find_trace_count_sequence(
         raw,
         model_family=model_family,
         gold_records=gold_records(row),
@@ -392,7 +390,7 @@ def build_native_trace_encoding(
 def item_site_ids(row: Mapping[str, Any], *, model_family: str | None = None) -> list[str]:
     family = infer_model_family(row, model_family)
     raw = raw_output_text(row)
-    parser = find_first_terminated_gold_city_list(
+    parser = find_trace_count_sequence(
         raw,
         model_family=family,
         gold_records=gold_records(row),

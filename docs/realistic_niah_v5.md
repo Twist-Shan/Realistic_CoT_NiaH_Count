@@ -18,8 +18,12 @@ The central translation is:
 | Answer-query state after `Total:` | Native trace `answer_query` boundary |
 | Correct prompt cohort | Parser-hit / one-to-one / one-to-one-and-final-correct, reported separately |
 
-`item_end` is the registered primary trace site. `marker_end`, `city_end`,
-`post_boundary`, `list_cut`, and `answer_query` are fixed sensitivity sites.
+`item_end` is the registered primary trace site. `pre_marker`, `marker_end`,
+`pre_city`, `city_end`, `city_unit_end`, `post_boundary`, `list_cut`, `answer_query`, and
+`answer_query_v3` are fixed sensitivity sites. `answer_query_v3` ends
+immediately before the final numeric value (including literal whitespace after
+`Total:`), matching the historical final-count capture inside the unified
+all-count shard.
 They must not be searched and then selectively reported using confirmation
 results. The parser's `cut_char` means that the last accepted city item is
 visible; it does not prove that a later textual `(Count: N)` statement is the
@@ -27,12 +31,30 @@ model's unique internal commitment.
 
 ## Parser identity
 
-V5 directly vendors the three frozen algorithm files from
+V5 keeps the three frozen algorithm files from
 [`TheWayLost/niah-parser`](https://github.com/TheWayLost/niah-parser) at commit
 `8ebf6b7af4770d8c91e6540d474505e23ad57c8c`. The parser is intentionally
 gold-assisted: registered gold cities are prior information used to identify
 city-list items. That makes it an experimental alignment instrument, not a
 deployable blind parser.
+
+The current `parse_hybrid_trace` layer combines the frozen structural parser
+with a rank-supported episode parser for the actual Qwen/Gemma surface forms.
+It pairs a registered city span with local indexed/ordinal or
+`Count/Record/Found k` evidence, starts a new episode at every rank-1 restart,
+preserves a repeated city when the rank advances, and selects the longest
+contiguous `1..M` episode (earliest on ties). Repeated evidence for the same
+`(rank, city)` is merged. If the structural sequence has that ranked episode
+as an exact city prefix and adds at least one new city, it supplies an unmarked
+continuation; otherwise the ranked episode is primary. A score-supported order
+is used only as an explicitly `synthetic_unverified` last resort and is never
+eligible for the one-to-one cohort.
+
+No tier reads registered gold N or final `Total` to set, pad, or select M.
+Final `Total` is retained only as an audit field. Thus a trace that stops at 8
+contributes labels 1 through 8 without imputing 9 or 10. Document structure
+such as `Excerpt 2` and `4. Count the Records` is explicitly excluded from
+running-rank evidence.
 
 `v26_v44_native_9000` is retained only as the historical archive/report label.
 It is not invented as a parser rule ID. Runtime artifacts identify the actual
@@ -83,14 +105,20 @@ battery:
 - an exact descriptive decomposition into label-centroid signal and
   within-label residual.
 
-For trace sites, the primary representation slice is `N=10`; its label is the
-accepted-item occurrence 1 through 10. Answer-query analysis uses gold count
-1 through 10. Probe hyperparameters are fitted on discovery seeds 1234-1253
-and evaluated once on confirmation seeds 1254-1263. The decomposition is
-descriptive and must not be described as identifying a causal source of noise.
+For trace sites, the primary representation panel contains all
+`10 gold counts x 30 seeds = 300 trajectories` per model: 200 discovery and
+100 confirmation. A trajectory with parser-observed length M contributes
+running-index labels 1 through M. Across the current archives this yields
+1,651 Qwen states and 1,564 Gemma states; the trajectory count remains 300 for
+both. Answer-query analysis uses gold count 1 through 10. Probe
+hyperparameters are fitted on discovery seeds 1234-1253 and evaluated once on
+confirmation seeds 1254-1263. Grouped CV holds out an entire seed, so its ten
+gold-count conditions never cross train/test. The decomposition is descriptive
+and must not be described as identifying a causal source of noise.
 
-The primary cross-mode position geometry fixes the full V4.4 seed panel in
-both modes: 20 discovery seeds and 10 confirmation seeds. It uses the
+The primary cross-mode position geometry fixes the full V4.4 trajectory panel
+in both modes: 10 counts by 20 discovery seeds and 10 counts by 10 confirmation
+seeds. It uses the
 `parser_hit` native cohort without filtering on `trace_one_to_one` or final
 answer correctness. A partial native trace contributes every `item_end` state
 that was actually observed; missing later positions are not imputed. Therefore
@@ -196,10 +224,21 @@ python scripts/run_realistic_niah_v5.py generate `
   --output work/v5/qwen/generations.jsonl
 
 # 3. Capture registered sites and all decoder layers.
+#    A full generations archive contains 300 rows and capture retains all 300.
 python scripts/run_realistic_niah_v5.py capture `
   --model Qwen3-8B `
   --generations work/v5/qwen/generations.jsonl `
   --output work/v5/qwen/capture
+
+# 3b. Capture the matching non-thinking prompt states for all 300 V4.4 rows.
+python scripts/run_realistic_niah_v4.py `
+  --stage representation-capture `
+  --stimuli work/v4/stimuli.jsonl `
+  --output-dir work/v4/all_count_geometry `
+  --model Qwen3-8B `
+  --answer-format numeric `
+  --variants v4.4 `
+  --representation-all-counts
 
 # 4. Fit discovery probes and evaluate confirmation geometry.
 python scripts/run_realistic_niah_v5.py representation `
@@ -207,15 +246,17 @@ python scripts/run_realistic_niah_v5.py representation `
   --output work/v5/qwen/representation
 
 # 4b. Compare V4 non-thinking and V5 native-thinking on the same full
-#     30-seed panel. parser_hit retains observed positions from partial traces.
+#     10-count x 30-seed panel. parser_hit retains all 300 trajectories and
+#     every observed position from partial traces.
 python scripts/compare_realistic_niah_position_geometry.py `
   --non-thinking-capture-index work/v4/qwen/capture/capture_index.jsonl `
   --native-thinking-capture-index work/v5/qwen/capture/capture_index.jsonl `
   --native-cohort parser_hit `
   --output work/v5/qwen/position_geometry
 
-# Registered anchor sensitivity: indexed/ordinal -> marker_end;
-# bullet/audit_sentence/completion_recap -> item_end.  Do not use
+# Registered explicit-cue sensitivity: indexed/ordinal/inline_count ->
+# marker_end; bullet/audit_sentence/completion_recap/evidence_sequence ->
+# item_end. Do not use
 # trace_category to choose a token, because it encodes trajectory coverage.
 python scripts/compare_realistic_niah_position_geometry.py `
   --non-thinking-capture-index work/v4/qwen/capture/capture_index.jsonl `
@@ -223,6 +264,15 @@ python scripts/compare_realistic_niah_position_geometry.py `
   --native-site-policy trace_aware_count_boundary `
   --native-cohort parser_hit `
   --output work/v5/qwen/position_geometry_trace_aware
+
+# Lower-leakage format-aware sensitivity: take pre_marker before explicit k,
+# and item_end for formats with no explicit count label.
+python scripts/compare_realistic_niah_position_geometry.py `
+  --non-thinking-capture-index work/v4/qwen/capture/capture_index.jsonl `
+  --native-thinking-capture-index work/v5/qwen/capture/capture_index.jsonl `
+  --native-site-policy trace_aware_pre_label `
+  --native-cohort parser_hit `
+  --output work/v5/qwen/position_geometry_pre_label
 
 # Post-hoc marker-kind-stratified site/layer robustness sweep. Selection uses
 # leave-one-discovery-seed-out CV; confirmation does not enter the selector.
@@ -240,13 +290,16 @@ python scripts/analyze_realistic_niah_v5_trace_strata.py `
 #     registered models. Final-answer correctness is a display attribute;
 #     the geometry class remains the observed ordinal 1-10.
 python scripts/build_niah_geometry_comparison_report.py `
-  --non-thinking-export-root exports/run_20260731_v4_numeric_presentation_v3 `
+  --non-thinking-export-root work/v4/all_count_geometry `
+  --non-thinking-outcome-root exports/run_20260731_v4_numeric_presentation_v3 `
   --native-capture-root work/v5_position_geometry_inputs `
   --aligned-geometry-root reports/v5_position_geometry `
   --one-to-one-geometry-root reports/v5_position_geometry_one_to_one `
   --trace-aware-aligned-geometry-root reports/v5_position_geometry_trace_aware `
   --trace-aware-one-to-one-geometry-root reports/v5_position_geometry_one_to_one_trace_aware `
   --trace-stratified-geometry-root reports/v5_trace_stratified_geometry `
+  --dual-endpoint-root reports/v5_dual_endpoint_geometry `
+  --native-final-count-root work/v5_position_geometry_inputs `
   --native-trace-root work/remote_native_traces_68_209_74_38 `
   --output reports/NiaH_Geometry_Comparison.html `
   --manifest reports/NiaH_Geometry_Comparison.manifest.json

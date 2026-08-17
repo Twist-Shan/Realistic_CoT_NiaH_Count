@@ -63,10 +63,10 @@ def capture_representation_shards(
     save_dtype: str = "float16",
     overwrite: bool = False,
 ) -> Path:
-    """Capture post-block hidden states at all ten active needle spans.
+    """Capture post-block hidden states at every active needle span.
 
     One shard per prompt makes the long GPU job restartable. The forward hooks
-    retain only 2 * layers * 10 * hidden values, never all 10k token states.
+    retain only 2 * layers * N * hidden values, never all 10k token states.
     """
 
     output = Path(output_dir)
@@ -74,9 +74,10 @@ def capture_representation_shards(
     index_rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     for example_index, encoding in enumerate(encodings):
-        if encoding.count != 10 or len(encoding.needle_spans) != 10:
+        if encoding.count < 1 or len(encoding.needle_spans) != encoding.count:
             raise ValueError(
-                "Prompt-reading representation capture requires the N=10 row"
+                "Prompt-reading representation capture requires exactly one "
+                "active needle span per registered count"
             )
         if encoding.stimulus_id in seen:
             raise ValueError(f"Duplicate capture stimulus: {encoding.stimulus_id}")
@@ -160,6 +161,8 @@ def capture_representation_shards(
             "design_variants": sorted(
                 {str(row["design_variant"]) for row in index_rows}
             ),
+            "splits": sorted({str(row["split"]) for row in index_rows}),
+            "counts": sorted({int(row["count"]) for row in index_rows}),
             "poolings": ["span_end", "span_mean"],
             "restartable_shards": True,
             "full_sequence_hidden_states_materialized": False,

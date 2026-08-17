@@ -33,21 +33,34 @@ from realistic_niah_v5.trace_stratified_geometry import (
 )
 
 
-SCHEMA_VERSION = "realistic_niah_dual_endpoint_geometry_v1"
+SCHEMA_VERSION = "realistic_niah_dual_endpoint_geometry_v3_all_counts"
 RUNNING_NON_THINKING_SITES = ("span_end", "span_mean")
-RUNNING_NATIVE_PRIMARY_SITES = ("city_end", "item_end", "post_boundary")
+RUNNING_NATIVE_PRIMARY_SITES = (
+    "pre_city",
+    "city_end",
+    "city_unit_end",
+    "item_end",
+    "post_boundary",
+)
 TRACE_GROUP_MEMBERS = {
     "all_traces": None,
+    "explicit_count_marker": ("indexed", "ordinal", "inline_count"),
+    # Backward-compatible narrow slice retained for comparison with the first
+    # N=10 report; the broader group above is the current primary explicit cue.
     "explicit_ordinal": ("indexed", "ordinal"),
+    "implicit_or_invariant_progress": (
+        "bullet",
+        "audit_sentence",
+        "completion_recap",
+        "evidence_sequence",
+    ),
     "non_explicit_progress": (
         "bullet",
         "audit_sentence",
         "completion_recap",
+        "evidence_sequence",
     ),
 }
-SHARED_SELECTION_SEEDS = tuple(range(1234, 1249))
-SHARED_EVALUATION_SEEDS = tuple(range(1249, 1254))
-NATIVE_ORIGINAL_CONFIRMATION_SEEDS = tuple(range(1254, 1264))
 PCA_WHITEN = True
 
 
@@ -498,12 +511,35 @@ def _running_index_analysis(
             for split in ("discovery", "confirmation")
         }
 
+    def trajectory_panel(frame: pd.DataFrame) -> set[tuple[str, int, int]]:
+        required = {"split", "seed", "gold_count"}
+        missing = sorted(required - set(frame.columns))
+        if missing:
+            raise ValueError(f"Running-index metadata lacks {missing}")
+        return {
+            (str(split), int(seed), int(gold_count))
+            for split, seed, gold_count in frame[
+                ["split", "seed", "gold_count"]
+            ]
+            .drop_duplicates()
+            .itertuples(index=False, name=None)
+        }
+
     non_thinking_panel = seed_panel(non_thinking_reference.metadata)
     native_panel = seed_panel(item_dataset.metadata)
     if non_thinking_panel != native_panel:
         raise ValueError(
             "Running-index inputs do not share the same seed panel: "
             f"non_thinking={non_thinking_panel}, native_thinking={native_panel}"
+        )
+    non_thinking_trajectories = trajectory_panel(non_thinking_reference.metadata)
+    native_trajectories = trajectory_panel(item_dataset.metadata)
+    if non_thinking_trajectories != native_trajectories:
+        raise ValueError(
+            "Running-index inputs do not share the same 10-count x 30-seed "
+            "trajectory panel: "
+            f"missing_native={sorted(non_thinking_trajectories - native_trajectories)}, "
+            f"extra_native={sorted(native_trajectories - non_thinking_trajectories)}"
         )
     eligibility = [
         determine_group_eligibility(item_dataset.metadata, group)
@@ -528,7 +564,7 @@ def _running_index_analysis(
                         endpoint="running_index",
                         dataset=dataset,
                         analysis_group=analysis_group,
-                        selector="post_marker_site_search",
+                        selector="trace_site_x_layer_search",
                         token_site=site,
                         layer=layer,
                         states=states[mask],
@@ -540,20 +576,47 @@ def _running_index_analysis(
                     )
                 )
 
-    explicit = eligible.get("explicit_ordinal")
+    format_aware = load_native_thinking_capture(
+        native_thinking_index,
+        site_policy="trace_aware_pre_label",
+        cohort="parser_hit",
+    )
+    for analysis_group, item in eligible.items():
+        metadata, mask = _subset_group(format_aware, analysis_group, item.labels)
+        for layer, states in sorted(format_aware.states_by_layer.items()):
+            candidate_rows.append(
+                _candidate_row(
+                    endpoint="running_index",
+                    dataset=format_aware,
+                    analysis_group=analysis_group,
+                    selector="format_aware_pre_label",
+                    token_site="trace_aware_pre_label",
+                    layer=layer,
+                    states=states[mask],
+                    metadata=metadata,
+                    labels=item.labels,
+                    pca_dim=pca_dim,
+                    cv_folds=cv_folds,
+                    random_state=random_state,
+                )
+            )
+
+    explicit = eligible.get("explicit_count_marker")
     if explicit is not None:
         dataset = load_native_thinking_capture(
             native_thinking_index,
             site_kind="marker_end",
             cohort="parser_hit",
         )
-        metadata, mask = _subset_group(dataset, "explicit_ordinal", explicit.labels)
+        metadata, mask = _subset_group(
+            dataset, "explicit_count_marker", explicit.labels
+        )
         for layer, states in sorted(dataset.states_by_layer.items()):
             candidate_rows.append(
                 _candidate_row(
                     endpoint="running_index",
                     dataset=dataset,
-                    analysis_group="explicit_ordinal_marker_control",
+                    analysis_group="explicit_count_marker_control",
                     selector="lexical_marker_positive_control",
                     token_site="marker_end",
                     layer=layer,
@@ -596,16 +659,23 @@ def _running_index_analysis(
 
     native_winners = winners.loc[winners["mode"].eq("native_thinking")]
     for site, frame in native_winners.groupby("token_site", sort=False):
-        dataset = load_native_thinking_capture(
-            native_thinking_index,
-            site_kind=str(site),
-            cohort="parser_hit",
-        )
+        if str(site) == "trace_aware_pre_label":
+            dataset = load_native_thinking_capture(
+                native_thinking_index,
+                site_policy="trace_aware_pre_label",
+                cohort="parser_hit",
+            )
+        else:
+            dataset = load_native_thinking_capture(
+                native_thinking_index,
+                site_kind=str(site),
+                cohort="parser_hit",
+            )
         for winner in frame.to_dict(orient="records"):
             group = str(winner["analysis_group"])
             source_group = (
-                "explicit_ordinal"
-                if group == "explicit_ordinal_marker_control"
+                "explicit_count_marker"
+                if group == "explicit_count_marker_control"
                 else group
             )
             labels = tuple(map(int, str(winner["retained_labels"]).split()))
@@ -647,6 +717,8 @@ def _running_index_analysis(
         "native_thinking_layers": sorted(item_dataset.states_by_layer),
         "non_thinking_seed_panel": non_thinking_panel,
         "native_thinking_seed_panel": native_panel,
+        "non_thinking_trajectory_count": len(non_thinking_trajectories),
+        "native_thinking_trajectory_count": len(native_trajectories),
     }
     return (
         candidates,
@@ -671,16 +743,29 @@ def _final_count_analysis(
             "Final-count inputs use different model labels: "
             f"{raw_non_thinking.model_label!r} versus {raw_native.model_label!r}"
         )
-    shared = [
-        relabel_seed_panel(
-            dataset,
-            discovery_seeds=SHARED_SELECTION_SEEDS,
-            confirmation_seeds=SHARED_EVALUATION_SEEDS,
+    datasets = [raw_non_thinking, raw_native]
+
+    def trajectory_keys(dataset: ModeDataset) -> set[tuple[str, int, int]]:
+        return {
+            (str(split), int(seed), int(gold_count))
+            for split, seed, gold_count in dataset.metadata[
+                ["split", "seed", "gold_count"]
+            ]
+            .drop_duplicates()
+            .itertuples(index=False, name=None)
+        }
+
+    non_thinking_keys = trajectory_keys(raw_non_thinking)
+    native_keys = trajectory_keys(raw_native)
+    if non_thinking_keys != native_keys:
+        raise ValueError(
+            "Final-count inputs do not share the same registered trajectory "
+            "panel: "
+            f"missing_native={sorted(non_thinking_keys - native_keys)}, "
+            f"extra_native={sorted(native_keys - non_thinking_keys)}"
         )
-        for dataset in (raw_non_thinking, raw_native)
-    ]
     candidate_rows: list[dict[str, Any]] = []
-    for dataset in shared:
+    for dataset in datasets:
         token_sites = sorted(set(dataset.metadata["token_site"].astype(str)))
         if len(token_sites) != 1:
             raise ValueError(f"Final-count dataset has token sites {token_sites}")
@@ -703,17 +788,13 @@ def _final_count_analysis(
             )
     candidates = pd.DataFrame(candidate_rows)
     winners = select_discovery_winners(candidates)
-    shared_by_mode = {dataset.mode: dataset for dataset in shared}
-    raw_by_mode = {
-        raw_non_thinking.mode: raw_non_thinking,
-        raw_native.mode: raw_native,
-    }
+    by_mode = {dataset.mode: dataset for dataset in datasets}
     selected_rows: list[dict[str, Any]] = []
     for winner in winners.to_dict(orient="records"):
         mode = str(winner["mode"])
-        dataset = shared_by_mode[mode]
+        dataset = by_mode[mode]
         layer = int(winner["layer"])
-        shared_metrics = _heldout_metrics(
+        heldout_metrics = _heldout_metrics(
             dataset.states_by_layer[layer],
             dataset.metadata,
             CLASSES,
@@ -722,32 +803,13 @@ def _final_count_analysis(
         )
         selected = {
             **winner,
-            "evaluation_split_role": "shared_posthoc_seed_holdout",
-            **shared_metrics,
+            "evaluation_split_role": "registered_confirmation",
+            **heldout_metrics,
         }
-        if mode == "native_thinking":
-            original_confirmation = relabel_seed_panel(
-                raw_by_mode[mode],
-                discovery_seeds=SHARED_SELECTION_SEEDS,
-                confirmation_seeds=NATIVE_ORIGINAL_CONFIRMATION_SEEDS,
-            )
-            replication = _heldout_metrics(
-                original_confirmation.states_by_layer[layer],
-                original_confirmation.metadata,
-                CLASSES,
-                pca_dim=pca_dim,
-                random_state=random_state,
-            )
-            selected.update(
-                {
-                    f"native_original_{key}": value
-                    for key, value in replication.items()
-                }
-            )
         selected_rows.append(selected)
 
     support_audit: dict[str, Any] = {}
-    for dataset in shared:
+    for dataset in datasets:
         support_audit[dataset.mode] = {
             split: {
                 str(label): int(
@@ -764,11 +826,22 @@ def _final_count_analysis(
             for split in ("discovery", "confirmation")
         }
     audit = {
-        "shared_selection_seeds": list(SHARED_SELECTION_SEEDS),
-        "shared_evaluation_seeds": list(SHARED_EVALUATION_SEEDS),
-        "native_original_confirmation_seeds": list(
-            NATIVE_ORIGINAL_CONFIRMATION_SEEDS
-        ),
+        "registered_seed_panel": {
+            split: sorted(
+                raw_non_thinking.metadata.loc[
+                    raw_non_thinking.metadata["split"].astype(str).eq(split),
+                    "seed",
+                ]
+                .astype(int)
+                .unique()
+                .tolist()
+            )
+            for split in ("discovery", "confirmation")
+        },
+        "registered_trajectory_counts": {
+            split: sum(key[0] == split for key in non_thinking_keys)
+            for split in ("discovery", "confirmation")
+        },
         "support": support_audit,
         "non_thinking_layers": sorted(raw_non_thinking.states_by_layer),
         "native_thinking_layers": sorted(raw_native.states_by_layer),
@@ -877,17 +950,33 @@ def analyze_dual_endpoint_geometry(
                     "span_mean": "mean over tokens in each prompt evidence span",
                 },
                 "native_thinking_primary": {
+                    "pre_city": (
+                        "last token before the parsed city begins; an anticipatory "
+                        "site for implicit lists and a sensitivity site elsewhere"
+                    ),
                     "city_end": "last city/entity token in a parsed trace item",
+                    "city_unit_end": (
+                        "last token in the sentence or physical line containing "
+                        "the parsed city"
+                    ),
                     "item_end": "last token of a completed parsed trace item",
                     "post_boundary": "first token after the parsed item boundary",
+                    "trace_aware_pre_label": (
+                        "pre_marker for indexed/ordinal/inline-count traces; item_end "
+                        "for invariant bullets and implicit evidence sequences"
+                    ),
                 },
                 "native_thinking_control": {
                     "marker_end": (
-                        "explicit ordinal/index marker endpoint; lexical positive "
-                        "control, excluded from the primary post-marker selector"
+                        "explicit ordinal/index/Count marker endpoint; lexical positive "
+                        "control, excluded from the primary trace-site selector"
                     )
                 },
             },
+            "running_index_analysis_unit": (
+                "all 10 registered counts x 30 seeds = 300 trajectories per model; "
+                "trajectory i contributes only its observed labels 1..M_i"
+            ),
             "trace_groups": {
                 key: ("all registered marker kinds" if value is None else list(value))
                 for key, value in TRACE_GROUP_MEMBERS.items()
@@ -903,10 +992,9 @@ def analyze_dual_endpoint_geometry(
                 ),
             },
             "final_count_split_caveat": (
-                "non-thinking lacks the original confirmation capture; the shared "
-                "15/5 seed split is a post-hoc held-out audit, not a preregistered "
-                "confirmation. Native original confirmation is an additional "
-                "mode-specific replication."
+                "both modes use the registered 20-seed discovery / 10-seed "
+                "confirmation split over all ten gold-count conditions; each "
+                "confirmation panel therefore contains 100 trajectories"
             ),
             "inputs": {
                 "non_thinking_running_index": str(

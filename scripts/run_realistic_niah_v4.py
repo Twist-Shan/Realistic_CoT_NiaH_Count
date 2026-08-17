@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 from realistic_niah_v4.pipeline import (
     run_labeled_attention_analysis,
@@ -96,6 +103,14 @@ def main() -> None:
     parser.add_argument("--seeds")
     parser.add_argument("--counts")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--representation-all-counts",
+        action="store_true",
+        help=(
+            "Capture every selected N for representation-capture. The historical "
+            "default remains the configured N=10 representation row."
+        ),
+    )
     parser.add_argument("--forward-smoke", action="store_true")
     parser.add_argument(
         "--generation-max-new-tokens",
@@ -191,6 +206,7 @@ def main() -> None:
         "variants": variants,
         "seeds": _csv_ints(args.seeds),
         "counts": _csv_ints(args.counts),
+        "representation_all_counts": args.representation_all_counts,
         "overwrite": args.overwrite,
         "forward_smoke": args.forward_smoke,
         "generation_max_new_tokens": args.generation_max_new_tokens,

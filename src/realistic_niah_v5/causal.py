@@ -26,13 +26,10 @@ from realistic_niah_v4.modeling import (
     generate_with_residual_interventions,
     generate_with_residual_transforms,
 )
-from realistic_niah_v3.city_list_termination import (
-    find_first_terminated_gold_city_list,
-)
-
 from .encoding import NativeTraceEncoding, build_native_trace_encoding
 from .parsing import (
     align_trace_sites,
+    find_trace_count_sequence,
     gold_records,
     infer_model_family,
     output_token_ids,
@@ -564,7 +561,7 @@ def mechanism_continuations(
     row: Mapping[str, Any], tokenizer: Any, *, mechanism: str
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     family = infer_model_family(row)
-    parser = find_first_terminated_gold_city_list(
+    parser = find_trace_count_sequence(
         raw_output_text(row),
         model_family=family,
         gold_records=gold_records(row),

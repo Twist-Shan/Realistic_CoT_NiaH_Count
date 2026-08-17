@@ -9,12 +9,16 @@ from typing import Any, Mapping
 SCHEMA_VERSION = "realistic_niah_v5_config_v1"
 PRIMARY_TRACE_SITE = "item_end"
 REGISTERED_TRACE_SITES = (
+    "pre_marker",
     "marker_end",
+    "pre_city",
     "city_end",
+    "city_unit_end",
     "item_end",
     "post_boundary",
     "list_cut",
     "answer_query",
+    "answer_query_v3",
 )
 REGISTERED_COHORTS = (
     "parser_hit",
@@ -57,14 +61,18 @@ class V5Config:
     confirmation_seeds: tuple[int, ...] = tuple(range(1254, 1264))
     primary_trace_site: str = PRIMARY_TRACE_SITE
     sensitivity_trace_sites: tuple[str, ...] = (
+        "pre_marker",
         "marker_end",
+        "pre_city",
         "city_end",
+        "city_unit_end",
         "post_boundary",
         "list_cut",
         "answer_query",
+        "answer_query_v3",
     )
-    primary_parser_cohort: str = "one_to_one"
-    representation_n10_only: bool = True
+    primary_parser_cohort: str = "parser_hit"
+    representation_n10_only: bool = False
     hidden_save_dtype: str = "float16"
     ridge_alphas: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0, 100.0)
     bootstrap_samples: int = 5000

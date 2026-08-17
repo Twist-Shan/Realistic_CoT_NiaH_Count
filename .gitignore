@@ -53,6 +53,10 @@ reports/v*_realistic_niah_analysis_*/
 /work/v446_layerwise_subspace_20260809/
 /work/v5_position_geometry_inputs/
 /work/v5_final_count_inputs/
+/work/v5_trace_parser_v2/
+/work/hybrid_parser_audit_*.jsonl
+/work/compare_parser_v2_to_structural.py
+/work/nonthinking_v44_geometry_300_*/
 /work/niah-parser-reference/
 /work/remote_native_traces_*/
 /work/audit_confirmation_qwen_partial.jsonl

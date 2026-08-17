@@ -30,13 +30,18 @@ def main() -> None:
     parser.add_argument("--native-site-kind", default="item_end")
     parser.add_argument(
         "--native-site-policy",
-        choices=["uniform", "trace_aware_count_boundary"],
+        choices=[
+            "uniform",
+            "trace_aware_count_boundary",
+            "trace_aware_pre_label",
+        ],
         default="uniform",
         help=(
             "uniform uses --native-site-kind for every trace. "
-            "trace_aware_count_boundary uses marker_end for indexed/ordinal "
-            "traces and item_end for bullet/audit_sentence/completion_recap; "
-            "this is a heterogeneous sensitivity estimand, not the primary site."
+            "trace_aware_count_boundary uses marker_end for explicit count cues "
+            "and item_end for implicit/invariant formats. trace_aware_pre_label "
+            "uses pre_marker for explicit formats to avoid reading k itself and "
+            "item_end otherwise. Both are heterogeneous sensitivity estimands."
         ),
     )
     parser.add_argument(
