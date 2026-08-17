@@ -755,18 +755,46 @@ def _domain_verdict(model_payload: Mapping[str, Any]) -> str:
 
 
 def _domain_metric_definitions() -> str:
-    """Explain every domain-transfer table column with its exact estimator."""
+    """Give one plain-language guide, with reproducibility details collapsed."""
 
-    return """
-<h4>表中各列如何计算</h4>
-<div class="definitions two metric-definitions">
-<div><h3>共同口径：Log / NCC 与 BAcc</h3><p>每个 probe 都先在其训练集上逐 hidden dimension 做 <code>StandardScaler</code>，再拟合带 whitening 的 PCA；评价集只调用冻结的 transform。<strong>Log</strong> 是 PCA 空间中的 logistic regression（<code>lbfgs</code>，默认 L2/<code>C=1</code>，<code>max_iter=3000</code>）：count 任务分 10 类，residual-domain 任务分 3 类。<strong>NCC</strong> 先计算每个训练类别的 centroid，再把测试点分给欧氏距离最近的 centroid。表内始终按 <code>Log / NCC</code> 排列。</p><p><code>BAcc = (1/C) Σ_c recall_c</code>。Count probe 的 <code>C=10</code>、chance=10%；domain probe 的 <code>C=3</code>、chance=33.3%。这里各类严格平衡，因此 BAcc 数值也等于普通 accuracy，但代码统一报告 BAcc。</p></div>
-<div><h3>独立最佳层</h3><p>对每个 <code>model × mode</code> 独立扫描全部 decoder layers；只用原始 city discovery 200（20 seeds × 10 counts），按 seed 做 5-fold grouped CV，每折整组留出 4 个 seeds。每层都在各 fold 的训练部分重新拟合 StandardScaler、PCA16、Log 与 NCC。</p><p><code>S_l = ½(mean-fold BAcc_Log,l + mean-fold BAcc_NCC,l)</code>；取 <code>S_l</code> 最大的层，同分时取较早层。Flower、animal 和 confirmation 都不参与选层。</p></div>
-<div><h3>city-trained pooled confirmation</h3><p>在选定层上，用全部 city discovery 200 拟合 PCA16 与 count probe，随后全部冻结。把 city 100、flower 100、animal 100 合并成 confirmation 300，一次计算对 gold <code>N∈{1,…,10}</code> 的 BAcc。公式为 <code>BAcc_pool = BAcc(pred_300, N_300)</code>。</p></div>
-<div><h3>city → flower/animal</h3><p>仍使用上一个定义中只在 city discovery 200 训练的同一套 PCA16 与 count probe；分别在 flower 100 和 animal 100 上计算 BAcc，再作等权平均：<code>A_cross = ½(BAcc_flower + BAcc_animal)</code>。因此这里没有用 flower/animal 重新训练或调参。</p></div>
-<div><h3>1–4D transfer mean</h3><p>分别令 PCA 维度 <code>d∈{1,2,4}</code>，每个 <code>d</code> 都只在 city discovery 200 上重新拟合 scaler、PCA-d 与 count probe，并计算 <code>A_cross,d</code>。表中数值是 <code>(A_cross,1 + A_cross,2 + A_cross,4) / 3</code>。所以“1–4D”指 dimension sweep 的 1、2、4 三个点之均值，不是单独的 PCA4 accuracy。</p></div>
-<div><h3>count-residual domain ↓</h3><p>只用 confirmation 300，按 10 个 confirmation seeds 做 leave-one-seed-out：每折训练 9 seeds（270 条），测试 1 seed（30 条）。对每个 count，用训练折的三域样本估计 <code>μ_N^train</code>，并对训练、测试点都作 <code>r_i = h_i − μ^train_{N_i}</code>；随后仅在训练 residual 上拟合 StandardScaler、PCA16 及 city/flower/animal 的 Log/NCC probe，在 held-out seed 上评价，最后平均 10 折 BAcc。</p><p>该指标问的是“去掉训练折可估计的加性 count centroid 后，实体域还多容易被线性解码”。越接近 33.3% 越好；它不是 count accuracy，也不保证已经移除非线性或交互式 domain information。</p></div>
-</div>
+    rows = (
+        (
+            "独立最佳层",
+            "这个 model × mode 在哪一层最容易读出 count？",
+            "只用 city discovery 200 按 seed 交叉验证；各模式各选各的层。",
+            "仅确定读取位置",
+        ),
+        (
+            "三域 pooled count BAcc",
+            "在 city 上学到的 count 表征，放到三种实体上一共还能读多准？",
+            "冻结后一起测试 city 100 + flower 100 + animal 100。",
+            "越高越好；chance 10%",
+        ),
+        (
+            "city → flower/animal count BAcc",
+            "不看熟悉的 city，只换成新实体后还能读多准？",
+            "分别测试 flower 100、animal 100，再平均两者。",
+            "越高越好；chance 10%",
+        ),
+        (
+            "低维跨域均值（PCA1/2/4）",
+            "只留极少几个方向时，跨实体的 count 信息还剩多少？",
+            "分别使用 1-D、2-D、4-D，计算上一行的跨域分数，再平均三次。",
+            "越高越简洁",
+        ),
+        (
+            "count-residual domain BAcc",
+            "先减掉每个 count 的平均表征后，还能不能猜出实体是 city、flower 还是 animal？",
+            "在 confirmation 300 上按 seed 留一验证，预测三种实体域。",
+            "越低越好；chance 33.3%",
+        ),
+    )
+    return f"""
+<h3>如何读下面两张表</h3>
+<div class="callout"><strong>统一流程：</strong>只用原始 <code>city discovery 200</code> 选层并训练 count 读出器 → 全部冻结 → 再看 <code>confirmation</code>。前三个 accuracy 问“count 还读不读得出来”（越高越好）；最后一个问“去掉 count 后实体类型还剩多少”（越低越好）。</div>
+{table(('表头', '它实际在问什么', '怎么算', '如何判读'), rows)}
+<p class="small"><strong>Log / NCC：</strong>同一数据给两种简单读出器。Log 用线性分类边界；NCC 把点分给最近的类别中心。单元格始终按 <code>Log / NCC</code> 排列。<strong>BAcc</strong> 是各类别 recall 的平均；本实验类别平衡，所以数值也等于普通 accuracy。</p>
+<details><summary>严格计算细节（复现时再看）</summary><div class="callout"><p>每个 probe 的 <code>StandardScaler</code> 和 whitened PCA 都只在相应训练折拟合，测试数据只做冻结 transform。Log 使用 logistic regression（<code>lbfgs</code>、L2/<code>C=1</code>），NCC 使用 PCA 空间中的欧氏最近 centroid；<code>BAcc=(1/C)Σ recall_c</code>。</p><p>选层时，city discovery 200 按 seed 做 5-fold grouped CV；每层分数是 Log 与 NCC 的跨折均值再取平均，同分取较早层。PCA1/2/4 一列等于三个维度下 flower/animal 平均分数的再次平均。</p><p>Residual-domain 每折用 9 个 confirmation seeds 估计各 count centroid <code>μ_N</code>，对训练和 held-out seed 都计算 <code>r_i=h_i−μ_{{N_i}}</code>，再用 residual 预测 city/flower/animal，最后平均 10 折。它只移除训练折可估计的加性 count centroid，不保证移除非线性 domain information。</p></div></details>
 """
 
 
@@ -833,9 +861,6 @@ def _domain_model_block(model: str, payload: Mapping[str, Any]) -> str:
 <figure class="geometry-card"><h3>Answer endpoint · native-thinking</h3><div class="controls"><label>Cohort<select id="domain-{slug}-native-cohort"><option value="all">全部 300</option><option value="city">city 100</option><option value="flower">flower 100</option><option value="animal">animal 100</option></select></label><label>Color<select id="domain-{slug}-native-color"><option value="count">gold count</option><option value="domain">entity domain</option></select></label></div><canvas id="domain-{slug}-native" role="img" aria-label="{esc(model)} native-thinking city flower animal answer geometry"></canvas><p class="rotate-hint">drag to rotate · each mode uses its own selected layer and PCA basis</p><p class="panel-stats" id="domain-{slug}-native-stats"></p></figure>
 </div><div class="domain-legend"><span><i class="domain-city"></i>city</span><span><i class="domain-flower"></i>flower</span><span><i class="domain-animal"></i>animal</span><span>颜色默认表示 N=1…10</span></div>
 {table(('mode', '独立最佳层', '三域 pooled count BAcc（PCA16；Log/NCC）', 'city → flower/animal count BAcc（PCA16；Log/NCC）', '低维跨域均值（PCA1/2/4；Log/NCC）', 'count-residual domain BAcc（PCA16；Log/NCC）↓'), metrics_rows)}
-{_domain_metric_definitions()}
-<p class="small">上述所有 count 标签都是 gold N；模型答错的 trajectories 也保留。该 entity-domain manipulation 是 appendix exploratory evidence，而不是主报告的预注册 confirmatory claim。</p>
-<p class="small"><strong>边界：</strong>domain probe 解码的是所有与 city/flower/animal 共变的信息，既包括实体语义，也包括 prompt 词汇、名称 tokenization 与长度差异；因此较低的 domain accuracy 只能表述为“较少可线性解码的 domain-specific nuisance”，不能单独证明模型抹除了实体语义。左右 endpoint 的计算时刻也不同：non-thinking 是回答前的 prompt colon，native-thinking 是完整 reasoning 后、数字答案前的 <code>answer_query_v3</code>。</p>
 {_domain_dimension_svg(model, payload)}
 <details><summary>Capture 完整性与已保存的 running index</summary><p class="small">Flower 与 animal 每种各 100 trajectories。Answer 图每条只用一个 answer-query state；running states 没有被丢弃：non-thinking 保存 prompt 中每个 active-record span end，native-thinking 保存 parser 实际观察到的每个 item end，允许少数、重复与 ragged path，并保存全部 decoder layers。每个 model × mode 另有顶层 <code>site_index.jsonl</code>：一行对应一个 site，直接记录 shard <code>states.npz</code>、<code>site_states</code> 的 <code>state_axis</code>、token endpoint、边界语义与层注册表，后续无需逐个扫描 shard manifest。若 greedy generation 达到旧 token ceiling，只有 censored row 会在保持 prompt 与 greedy rule 不变时提高 ceiling 重试；数量单列审计。</p>{table(('mode', 'transfer answer states', 'transfer running states', 'final exact / audited', 'ceiling rescues', 'native trace categories'), audit_rows)}</details>
 </article>"""
@@ -917,9 +942,11 @@ def domain_transfer_appendix(
             }
     return f"""
 <section id="appendix-domain-transfer"><h2>Appendix C · Entity-domain transfer：city → flower / animal</h2>
-<div class="definitions"><div><h3>配对刺激</h3><p>同一套 V4.4 confirmation 10 counts × 10 seeds 被逐 cell 改写为 city、flower、animal；haystack、active-record score、N 与 seed 保持不变，只改实体词表及对应 prompt。每个 model × mode 共 300 answer trajectories；按要求保留错误输出，count 标签始终是 gold N。</p></div><div><h3>Discovery-only 选层与 probe</h3><p>原始 city discovery 200（10 counts × 20 seeds）用于两个 mode 各自的 grouped-CV layer sweep，并拟合 count probe。Flower/animal 从不参与选层或 count-probe 训练；冻结后在三个 domain 各 100 条 confirmation 上评价。</p></div><div><h3>3-D 图的基准</h3><p>每个 panel 的 StandardScaler/PCA3 也只在该 mode 的 city discovery 200 上拟合，再原样 transform 三个 domain 的 confirmation 300。形状表示 domain、颜色表示 count；左右坐标轴不可直接比较绝对距离。</p></div></div>
+<div class="definitions"><div><h3>配对刺激</h3><p>同一套 V4.4 confirmation 10 counts × 10 seeds 被逐 cell 改写为 city、flower、animal；haystack、active-record score、N 与 seed 保持不变，只改实体词表及对应 prompt。每个 model × mode 共 300 answer trajectories；按要求保留错误输出，count 标签始终是 gold N。</p></div><div><h3>比较位置</h3><p>Non-thinking 取回答前 prompt-final colon；native-thinking 取完整 reasoning 后、数字答案前的 <code>answer_query_v3</code>。两个 mode 独立选层，比较的是各自最清楚的 answer endpoint，而不是同层绝对距离。</p></div><div><h3>3-D 图的基准</h3><p>每个 panel 的 StandardScaler/PCA3 只在该 mode 的 city discovery 200 上拟合，再原样 transform 三个 domain 的 confirmation 300。形状表示 domain、颜色表示 count；左右坐标轴不可直接比较绝对距离。</p></div></div>
 <div class="callout warning"><strong>“更简洁”的可检验含义：</strong>不是肉眼更像一条线，而是在低维 PCA 中仍能解码 count、对未用于 probe 训练的实体类别仍能迁移，同时在减去 count centroid 后更难解码 city/flower/animal。三项没有同时成立时，不作“过滤了无意义内容”的强 claim。</div>
 <details><summary>Flower / animal prompt 如何分别改写</summary><div class="definitions two"><div><h3>Non-thinking</h3><p><code>How many flower-score audit records are in the passage?</code>（animal 版本只把 flower 改为 animal。）随后仍是 <code>Do not explain, reason aloud, quote, or list any records.</code>，并强制整段 response 为 <code>Total:&lt;integer&gt;</code>。保存 prompt-final colon 的 hidden state。</p></div><div><h3>Native-thinking</h3><p>定义句分别写成 <code>A flower-score audit record names one flower…</code> 与 <code>An animal-score audit record names one animal…</code>；问题后要求 concise reasoning、不要 repeating/restarting，并以 <code>Total: &lt;integer&gt;</code> 结束。保存 thinking item ends 与最终数字前的 <code>answer_query_v3</code>。</p></div></div></details>
+{_domain_metric_definitions()}
+<p class="small"><strong>解释边界：</strong>所有 count 指标都使用 gold N，模型答错的 trajectories 也保留。Residual-domain 解码的是所有与实体域共变的信息，包括实体语义、prompt 词汇和名称 tokenization/长度；因此较低只能表述为“较少可线性解码的 domain-specific nuisance”，不能证明模型抹除了实体语义。本实验是 appendix exploratory evidence，不是主报告的预注册 confirmatory claim。</p>
 {''.join(blocks)}
 </section>""", [payload_path, manifest_path, layer_path, dimension_path, capture_audit_path], visual
 
