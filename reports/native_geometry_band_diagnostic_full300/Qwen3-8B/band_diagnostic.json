@@ -9,33 +9,85 @@
           "upper": 4
         },
         "bullet": {
-          "lower": 9,
-          "upper": 0
+          "lower": 0,
+          "upper": 9
         },
         "completion_recap": {
-          "lower": 42,
-          "upper": 0
+          "lower": 0,
+          "upper": 42
         },
         "evidence_sequence": {
-          "lower": 0,
-          "upper": 8
+          "lower": 8,
+          "upper": 0
         },
         "indexed": {
-          "lower": 101,
-          "upper": 8
+          "lower": 0,
+          "upper": 109
         },
         "inline_count": {
-          "lower": 17,
-          "upper": 345
+          "lower": 334,
+          "upper": 28
         },
         "ordinal": {
-          "lower": 0,
-          "upper": 10
+          "lower": 9,
+          "upper": 1
         }
       },
       "levels": 7,
-      "nmi": 0.5345218148556702,
-      "weighted_band_purity": 0.9540441176470589
+      "nmi": 0.5512039766120499,
+      "weighted_band_purity": 0.9466911764705882
+    },
+    {
+      "column": "boundary_kind",
+      "counts": {
+        "audit_sentence_period": {
+          "lower": 0,
+          "upper": 4
+        },
+        "newline": {
+          "lower": 0,
+          "upper": 9
+        },
+        "recap_period": {
+          "lower": 0,
+          "upper": 42
+        },
+        "score_supported_record": {
+          "lower": 8,
+          "upper": 0
+        },
+        "semantic_end:cardinal_commit": {
+          "lower": 70,
+          "upper": 2
+        },
+        "semantic_end:indexed_prefix": {
+          "lower": 2,
+          "upper": 135
+        },
+        "semantic_end:numeric_commit": {
+          "lower": 5,
+          "upper": 0
+        },
+        "semantic_end:ordinal_prefix": {
+          "lower": 41,
+          "upper": 1
+        },
+        "semantic_end:standalone_cardinal": {
+          "lower": 7,
+          "upper": 0
+        },
+        "semantic_end:standalone_ordinal": {
+          "lower": 140,
+          "upper": 0
+        },
+        "semantic_end:trailing_ordinal": {
+          "lower": 78,
+          "upper": 0
+        }
+      },
+      "levels": 11,
+      "nmi": 0.47435101960634246,
+      "weighted_band_purity": 0.9908088235294118
     },
     {
       "column": "baseline_endpoint_token_id",
@@ -49,376 +101,292 @@
           "upper": 15
         },
         "12095": {
-          "lower": 2,
-          "upper": 0
+          "lower": 0,
+          "upper": 2
         },
         "13": {
-          "lower": 0,
-          "upper": 221
+          "lower": 220,
+          "upper": 1
         },
         "15": {
-          "lower": 9,
-          "upper": 0
+          "lower": 0,
+          "upper": 9
         },
         "15432": {
-          "lower": 2,
-          "upper": 0
+          "lower": 0,
+          "upper": 2
         },
         "1579": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "16": {
-          "lower": 16,
-          "upper": 0
+          "lower": 0,
+          "upper": 16
         },
         "17": {
-          "lower": 4,
-          "upper": 0
+          "lower": 0,
+          "upper": 4
         },
         "18": {
-          "lower": 9,
-          "upper": 0
+          "lower": 0,
+          "upper": 9
         },
         "19": {
-          "lower": 17,
-          "upper": 0
+          "lower": 0,
+          "upper": 17
         },
         "1939": {
           "lower": 0,
           "upper": 1
         },
         "20": {
-          "lower": 4,
-          "upper": 0
+          "lower": 0,
+          "upper": 4
         },
         "21": {
-          "lower": 12,
-          "upper": 0
+          "lower": 0,
+          "upper": 12
         },
         "2185": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "22": {
-          "lower": 20,
-          "upper": 0
+          "lower": 0,
+          "upper": 20
         },
         "2217": {
           "lower": 0,
           "upper": 1
         },
         "23": {
-          "lower": 20,
-          "upper": 0
+          "lower": 0,
+          "upper": 20
         },
         "23557": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "24": {
-          "lower": 14,
-          "upper": 0
+          "lower": 0,
+          "upper": 14
         },
         "26937": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "27624": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "306": {
-          "lower": 3,
-          "upper": 0
+          "lower": 0,
+          "upper": 3
         },
         "3334": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "37169": {
-          "lower": 2,
-          "upper": 0
+          "lower": 0,
+          "upper": 2
         },
         "3756": {
-          "lower": 2,
-          "upper": 0
+          "lower": 0,
+          "upper": 2
         },
         "382": {
-          "lower": 0,
-          "upper": 111
+          "lower": 110,
+          "upper": 1
         },
         "4311": {
-          "lower": 2,
-          "upper": 0
+          "lower": 0,
+          "upper": 2
         },
         "44245": {
-          "lower": 2,
-          "upper": 0
+          "lower": 0,
+          "upper": 2
         },
         "46287": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "57858": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "6089": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "6130": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "61953": {
-          "lower": 2,
-          "upper": 0
+          "lower": 0,
+          "upper": 2
         },
         "624": {
-          "lower": 0,
-          "upper": 21
+          "lower": 19,
+          "upper": 2
         },
         "63061": {
-          "lower": 2,
-          "upper": 0
+          "lower": 0,
+          "upper": 2
         },
         "67289": {
-          "lower": 3,
-          "upper": 0
+          "lower": 0,
+          "upper": 3
         },
         "69595": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "71": {
-          "lower": 2,
-          "upper": 0
+          "lower": 0,
+          "upper": 2
         },
         "88": {
-          "lower": 4,
-          "upper": 0
+          "lower": 0,
+          "upper": 4
         },
         "91432": {
-          "lower": 2,
-          "upper": 0
+          "lower": 0,
+          "upper": 2
         },
         "9720": {
           "lower": 0,
           "upper": 2
         },
         "9917": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         }
       },
       "levels": 43,
-      "nmi": 0.42010685697426037,
-      "weighted_band_purity": 0.9963235294117647
-    },
-    {
-      "column": "boundary_kind",
-      "counts": {
-        "audit_sentence_period": {
-          "lower": 0,
-          "upper": 4
-        },
-        "newline": {
-          "lower": 9,
-          "upper": 0
-        },
-        "recap_period": {
-          "lower": 42,
-          "upper": 0
-        },
-        "score_supported_record": {
-          "lower": 0,
-          "upper": 8
-        },
-        "semantic_end:cardinal_commit": {
-          "lower": 0,
-          "upper": 72
-        },
-        "semantic_end:indexed_prefix": {
-          "lower": 118,
-          "upper": 19
-        },
-        "semantic_end:numeric_commit": {
-          "lower": 0,
-          "upper": 5
-        },
-        "semantic_end:ordinal_prefix": {
-          "lower": 0,
-          "upper": 42
-        },
-        "semantic_end:standalone_cardinal": {
-          "lower": 0,
-          "upper": 7
-        },
-        "semantic_end:standalone_ordinal": {
-          "lower": 0,
-          "upper": 140
-        },
-        "semantic_end:trailing_ordinal": {
-          "lower": 0,
-          "upper": 78
-        }
-      },
-      "levels": 11,
-      "nmi": 0.4108188587164341,
-      "weighted_band_purity": 0.9650735294117647
-    },
-    {
-      "column": "alignment_strategy",
-      "counts": {
-        "literal_baseline_token_prefix": {
-          "lower": 169,
-          "upper": 233
-        },
-        "text_exact_boundary_retokenization": {
-          "lower": 0,
-          "upper": 142
-        }
-      },
-      "levels": 2,
-      "nmi": 0.19571548097906752,
-      "weighted_band_purity": 0.6893382352941176
-    },
-    {
-      "column": "retokenized_suffix_tokens",
-      "counts": {
-        "0": {
-          "lower": 169,
-          "upper": 233
-        },
-        "1": {
-          "lower": 0,
-          "upper": 142
-        }
-      },
-      "levels": 2,
-      "nmi": 0.19571548097906752,
-      "weighted_band_purity": 0.6893382352941176
+      "nmi": 0.4131962134144006,
+      "weighted_band_purity": 0.9889705882352942
     },
     {
       "column": "seed",
       "counts": {
         "1254": {
-          "lower": 0,
-          "upper": 55
+          "lower": 55,
+          "upper": 0
         },
         "1255": {
-          "lower": 18,
-          "upper": 38
+          "lower": 34,
+          "upper": 22
         },
         "1256": {
-          "lower": 19,
-          "upper": 32
+          "lower": 28,
+          "upper": 23
         },
         "1257": {
-          "lower": 46,
-          "upper": 9
-        },
-        "1258": {
-          "lower": 2,
-          "upper": 54
-        },
-        "1259": {
-          "lower": 26,
-          "upper": 29
-        },
-        "1260": {
           "lower": 9,
           "upper": 46
         },
-        "1261": {
+        "1258": {
+          "lower": 49,
+          "upper": 7
+        },
+        "1259": {
           "lower": 23,
-          "upper": 25
+          "upper": 32
+        },
+        "1260": {
+          "lower": 46,
+          "upper": 9
+        },
+        "1261": {
+          "lower": 25,
+          "upper": 23
         },
         "1262": {
-          "lower": 26,
-          "upper": 31
+          "lower": 28,
+          "upper": 29
         },
         "1263": {
-          "lower": 0,
-          "upper": 56
+          "lower": 54,
+          "upper": 2
         }
       },
       "levels": 10,
-      "nmi": 0.12589744173935966,
-      "weighted_band_purity": 0.7573529411764706
+      "nmi": 0.11496813154517198,
+      "weighted_band_purity": 0.7316176470588235
     },
     {
       "column": "item_line_number",
       "counts": {
         "10": {
-          "lower": 39,
-          "upper": 48
+          "lower": 45,
+          "upper": 42
         },
         "11": {
-          "lower": 14,
-          "upper": 4
-        },
-        "12": {
-          "lower": 14,
-          "upper": 39
-        },
-        "13": {
-          "lower": 14,
-          "upper": 3
-        },
-        "14": {
-          "lower": 16,
-          "upper": 32
-        },
-        "15": {
-          "lower": 13,
-          "upper": 0
-        },
-        "16": {
-          "lower": 13,
-          "upper": 26
-        },
-        "17": {
-          "lower": 9,
-          "upper": 0
-        },
-        "18": {
-          "lower": 7,
-          "upper": 19
-        },
-        "19": {
-          "lower": 5,
-          "upper": 0
-        },
-        "20": {
-          "lower": 2,
-          "upper": 18
-        },
-        "21": {
-          "lower": 1,
-          "upper": 2
-        },
-        "22": {
-          "lower": 1,
+          "lower": 4,
           "upper": 14
         },
-        "23": {
-          "lower": 1,
-          "upper": 1
+        "12": {
+          "lower": 37,
+          "upper": 16
         },
-        "24": {
+        "13": {
           "lower": 2,
+          "upper": 15
+        },
+        "14": {
+          "lower": 31,
+          "upper": 17
+        },
+        "15": {
+          "lower": 0,
+          "upper": 13
+        },
+        "16": {
+          "lower": 26,
+          "upper": 13
+        },
+        "17": {
+          "lower": 0,
+          "upper": 9
+        },
+        "18": {
+          "lower": 19,
+          "upper": 7
+        },
+        "19": {
+          "lower": 0,
           "upper": 5
         },
+        "20": {
+          "lower": 16,
+          "upper": 4
+        },
+        "21": {
+          "lower": 0,
+          "upper": 3
+        },
+        "22": {
+          "lower": 12,
+          "upper": 3
+        },
+        "23": {
+          "lower": 0,
+          "upper": 2
+        },
+        "24": {
+          "lower": 5,
+          "upper": 2
+        },
         "25": {
-          "lower": 2,
-          "upper": 0
+          "lower": 0,
+          "upper": 2
         },
         "26": {
-          "lower": 1,
-          "upper": 2
+          "lower": 2,
+          "upper": 1
         },
         "27": {
           "lower": 0,
@@ -433,277 +401,309 @@
           "upper": 1
         },
         "4": {
-          "lower": 0,
-          "upper": 29
+          "lower": 29,
+          "upper": 0
         },
         "6": {
-          "lower": 0,
-          "upper": 53
+          "lower": 51,
+          "upper": 2
         },
         "8": {
-          "lower": 15,
-          "upper": 72
+          "lower": 70,
+          "upper": 17
         },
         "9": {
-          "lower": 0,
-          "upper": 5
+          "lower": 2,
+          "upper": 3
         }
       },
       "levels": 24,
-      "nmi": 0.11249910846928335,
-      "weighted_band_purity": 0.78125
+      "nmi": 0.10767745830606232,
+      "weighted_band_purity": 0.7573529411764706
+    },
+    {
+      "column": "alignment_strategy",
+      "counts": {
+        "literal_baseline_token_prefix": {
+          "lower": 222,
+          "upper": 180
+        },
+        "text_exact_boundary_retokenization": {
+          "lower": 129,
+          "upper": 13
+        }
+      },
+      "levels": 2,
+      "nmi": 0.10171971889111377,
+      "weighted_band_purity": 0.6452205882352942
+    },
+    {
+      "column": "retokenized_suffix_tokens",
+      "counts": {
+        "0": {
+          "lower": 222,
+          "upper": 180
+        },
+        "1": {
+          "lower": 129,
+          "upper": 13
+        }
+      },
+      "levels": 2,
+      "nmi": 0.10171971889111377,
+      "weighted_band_purity": 0.6452205882352942
     },
     {
       "column": "city",
       "counts": {
         "Almaty": {
-          "lower": 8,
-          "upper": 16
+          "lower": 14,
+          "upper": 10
         },
         "Astana": {
-          "lower": 0,
-          "upper": 2
-        },
-        "Baku": {
-          "lower": 1,
+          "lower": 2,
           "upper": 0
         },
+        "Baku": {
+          "lower": 0,
+          "upper": 1
+        },
         "Bangkok": {
-          "lower": 1,
-          "upper": 8
+          "lower": 8,
+          "upper": 1
         },
         "Barcelona": {
-          "lower": 2,
-          "upper": 11
+          "lower": 11,
+          "upper": 2
         },
         "Bengaluru": {
-          "lower": 3,
-          "upper": 7
+          "lower": 6,
+          "upper": 4
         },
         "Bogota": {
           "lower": 9,
           "upper": 11
         },
         "Brussels": {
+          "lower": 2,
+          "upper": 4
+        },
+        "Bucharest": {
           "lower": 4,
           "upper": 2
         },
-        "Bucharest": {
-          "lower": 2,
-          "upper": 4
-        },
         "Budapest": {
-          "lower": 3,
-          "upper": 7
+          "lower": 7,
+          "upper": 3
         },
         "Buenos Aires": {
-          "lower": 4,
-          "upper": 8
-        },
-        "Busan": {
-          "lower": 0,
-          "upper": 11
-        },
-        "Chennai": {
-          "lower": 1,
-          "upper": 7
-        },
-        "Copenhagen": {
-          "lower": 2,
-          "upper": 6
-        },
-        "Dublin": {
-          "lower": 5,
-          "upper": 13
-        },
-        "Fukuoka": {
-          "lower": 0,
-          "upper": 11
-        },
-        "Geneva": {
-          "lower": 2,
-          "upper": 8
-        },
-        "Harbin": {
-          "lower": 0,
-          "upper": 10
-        },
-        "Helsinki": {
-          "lower": 2,
+          "lower": 8,
           "upper": 4
         },
+        "Busan": {
+          "lower": 10,
+          "upper": 1
+        },
+        "Chennai": {
+          "lower": 7,
+          "upper": 1
+        },
+        "Copenhagen": {
+          "lower": 5,
+          "upper": 3
+        },
+        "Dublin": {
+          "lower": 13,
+          "upper": 5
+        },
+        "Fukuoka": {
+          "lower": 9,
+          "upper": 2
+        },
+        "Geneva": {
+          "lower": 7,
+          "upper": 3
+        },
+        "Harbin": {
+          "lower": 10,
+          "upper": 0
+        },
+        "Helsinki": {
+          "lower": 4,
+          "upper": 2
+        },
         "Hong Kong": {
-          "lower": 1,
-          "upper": 6
+          "lower": 6,
+          "upper": 1
         },
         "Hyderabad": {
-          "lower": 3,
-          "upper": 10
+          "lower": 8,
+          "upper": 5
         },
         "Islamabad": {
-          "lower": 3,
-          "upper": 5
+          "lower": 4,
+          "upper": 4
         },
         "Jakarta": {
           "lower": 1,
           "upper": 1
         },
         "Kaohsiung": {
-          "lower": 7,
-          "upper": 2
+          "lower": 2,
+          "upper": 7
         },
         "Kyoto": {
           "lower": 4,
           "upper": 5
         },
         "Lahore": {
-          "lower": 3,
-          "upper": 12
+          "lower": 12,
+          "upper": 3
         },
         "Lima": {
-          "lower": 6,
-          "upper": 4
+          "lower": 3,
+          "upper": 7
         },
         "Lisbon": {
-          "lower": 2,
-          "upper": 5
+          "lower": 5,
+          "upper": 2
         },
         "London": {
-          "lower": 3,
-          "upper": 6
+          "lower": 6,
+          "upper": 3
         },
         "Madrid": {
           "lower": 3,
           "upper": 5
         },
         "Manila": {
-          "lower": 4,
-          "upper": 17
+          "lower": 16,
+          "upper": 5
         },
         "Mexico City": {
-          "lower": 3,
-          "upper": 2
+          "lower": 2,
+          "upper": 3
         },
         "Mumbai": {
+          "lower": 2,
+          "upper": 3
+        },
+        "Nagoya": {
+          "lower": 1,
+          "upper": 4
+        },
+        "Oslo": {
+          "lower": 18,
+          "upper": 9
+        },
+        "Paris": {
+          "lower": 5,
+          "upper": 6
+        },
+        "Phnom Penh": {
+          "lower": 0,
+          "upper": 2
+        },
+        "Porto": {
+          "lower": 4,
+          "upper": 2
+        },
+        "Prague": {
+          "lower": 3,
+          "upper": 4
+        },
+        "Reykjavik": {
+          "lower": 5,
+          "upper": 10
+        },
+        "Riga": {
+          "lower": 5,
+          "upper": 1
+        },
+        "Rome": {
+          "lower": 5,
+          "upper": 0
+        },
+        "Sao Paulo": {
+          "lower": 11,
+          "upper": 5
+        },
+        "Sarajevo": {
+          "lower": 1,
+          "upper": 7
+        },
+        "Seoul": {
+          "lower": 9,
+          "upper": 0
+        },
+        "Skopje": {
+          "lower": 6,
+          "upper": 3
+        },
+        "Stockholm": {
+          "lower": 1,
+          "upper": 4
+        },
+        "Taipei": {
           "lower": 3,
           "upper": 2
         },
-        "Nagoya": {
-          "lower": 4,
-          "upper": 1
-        },
-        "Oslo": {
-          "lower": 8,
-          "upper": 19
-        },
-        "Paris": {
-          "lower": 6,
-          "upper": 5
-        },
-        "Phnom Penh": {
-          "lower": 2,
-          "upper": 0
-        },
-        "Porto": {
-          "lower": 2,
-          "upper": 4
-        },
-        "Prague": {
-          "lower": 4,
-          "upper": 3
-        },
-        "Reykjavik": {
-          "lower": 8,
-          "upper": 7
-        },
-        "Riga": {
-          "lower": 1,
-          "upper": 5
-        },
-        "Rome": {
-          "lower": 0,
-          "upper": 5
-        },
-        "Sao Paulo": {
-          "lower": 5,
-          "upper": 11
-        },
-        "Sarajevo": {
-          "lower": 7,
-          "upper": 1
-        },
-        "Seoul": {
-          "lower": 0,
-          "upper": 9
-        },
-        "Skopje": {
-          "lower": 2,
-          "upper": 7
-        },
-        "Stockholm": {
-          "lower": 4,
-          "upper": 1
-        },
-        "Taipei": {
-          "lower": 2,
-          "upper": 3
-        },
         "Tallinn": {
-          "lower": 2,
-          "upper": 8
+          "lower": 8,
+          "upper": 2
         },
         "Tashkent": {
-          "lower": 9,
-          "upper": 7
+          "lower": 7,
+          "upper": 9
         },
         "Tbilisi": {
           "lower": 2,
           "upper": 2
         },
         "Tokyo": {
-          "lower": 0,
-          "upper": 5
+          "lower": 4,
+          "upper": 1
         },
         "Toronto": {
-          "lower": 0,
-          "upper": 6
+          "lower": 6,
+          "upper": 0
         },
         "Ulaanbaatar": {
-          "lower": 0,
-          "upper": 3
+          "lower": 3,
+          "upper": 0
         },
         "Vienna": {
-          "lower": 2,
-          "upper": 7
+          "lower": 7,
+          "upper": 2
         },
         "Vilnius": {
-          "lower": 0,
-          "upper": 9
+          "lower": 9,
+          "upper": 0
         },
         "Warsaw": {
-          "lower": 2,
-          "upper": 1
+          "lower": 1,
+          "upper": 2
         },
         "Wuhan": {
           "lower": 1,
           "upper": 1
         },
         "Xi’an": {
-          "lower": 0,
-          "upper": 6
+          "lower": 5,
+          "upper": 1
         },
         "Yerevan": {
-          "lower": 1,
-          "upper": 7
+          "lower": 7,
+          "upper": 1
         },
         "Zagreb": {
-          "lower": 0,
-          "upper": 4
+          "lower": 4,
+          "upper": 0
         }
       },
       "levels": 61,
-      "nmi": 0.05582863437445665,
-      "weighted_band_purity": 0.7481617647058824
+      "nmi": 0.052181400993043796,
+      "weighted_band_purity": 0.7242647058823529
     },
     {
       "column": "trace_category",
@@ -713,60 +713,60 @@
           "upper": 11
         },
         "one_to_one": {
-          "lower": 166,
-          "upper": 352
+          "lower": 336,
+          "upper": 182
         },
         "partial_unique": {
-          "lower": 0,
-          "upper": 4
+          "lower": 4,
+          "upper": 0
         },
         "synthetic_unverified": {
-          "lower": 0,
-          "upper": 8
+          "lower": 8,
+          "upper": 0
         }
       },
       "levels": 4,
-      "nmi": 0.02100272191282117,
-      "weighted_band_purity": 0.6893382352941176
+      "nmi": 0.044275897963472505,
+      "weighted_band_purity": 0.6599264705882353
     },
     {
       "column": "occurrence",
       "counts": {
         "1": {
-          "lower": 23,
-          "upper": 77
+          "lower": 72,
+          "upper": 28
         },
         "10": {
-          "lower": 6,
-          "upper": 4
+          "lower": 4,
+          "upper": 6
         },
         "2": {
-          "lower": 23,
-          "upper": 69
-        },
-        "3": {
-          "lower": 23,
-          "upper": 57
-        },
-        "4": {
-          "lower": 21,
-          "upper": 48
-        },
-        "5": {
-          "lower": 19,
-          "upper": 39
-        },
-        "6": {
-          "lower": 18,
+          "lower": 62,
           "upper": 30
         },
-        "7": {
-          "lower": 16,
+        "3": {
+          "lower": 53,
+          "upper": 27
+        },
+        "4": {
+          "lower": 46,
           "upper": 23
         },
+        "5": {
+          "lower": 37,
+          "upper": 21
+        },
+        "6": {
+          "lower": 29,
+          "upper": 19
+        },
+        "7": {
+          "lower": 22,
+          "upper": 17
+        },
         "8": {
-          "lower": 11,
-          "upper": 18
+          "lower": 17,
+          "upper": 12
         },
         "9": {
           "lower": 9,
@@ -774,21 +774,26 @@
         }
       },
       "levels": 10,
-      "nmi": 0.00939447735230893,
-      "weighted_band_purity": 0.6930147058823529
+      "nmi": 0.006447891411888921,
+      "weighted_band_purity": 0.6507352941176471
     }
   ],
   "display_pca3": {
+    "band_fit_split": "discovery",
     "confirmation_two_band": {
       "cluster_sizes": {
-        "lower": 169,
-        "upper": 375
+        "lower": 351,
+        "upper": 193
       },
       "display_vertical_means": {
-        "lower": -4.185049057006836,
-        "upper": -0.8447784781455994
+        "lower": -2.007988929748535,
+        "upper": -1.6542025804519653
       },
-      "silhouette": 0.46642741560935974
+      "silhouette": 0.44866079092025757
+    },
+    "discovery_band_sizes": {
+      "lower": 645,
+      "upper": 462
     },
     "explained_variance_ratio": [
       0.13780583441257477,
@@ -799,14 +804,14 @@
     "fit_split": "discovery",
     "full_panel_two_band": {
       "cluster_sizes": {
-        "lower": 462,
-        "upper": 1189
+        "lower": 996,
+        "upper": 655
       },
       "display_vertical_means": {
-        "lower": -3.583411455154419,
-        "upper": 0.5310943722724915
+        "lower": -4.884827613830566,
+        "upper": 5.864461421966553
       },
-      "silhouette": 0.4119892418384552
+      "silhouette": 0.39263781905174255
     }
   },
   "full_panel_categorical_associations": [
@@ -818,413 +823,33 @@
           "upper": 43
         },
         "bullet": {
-          "lower": 28,
-          "upper": 0
+          "lower": 0,
+          "upper": 28
         },
         "completion_recap": {
-          "lower": 127,
-          "upper": 1
+          "lower": 0,
+          "upper": 128
         },
         "evidence_sequence": {
-          "lower": 6,
-          "upper": 11
+          "lower": 11,
+          "upper": 6
         },
         "indexed": {
-          "lower": 279,
-          "upper": 111
+          "lower": 3,
+          "upper": 387
         },
         "inline_count": {
-          "lower": 22,
-          "upper": 994
+          "lower": 957,
+          "upper": 59
         },
         "ordinal": {
-          "lower": 0,
-          "upper": 29
+          "lower": 25,
+          "upper": 4
         }
       },
       "levels": 7,
-      "nmi": 0.44044684845116644,
-      "weighted_band_purity": 0.9152029073288915
-    },
-    {
-      "column": "baseline_endpoint_token_id",
-      "counts": {
-        "10040": {
-          "lower": 0,
-          "upper": 32
-        },
-        "10557": {
-          "lower": 2,
-          "upper": 0
-        },
-        "10695": {
-          "lower": 0,
-          "upper": 2
-        },
-        "1189": {
-          "lower": 2,
-          "upper": 69
-        },
-        "11902": {
-          "lower": 2,
-          "upper": 0
-        },
-        "12095": {
-          "lower": 2,
-          "upper": 0
-        },
-        "12460": {
-          "lower": 0,
-          "upper": 1
-        },
-        "13": {
-          "lower": 0,
-          "upper": 700
-        },
-        "13334": {
-          "lower": 1,
-          "upper": 0
-        },
-        "15": {
-          "lower": 35,
-          "upper": 0
-        },
-        "15432": {
-          "lower": 5,
-          "upper": 0
-        },
-        "15649": {
-          "lower": 1,
-          "upper": 0
-        },
-        "1579": {
-          "lower": 0,
-          "upper": 1
-        },
-        "16": {
-          "lower": 42,
-          "upper": 0
-        },
-        "17": {
-          "lower": 28,
-          "upper": 0
-        },
-        "18": {
-          "lower": 26,
-          "upper": 0
-        },
-        "18211": {
-          "lower": 2,
-          "upper": 0
-        },
-        "19": {
-          "lower": 26,
-          "upper": 0
-        },
-        "1939": {
-          "lower": 0,
-          "upper": 1
-        },
-        "20": {
-          "lower": 34,
-          "upper": 0
-        },
-        "20539": {
-          "lower": 2,
-          "upper": 0
-        },
-        "21": {
-          "lower": 22,
-          "upper": 0
-        },
-        "21718": {
-          "lower": 2,
-          "upper": 0
-        },
-        "2185": {
-          "lower": 1,
-          "upper": 0
-        },
-        "22": {
-          "lower": 30,
-          "upper": 0
-        },
-        "2217": {
-          "lower": 0,
-          "upper": 13
-        },
-        "22575": {
-          "lower": 1,
-          "upper": 0
-        },
-        "23": {
-          "lower": 45,
-          "upper": 0
-        },
-        "23557": {
-          "lower": 3,
-          "upper": 0
-        },
-        "24": {
-          "lower": 29,
-          "upper": 0
-        },
-        "24081": {
-          "lower": 1,
-          "upper": 0
-        },
-        "263": {
-          "lower": 1,
-          "upper": 0
-        },
-        "26549": {
-          "lower": 4,
-          "upper": 0
-        },
-        "26937": {
-          "lower": 4,
-          "upper": 0
-        },
-        "276": {
-          "lower": 1,
-          "upper": 0
-        },
-        "27624": {
-          "lower": 1,
-          "upper": 0
-        },
-        "2863": {
-          "lower": 2,
-          "upper": 0
-        },
-        "30": {
-          "lower": 0,
-          "upper": 1
-        },
-        "306": {
-          "lower": 3,
-          "upper": 0
-        },
-        "30766": {
-          "lower": 2,
-          "upper": 0
-        },
-        "31475": {
-          "lower": 2,
-          "upper": 0
-        },
-        "3334": {
-          "lower": 3,
-          "upper": 0
-        },
-        "3362": {
-          "lower": 8,
-          "upper": 0
-        },
-        "340": {
-          "lower": 1,
-          "upper": 6
-        },
-        "34712": {
-          "lower": 1,
-          "upper": 0
-        },
-        "35035": {
-          "lower": 2,
-          "upper": 0
-        },
-        "355": {
-          "lower": 1,
-          "upper": 0
-        },
-        "37169": {
-          "lower": 4,
-          "upper": 0
-        },
-        "3756": {
-          "lower": 2,
-          "upper": 0
-        },
-        "37741": {
-          "lower": 3,
-          "upper": 0
-        },
-        "382": {
-          "lower": 0,
-          "upper": 273
-        },
-        "38755": {
-          "lower": 2,
-          "upper": 0
-        },
-        "4261": {
-          "lower": 1,
-          "upper": 0
-        },
-        "4311": {
-          "lower": 3,
-          "upper": 0
-        },
-        "44245": {
-          "lower": 3,
-          "upper": 0
-        },
-        "45826": {
-          "lower": 1,
-          "upper": 0
-        },
-        "46062": {
-          "lower": 1,
-          "upper": 0
-        },
-        "46287": {
-          "lower": 3,
-          "upper": 0
-        },
-        "50189": {
-          "lower": 1,
-          "upper": 0
-        },
-        "5128": {
-          "lower": 0,
-          "upper": 1
-        },
-        "51765": {
-          "lower": 4,
-          "upper": 0
-        },
-        "56564": {
-          "lower": 2,
-          "upper": 0
-        },
-        "56700": {
-          "lower": 1,
-          "upper": 0
-        },
-        "57858": {
-          "lower": 1,
-          "upper": 0
-        },
-        "59016": {
-          "lower": 2,
-          "upper": 0
-        },
-        "6089": {
-          "lower": 3,
-          "upper": 0
-        },
-        "6130": {
-          "lower": 1,
-          "upper": 0
-        },
-        "61953": {
-          "lower": 2,
-          "upper": 0
-        },
-        "624": {
-          "lower": 0,
-          "upper": 85
-        },
-        "63033": {
-          "lower": 1,
-          "upper": 0
-        },
-        "63061": {
-          "lower": 5,
-          "upper": 0
-        },
-        "63821": {
-          "lower": 1,
-          "upper": 0
-        },
-        "67289": {
-          "lower": 4,
-          "upper": 0
-        },
-        "6863": {
-          "lower": 1,
-          "upper": 0
-        },
-        "692": {
-          "lower": 0,
-          "upper": 1
-        },
-        "69595": {
-          "lower": 1,
-          "upper": 0
-        },
-        "69698": {
-          "lower": 2,
-          "upper": 0
-        },
-        "71": {
-          "lower": 3,
-          "upper": 0
-        },
-        "72176": {
-          "lower": 2,
-          "upper": 0
-        },
-        "7424": {
-          "lower": 0,
-          "upper": 1
-        },
-        "78411": {
-          "lower": 3,
-          "upper": 0
-        },
-        "78563": {
-          "lower": 1,
-          "upper": 0
-        },
-        "80387": {
-          "lower": 1,
-          "upper": 0
-        },
-        "80701": {
-          "lower": 1,
-          "upper": 0
-        },
-        "84": {
-          "lower": 4,
-          "upper": 0
-        },
-        "86985": {
-          "lower": 1,
-          "upper": 0
-        },
-        "87061": {
-          "lower": 1,
-          "upper": 0
-        },
-        "88": {
-          "lower": 4,
-          "upper": 0
-        },
-        "91432": {
-          "lower": 2,
-          "upper": 0
-        },
-        "94319": {
-          "lower": 2,
-          "upper": 0
-        },
-        "9720": {
-          "lower": 0,
-          "upper": 2
-        },
-        "98089": {
-          "lower": 1,
-          "upper": 0
-        },
-        "9917": {
-          "lower": 1,
-          "upper": 0
-        }
-      },
-      "levels": 93,
-      "nmi": 0.38520466380302554,
-      "weighted_band_purity": 0.9981829194427619
+      "nmi": 0.5702496512618612,
+      "weighted_band_purity": 0.9563900666262871
     },
     {
       "column": "boundary_kind",
@@ -1234,160 +859,508 @@
           "upper": 43
         },
         "newline": {
-          "lower": 28,
-          "upper": 2
-        },
-        "recap_period": {
-          "lower": 127,
-          "upper": 1
-        },
-        "score_supported_record": {
-          "lower": 6,
-          "upper": 11
-        },
-        "semantic_end:cardinal_commit": {
-          "lower": 0,
-          "upper": 199
-        },
-        "semantic_end:indexed_prefix": {
-          "lower": 301,
-          "upper": 141
-        },
-        "semantic_end:numeric_commit": {
-          "lower": 0,
-          "upper": 13
-        },
-        "semantic_end:ordinal_prefix": {
-          "lower": 0,
-          "upper": 119
-        },
-        "semantic_end:standalone_cardinal": {
-          "lower": 0,
+          "lower": 2,
           "upper": 28
         },
-        "semantic_end:standalone_ordinal": {
+        "recap_period": {
           "lower": 0,
-          "upper": 423
+          "upper": 128
+        },
+        "score_supported_record": {
+          "lower": 11,
+          "upper": 6
+        },
+        "semantic_end:cardinal_commit": {
+          "lower": 192,
+          "upper": 7
+        },
+        "semantic_end:indexed_prefix": {
+          "lower": 7,
+          "upper": 435
+        },
+        "semantic_end:numeric_commit": {
+          "lower": 13,
+          "upper": 0
+        },
+        "semantic_end:ordinal_prefix": {
+          "lower": 111,
+          "upper": 8
+        },
+        "semantic_end:standalone_cardinal": {
+          "lower": 28,
+          "upper": 0
+        },
+        "semantic_end:standalone_ordinal": {
+          "lower": 423,
+          "upper": 0
         },
         "semantic_end:trailing_ordinal": {
-          "lower": 0,
-          "upper": 209
+          "lower": 209,
+          "upper": 0
         }
       },
       "levels": 11,
-      "nmi": 0.32563190838157186,
-      "weighted_band_purity": 0.9091459721380981
+      "nmi": 0.46354577597466434,
+      "weighted_band_purity": 0.9818291944276196
     },
     {
-      "column": "alignment_strategy",
+      "column": "baseline_endpoint_token_id",
       "counts": {
-        "literal_baseline_token_prefix": {
-          "lower": 461,
-          "upper": 746
+        "10040": {
+          "lower": 0,
+          "upper": 32
         },
-        "text_exact_boundary_retokenization": {
-          "lower": 1,
-          "upper": 443
+        "10557": {
+          "lower": 0,
+          "upper": 2
+        },
+        "10695": {
+          "lower": 0,
+          "upper": 2
+        },
+        "1189": {
+          "lower": 7,
+          "upper": 64
+        },
+        "11902": {
+          "lower": 0,
+          "upper": 2
+        },
+        "12095": {
+          "lower": 0,
+          "upper": 2
+        },
+        "12460": {
+          "lower": 0,
+          "upper": 1
+        },
+        "13": {
+          "lower": 695,
+          "upper": 5
+        },
+        "13334": {
+          "lower": 0,
+          "upper": 1
+        },
+        "15": {
+          "lower": 0,
+          "upper": 35
+        },
+        "15432": {
+          "lower": 0,
+          "upper": 5
+        },
+        "15649": {
+          "lower": 0,
+          "upper": 1
+        },
+        "1579": {
+          "lower": 0,
+          "upper": 1
+        },
+        "16": {
+          "lower": 0,
+          "upper": 42
+        },
+        "17": {
+          "lower": 0,
+          "upper": 28
+        },
+        "18": {
+          "lower": 0,
+          "upper": 26
+        },
+        "18211": {
+          "lower": 0,
+          "upper": 2
+        },
+        "19": {
+          "lower": 0,
+          "upper": 26
+        },
+        "1939": {
+          "lower": 0,
+          "upper": 1
+        },
+        "20": {
+          "lower": 0,
+          "upper": 34
+        },
+        "20539": {
+          "lower": 0,
+          "upper": 2
+        },
+        "21": {
+          "lower": 0,
+          "upper": 22
+        },
+        "21718": {
+          "lower": 0,
+          "upper": 2
+        },
+        "2185": {
+          "lower": 0,
+          "upper": 1
+        },
+        "22": {
+          "lower": 0,
+          "upper": 30
+        },
+        "2217": {
+          "lower": 0,
+          "upper": 13
+        },
+        "22575": {
+          "lower": 0,
+          "upper": 1
+        },
+        "23": {
+          "lower": 0,
+          "upper": 45
+        },
+        "23557": {
+          "lower": 0,
+          "upper": 3
+        },
+        "24": {
+          "lower": 0,
+          "upper": 29
+        },
+        "24081": {
+          "lower": 0,
+          "upper": 1
+        },
+        "263": {
+          "lower": 0,
+          "upper": 1
+        },
+        "26549": {
+          "lower": 0,
+          "upper": 4
+        },
+        "26937": {
+          "lower": 0,
+          "upper": 4
+        },
+        "276": {
+          "lower": 0,
+          "upper": 1
+        },
+        "27624": {
+          "lower": 0,
+          "upper": 1
+        },
+        "2863": {
+          "lower": 0,
+          "upper": 2
+        },
+        "30": {
+          "lower": 0,
+          "upper": 1
+        },
+        "306": {
+          "lower": 0,
+          "upper": 3
+        },
+        "30766": {
+          "lower": 0,
+          "upper": 2
+        },
+        "31475": {
+          "lower": 0,
+          "upper": 2
+        },
+        "3334": {
+          "lower": 0,
+          "upper": 3
+        },
+        "3362": {
+          "lower": 0,
+          "upper": 8
+        },
+        "340": {
+          "lower": 0,
+          "upper": 7
+        },
+        "34712": {
+          "lower": 0,
+          "upper": 1
+        },
+        "35035": {
+          "lower": 0,
+          "upper": 2
+        },
+        "355": {
+          "lower": 0,
+          "upper": 1
+        },
+        "37169": {
+          "lower": 0,
+          "upper": 4
+        },
+        "3756": {
+          "lower": 0,
+          "upper": 2
+        },
+        "37741": {
+          "lower": 0,
+          "upper": 3
+        },
+        "382": {
+          "lower": 265,
+          "upper": 8
+        },
+        "38755": {
+          "lower": 0,
+          "upper": 2
+        },
+        "4261": {
+          "lower": 0,
+          "upper": 1
+        },
+        "4311": {
+          "lower": 0,
+          "upper": 3
+        },
+        "44245": {
+          "lower": 0,
+          "upper": 3
+        },
+        "45826": {
+          "lower": 0,
+          "upper": 1
+        },
+        "46062": {
+          "lower": 0,
+          "upper": 1
+        },
+        "46287": {
+          "lower": 0,
+          "upper": 3
+        },
+        "50189": {
+          "lower": 0,
+          "upper": 1
+        },
+        "5128": {
+          "lower": 0,
+          "upper": 1
+        },
+        "51765": {
+          "lower": 0,
+          "upper": 4
+        },
+        "56564": {
+          "lower": 0,
+          "upper": 2
+        },
+        "56700": {
+          "lower": 0,
+          "upper": 1
+        },
+        "57858": {
+          "lower": 0,
+          "upper": 1
+        },
+        "59016": {
+          "lower": 0,
+          "upper": 2
+        },
+        "6089": {
+          "lower": 0,
+          "upper": 3
+        },
+        "6130": {
+          "lower": 0,
+          "upper": 1
+        },
+        "61953": {
+          "lower": 0,
+          "upper": 2
+        },
+        "624": {
+          "lower": 29,
+          "upper": 56
+        },
+        "63033": {
+          "lower": 0,
+          "upper": 1
+        },
+        "63061": {
+          "lower": 0,
+          "upper": 5
+        },
+        "63821": {
+          "lower": 0,
+          "upper": 1
+        },
+        "67289": {
+          "lower": 0,
+          "upper": 4
+        },
+        "6863": {
+          "lower": 0,
+          "upper": 1
+        },
+        "692": {
+          "lower": 0,
+          "upper": 1
+        },
+        "69595": {
+          "lower": 0,
+          "upper": 1
+        },
+        "69698": {
+          "lower": 0,
+          "upper": 2
+        },
+        "71": {
+          "lower": 0,
+          "upper": 3
+        },
+        "72176": {
+          "lower": 0,
+          "upper": 2
+        },
+        "7424": {
+          "lower": 0,
+          "upper": 1
+        },
+        "78411": {
+          "lower": 0,
+          "upper": 3
+        },
+        "78563": {
+          "lower": 0,
+          "upper": 1
+        },
+        "80387": {
+          "lower": 0,
+          "upper": 1
+        },
+        "80701": {
+          "lower": 0,
+          "upper": 1
+        },
+        "84": {
+          "lower": 0,
+          "upper": 4
+        },
+        "86985": {
+          "lower": 0,
+          "upper": 1
+        },
+        "87061": {
+          "lower": 0,
+          "upper": 1
+        },
+        "88": {
+          "lower": 0,
+          "upper": 4
+        },
+        "91432": {
+          "lower": 0,
+          "upper": 2
+        },
+        "94319": {
+          "lower": 0,
+          "upper": 2
+        },
+        "9720": {
+          "lower": 0,
+          "upper": 2
+        },
+        "98089": {
+          "lower": 0,
+          "upper": 1
+        },
+        "9917": {
+          "lower": 0,
+          "upper": 1
         }
       },
-      "levels": 2,
-      "nmi": 0.17417975487355586,
-      "weighted_band_purity": 0.7201695941853422
-    },
-    {
-      "column": "retokenized_suffix_tokens",
-      "counts": {
-        "0": {
-          "lower": 461,
-          "upper": 746
-        },
-        "1": {
-          "lower": 1,
-          "upper": 443
-        }
-      },
-      "levels": 2,
-      "nmi": 0.17417975487355586,
-      "weighted_band_purity": 0.7201695941853422
+      "levels": 93,
+      "nmi": 0.3750637067565681,
+      "weighted_band_purity": 0.970321017565112
     },
     {
       "column": "item_line_number",
       "counts": {
         "10": {
-          "lower": 81,
-          "upper": 160
+          "lower": 135,
+          "upper": 106
         },
         "11": {
-          "lower": 28,
-          "upper": 20
+          "lower": 5,
+          "upper": 43
         },
         "12": {
-          "lower": 39,
-          "upper": 124
+          "lower": 105,
+          "upper": 58
         },
         "13": {
-          "lower": 33,
-          "upper": 15
+          "lower": 2,
+          "upper": 46
         },
         "14": {
-          "lower": 36,
-          "upper": 104
+          "lower": 89,
+          "upper": 51
         },
         "15": {
-          "lower": 32,
-          "upper": 8
+          "lower": 1,
+          "upper": 39
         },
         "16": {
-          "lower": 34,
-          "upper": 74
+          "lower": 67,
+          "upper": 41
         },
         "17": {
-          "lower": 27,
-          "upper": 4
+          "lower": 0,
+          "upper": 31
         },
         "18": {
-          "lower": 26,
-          "upper": 60
-        },
-        "19": {
-          "lower": 13,
-          "upper": 0
-        },
-        "20": {
-          "lower": 9,
-          "upper": 45
-        },
-        "21": {
-          "lower": 7,
-          "upper": 4
-        },
-        "22": {
-          "lower": 17,
+          "lower": 56,
           "upper": 30
         },
+        "19": {
+          "lower": 0,
+          "upper": 13
+        },
+        "20": {
+          "lower": 40,
+          "upper": 14
+        },
+        "21": {
+          "lower": 0,
+          "upper": 11
+        },
+        "22": {
+          "lower": 25,
+          "upper": 22
+        },
         "23": {
-          "lower": 5,
-          "upper": 3
+          "lower": 0,
+          "upper": 8
         },
         "24": {
-          "lower": 6,
-          "upper": 18
+          "lower": 17,
+          "upper": 7
         },
         "25": {
-          "lower": 3,
-          "upper": 3
+          "lower": 0,
+          "upper": 6
         },
         "26": {
-          "lower": 1,
-          "upper": 7
+          "lower": 6,
+          "upper": 2
         },
         "27": {
           "lower": 0,
           "upper": 2
         },
         "28": {
-          "lower": 0,
-          "upper": 6
+          "lower": 2,
+          "upper": 4
         },
         "29": {
           "lower": 0,
@@ -1402,8 +1375,8 @@
           "upper": 2
         },
         "4": {
-          "lower": 6,
-          "upper": 54
+          "lower": 54,
+          "upper": 6
         },
         "44": {
           "lower": 0,
@@ -1418,48 +1391,48 @@
           "upper": 1
         },
         "58": {
+          "lower": 1,
+          "upper": 0
+        },
+        "59": {
+          "lower": 0,
+          "upper": 3
+        },
+        "6": {
+          "lower": 145,
+          "upper": 11
+        },
+        "8": {
+          "lower": 244,
+          "upper": 68
+        },
+        "84": {
           "lower": 0,
           "upper": 1
         },
-        "59": {
-          "lower": 3,
-          "upper": 0
-        },
-        "6": {
-          "lower": 0,
-          "upper": 156
-        },
-        "8": {
-          "lower": 49,
-          "upper": 263
-        },
-        "84": {
-          "lower": 1,
-          "upper": 0
-        },
         "85": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "86": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "87": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "88": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "89": {
-          "lower": 1,
-          "upper": 0
+          "lower": 0,
+          "upper": 1
         },
         "9": {
-          "lower": 1,
-          "upper": 17
+          "lower": 2,
+          "upper": 16
         },
         "90": {
           "lower": 0,
@@ -1471,601 +1444,633 @@
         }
       },
       "levels": 39,
-      "nmi": 0.07203376530736538,
-      "weighted_band_purity": 0.7807389460932768
+      "nmi": 0.09946326755997026,
+      "weighted_band_purity": 0.74076317383404
     },
     {
       "column": "seed",
       "counts": {
         "1234": {
-          "lower": 8,
-          "upper": 49
+          "lower": 46,
+          "upper": 11
         },
         "1235": {
-          "lower": 20,
-          "upper": 37
+          "lower": 30,
+          "upper": 27
         },
         "1236": {
-          "lower": 11,
-          "upper": 47
+          "lower": 35,
+          "upper": 23
         },
         "1237": {
-          "lower": 16,
-          "upper": 40
+          "lower": 39,
+          "upper": 17
         },
         "1238": {
-          "lower": 30,
-          "upper": 25
+          "lower": 25,
+          "upper": 30
         },
         "1239": {
-          "lower": 15,
-          "upper": 40
+          "lower": 38,
+          "upper": 17
         },
         "1240": {
-          "lower": 18,
-          "upper": 37
+          "lower": 31,
+          "upper": 24
         },
         "1241": {
-          "lower": 13,
-          "upper": 43
+          "lower": 23,
+          "upper": 33
         },
         "1242": {
           "lower": 22,
           "upper": 32
         },
         "1243": {
-          "lower": 0,
-          "upper": 50
+          "lower": 20,
+          "upper": 30
         },
         "1244": {
-          "lower": 17,
-          "upper": 38
+          "lower": 15,
+          "upper": 40
         },
         "1245": {
-          "lower": 0,
-          "upper": 55
+          "lower": 55,
+          "upper": 0
         },
         "1246": {
-          "lower": 13,
-          "upper": 42
+          "lower": 29,
+          "upper": 26
         },
         "1247": {
-          "lower": 40,
-          "upper": 18
+          "lower": 12,
+          "upper": 46
         },
         "1248": {
-          "lower": 0,
-          "upper": 56
+          "lower": 53,
+          "upper": 3
         },
         "1249": {
-          "lower": 18,
-          "upper": 36
+          "lower": 35,
+          "upper": 19
         },
         "1250": {
-          "lower": 10,
-          "upper": 45
+          "lower": 36,
+          "upper": 19
         },
         "1251": {
-          "lower": 11,
-          "upper": 45
+          "lower": 45,
+          "upper": 11
         },
         "1252": {
-          "lower": 34,
-          "upper": 21
+          "lower": 20,
+          "upper": 35
         },
         "1253": {
-          "lower": 0,
-          "upper": 55
+          "lower": 36,
+          "upper": 19
         },
         "1254": {
-          "lower": 0,
-          "upper": 55
+          "lower": 55,
+          "upper": 0
         },
         "1255": {
-          "lower": 18,
-          "upper": 38
+          "lower": 34,
+          "upper": 22
         },
         "1256": {
-          "lower": 19,
-          "upper": 32
+          "lower": 28,
+          "upper": 23
         },
         "1257": {
-          "lower": 46,
-          "upper": 9
-        },
-        "1258": {
-          "lower": 0,
-          "upper": 56
-        },
-        "1259": {
-          "lower": 26,
-          "upper": 29
-        },
-        "1260": {
           "lower": 9,
           "upper": 46
         },
+        "1258": {
+          "lower": 49,
+          "upper": 7
+        },
+        "1259": {
+          "lower": 23,
+          "upper": 32
+        },
+        "1260": {
+          "lower": 46,
+          "upper": 9
+        },
         "1261": {
-          "lower": 22,
-          "upper": 26
+          "lower": 25,
+          "upper": 23
         },
         "1262": {
-          "lower": 26,
-          "upper": 31
+          "lower": 28,
+          "upper": 29
         },
         "1263": {
-          "lower": 0,
-          "upper": 56
+          "lower": 54,
+          "upper": 2
         }
       },
       "levels": 30,
-      "nmi": 0.07042792629660706,
-      "weighted_band_purity": 0.7668079951544519
+      "nmi": 0.06181691472811315,
+      "weighted_band_purity": 0.6977589339794065
+    },
+    {
+      "column": "trace_category",
+      "counts": {
+        "full_coverage_with_duplicates": {
+          "lower": 14,
+          "upper": 57
+        },
+        "one_to_one": {
+          "lower": 941,
+          "upper": 591
+        },
+        "partial_unique": {
+          "lower": 30,
+          "upper": 1
+        },
+        "synthetic_unverified": {
+          "lower": 11,
+          "upper": 6
+        }
+      },
+      "levels": 4,
+      "nmi": 0.04447453932368397,
+      "weighted_band_purity": 0.6293155663234403
     },
     {
       "column": "city",
       "counts": {
         "Almaty": {
-          "lower": 9,
-          "upper": 18
-        },
-        "Amsterdam": {
-          "lower": 9,
-          "upper": 14
-        },
-        "Antwerp": {
-          "lower": 4,
-          "upper": 7
-        },
-        "Astana": {
-          "lower": 8,
-          "upper": 9
-        },
-        "Athens": {
-          "lower": 3,
-          "upper": 7
-        },
-        "Baku": {
-          "lower": 10,
-          "upper": 14
-        },
-        "Bangkok": {
-          "lower": 5,
-          "upper": 18
-        },
-        "Barcelona": {
-          "lower": 7,
-          "upper": 18
-        },
-        "Beijing": {
-          "lower": 5,
-          "upper": 14
-        },
-        "Belgrade": {
-          "lower": 2,
-          "upper": 7
-        },
-        "Bengaluru": {
-          "lower": 3,
-          "upper": 18
-        },
-        "Berlin": {
-          "lower": 0,
-          "upper": 1
-        },
-        "Bogota": {
-          "lower": 15,
-          "upper": 33
-        },
-        "Brussels": {
-          "lower": 9,
+          "lower": 16,
           "upper": 11
         },
+        "Amsterdam": {
+          "lower": 11,
+          "upper": 12
+        },
+        "Antwerp": {
+          "lower": 7,
+          "upper": 4
+        },
+        "Astana": {
+          "lower": 6,
+          "upper": 11
+        },
+        "Athens": {
+          "lower": 7,
+          "upper": 3
+        },
+        "Baku": {
+          "lower": 12,
+          "upper": 12
+        },
+        "Bangkok": {
+          "lower": 17,
+          "upper": 6
+        },
+        "Barcelona": {
+          "lower": 17,
+          "upper": 8
+        },
+        "Beijing": {
+          "lower": 11,
+          "upper": 8
+        },
+        "Belgrade": {
+          "lower": 6,
+          "upper": 3
+        },
+        "Bengaluru": {
+          "lower": 12,
+          "upper": 9
+        },
+        "Berlin": {
+          "lower": 1,
+          "upper": 0
+        },
+        "Bogota": {
+          "lower": 26,
+          "upper": 22
+        },
+        "Brussels": {
+          "lower": 7,
+          "upper": 13
+        },
         "Bucharest": {
-          "lower": 9,
-          "upper": 10
+          "lower": 10,
+          "upper": 9
         },
         "Budapest": {
-          "lower": 3,
-          "upper": 8
+          "lower": 8,
+          "upper": 3
         },
         "Buenos Aires": {
-          "lower": 4,
-          "upper": 8
+          "lower": 8,
+          "upper": 4
         },
         "Busan": {
-          "lower": 3,
-          "upper": 21
+          "lower": 18,
+          "upper": 6
         },
         "Chengdu": {
           "lower": 1,
           "upper": 1
         },
         "Chennai": {
-          "lower": 3,
-          "upper": 19
+          "lower": 14,
+          "upper": 8
         },
         "Chicago": {
-          "lower": 4,
-          "upper": 15
+          "lower": 12,
+          "upper": 7
         },
         "Colombo": {
-          "lower": 3,
-          "upper": 6
-        },
-        "Copenhagen": {
-          "lower": 8,
-          "upper": 17
-        },
-        "Delhi": {
-          "lower": 0,
-          "upper": 2
-        },
-        "Dhaka": {
-          "lower": 3,
-          "upper": 7
-        },
-        "Dublin": {
-          "lower": 5,
-          "upper": 13
-        },
-        "Fukuoka": {
-          "lower": 2,
-          "upper": 20
-        },
-        "Geneva": {
           "lower": 6,
-          "upper": 22
-        },
-        "Guangzhou": {
-          "lower": 9,
-          "upper": 15
-        },
-        "Hanoi": {
-          "lower": 0,
-          "upper": 2
-        },
-        "Harbin": {
-          "lower": 5,
-          "upper": 27
-        },
-        "Helsinki": {
-          "lower": 4,
-          "upper": 22
-        },
-        "Hong Kong": {
-          "lower": 2,
-          "upper": 13
-        },
-        "Hyderabad": {
-          "lower": 5,
-          "upper": 19
-        },
-        "Islamabad": {
-          "lower": 3,
-          "upper": 6
-        },
-        "Istanbul": {
-          "lower": 2,
-          "upper": 9
-        },
-        "Jakarta": {
-          "lower": 4,
-          "upper": 24
-        },
-        "Kaohsiung": {
-          "lower": 7,
-          "upper": 11
-        },
-        "Karachi": {
-          "lower": 0,
-          "upper": 1
-        },
-        "Kathmandu": {
-          "lower": 10,
-          "upper": 22
-        },
-        "Kuala Lumpur": {
-          "lower": 2,
-          "upper": 6
-        },
-        "Kyoto": {
-          "lower": 8,
-          "upper": 10
-        },
-        "Lahore": {
-          "lower": 7,
-          "upper": 25
-        },
-        "Lima": {
-          "lower": 7,
-          "upper": 7
-        },
-        "Lisbon": {
-          "lower": 7,
-          "upper": 27
-        },
-        "Ljubljana": {
-          "lower": 5,
-          "upper": 0
-        },
-        "London": {
-          "lower": 4,
-          "upper": 20
-        },
-        "Los Angeles": {
-          "lower": 5,
-          "upper": 4
-        },
-        "Lyon": {
-          "lower": 1,
-          "upper": 2
-        },
-        "Macau": {
-          "lower": 5,
-          "upper": 2
-        },
-        "Madrid": {
-          "lower": 4,
-          "upper": 10
-        },
-        "Manila": {
-          "lower": 10,
-          "upper": 39
-        },
-        "Mexico City": {
-          "lower": 5,
           "upper": 3
         },
-        "Milan": {
-          "lower": 5,
+        "Copenhagen": {
+          "lower": 15,
+          "upper": 10
+        },
+        "Delhi": {
+          "lower": 2,
+          "upper": 0
+        },
+        "Dhaka": {
+          "lower": 6,
+          "upper": 4
+        },
+        "Dublin": {
+          "lower": 13,
+          "upper": 5
+        },
+        "Fukuoka": {
+          "lower": 15,
+          "upper": 7
+        },
+        "Geneva": {
+          "lower": 15,
+          "upper": 13
+        },
+        "Guangzhou": {
+          "lower": 13,
           "upper": 11
         },
+        "Hanoi": {
+          "lower": 2,
+          "upper": 0
+        },
+        "Harbin": {
+          "lower": 25,
+          "upper": 7
+        },
+        "Helsinki": {
+          "lower": 17,
+          "upper": 9
+        },
+        "Hong Kong": {
+          "lower": 10,
+          "upper": 5
+        },
+        "Hyderabad": {
+          "lower": 17,
+          "upper": 7
+        },
+        "Islamabad": {
+          "lower": 4,
+          "upper": 5
+        },
+        "Istanbul": {
+          "lower": 5,
+          "upper": 6
+        },
+        "Jakarta": {
+          "lower": 20,
+          "upper": 8
+        },
+        "Kaohsiung": {
+          "lower": 11,
+          "upper": 7
+        },
+        "Karachi": {
+          "lower": 1,
+          "upper": 0
+        },
+        "Kathmandu": {
+          "lower": 19,
+          "upper": 13
+        },
+        "Kuala Lumpur": {
+          "lower": 4,
+          "upper": 4
+        },
+        "Kyoto": {
+          "lower": 9,
+          "upper": 9
+        },
+        "Lahore": {
+          "lower": 24,
+          "upper": 8
+        },
+        "Lima": {
+          "lower": 6,
+          "upper": 8
+        },
+        "Lisbon": {
+          "lower": 22,
+          "upper": 12
+        },
+        "Ljubljana": {
+          "lower": 0,
+          "upper": 5
+        },
+        "London": {
+          "lower": 18,
+          "upper": 6
+        },
+        "Los Angeles": {
+          "lower": 2,
+          "upper": 7
+        },
+        "Lyon": {
+          "lower": 2,
+          "upper": 1
+        },
+        "Macau": {
+          "lower": 2,
+          "upper": 5
+        },
+        "Madrid": {
+          "lower": 6,
+          "upper": 8
+        },
+        "Manila": {
+          "lower": 32,
+          "upper": 17
+        },
+        "Mexico City": {
+          "lower": 3,
+          "upper": 5
+        },
+        "Milan": {
+          "lower": 9,
+          "upper": 7
+        },
         "Mumbai": {
+          "lower": 4,
+          "upper": 6
+        },
+        "Nagoya": {
+          "lower": 20,
+          "upper": 12
+        },
+        "Nanjing": {
+          "lower": 7,
+          "upper": 2
+        },
+        "New York": {
           "lower": 5,
           "upper": 5
         },
-        "Nagoya": {
-          "lower": 8,
-          "upper": 24
-        },
-        "Nanjing": {
-          "lower": 1,
-          "upper": 8
-        },
-        "New York": {
-          "lower": 3,
-          "upper": 7
-        },
         "Osaka": {
-          "lower": 4,
-          "upper": 9
+          "lower": 8,
+          "upper": 5
         },
         "Oslo": {
-          "lower": 9,
-          "upper": 27
+          "lower": 24,
+          "upper": 12
         },
         "Paris": {
-          "lower": 6,
-          "upper": 7
+          "lower": 7,
+          "upper": 6
         },
         "Phnom Penh": {
-          "lower": 6,
-          "upper": 4
+          "lower": 4,
+          "upper": 6
         },
         "Porto": {
-          "lower": 6,
-          "upper": 24
+          "lower": 15,
+          "upper": 15
         },
         "Prague": {
           "lower": 6,
           "upper": 9
         },
         "Reykjavik": {
-          "lower": 9,
-          "upper": 17
+          "lower": 13,
+          "upper": 13
         },
         "Riga": {
-          "lower": 2,
-          "upper": 19
+          "lower": 17,
+          "upper": 4
         },
         "Rome": {
-          "lower": 9,
-          "upper": 19
+          "lower": 16,
+          "upper": 12
         },
         "Rotterdam": {
-          "lower": 2,
-          "upper": 8
+          "lower": 6,
+          "upper": 4
         },
         "Sao Paulo": {
-          "lower": 5,
-          "upper": 19
+          "lower": 18,
+          "upper": 6
         },
         "Sapporo": {
-          "lower": 1,
-          "upper": 5
+          "lower": 4,
+          "upper": 2
         },
         "Sarajevo": {
-          "lower": 13,
-          "upper": 18
+          "lower": 12,
+          "upper": 19
         },
         "Seoul": {
-          "lower": 2,
-          "upper": 20
+          "lower": 19,
+          "upper": 3
         },
         "Shenzhen": {
-          "lower": 10,
-          "upper": 16
+          "lower": 14,
+          "upper": 12
         },
         "Singapore": {
-          "lower": 6,
-          "upper": 16
+          "lower": 12,
+          "upper": 10
         },
         "Skopje": {
-          "lower": 2,
-          "upper": 7
+          "lower": 6,
+          "upper": 3
         },
         "Sofia": {
-          "lower": 3,
-          "upper": 5
+          "lower": 4,
+          "upper": 4
         },
         "Stockholm": {
-          "lower": 4,
-          "upper": 8
+          "lower": 6,
+          "upper": 6
         },
         "Taipei": {
-          "lower": 4,
-          "upper": 16
+          "lower": 15,
+          "upper": 5
         },
         "Tallinn": {
-          "lower": 2,
-          "upper": 15
+          "lower": 15,
+          "upper": 2
         },
         "Tashkent": {
-          "lower": 11,
-          "upper": 15
+          "lower": 13,
+          "upper": 13
         },
         "Tbilisi": {
           "lower": 2,
           "upper": 2
         },
         "Tirana": {
-          "lower": 5,
-          "upper": 7
-        },
-        "Tokyo": {
-          "lower": 0,
-          "upper": 5
-        },
-        "Toronto": {
-          "lower": 0,
-          "upper": 9
-        },
-        "Ulaanbaatar": {
-          "lower": 0,
-          "upper": 3
-        },
-        "Vancouver": {
-          "lower": 3,
-          "upper": 23
-        },
-        "Vienna": {
           "lower": 6,
-          "upper": 14
-        },
-        "Vientiane": {
-          "lower": 7,
-          "upper": 2
-        },
-        "Vilnius": {
-          "lower": 3,
-          "upper": 12
-        },
-        "Warsaw": {
-          "lower": 9,
-          "upper": 8
-        },
-        "Wuhan": {
-          "lower": 1,
-          "upper": 11
-        },
-        "Xi’an": {
-          "lower": 3,
-          "upper": 18
-        },
-        "Yangon": {
-          "lower": 3,
           "upper": 6
         },
-        "Yerevan": {
+        "Tokyo": {
           "lower": 4,
-          "upper": 10
+          "upper": 1
+        },
+        "Toronto": {
+          "lower": 8,
+          "upper": 1
+        },
+        "Ulaanbaatar": {
+          "lower": 3,
+          "upper": 0
+        },
+        "Vancouver": {
+          "lower": 20,
+          "upper": 6
+        },
+        "Vienna": {
+          "lower": 13,
+          "upper": 7
+        },
+        "Vientiane": {
+          "lower": 2,
+          "upper": 7
+        },
+        "Vilnius": {
+          "lower": 10,
+          "upper": 5
+        },
+        "Warsaw": {
+          "lower": 8,
+          "upper": 9
+        },
+        "Wuhan": {
+          "lower": 6,
+          "upper": 6
+        },
+        "Xi’an": {
+          "lower": 14,
+          "upper": 7
+        },
+        "Yangon": {
+          "lower": 2,
+          "upper": 7
+        },
+        "Yerevan": {
+          "lower": 10,
+          "upper": 4
         },
         "Zagreb": {
-          "lower": 8,
-          "upper": 17
+          "lower": 16,
+          "upper": 9
         }
       },
       "levels": 95,
-      "nmi": 0.01866998488764016,
-      "weighted_band_purity": 0.7316777710478498
+      "nmi": 0.016351133530016288,
+      "weighted_band_purity": 0.6384009691096305
     },
     {
-      "column": "trace_category",
+      "column": "alignment_strategy",
       "counts": {
-        "full_coverage_with_duplicates": {
-          "lower": 24,
-          "upper": 47
+        "literal_baseline_token_prefix": {
+          "lower": 702,
+          "upper": 505
         },
-        "one_to_one": {
-          "lower": 432,
-          "upper": 1100
-        },
-        "partial_unique": {
-          "lower": 0,
-          "upper": 31
-        },
-        "synthetic_unverified": {
-          "lower": 6,
-          "upper": 11
+        "text_exact_boundary_retokenization": {
+          "lower": 294,
+          "upper": 150
         }
       },
-      "levels": 4,
-      "nmi": 0.014473495873917368,
-      "weighted_band_purity": 0.7201695941853422
+      "levels": 2,
+      "nmi": 0.004306725220833922,
+      "weighted_band_purity": 0.6032707450030285
+    },
+    {
+      "column": "retokenized_suffix_tokens",
+      "counts": {
+        "0": {
+          "lower": 702,
+          "upper": 505
+        },
+        "1": {
+          "lower": 294,
+          "upper": 150
+        }
+      },
+      "levels": 2,
+      "nmi": 0.004306725220833922,
+      "weighted_band_purity": 0.6032707450030285
     },
     {
       "column": "occurrence",
       "counts": {
         "1": {
-          "lower": 63,
-          "upper": 237
+          "lower": 199,
+          "upper": 101
         },
         "10": {
-          "lower": 10,
-          "upper": 19
+          "lower": 15,
+          "upper": 14
         },
         "2": {
-          "lower": 64,
-          "upper": 209
+          "lower": 174,
+          "upper": 99
         },
         "3": {
-          "lower": 63,
-          "upper": 179
+          "lower": 147,
+          "upper": 95
         },
         "4": {
-          "lower": 59,
-          "upper": 153
+          "lower": 131,
+          "upper": 81
         },
         "5": {
-          "lower": 55,
-          "upper": 125
-        },
-        "6": {
-          "lower": 50,
-          "upper": 98
-        },
-        "7": {
-          "lower": 44,
+          "lower": 105,
           "upper": 75
         },
+        "6": {
+          "lower": 83,
+          "upper": 65
+        },
+        "7": {
+          "lower": 62,
+          "upper": 57
+        },
         "8": {
-          "lower": 32,
-          "upper": 58
+          "lower": 50,
+          "upper": 40
         },
         "9": {
-          "lower": 22,
-          "upper": 36
+          "lower": 30,
+          "upper": 28
         }
       },
       "levels": 10,
-      "nmi": 0.005357269306049956,
-      "weighted_band_purity": 0.7201695941853422
+      "nmi": 0.0030836357452324295,
+      "weighted_band_purity": 0.6032707450030285
     }
   ],
   "full_panel_trajectory_band_summary": {
-    "fully_single_band_trajectories": 289,
-    "mean_within_trajectory_band_purity": 0.9929775132275132,
+    "fully_single_band_trajectories": 284,
+    "mean_within_trajectory_band_purity": 0.9852460317460318,
     "trajectory_count": 300
   },
   "hidden_space_variance": {
@@ -2079,47 +2084,135 @@
     {
       "available_rows": 544,
       "column": "item_char_length",
-      "lower_mean": 13.609467455621301,
-      "standardized_mean_difference": 1.9295669820850319,
-      "upper_mean": 76.04533333333333
+      "lower_mean": 77.29629629629629,
+      "standardized_mean_difference": -1.7493985565803254,
+      "upper_mean": 19.098445595854923
     },
     {
       "available_rows": 544,
       "column": "endpoint_token",
-      "lower_mean": 296.24852071005915,
-      "standardized_mean_difference": -0.6372760596790706,
-      "upper_mean": 242.84533333333334
+      "lower_mean": 235.57549857549859,
+      "standardized_mean_difference": 0.8280786215975545,
+      "upper_mean": 302.82901554404145
     },
     {
       "available_rows": 544,
       "column": "prefix_token_count",
-      "lower_mean": 297.24852071005915,
-      "standardized_mean_difference": -0.6372760596790706,
-      "upper_mean": 243.84533333333334
+      "lower_mean": 236.57549857549859,
+      "standardized_mean_difference": 0.8280786215975545,
+      "upper_mean": 303.82901554404145
     },
     {
       "available_rows": 544,
       "column": "baseline_endpoint_token_id",
-      "lower_mean": 6841.236686390533,
-      "standardized_mean_difference": -0.624573963629583,
-      "upper_mean": 346.48
+      "lower_mean": 168.41595441595442,
+      "standardized_mean_difference": 0.5944415683398167,
+      "upper_mean": 6357.4352331606215
     },
     {
       "available_rows": 544,
       "column": "occurrence",
-      "lower_mean": 4.5325443786982245,
-      "standardized_mean_difference": -0.34388477653155036,
-      "upper_mean": 3.7013333333333334
+      "lower_mean": 3.7293447293447293,
+      "standardized_mean_difference": 0.2672758436736166,
+      "upper_mean": 4.3782383419689115
     },
     {
       "available_rows": 544,
       "column": "output_token_count",
-      "lower_mean": 423.6686390532544,
-      "standardized_mean_difference": 0.19400470953651563,
-      "upper_mean": 451.72
+      "lower_mean": 444.50997150997154,
+      "standardized_mean_difference": -0.02921275962527162,
+      "upper_mean": 440.26943005181346
     }
   ],
   "ordinal_decodability": {
+    "band_conditioned_confirmation_snr": {
+      "band_fit_split": "discovery",
+      "caveat": "Band membership is a post-hoc nuisance diagnostic derived from discovery hidden geometry. It is not a primary cross-mode metric.",
+      "definition": "Within each frozen band, average count-centroid separation around that band's class-balanced grand centroid and divide by the mean within-(band,count) residual power. Macro SNR is the ratio of the equal-band mean signal power to equal-band mean noise power.",
+      "macro_within_band": {
+        "complete_label_coverage": true,
+        "noise_power": 8.995628309249877,
+        "signal_power": 4.9390480518341064,
+        "snr": 0.549049814203135,
+        "snr_db": -2.603882510834131,
+        "status": "ok",
+        "valid_band_count": 2
+      },
+      "minimum_class_support_per_band": 2,
+      "per_band": {
+        "lower": {
+          "excluded_labels": [],
+          "minimum_support": 2,
+          "noise_power": 8.587553596496582,
+          "retained_labels": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ],
+          "rows": 351,
+          "signal_power": 4.363188743591309,
+          "snr": 0.5080828543965461,
+          "snr_db": -2.940654604067812,
+          "status": "ok",
+          "support": {
+            "1": 72,
+            "10": 4,
+            "2": 62,
+            "3": 53,
+            "4": 46,
+            "5": 37,
+            "6": 29,
+            "7": 22,
+            "8": 17,
+            "9": 9
+          }
+        },
+        "upper": {
+          "excluded_labels": [],
+          "minimum_support": 2,
+          "noise_power": 9.403703022003175,
+          "retained_labels": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ],
+          "rows": 193,
+          "signal_power": 5.514907360076904,
+          "snr": 0.5864612426799204,
+          "snr_db": -2.3176068371285226,
+          "status": "ok",
+          "support": {
+            "1": 28,
+            "10": 6,
+            "2": 30,
+            "3": 27,
+            "4": 23,
+            "5": 21,
+            "6": 19,
+            "7": 17,
+            "8": 12,
+            "9": 10
+          }
+        }
+      },
+      "projection": "StandardScaler + PCA16-whitened",
+      "projection_fit_split": "discovery",
+      "status": "ok"
+    },
     "centering_caveat": "Per-trajectory centering uses all observed states in each trajectory; it is a diagnostic nuisance removal, not a deployable causal estimator.",
     "raw": {
       "confirmation_class_balanced_snr_db": -5.246451844910808,
@@ -2144,7 +2237,7 @@
       "confirmation_support_min": 10
     }
   },
-  "schema_version": "native_geometry_band_diagnostic_v1",
+  "schema_version": "native_geometry_band_diagnostic_v2_frozen_band",
   "scope": {
     "confirmation_states": 544,
     "confirmation_trajectories": 100,
@@ -2170,24 +2263,24 @@
   "site_layer_sensitivity": {
     "selected_layer_sites": [
       {
-        "centered_marker_kind_nmi": 0.0030138600870326655,
-        "centered_silhouette": 0.41700097918510437,
+        "centered_marker_kind_nmi": 0.0029175325292138876,
+        "centered_silhouette": 0.4568961560726166,
         "confirmation_states": 544,
         "layer": 18,
-        "raw_marker_kind_nmi": 0.02735778522216609,
-        "raw_mean_trajectory_purity": 0.8099444444444444,
-        "raw_occurrence_nmi": 0.21404585506485793,
-        "raw_seed_nmi": 0.014818522215089312,
-        "raw_silhouette": 0.3447610139846802,
-        "raw_vs_centered_band_nmi": 0.276144129361259,
+        "raw_marker_kind_nmi": 0.023372014892749315,
+        "raw_mean_trajectory_purity": 0.8039047619047619,
+        "raw_occurrence_nmi": 0.21373296267968905,
+        "raw_seed_nmi": 0.014633043857223752,
+        "raw_silhouette": 0.3401978313922882,
+        "raw_vs_centered_band_nmi": 0.26256017150435496,
         "reason": "",
         "site_kind": "city_end",
         "status": "ok",
         "sweep": "site_at_selected_layer"
       },
       {
-        "centered_marker_kind_nmi": 0.020720374014959575,
-        "centered_silhouette": 0.5005406737327576,
+        "centered_marker_kind_nmi": 0.021933554795248528,
+        "centered_silhouette": 0.5077493190765381,
         "confirmation_states": 544,
         "layer": 18,
         "raw_marker_kind_nmi": 0.4736454132449913,
@@ -2195,47 +2288,47 @@
         "raw_occurrence_nmi": 0.006279027198871726,
         "raw_seed_nmi": 0.14059346576042783,
         "raw_silhouette": 0.5029821991920471,
-        "raw_vs_centered_band_nmi": 0.000979761836591819,
+        "raw_vs_centered_band_nmi": 0.0009276508972212293,
         "reason": "",
         "site_kind": "city_unit_end",
         "status": "ok",
         "sweep": "site_at_selected_layer"
       },
       {
-        "centered_marker_kind_nmi": 0.0155628245817275,
-        "centered_silhouette": 0.4108598828315735,
+        "centered_marker_kind_nmi": 0.02089536876804936,
+        "centered_silhouette": 0.4009567201137543,
         "confirmation_states": 544,
         "layer": 18,
-        "raw_marker_kind_nmi": 0.5345218148556702,
-        "raw_mean_trajectory_purity": 0.9922817460317461,
-        "raw_occurrence_nmi": 0.00939447735230893,
-        "raw_seed_nmi": 0.12589744173935966,
-        "raw_silhouette": 0.46642741560935974,
-        "raw_vs_centered_band_nmi": 0.017450987625387545,
+        "raw_marker_kind_nmi": 0.5512039766120499,
+        "raw_mean_trajectory_purity": 0.9885714285714287,
+        "raw_occurrence_nmi": 0.006447891411888921,
+        "raw_seed_nmi": 0.11496813154517198,
+        "raw_silhouette": 0.44866079092025757,
+        "raw_vs_centered_band_nmi": 0.027595444697213718,
         "reason": "",
         "site_kind": "item_end",
         "status": "ok",
         "sweep": "site_at_selected_layer"
       },
       {
-        "centered_marker_kind_nmi": 0.007397208286732071,
-        "centered_silhouette": 0.35481396317481995,
+        "centered_marker_kind_nmi": 0.011970876148327477,
+        "centered_silhouette": 0.37101179361343384,
         "confirmation_states": 544,
         "layer": 18,
-        "raw_marker_kind_nmi": 0.15042227495491156,
-        "raw_mean_trajectory_purity": 0.837984126984127,
-        "raw_occurrence_nmi": 0.0898595278678077,
-        "raw_seed_nmi": 0.025638039002405476,
-        "raw_silhouette": 0.3445234000682831,
-        "raw_vs_centered_band_nmi": 0.14927118340326448,
+        "raw_marker_kind_nmi": 0.14706715968643155,
+        "raw_mean_trajectory_purity": 0.8394126984126984,
+        "raw_occurrence_nmi": 0.10338379001117831,
+        "raw_seed_nmi": 0.02418105123151984,
+        "raw_silhouette": 0.3427983224391937,
+        "raw_vs_centered_band_nmi": 0.18055069231152068,
         "reason": "",
         "site_kind": "post_boundary",
         "status": "ok",
         "sweep": "site_at_selected_layer"
       },
       {
-        "centered_marker_kind_nmi": 0.004011645853461255,
-        "centered_silhouette": 0.6236846446990967,
+        "centered_marker_kind_nmi": 0.0037987629072889404,
+        "centered_silhouette": 0.6189749240875244,
         "confirmation_states": 544,
         "layer": 18,
         "raw_marker_kind_nmi": 0.2250648600939345,
@@ -2243,7 +2336,7 @@
         "raw_occurrence_nmi": 0.002165252338173722,
         "raw_seed_nmi": 0.14831201585887557,
         "raw_silhouette": 0.48008492588996887,
-        "raw_vs_centered_band_nmi": 0.0008631987215737476,
+        "raw_vs_centered_band_nmi": 0.00012038635978662876,
         "reason": "",
         "site_kind": "pre_city",
         "status": "ok",
@@ -2252,21 +2345,21 @@
     ],
     "selected_site_layer_count": 36,
     "selected_site_peak_marker_nmi": {
-      "layer": 5,
-      "raw_marker_kind_nmi": 0.5456119273718717,
-      "raw_silhouette": 0.665898323059082
+      "layer": 13,
+      "raw_marker_kind_nmi": 0.5512039766120499,
+      "raw_silhouette": 0.5391342639923096
     }
   },
   "trace_archive": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\remote_native_traces_68_209_74_38\\Qwen3-8B\\generations.jsonl",
   "trajectory_band_summary": {
     "fully_single_band_trajectories": 96,
-    "mean_within_trajectory_band_purity": 0.9922817460317461,
+    "mean_within_trajectory_band_purity": 0.9885714285714287,
     "rows": [
       {
         "band_purity": 1.0,
         "gold_count": 1,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 1,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 417,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N1_seed1254",
@@ -2274,13 +2367,13 @@
         "split": "confirmation",
         "states": 1,
         "trace_category": "one_to_one",
-        "upper_states": 1
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 2,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 2,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 311,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N2_seed1254",
@@ -2288,13 +2381,13 @@
         "split": "confirmation",
         "states": 2,
         "trace_category": "one_to_one",
-        "upper_states": 2
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 3,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 3,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 473,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N3_seed1254",
@@ -2302,13 +2395,13 @@
         "split": "confirmation",
         "states": 3,
         "trace_category": "one_to_one",
-        "upper_states": 3
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 4,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 4,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 492,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N4_seed1254",
@@ -2316,13 +2409,13 @@
         "split": "confirmation",
         "states": 4,
         "trace_category": "one_to_one",
-        "upper_states": 4
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 5,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 5,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 379,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N5_seed1254",
@@ -2330,13 +2423,13 @@
         "split": "confirmation",
         "states": 5,
         "trace_category": "one_to_one",
-        "upper_states": 5
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 6,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 6,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 525,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N6_seed1254",
@@ -2344,13 +2437,13 @@
         "split": "confirmation",
         "states": 6,
         "trace_category": "one_to_one",
-        "upper_states": 6
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 7,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 7,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 356,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1254",
@@ -2358,13 +2451,13 @@
         "split": "confirmation",
         "states": 7,
         "trace_category": "one_to_one",
-        "upper_states": 7
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 8,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 8,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 462,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1254",
@@ -2372,13 +2465,13 @@
         "split": "confirmation",
         "states": 8,
         "trace_category": "one_to_one",
-        "upper_states": 8
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 9,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 9,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 481,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1254",
@@ -2386,13 +2479,13 @@
         "split": "confirmation",
         "states": 9,
         "trace_category": "one_to_one",
-        "upper_states": 9
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 10,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 10,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 374,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1254",
@@ -2400,13 +2493,13 @@
         "split": "confirmation",
         "states": 10,
         "trace_category": "one_to_one",
-        "upper_states": 10
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 1,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 1,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 464,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N1_seed1255",
@@ -2414,7 +2507,7 @@
         "split": "confirmation",
         "states": 1,
         "trace_category": "one_to_one",
-        "upper_states": 1
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
@@ -2433,8 +2526,8 @@
       {
         "band_purity": 1.0,
         "gold_count": 3,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 3,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 633,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N3_seed1255",
@@ -2442,13 +2535,13 @@
         "split": "confirmation",
         "states": 3,
         "trace_category": "one_to_one",
-        "upper_states": 3
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 4,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 4,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 418,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N4_seed1255",
@@ -2456,13 +2549,13 @@
         "split": "confirmation",
         "states": 4,
         "trace_category": "one_to_one",
-        "upper_states": 4
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 5,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 5,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 411,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N5_seed1255",
@@ -2470,13 +2563,13 @@
         "split": "confirmation",
         "states": 5,
         "trace_category": "one_to_one",
-        "upper_states": 5
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 6,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 6,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 314,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N6_seed1255",
@@ -2484,13 +2577,13 @@
         "split": "confirmation",
         "states": 6,
         "trace_category": "one_to_one",
-        "upper_states": 6
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 7,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 7,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 619,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1255",
@@ -2498,13 +2591,13 @@
         "split": "confirmation",
         "states": 7,
         "trace_category": "one_to_one",
-        "upper_states": 7
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 8,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 8,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 511,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1255",
@@ -2512,13 +2605,13 @@
         "split": "confirmation",
         "states": 8,
         "trace_category": "one_to_one",
-        "upper_states": 8
+        "upper_states": 0
       },
       {
-        "band_purity": 0.8888888888888888,
+        "band_purity": 1.0,
         "gold_count": 9,
-        "lower_states": 8,
-        "majority_band": "lower",
+        "lower_states": 0,
+        "majority_band": "upper",
         "marker_kind": "inline_count",
         "output_token_count": 451,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1255",
@@ -2526,13 +2619,13 @@
         "split": "confirmation",
         "states": 9,
         "trace_category": "one_to_one",
-        "upper_states": 1
+        "upper_states": 9
       },
       {
         "band_purity": 1.0,
         "gold_count": 10,
-        "lower_states": 10,
-        "majority_band": "lower",
+        "lower_states": 0,
+        "majority_band": "upper",
         "marker_kind": "indexed",
         "output_token_count": 382,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1255",
@@ -2540,13 +2633,13 @@
         "split": "confirmation",
         "states": 10,
         "trace_category": "one_to_one",
-        "upper_states": 0
+        "upper_states": 10
       },
       {
         "band_purity": 1.0,
         "gold_count": 1,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 1,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 312,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N1_seed1256",
@@ -2554,13 +2647,13 @@
         "split": "confirmation",
         "states": 1,
         "trace_category": "one_to_one",
-        "upper_states": 1
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 2,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 2,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 335,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N2_seed1256",
@@ -2568,13 +2661,13 @@
         "split": "confirmation",
         "states": 2,
         "trace_category": "one_to_one",
-        "upper_states": 2
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 3,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 3,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 285,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N3_seed1256",
@@ -2582,7 +2675,7 @@
         "split": "confirmation",
         "states": 3,
         "trace_category": "one_to_one",
-        "upper_states": 3
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
@@ -2601,8 +2694,8 @@
       {
         "band_purity": 1.0,
         "gold_count": 5,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 5,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 366,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N5_seed1256",
@@ -2610,13 +2703,13 @@
         "split": "confirmation",
         "states": 5,
         "trace_category": "one_to_one",
-        "upper_states": 5
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 6,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 2,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 251,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N6_seed1256",
@@ -2624,157 +2717,17 @@
         "split": "confirmation",
         "states": 2,
         "trace_category": "partial_unique",
-        "upper_states": 2
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 7,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 463,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1256",
-        "seed": 1256,
-        "split": "confirmation",
-        "states": 7,
-        "trace_category": "one_to_one",
-        "upper_states": 7
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 8,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 554,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1256",
-        "seed": 1256,
-        "split": "confirmation",
-        "states": 8,
-        "trace_category": "one_to_one",
-        "upper_states": 8
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 9,
-        "lower_states": 9,
-        "majority_band": "lower",
-        "marker_kind": "completion_recap",
-        "output_token_count": 342,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1256",
-        "seed": 1256,
-        "split": "confirmation",
-        "states": 9,
-        "trace_category": "one_to_one",
         "upper_states": 0
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 10,
-        "lower_states": 10,
-        "majority_band": "lower",
-        "marker_kind": "completion_recap",
-        "output_token_count": 363,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1256",
-        "seed": 1256,
-        "split": "confirmation",
-        "states": 10,
-        "trace_category": "one_to_one",
-        "upper_states": 0
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 1,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 356,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N1_seed1257",
-        "seed": 1257,
-        "split": "confirmation",
-        "states": 1,
-        "trace_category": "one_to_one",
-        "upper_states": 1
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 2,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 279,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N2_seed1257",
-        "seed": 1257,
-        "split": "confirmation",
-        "states": 2,
-        "trace_category": "one_to_one",
-        "upper_states": 2
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 3,
-        "lower_states": 3,
-        "majority_band": "lower",
-        "marker_kind": "indexed",
-        "output_token_count": 352,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N3_seed1257",
-        "seed": 1257,
-        "split": "confirmation",
-        "states": 3,
-        "trace_category": "one_to_one",
-        "upper_states": 0
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 4,
-        "lower_states": 4,
-        "majority_band": "lower",
-        "marker_kind": "indexed",
-        "output_token_count": 351,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N4_seed1257",
-        "seed": 1257,
-        "split": "confirmation",
-        "states": 4,
-        "trace_category": "one_to_one",
-        "upper_states": 0
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 5,
-        "lower_states": 5,
-        "majority_band": "lower",
-        "marker_kind": "completion_recap",
-        "output_token_count": 376,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N5_seed1257",
-        "seed": 1257,
-        "split": "confirmation",
-        "states": 5,
-        "trace_category": "one_to_one",
-        "upper_states": 0
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 6,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 479,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N6_seed1257",
-        "seed": 1257,
-        "split": "confirmation",
-        "states": 6,
-        "trace_category": "one_to_one",
-        "upper_states": 6
       },
       {
         "band_purity": 1.0,
         "gold_count": 7,
         "lower_states": 7,
         "majority_band": "lower",
-        "marker_kind": "indexed",
-        "output_token_count": 356,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1257",
-        "seed": 1257,
+        "marker_kind": "inline_count",
+        "output_token_count": 463,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1256",
+        "seed": 1256,
         "split": "confirmation",
         "states": 7,
         "trace_category": "one_to_one",
@@ -2785,10 +2738,10 @@
         "gold_count": 8,
         "lower_states": 8,
         "majority_band": "lower",
-        "marker_kind": "indexed",
-        "output_token_count": 426,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1257",
-        "seed": 1257,
+        "marker_kind": "inline_count",
+        "output_token_count": 554,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1256",
+        "seed": 1256,
         "split": "confirmation",
         "states": 8,
         "trace_category": "one_to_one",
@@ -2797,432 +2750,12 @@
       {
         "band_purity": 1.0,
         "gold_count": 9,
-        "lower_states": 9,
-        "majority_band": "lower",
-        "marker_kind": "indexed",
-        "output_token_count": 395,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1257",
-        "seed": 1257,
-        "split": "confirmation",
-        "states": 9,
-        "trace_category": "one_to_one",
-        "upper_states": 0
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 10,
-        "lower_states": 10,
-        "majority_band": "lower",
-        "marker_kind": "indexed",
-        "output_token_count": 415,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1257",
-        "seed": 1257,
-        "split": "confirmation",
-        "states": 10,
-        "trace_category": "one_to_one",
-        "upper_states": 0
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 1,
         "lower_states": 0,
         "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 329,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N1_seed1258",
-        "seed": 1258,
-        "split": "confirmation",
-        "states": 1,
-        "trace_category": "one_to_one",
-        "upper_states": 1
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 2,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 893,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N2_seed1258",
-        "seed": 1258,
-        "split": "confirmation",
-        "states": 3,
-        "trace_category": "full_coverage_with_duplicates",
-        "upper_states": 3
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 3,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 316,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N3_seed1258",
-        "seed": 1258,
-        "split": "confirmation",
-        "states": 3,
-        "trace_category": "one_to_one",
-        "upper_states": 3
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 4,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 379,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N4_seed1258",
-        "seed": 1258,
-        "split": "confirmation",
-        "states": 4,
-        "trace_category": "one_to_one",
-        "upper_states": 4
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 5,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 339,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N5_seed1258",
-        "seed": 1258,
-        "split": "confirmation",
-        "states": 5,
-        "trace_category": "one_to_one",
-        "upper_states": 5
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 6,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 365,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N6_seed1258",
-        "seed": 1258,
-        "split": "confirmation",
-        "states": 6,
-        "trace_category": "one_to_one",
-        "upper_states": 6
-      },
-      {
-        "band_purity": 0.7142857142857143,
-        "gold_count": 7,
-        "lower_states": 2,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 464,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1258",
-        "seed": 1258,
-        "split": "confirmation",
-        "states": 7,
-        "trace_category": "one_to_one",
-        "upper_states": 5
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 8,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 491,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1258",
-        "seed": 1258,
-        "split": "confirmation",
-        "states": 8,
-        "trace_category": "one_to_one",
-        "upper_states": 8
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 9,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 479,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1258",
-        "seed": 1258,
-        "split": "confirmation",
-        "states": 9,
-        "trace_category": "one_to_one",
-        "upper_states": 9
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 10,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "ordinal",
-        "output_token_count": 538,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1258",
-        "seed": 1258,
-        "split": "confirmation",
-        "states": 10,
-        "trace_category": "one_to_one",
-        "upper_states": 10
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 1,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 447,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N1_seed1259",
-        "seed": 1259,
-        "split": "confirmation",
-        "states": 1,
-        "trace_category": "one_to_one",
-        "upper_states": 1
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 2,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 464,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N2_seed1259",
-        "seed": 1259,
-        "split": "confirmation",
-        "states": 2,
-        "trace_category": "one_to_one",
-        "upper_states": 2
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 3,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 549,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N3_seed1259",
-        "seed": 1259,
-        "split": "confirmation",
-        "states": 3,
-        "trace_category": "one_to_one",
-        "upper_states": 3
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 4,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 363,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N4_seed1259",
-        "seed": 1259,
-        "split": "confirmation",
-        "states": 4,
-        "trace_category": "one_to_one",
-        "upper_states": 4
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 5,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 357,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N5_seed1259",
-        "seed": 1259,
-        "split": "confirmation",
-        "states": 5,
-        "trace_category": "one_to_one",
-        "upper_states": 5
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 6,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 391,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N6_seed1259",
-        "seed": 1259,
-        "split": "confirmation",
-        "states": 6,
-        "trace_category": "one_to_one",
-        "upper_states": 6
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 7,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 436,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1259",
-        "seed": 1259,
-        "split": "confirmation",
-        "states": 7,
-        "trace_category": "one_to_one",
-        "upper_states": 7
-      },
-      {
-        "band_purity": 0.875,
-        "gold_count": 8,
-        "lower_states": 7,
-        "majority_band": "lower",
-        "marker_kind": "inline_count",
-        "output_token_count": 423,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1259",
-        "seed": 1259,
-        "split": "confirmation",
-        "states": 8,
-        "trace_category": "one_to_one",
-        "upper_states": 1
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 9,
-        "lower_states": 9,
-        "majority_band": "lower",
-        "marker_kind": "bullet",
-        "output_token_count": 398,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1259",
-        "seed": 1259,
-        "split": "confirmation",
-        "states": 9,
-        "trace_category": "one_to_one",
-        "upper_states": 0
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 10,
-        "lower_states": 10,
-        "majority_band": "lower",
-        "marker_kind": "indexed",
-        "output_token_count": 429,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1259",
-        "seed": 1259,
-        "split": "confirmation",
-        "states": 10,
-        "trace_category": "one_to_one",
-        "upper_states": 0
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 1,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 453,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N1_seed1260",
-        "seed": 1260,
-        "split": "confirmation",
-        "states": 1,
-        "trace_category": "one_to_one",
-        "upper_states": 1
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 2,
-        "lower_states": 2,
-        "majority_band": "lower",
         "marker_kind": "completion_recap",
-        "output_token_count": 414,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N2_seed1260",
-        "seed": 1260,
-        "split": "confirmation",
-        "states": 2,
-        "trace_category": "one_to_one",
-        "upper_states": 0
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 3,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 286,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N3_seed1260",
-        "seed": 1260,
-        "split": "confirmation",
-        "states": 3,
-        "trace_category": "one_to_one",
-        "upper_states": 3
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 4,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 423,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N4_seed1260",
-        "seed": 1260,
-        "split": "confirmation",
-        "states": 4,
-        "trace_category": "one_to_one",
-        "upper_states": 4
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 5,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 351,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N5_seed1260",
-        "seed": 1260,
-        "split": "confirmation",
-        "states": 5,
-        "trace_category": "one_to_one",
-        "upper_states": 5
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 6,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 404,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N6_seed1260",
-        "seed": 1260,
-        "split": "confirmation",
-        "states": 6,
-        "trace_category": "one_to_one",
-        "upper_states": 6
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 7,
-        "lower_states": 7,
-        "majority_band": "lower",
-        "marker_kind": "indexed",
-        "output_token_count": 479,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1260",
-        "seed": 1260,
-        "split": "confirmation",
-        "states": 7,
-        "trace_category": "one_to_one",
-        "upper_states": 0
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 8,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 412,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1260",
-        "seed": 1260,
-        "split": "confirmation",
-        "states": 8,
-        "trace_category": "one_to_one",
-        "upper_states": 8
-      },
-      {
-        "band_purity": 1.0,
-        "gold_count": 9,
-        "lower_states": 0,
-        "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 507,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1260",
-        "seed": 1260,
+        "output_token_count": 342,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1256",
+        "seed": 1256,
         "split": "confirmation",
         "states": 9,
         "trace_category": "one_to_one",
@@ -3233,10 +2766,10 @@
         "gold_count": 10,
         "lower_states": 0,
         "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 530,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1260",
-        "seed": 1260,
+        "marker_kind": "completion_recap",
+        "output_token_count": 363,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1256",
+        "seed": 1256,
         "split": "confirmation",
         "states": 10,
         "trace_category": "one_to_one",
@@ -3245,40 +2778,40 @@
       {
         "band_purity": 1.0,
         "gold_count": 1,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 1,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
-        "output_token_count": 362,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N1_seed1261",
-        "seed": 1261,
+        "output_token_count": 356,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N1_seed1257",
+        "seed": 1257,
         "split": "confirmation",
         "states": 1,
         "trace_category": "one_to_one",
-        "upper_states": 1
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 2,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 2,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
-        "output_token_count": 316,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N2_seed1261",
-        "seed": 1261,
+        "output_token_count": 279,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N2_seed1257",
+        "seed": 1257,
         "split": "confirmation",
         "states": 2,
         "trace_category": "one_to_one",
-        "upper_states": 2
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 3,
         "lower_states": 0,
         "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 345,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N3_seed1261",
-        "seed": 1261,
+        "marker_kind": "indexed",
+        "output_token_count": 352,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N3_seed1257",
+        "seed": 1257,
         "split": "confirmation",
         "states": 3,
         "trace_category": "one_to_one",
@@ -3289,10 +2822,10 @@
         "gold_count": 4,
         "lower_states": 0,
         "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 417,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N4_seed1261",
-        "seed": 1261,
+        "marker_kind": "indexed",
+        "output_token_count": 351,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N4_seed1257",
+        "seed": 1257,
         "split": "confirmation",
         "states": 4,
         "trace_category": "one_to_one",
@@ -3303,10 +2836,10 @@
         "gold_count": 5,
         "lower_states": 0,
         "majority_band": "upper",
-        "marker_kind": "inline_count",
-        "output_token_count": 275,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N5_seed1261",
-        "seed": 1261,
+        "marker_kind": "completion_recap",
+        "output_token_count": 376,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N5_seed1257",
+        "seed": 1257,
         "split": "confirmation",
         "states": 5,
         "trace_category": "one_to_one",
@@ -3317,10 +2850,290 @@
         "gold_count": 6,
         "lower_states": 6,
         "majority_band": "lower",
-        "marker_kind": "completion_recap",
-        "output_token_count": 368,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N6_seed1261",
-        "seed": 1261,
+        "marker_kind": "inline_count",
+        "output_token_count": 479,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N6_seed1257",
+        "seed": 1257,
+        "split": "confirmation",
+        "states": 6,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 7,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "indexed",
+        "output_token_count": 356,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1257",
+        "seed": 1257,
+        "split": "confirmation",
+        "states": 7,
+        "trace_category": "one_to_one",
+        "upper_states": 7
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 8,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "indexed",
+        "output_token_count": 426,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1257",
+        "seed": 1257,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "one_to_one",
+        "upper_states": 8
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 9,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "indexed",
+        "output_token_count": 395,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1257",
+        "seed": 1257,
+        "split": "confirmation",
+        "states": 9,
+        "trace_category": "one_to_one",
+        "upper_states": 9
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 10,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "indexed",
+        "output_token_count": 415,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1257",
+        "seed": 1257,
+        "split": "confirmation",
+        "states": 10,
+        "trace_category": "one_to_one",
+        "upper_states": 10
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 1,
+        "lower_states": 1,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 329,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N1_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 1,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 2,
+        "lower_states": 3,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 893,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N2_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "full_coverage_with_duplicates",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 3,
+        "lower_states": 3,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 316,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N3_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 4,
+        "lower_states": 4,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 379,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N4_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 4,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 5,
+        "lower_states": 5,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 339,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N5_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 5,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 6,
+        "lower_states": 6,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 365,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N6_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 6,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 0.8571428571428571,
+        "gold_count": 7,
+        "lower_states": 1,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 464,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 7,
+        "trace_category": "one_to_one",
+        "upper_states": 6
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 8,
+        "lower_states": 8,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 491,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 9,
+        "lower_states": 9,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 479,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 9,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 0.9,
+        "gold_count": 10,
+        "lower_states": 9,
+        "majority_band": "lower",
+        "marker_kind": "ordinal",
+        "output_token_count": 538,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1258",
+        "seed": 1258,
+        "split": "confirmation",
+        "states": 10,
+        "trace_category": "one_to_one",
+        "upper_states": 1
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 1,
+        "lower_states": 1,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 447,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N1_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 1,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 2,
+        "lower_states": 2,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 464,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N2_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 3,
+        "lower_states": 3,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 549,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N3_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 0.5,
+        "gold_count": 4,
+        "lower_states": 2,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 363,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N4_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 4,
+        "trace_category": "one_to_one",
+        "upper_states": 2
+      },
+      {
+        "band_purity": 0.6,
+        "gold_count": 5,
+        "lower_states": 2,
+        "majority_band": "upper",
+        "marker_kind": "inline_count",
+        "output_token_count": 357,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N5_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 5,
+        "trace_category": "one_to_one",
+        "upper_states": 3
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 6,
+        "lower_states": 6,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 391,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N6_seed1259",
+        "seed": 1259,
         "split": "confirmation",
         "states": 6,
         "trace_category": "one_to_one",
@@ -3331,10 +3144,10 @@
         "gold_count": 7,
         "lower_states": 7,
         "majority_band": "lower",
-        "marker_kind": "indexed",
-        "output_token_count": 363,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1261",
-        "seed": 1261,
+        "marker_kind": "inline_count",
+        "output_token_count": 436,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1259",
+        "seed": 1259,
         "split": "confirmation",
         "states": 7,
         "trace_category": "one_to_one",
@@ -3345,13 +3158,13 @@
         "gold_count": 8,
         "lower_states": 0,
         "majority_band": "upper",
-        "marker_kind": "evidence_sequence",
-        "output_token_count": 299,
-        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1261",
-        "seed": 1261,
+        "marker_kind": "inline_count",
+        "output_token_count": 423,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1259",
+        "seed": 1259,
         "split": "confirmation",
         "states": 8,
-        "trace_category": "synthetic_unverified",
+        "trace_category": "one_to_one",
         "upper_states": 8
       },
       {
@@ -3359,6 +3172,286 @@
         "gold_count": 9,
         "lower_states": 0,
         "majority_band": "upper",
+        "marker_kind": "bullet",
+        "output_token_count": 398,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 9,
+        "trace_category": "one_to_one",
+        "upper_states": 9
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 10,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "indexed",
+        "output_token_count": 429,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1259",
+        "seed": 1259,
+        "split": "confirmation",
+        "states": 10,
+        "trace_category": "one_to_one",
+        "upper_states": 10
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 1,
+        "lower_states": 1,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 453,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N1_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 1,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 2,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "completion_recap",
+        "output_token_count": 414,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N2_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "one_to_one",
+        "upper_states": 2
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 3,
+        "lower_states": 3,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 286,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N3_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 4,
+        "lower_states": 4,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 423,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N4_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 4,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 5,
+        "lower_states": 5,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 351,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N5_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 5,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 6,
+        "lower_states": 6,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 404,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N6_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 6,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 7,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "indexed",
+        "output_token_count": 479,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 7,
+        "trace_category": "one_to_one",
+        "upper_states": 7
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 8,
+        "lower_states": 8,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 412,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 9,
+        "lower_states": 9,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 507,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 9,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 10,
+        "lower_states": 10,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 530,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1260",
+        "seed": 1260,
+        "split": "confirmation",
+        "states": 10,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 1,
+        "lower_states": 1,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 362,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N1_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 1,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 2,
+        "lower_states": 2,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 316,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N2_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 2,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 3,
+        "lower_states": 3,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 345,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N3_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 3,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 4,
+        "lower_states": 4,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 417,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N4_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 4,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 5,
+        "lower_states": 5,
+        "majority_band": "lower",
+        "marker_kind": "inline_count",
+        "output_token_count": 275,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N5_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 5,
+        "trace_category": "one_to_one",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 6,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "completion_recap",
+        "output_token_count": 368,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N6_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 6,
+        "trace_category": "one_to_one",
+        "upper_states": 6
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 7,
+        "lower_states": 0,
+        "majority_band": "upper",
+        "marker_kind": "indexed",
+        "output_token_count": 363,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 7,
+        "trace_category": "one_to_one",
+        "upper_states": 7
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 8,
+        "lower_states": 8,
+        "majority_band": "lower",
+        "marker_kind": "evidence_sequence",
+        "output_token_count": 299,
+        "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1261",
+        "seed": 1261,
+        "split": "confirmation",
+        "states": 8,
+        "trace_category": "synthetic_unverified",
+        "upper_states": 0
+      },
+      {
+        "band_purity": 1.0,
+        "gold_count": 9,
+        "lower_states": 2,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 321,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1261",
@@ -3366,13 +3459,13 @@
         "split": "confirmation",
         "states": 2,
         "trace_category": "partial_unique",
-        "upper_states": 2
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 10,
-        "lower_states": 10,
-        "majority_band": "lower",
+        "lower_states": 0,
+        "majority_band": "upper",
         "marker_kind": "completion_recap",
         "output_token_count": 283,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1261",
@@ -3380,7 +3473,7 @@
         "split": "confirmation",
         "states": 10,
         "trace_category": "one_to_one",
-        "upper_states": 0
+        "upper_states": 10
       },
       {
         "band_purity": 1.0,
@@ -3399,8 +3492,8 @@
       {
         "band_purity": 1.0,
         "gold_count": 2,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 2,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 417,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N2_seed1262",
@@ -3408,13 +3501,13 @@
         "split": "confirmation",
         "states": 2,
         "trace_category": "one_to_one",
-        "upper_states": 2
+        "upper_states": 0
       },
       {
-        "band_purity": 0.75,
+        "band_purity": 1.0,
         "gold_count": 3,
-        "lower_states": 3,
-        "majority_band": "lower",
+        "lower_states": 0,
+        "majority_band": "upper",
         "marker_kind": "indexed",
         "output_token_count": 1743,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N3_seed1262",
@@ -3422,13 +3515,13 @@
         "split": "confirmation",
         "states": 4,
         "trace_category": "full_coverage_with_duplicates",
-        "upper_states": 1
+        "upper_states": 4
       },
       {
         "band_purity": 1.0,
         "gold_count": 4,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 4,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 447,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N4_seed1262",
@@ -3436,13 +3529,13 @@
         "split": "confirmation",
         "states": 4,
         "trace_category": "one_to_one",
-        "upper_states": 4
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 5,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 5,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 493,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N5_seed1262",
@@ -3450,13 +3543,13 @@
         "split": "confirmation",
         "states": 5,
         "trace_category": "one_to_one",
-        "upper_states": 5
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 6,
-        "lower_states": 6,
-        "majority_band": "lower",
+        "lower_states": 0,
+        "majority_band": "upper",
         "marker_kind": "indexed",
         "output_token_count": 613,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N6_seed1262",
@@ -3464,13 +3557,13 @@
         "split": "confirmation",
         "states": 6,
         "trace_category": "one_to_one",
-        "upper_states": 0
+        "upper_states": 6
       },
       {
         "band_purity": 1.0,
         "gold_count": 7,
-        "lower_states": 7,
-        "majority_band": "lower",
+        "lower_states": 0,
+        "majority_band": "upper",
         "marker_kind": "indexed",
         "output_token_count": 373,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1262",
@@ -3478,13 +3571,13 @@
         "split": "confirmation",
         "states": 7,
         "trace_category": "one_to_one",
-        "upper_states": 0
+        "upper_states": 7
       },
       {
         "band_purity": 1.0,
         "gold_count": 8,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 8,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 489,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1262",
@@ -3492,13 +3585,13 @@
         "split": "confirmation",
         "states": 8,
         "trace_category": "one_to_one",
-        "upper_states": 8
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 9,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 9,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 500,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1262",
@@ -3506,13 +3599,13 @@
         "split": "confirmation",
         "states": 9,
         "trace_category": "one_to_one",
-        "upper_states": 9
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 10,
-        "lower_states": 10,
-        "majority_band": "lower",
+        "lower_states": 0,
+        "majority_band": "upper",
         "marker_kind": "indexed",
         "output_token_count": 448,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1262",
@@ -3520,7 +3613,7 @@
         "split": "confirmation",
         "states": 10,
         "trace_category": "one_to_one",
-        "upper_states": 0
+        "upper_states": 10
       },
       {
         "band_purity": 1.0,
@@ -3539,8 +3632,8 @@
       {
         "band_purity": 1.0,
         "gold_count": 2,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 2,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 295,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N2_seed1263",
@@ -3548,13 +3641,13 @@
         "split": "confirmation",
         "states": 2,
         "trace_category": "one_to_one",
-        "upper_states": 2
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 3,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 3,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 308,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N3_seed1263",
@@ -3562,13 +3655,13 @@
         "split": "confirmation",
         "states": 3,
         "trace_category": "one_to_one",
-        "upper_states": 3
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 4,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 4,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 571,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N4_seed1263",
@@ -3576,13 +3669,13 @@
         "split": "confirmation",
         "states": 4,
         "trace_category": "one_to_one",
-        "upper_states": 4
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 5,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 5,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 330,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N5_seed1263",
@@ -3590,13 +3683,13 @@
         "split": "confirmation",
         "states": 5,
         "trace_category": "one_to_one",
-        "upper_states": 5
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 6,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 6,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 460,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N6_seed1263",
@@ -3604,13 +3697,13 @@
         "split": "confirmation",
         "states": 6,
         "trace_category": "one_to_one",
-        "upper_states": 6
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 7,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 7,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 516,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N7_seed1263",
@@ -3618,13 +3711,13 @@
         "split": "confirmation",
         "states": 7,
         "trace_category": "one_to_one",
-        "upper_states": 7
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 8,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 8,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 508,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N8_seed1263",
@@ -3632,13 +3725,13 @@
         "split": "confirmation",
         "states": 8,
         "trace_category": "one_to_one",
-        "upper_states": 8
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 9,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 9,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 532,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1263",
@@ -3646,13 +3739,13 @@
         "split": "confirmation",
         "states": 9,
         "trace_category": "one_to_one",
-        "upper_states": 9
+        "upper_states": 0
       },
       {
         "band_purity": 1.0,
         "gold_count": 10,
-        "lower_states": 0,
-        "majority_band": "upper",
+        "lower_states": 10,
+        "majority_band": "lower",
         "marker_kind": "inline_count",
         "output_token_count": 489,
         "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1263",
@@ -3660,12 +3753,13 @@
         "split": "confirmation",
         "states": 10,
         "trace_category": "one_to_one",
-        "upper_states": 10
+        "upper_states": 0
       }
     ],
     "trajectory_count": 100
   },
   "within_trajectory_centered_pca3": {
+    "band_fit_split": "discovery after per-trajectory mean subtraction",
     "categorical_associations": [
       {
         "column": "occurrence",
@@ -3679,16 +3773,16 @@
             "upper": 10
           },
           "2": {
-            "lower": 21,
-            "upper": 71
+            "lower": 25,
+            "upper": 67
           },
           "3": {
-            "lower": 4,
-            "upper": 76
+            "lower": 9,
+            "upper": 71
           },
           "4": {
-            "lower": 2,
-            "upper": 67
+            "lower": 4,
+            "upper": 65
           },
           "5": {
             "lower": 0,
@@ -3703,8 +3797,8 @@
             "upper": 39
           },
           "8": {
-            "lower": 1,
-            "upper": 28
+            "lower": 2,
+            "upper": 27
           },
           "9": {
             "lower": 1,
@@ -3712,8 +3806,8 @@
           }
         },
         "levels": 10,
-        "nmi": 0.22181660796816546,
-        "weighted_band_purity": 0.9227941176470589
+        "nmi": 0.20465265119099058,
+        "weighted_band_purity": 0.9007352941176471
       },
       {
         "column": "boundary_kind",
@@ -3731,8 +3825,8 @@
             "upper": 37
           },
           "score_supported_record": {
-            "lower": 1,
-            "upper": 7
+            "lower": 3,
+            "upper": 5
           },
           "semantic_end:cardinal_commit": {
             "lower": 66,
@@ -3755,17 +3849,17 @@
             "upper": 7
           },
           "semantic_end:standalone_ordinal": {
-            "lower": 7,
-            "upper": 133
+            "lower": 14,
+            "upper": 126
           },
           "semantic_end:trailing_ordinal": {
-            "lower": 18,
-            "upper": 60
+            "lower": 21,
+            "upper": 57
           }
         },
         "levels": 11,
-        "nmi": 0.17268619314673597,
-        "weighted_band_purity": 0.8970588235294118
+        "nmi": 0.15814483126326967,
+        "weighted_band_purity": 0.875
       },
       {
         "column": "city",
@@ -3783,8 +3877,8 @@
             "upper": 1
           },
           "Bangkok": {
-            "lower": 0,
-            "upper": 9
+            "lower": 1,
+            "upper": 8
           },
           "Barcelona": {
             "lower": 8,
@@ -3795,8 +3889,8 @@
             "upper": 10
           },
           "Bogota": {
-            "lower": 10,
-            "upper": 10
+            "lower": 11,
+            "upper": 9
           },
           "Brussels": {
             "lower": 0,
@@ -3819,8 +3913,8 @@
             "upper": 2
           },
           "Chennai": {
-            "lower": 0,
-            "upper": 8
+            "lower": 1,
+            "upper": 7
           },
           "Copenhagen": {
             "lower": 0,
@@ -3847,12 +3941,12 @@
             "upper": 6
           },
           "Hong Kong": {
-            "lower": 0,
-            "upper": 7
+            "lower": 1,
+            "upper": 6
           },
           "Hyderabad": {
-            "lower": 4,
-            "upper": 9
+            "lower": 6,
+            "upper": 7
           },
           "Islamabad": {
             "lower": 1,
@@ -3867,8 +3961,8 @@
             "upper": 9
           },
           "Kyoto": {
-            "lower": 0,
-            "upper": 9
+            "lower": 1,
+            "upper": 8
           },
           "Lahore": {
             "lower": 1,
@@ -3907,8 +4001,8 @@
             "upper": 5
           },
           "Oslo": {
-            "lower": 2,
-            "upper": 25
+            "lower": 3,
+            "upper": 24
           },
           "Paris": {
             "lower": 0,
@@ -3951,8 +4045,8 @@
             "upper": 8
           },
           "Skopje": {
-            "lower": 1,
-            "upper": 8
+            "lower": 2,
+            "upper": 7
           },
           "Stockholm": {
             "lower": 0,
@@ -3963,12 +4057,12 @@
             "upper": 5
           },
           "Tallinn": {
-            "lower": 0,
-            "upper": 10
+            "lower": 1,
+            "upper": 9
           },
           "Tashkent": {
-            "lower": 0,
-            "upper": 16
+            "lower": 1,
+            "upper": 15
           },
           "Tbilisi": {
             "lower": 0,
@@ -3999,8 +4093,8 @@
             "upper": 3
           },
           "Wuhan": {
-            "lower": 0,
-            "upper": 2
+            "lower": 1,
+            "upper": 1
           },
           "Xi’an": {
             "lower": 0,
@@ -4016,31 +4110,31 @@
           }
         },
         "levels": 61,
-        "nmi": 0.12670500795998504,
-        "weighted_band_purity": 0.8823529411764706
+        "nmi": 0.11741670751153811,
+        "weighted_band_purity": 0.8639705882352942
       },
       {
         "column": "item_line_number",
         "counts": {
           "10": {
-            "lower": 26,
-            "upper": 61
+            "lower": 27,
+            "upper": 60
           },
           "11": {
             "lower": 1,
             "upper": 17
           },
           "12": {
-            "lower": 5,
-            "upper": 48
+            "lower": 8,
+            "upper": 45
           },
           "13": {
             "lower": 0,
             "upper": 17
           },
           "14": {
-            "lower": 1,
-            "upper": 47
+            "lower": 2,
+            "upper": 46
           },
           "15": {
             "lower": 0,
@@ -4103,16 +4197,16 @@
             "upper": 0
           },
           "4": {
-            "lower": 7,
-            "upper": 22
+            "lower": 8,
+            "upper": 21
           },
           "6": {
-            "lower": 22,
-            "upper": 31
+            "lower": 25,
+            "upper": 28
           },
           "8": {
-            "lower": 50,
-            "upper": 37
+            "lower": 53,
+            "upper": 34
           },
           "9": {
             "lower": 0,
@@ -4120,8 +4214,8 @@
           }
         },
         "levels": 24,
-        "nmi": 0.10047490553103446,
-        "weighted_band_purity": 0.8143382352941176
+        "nmi": 0.10433150075378611,
+        "weighted_band_purity": 0.8033088235294118
       },
       {
         "column": "baseline_endpoint_token_id",
@@ -4139,8 +4233,8 @@
             "upper": 2
           },
           "13": {
-            "lower": 64,
-            "upper": 157
+            "lower": 75,
+            "upper": 146
           },
           "15": {
             "lower": 0,
@@ -4231,8 +4325,8 @@
             "upper": 2
           },
           "382": {
-            "lower": 21,
-            "upper": 90
+            "lower": 22,
+            "upper": 89
           },
           "4311": {
             "lower": 0,
@@ -4300,8 +4394,8 @@
           }
         },
         "levels": 43,
-        "nmi": 0.06143139841584513,
-        "weighted_band_purity": 0.7996323529411765
+        "nmi": 0.06720481769146161,
+        "weighted_band_purity": 0.7775735294117647
       },
       {
         "column": "marker_kind",
@@ -4319,25 +4413,25 @@
             "upper": 37
           },
           "evidence_sequence": {
-            "lower": 1,
-            "upper": 7
+            "lower": 3,
+            "upper": 5
           },
           "indexed": {
             "lower": 15,
             "upper": 94
           },
           "inline_count": {
-            "lower": 92,
-            "upper": 270
+            "lower": 101,
+            "upper": 261
           },
           "ordinal": {
-            "lower": 2,
-            "upper": 8
+            "lower": 3,
+            "upper": 7
           }
         },
         "levels": 7,
-        "nmi": 0.0155628245817275,
-        "weighted_band_purity": 0.7867647058823529
+        "nmi": 0.02089536876804936,
+        "weighted_band_purity": 0.7647058823529411
       },
       {
         "column": "trace_category",
@@ -4347,21 +4441,21 @@
             "upper": 13
           },
           "one_to_one": {
-            "lower": 112,
-            "upper": 406
+            "lower": 122,
+            "upper": 396
           },
           "partial_unique": {
             "lower": 2,
             "upper": 2
           },
           "synthetic_unverified": {
-            "lower": 1,
-            "upper": 7
+            "lower": 3,
+            "upper": 5
           }
         },
         "levels": 4,
-        "nmi": 0.010109078277277595,
-        "weighted_band_purity": 0.7867647058823529
+        "nmi": 0.011149094005887778,
+        "weighted_band_purity": 0.7647058823529411
       },
       {
         "column": "seed",
@@ -4371,89 +4465,93 @@
             "upper": 38
           },
           "1255": {
-            "lower": 10,
-            "upper": 46
+            "lower": 11,
+            "upper": 45
           },
           "1256": {
-            "lower": 11,
-            "upper": 40
+            "lower": 12,
+            "upper": 39
           },
           "1257": {
             "lower": 9,
             "upper": 46
           },
           "1258": {
-            "lower": 11,
-            "upper": 45
+            "lower": 14,
+            "upper": 42
           },
           "1259": {
             "lower": 10,
             "upper": 45
           },
           "1260": {
-            "lower": 11,
-            "upper": 44
+            "lower": 12,
+            "upper": 43
           },
           "1261": {
-            "lower": 9,
-            "upper": 39
+            "lower": 11,
+            "upper": 37
           },
           "1262": {
-            "lower": 11,
-            "upper": 46
+            "lower": 12,
+            "upper": 45
           },
           "1263": {
-            "lower": 17,
-            "upper": 39
+            "lower": 20,
+            "upper": 36
           }
         },
         "levels": 10,
-        "nmi": 0.004793460148996888,
-        "weighted_band_purity": 0.7867647058823529
+        "nmi": 0.005968834046038944,
+        "weighted_band_purity": 0.7647058823529411
       },
       {
         "column": "alignment_strategy",
         "counts": {
           "literal_baseline_token_prefix": {
-            "lower": 87,
-            "upper": 315
+            "lower": 98,
+            "upper": 304
           },
           "text_exact_boundary_retokenization": {
-            "lower": 29,
-            "upper": 113
+            "lower": 30,
+            "upper": 112
           }
         },
         "levels": 2,
-        "nmi": 0.00015754303178692412,
-        "weighted_band_purity": 0.7867647058823529
+        "nmi": 0.0010286647164270074,
+        "weighted_band_purity": 0.7647058823529411
       },
       {
         "column": "retokenized_suffix_tokens",
         "counts": {
           "0": {
-            "lower": 87,
-            "upper": 315
+            "lower": 98,
+            "upper": 304
           },
           "1": {
-            "lower": 29,
-            "upper": 113
+            "lower": 30,
+            "upper": 112
           }
         },
         "levels": 2,
-        "nmi": 0.00015754303178692412,
-        "weighted_band_purity": 0.7867647058823529
+        "nmi": 0.0010286647164270074,
+        "weighted_band_purity": 0.7647058823529411
       }
     ],
     "confirmation_two_band": {
       "cluster_sizes": {
-        "lower": 116,
-        "upper": 428
+        "lower": 128,
+        "upper": 416
       },
       "display_vertical_means": {
-        "lower": -2.600661516189575,
-        "upper": 0.7048519253730774
+        "lower": -5.347993850708008,
+        "upper": 1.6455365419387817
       },
-      "silhouette": 0.4108598828315735
+      "silhouette": 0.4009567201137543
+    },
+    "discovery_band_sizes": {
+      "lower": 253,
+      "upper": 854
     },
     "explained_variance_ratio": [
       0.16098523139953613,
@@ -4464,15 +4562,15 @@
     "fit_split": "discovery after per-trajectory mean subtraction",
     "full_panel_two_band": {
       "cluster_sizes": {
-        "lower": 385,
-        "upper": 1266
+        "lower": 381,
+        "upper": 1270
       },
       "display_vertical_means": {
-        "lower": -6.019824981689453,
-        "upper": 1.8306732177734375
+        "lower": -5.99250602722168,
+        "upper": 1.797751545906067
       },
-      "silhouette": 0.4099765121936798
+      "silhouette": 0.4122459292411804
     },
-    "raw_vs_centered_band_nmi": 0.017450987625387545
+    "raw_vs_centered_band_nmi": 0.027595444697213718
   }
 }

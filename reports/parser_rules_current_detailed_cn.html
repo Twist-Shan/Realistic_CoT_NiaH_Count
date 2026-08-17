@@ -1,0 +1,1100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>当前 NiaH parsing 全规则详解</title>
+<style>
+:root{--ink:#172033;--muted:#596579;--line:#d9e0ea;--paper:#fff;--wash:#f4f7fb;--accent:#2367d1;--code:#101827;--good:#0b6b50}
+*{box-sizing:border-box} html{scroll-behavior:smooth}
+body{margin:0;background:var(--wash);color:var(--ink);font:16px/1.72 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:290px minmax(0,920px);gap:34px;max-width:1280px;margin:0 auto;padding:28px}
+nav{position:sticky;top:20px;align-self:start;max-height:calc(100vh - 40px);overflow:auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:0 8px 28px #1b365d12}
+nav h2{font-size:15px;margin:0 0 12px;color:var(--muted)}
+nav a{display:block;color:#31435d;text-decoration:none;padding:5px 8px;border-radius:7px;font-size:13px}
+nav a:hover{background:#edf4ff;color:var(--accent)} .toc-l2{font-weight:650;margin-top:5px} .toc-l3{padding-left:20px}
+main{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:48px 56px;box-shadow:0 10px 34px #1b365d12;min-width:0}
+h1{font-size:34px;line-height:1.22;margin:0 0 24px} h2{font-size:25px;margin:52px 0 18px;border-bottom:2px solid #e8edf4;padding-bottom:9px} h3{font-size:19px;margin:34px 0 10px;color:#153f79}
+.anchor{opacity:0;text-decoration:none;margin-left:8px;color:#9aabc2;font-weight:400} h1:hover .anchor,h2:hover .anchor,h3:hover .anchor{opacity:1}
+p{margin:11px 0} ul,ol{margin:9px 0 16px;padding-left:28px} li{margin:5px 0}
+code{font-family:"Cascadia Code",Consolas,monospace;background:#edf1f6;border-radius:4px;padding:.08em .35em;font-size:.9em}
+pre{background:var(--code);color:#e7edf7;border-radius:10px;padding:17px 19px;overflow:auto;line-height:1.52;box-shadow:inset 0 0 0 1px #ffffff12}
+pre code{background:none;padding:0;color:inherit;font-size:13.5px}
+.table-wrap{overflow:auto;margin:18px 0} table{border-collapse:collapse;width:100%;font-size:14px} th,td{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top} th{background:#edf3fb;color:#244466;white-space:nowrap} tr:nth-child(even) td{background:#fafbfd}
+hr{border:0;border-top:1px solid var(--line);margin:44px 0} strong{color:#102d55}
+.top{position:fixed;right:20px;bottom:18px;text-decoration:none;background:#173d72;color:#fff;padding:8px 12px;border-radius:999px;font-size:13px;box-shadow:0 5px 16px #0003}
+@media(max-width:900px){.layout{display:block;padding:12px}nav{position:relative;top:0;max-height:none;margin-bottom:14px}main{padding:28px 22px}h1{font-size:28px}}
+@media print{body{background:#fff}.layout{display:block;max-width:none;padding:0}nav,.top{display:none}main{border:0;box-shadow:none;padding:0}pre{white-space:pre-wrap}}
+</style>
+</head>
+<body id="top"><div class="layout">
+<nav><h2>目录</h2><a class="toc-l1" href="#当前-niah-parsing-全规则详解">当前 NiaH parsing 全规则详解</a><a class="toc-l2" href="#0-先给结论-现在不是-一个-parser-而是四个职责不同的解析层">0. 先给结论：现在不是“一个 parser”，而是四个职责不同的解析层</a><a class="toc-l2" href="#1-公共输入-gold-与-reasoning-span-规则">1. 公共输入、gold 与 reasoning-span 规则</a><a class="toc-l3" href="#r1-1-输入文本字段">R1.1 输入文本字段</a><a class="toc-l3" href="#r1-2-gold-字段优先级和约束">R1.2 gold 字段优先级和约束</a><a class="toc-l3" href="#r1-3-模型族推断">R1.3 模型族推断</a><a class="toc-l3" href="#r1-4-reasoning-span-qwen">R1.4 reasoning span：Qwen</a><a class="toc-l3" href="#r1-5-reasoning-span-gemma">R1.5 reasoning span：Gemma</a><a class="toc-l3" href="#r1-6-close-缺失时的行为">R1.6 close 缺失时的行为</a><a class="toc-l2" href="#2-gold-city-匹配与逻辑-item-边界">2. Gold city 匹配与逻辑 item 边界</a><a class="toc-l3" href="#r2-1-城市名整词-大小写不敏感匹配">R2.1 城市名整词、大小写不敏感匹配</a><a class="toc-l3" href="#r2-2-显式列表按-不同-gold-city-计数">R2.2 显式列表按“不同 gold city”计数</a><a class="toc-l3" href="#r2-3-parser-不检查-score">R2.3 parser 不检查 score</a><a class="toc-l3" href="#r2-4-非-gold-城市对-matcher-不可见">R2.4 非 gold 城市对 matcher 不可见</a><a class="toc-l3" href="#r2-5-物理换行是-item-边界">R2.5 物理换行是 item 边界</a><a class="toc-l3" href="#r2-6-句号也可切出同一物理行中的多个逻辑-item">R2.6 句号也可切出同一物理行中的多个逻辑 item</a><a class="toc-l3" href="#r2-7-marker-自身的句点不能被误切">R2.7 marker 自身的句点不能被误切</a><a class="toc-l3" href="#r2-8-保守句末规则">R2.8 保守句末规则</a><a class="toc-l2" href="#3-显式-marker-parser-的全部规则">3. 显式 marker parser 的全部规则</a><a class="toc-l3" href="#r3-1-candidate-必须从合法起点开始">R3.1 candidate 必须从合法起点开始</a><a class="toc-l3" href="#r3-2-阿拉伯数字-marker">R3.2 阿拉伯数字 marker</a><a class="toc-l3" href="#r3-3-英文序数-marker">R3.3 英文序数 marker</a><a class="toc-l3" href="#r3-4-then-和-finally">R3.4 <code>Then</code> 和 <code>Finally</code></a><a class="toc-l3" href="#r3-5-bullet-marker">R3.5 bullet marker</a><a class="toc-l3" href="#r3-6-每个显式-item-必须恰好含一个不同的-gold-city">R3.6 每个显式 item 必须恰好含一个不同的 gold city</a><a class="toc-l3" href="#r3-7-bullet-的单项防误判规则">R3.7 bullet 的单项防误判规则</a><a class="toc-l3" href="#r3-8-bridge-line-可以跨段拼接">R3.8 bridge line 可以跨段拼接</a><a class="toc-l3" href="#r3-9-marker-family-改变">R3.9 marker family 改变</a><a class="toc-l3" href="#r3-10-合法终止证据全集">R3.10 合法终止证据全集</a><a class="toc-l3" href="#r3-11-返回第一个可靠终止的显式-candidate">R3.11 返回第一个可靠终止的显式 candidate</a><a class="toc-l3" href="#r3-12-parse-hit-不要求覆盖全部-gold-也允许跨-item-重复">R3.12 parse hit 不要求覆盖全部 gold，也允许跨 item 重复</a><a class="toc-l2" href="#4-没有显式-marker-时的两个-fallback">4. 没有显式 marker 时的两个 fallback</a><a class="toc-l3" href="#r4-1-completion-recap-必须位于-reasoning-后段">R4.1 completion recap 必须位于 reasoning 后段</a><a class="toc-l3" href="#r4-2-recap-必须有窄集合-counting-cue-或下一句一致的-count-summary">R4.2 recap 必须有窄集合 counting cue，或下一句一致的 count summary</a><a class="toc-l3" href="#r4-3-recap-必须紧凑">R4.3 recap 必须紧凑</a><a class="toc-l3" href="#r4-4-单城市-recap-的额外限制">R4.4 单城市 recap 的额外限制</a><a class="toc-l3" href="#r4-5-recap-不要求完整覆盖-保留重复">R4.5 recap 不要求完整覆盖，保留重复</a><a class="toc-l3" href="#r4-6-recap-cutoff-边界">R4.6 recap cutoff 边界</a><a class="toc-l3" href="#r4-7-v4-4-audit-sentence-chain-的严格模板">R4.7 V4.4 audit sentence chain 的严格模板</a><a class="toc-l3" href="#r4-8-audit-fallback-只验证模板与-gold-city-不验证-score">R4.8 audit fallback 只验证模板与 gold city，不验证 score</a><a class="toc-l3" href="#r4-9-audit-chain-使用所有匹配-occurrence">R4.9 audit chain 使用所有匹配 occurrence</a><a class="toc-l2" href="#5-trace-分类-no-hit-诊断-坐标与-v">5. Trace 分类、no-hit 诊断、坐标与 <code>-v</code></a><a class="toc-l3" href="#r5-1-one-to-one">R5.1 <code>one_to_one</code></a><a class="toc-l3" href="#r5-2-full-coverage-with-duplicates">R5.2 <code>full_coverage_with_duplicates</code></a><a class="toc-l3" href="#r5-3-partial-unique">R5.3 <code>partial_unique</code></a><a class="toc-l3" href="#r5-4-partial-with-duplicates">R5.4 <code>partial_with_duplicates</code></a><a class="toc-l3" href="#r5-5-no-parser-hit">R5.5 <code>no_parser_hit</code></a><a class="toc-l3" href="#r5-6-matched-gold-cities-去重-item-gold-cities-不去重">R5.6 <code>matched_gold_cities</code> 去重，<code>item_gold_cities</code> 不去重</a><a class="toc-l3" href="#r5-7-字符坐标语义">R5.7 字符坐标语义</a><a class="toc-l3" href="#r5-8-cut-char-不等于-total-count-commit">R5.8 <code>cut_char</code> 不等于 total-count commit</a><a class="toc-l3" href="#r5-9-v-汇报规则">R5.9 <code>-v</code> 汇报规则</a><a class="toc-l2" href="#6-从-parse-hit-到-cutoff-的下游规则">6. 从 parse hit 到 cutoff 的下游规则</a><a class="toc-l3" href="#r6-1-哪些-trace-类别可以尝试-cutoff">R6.1 哪些 trace 类别可以尝试 cutoff</a><a class="toc-l3" href="#r6-2-字符-prefix-必须精确-round-trip">R6.2 字符 prefix 必须精确 round-trip</a><a class="toc-l3" href="#r6-3-token-边界跨界时只重-tokenize-后缀">R6.3 token 边界跨界时只重 tokenize 后缀</a><a class="toc-l3" href="#r6-4-闭合-thinking-并续写">R6.4 闭合 thinking 并续写</a><a class="toc-l3" href="#r6-5-all-sample-policy-回退">R6.5 all-sample policy 回退</a><a class="toc-l2" href="#7-多轮重数-e1-e2-e3-episode-parser-的全部规则">7. 多轮重数 E1/E2/E3 episode parser 的全部规则</a><a class="toc-l3" href="#r7-1-sentence-unit-切分">R7.1 sentence unit 切分</a><a class="toc-l3" href="#r7-2-rank-证据-行首数字">R7.2 rank 证据：行首数字</a><a class="toc-l3" href="#r7-3-rank-证据-行首英文序数">R7.3 rank 证据：行首英文序数</a><a class="toc-l3" href="#r7-4-rank-证据-labeled-numeric-rank">R7.4 rank 证据：labeled numeric rank</a><a class="toc-l3" href="#r7-5-rank-证据-trailing-ordinal">R7.5 rank 证据：trailing ordinal</a><a class="toc-l3" href="#r7-6-城市与-rank-可在同一-unit-也可在相邻-rank-only-unit">R7.6 城市与 rank 可在同一 unit，也可在相邻 rank-only unit</a><a class="toc-l3" href="#r7-7-单个-event-的唯一性条件">R7.7 单个 event 的唯一性条件</a><a class="toc-l3" href="#r7-8-event-rank-范围">R7.8 event rank 范围</a><a class="toc-l3" href="#r7-9-event-的四个关键位置">R7.9 event 的四个关键位置</a><a class="toc-l3" href="#r7-10-sequence-必须从-rank-1-开始">R7.10 sequence 必须从 rank 1 开始</a><a class="toc-l3" href="#r7-11-相同-rank-相同-city-的重复-event-会替换前者">R7.11 相同 rank + 相同 city 的重复 event 会替换前者</a><a class="toc-l3" href="#r7-12-rank-1-重启开启新-raw-sequence">R7.12 rank 1 重启开启新 raw sequence</a><a class="toc-l3" href="#r7-13-完成条件一-terminal-rank-到达-gold-n">R7.13 完成条件一：terminal rank 到达 gold N</a><a class="toc-l3" href="#r7-14-完成条件二-matching-closure-summary">R7.14 完成条件二：matching closure summary</a><a class="toc-l3" href="#r7-15-完成条件三-最后-raw-sequence-与最终-total-一致">R7.15 完成条件三：最后 raw sequence 与最终 <code>Total:</code> 一致</a><a class="toc-l3" href="#r7-16-minimum-length">R7.16 minimum length</a><a class="toc-l3" href="#r7-17-incomplete-sequence-与-episode-编号">R7.17 incomplete sequence 与 episode 编号</a><a class="toc-l3" href="#r7-18-recount-reflection-cue-只做诊断-不决定结构">R7.18 recount/reflection cue 只做诊断，不决定结构</a><a class="toc-l3" href="#r7-19-episode-内-trace-分类">R7.19 episode 内 trace 分类</a><a class="toc-l3" href="#r7-20-exact-k-样本定义">R7.20 exact-K 样本定义</a><a class="toc-l2" href="#8-restart-only-e1-对照-parser">8. restart-only E1 对照 parser</a><a class="toc-l3" href="#r8-1-只放宽第一条-raw-sequence">R8.1 只放宽第一条 raw sequence</a><a class="toc-l3" href="#r8-2-具体对照例子">R8.2 具体对照例子</a><a class="toc-l3" href="#r8-3-一个细微边界-相同-city-rank-的紧邻重复可能先被去重">R8.3 一个细微边界：相同 city/rank 的紧邻重复可能先被去重</a><a class="toc-l3" href="#r8-4-该规则不是当前主-parser">R8.4 该规则不是当前主 parser</a><a class="toc-l2" href="#9-最终-total-答案-parser">9. 最终 <code>Total:</code> 答案 parser</a><a class="toc-l3" href="#r9-1-先分离-reasoning-与-final">R9.1 先分离 reasoning 与 final</a><a class="toc-l3" href="#r9-2-total-必须独占一行-但可有额外-final-prose">R9.2 <code>Total:</code> 必须独占一行，但可有额外 final prose</a><a class="toc-l3" href="#r9-3-数值可为负数">R9.3 数值可为负数</a><a class="toc-l3" href="#r9-4-exact-count">R9.4 <code>exact_count</code></a><a class="toc-l3" href="#r9-5-格式合规与-exact-count-分开">R9.5 格式合规与 exact count 分开</a><a class="toc-l3" href="#r9-6-enumeration-prompt-的最终答案规则">R9.6 enumeration prompt 的最终答案规则</a><a class="toc-l3" href="#r9-7-evaluator-中较粗的-repetition-audit">R9.7 evaluator 中较粗的 repetition audit</a><a class="toc-l2" href="#10-当前源码与可复核产物">10. 当前源码与可复核产物</a><a class="toc-l2" href="#11-最终总括">11. 最终总括</a><a class="toc-l2" href="#12-正式实验中的真实输入与实际-parse-结果">12. 正式实验中的真实输入与实际 parse 结果</a><a class="toc-l3" href="#真实例-1-qwen-显式数字列表-one-to-one">真实例 1：Qwen 显式数字列表，one-to-one</a><a class="toc-l3" href="#真实例-2-gemma-没有受支持的显式-marker-命中-audit-sentence-fallback">真实例 2：Gemma 没有受支持的显式 marker，命中 audit-sentence fallback</a><a class="toc-l3" href="#真实例-3-qwen-completion-recap-one-to-one">真实例 3：Qwen completion recap，one-to-one</a><a class="toc-l3" href="#真实例-4-qwen-completion-recap-覆盖完整-但重复一个城市">真实例 4：Qwen completion recap 覆盖完整，但重复一个城市</a><a class="toc-l3" href="#真实例-5-qwen-最终答案正确-但-trace-parser-no-hit">真实例 5：Qwen 最终答案正确，但 trace parser no-hit</a><a class="toc-l3" href="#真实例-6-同一真实样本在默认-episode-parser-中是-exact-2-在-restart-only-中是-exact-3">真实例 6：同一真实样本在默认 episode parser 中是 exact-2，在 restart-only 中是 exact-3</a></nav>
+<main><h1 id="当前-niah-parsing-全规则详解">当前 NiaH parsing 全规则详解<a class="anchor" href="#当前-niah-parsing-全规则详解" aria-label="本节链接">#</a></h1>
+<p>生成日期：2026-08-17 范围：当前本地实验链路中实际使用的 native-thinking trace parser、E1/E2/E3 重数 episode parser、最终 <code>Total:</code> 答案 parser，以及仅用于第 11 节对照实验的 restart-only E1 parser。</p>
+<h2 id="0-先给结论-现在不是-一个-parser-而是四个职责不同的解析层">0. 先给结论：现在不是“一个 parser”，而是四个职责不同的解析层<a class="anchor" href="#0-先给结论-现在不是-一个-parser-而是四个职责不同的解析层" aria-label="本节链接">#</a></h2>
+<div class="table-wrap"><table><thead><tr>
+<th>层</th>
+<th>当前用途</th>
+<th>是否使用 gold</th>
+<th>主要输出</th>
+</tr></thead><tbody>
+<tr>
+<td>A. 最终答案 parser</td>
+<td>判断原始输出或 cutoff 续写最终答了多少</td>
+<td>是，只有在计算正确率时使用 gold N</td>
+<td><code>predicted_count</code>、<code>exact_count</code>、格式合规性</td>
+</tr>
+<tr>
+<td>B. 第一次 trace parser</td>
+<td>找到第一个可可靠截断的城市列表，供 parse 分类、cutoff 和旧 geometry 使用</td>
+<td>是</td>
+<td><code>cut_char</code>、城市序列、marker、trace 类别</td>
+</tr>
+<tr>
+<td>C. 多轮 episode parser</td>
+<td>在 thinking 中识别每一次完整计数 E1/E2/E3，供重数与逐轮 activation 分析使用</td>
+<td>是</td>
+<td>完成 episode、每项 rank/city/site、completion kind</td>
+</tr>
+<tr>
+<td>D. restart-only E1 parser</td>
+<td>检验默认 E1 完成条件是否造成选择偏差</td>
+<td>是</td>
+<td>仅改变第一条 raw sequence 是否注册为 E1</td>
+</tr>
+</tbody></table></div>
+<p>最重要的区分是：</p>
+<pre><code class="language-text">parse hit ≠ trace one-to-one ≠ cutoff 完成 ≠ 最终答案正确</code></pre>
+<ul>
+<li><code>parse hit</code> 只表示找到了受支持格式且有可靠终止证据的 trace。</li>
+<li><code>one_to_one</code> 才表示 trace 中的城市与 gold 一一对应；顺序可不同。</li>
+<li><code>cutoff 完成</code> 表示字符截断、token 对齐、闭合 thinking 和续写全部成功。</li>
+<li><code>exact_count</code> 只比较最终 <code>Total: n</code> 中的 <code>n</code> 是否等于 gold N。</li>
+</ul>
+<p>此外，B 与 C 是两个刻意分开的 parser。B 回答“第一次可在哪里截断”；C 回答“哪些 rank 轨迹构成一次完成的计数”。不能用 B 的一次 parse hit 推断只有一个 episode，也不能用 C 的 episode 边界替代 B 的旧 cutoff 边界。</p>
+<hr>
+<h2 id="1-公共输入-gold-与-reasoning-span-规则">1. 公共输入、gold 与 reasoning-span 规则<a class="anchor" href="#1-公共输入-gold-与-reasoning-span-规则" aria-label="本节链接">#</a></h2>
+<h3 id="r1-1-输入文本字段">R1.1 输入文本字段<a class="anchor" href="#r1-1-输入文本字段" aria-label="本节链接">#</a></h3>
+<p>独立 parser API 依次寻找：</p>
+<ol>
+<li>顶层 <code>raw_output_text</code>；</li>
+<li>若不存在，则使用 <code>baseline.raw_output_text</code>；</li>
+<li>两者都没有时抛出错误，不生成伪造的 no-hit。</li>
+</ol>
+<p>例：</p>
+<pre><code class="language-json">{
+  &quot;baseline&quot;: {
+    &quot;raw_output_text&quot;: &quot;&lt;think&gt;\n1. Chicago\n2. Baku\n&lt;/think&gt;\nTotal: 2&quot;
+  },
+  &quot;gold_pairs&quot;: [{&quot;city&quot;: &quot;Chicago&quot;}, {&quot;city&quot;: &quot;Baku&quot;}],
+  &quot;model_label&quot;: &quot;Qwen3-8B&quot;
+}</code></pre>
+<p>这个输入合法；parser 会从 <code>baseline.raw_output_text</code> 读取文本。</p>
+<h3 id="r1-2-gold-字段优先级和约束">R1.2 gold 字段优先级和约束<a class="anchor" href="#r1-2-gold-字段优先级和约束" aria-label="本节链接">#</a></h3>
+<p>gold 依次从 <code>gold_records</code>、<code>gold_pairs</code>、<code>relevant_records</code> 中读取第一个非空 list。每项可以是城市字符串，也可以是含 <code>city</code> 的对象。</p>
+<p>合法例子：</p>
+<pre><code class="language-json">{&quot;gold_records&quot;: [&quot;Chicago&quot;, &quot;Baku&quot;]}</code></pre>
+<pre><code class="language-json">{&quot;gold_pairs&quot;: [{&quot;city&quot;: &quot;Chicago&quot;, &quot;score&quot;: 72}, {&quot;city&quot;: &quot;Baku&quot;, &quot;score&quot;: 98}]}</code></pre>
+<p>非法例子：</p>
+<pre><code class="language-json">{&quot;gold_records&quot;: [{&quot;city&quot;: &quot;Chicago&quot;}, {&quot;city&quot;: &quot;chicago&quot;}]}</code></pre>
+<p>因为城市名按大小写不敏感方式必须唯一；空城市名和空 gold list 也会直接报错。</p>
+<h3 id="r1-3-模型族推断">R1.3 模型族推断<a class="anchor" href="#r1-3-模型族推断" aria-label="本节链接">#</a></h3>
+<p>显式 <code>model_family</code> 只能是 <code>qwen3</code> 或 <code>gemma4</code>。没有显式值时，parser 在 <code>model_label</code>、<code>model</code>、<code>model_id</code> 中查找 <code>qwen</code> 或 <code>gemma</code>，否则报错。</p>
+<p>例：<code>model_label=&quot;google/gemma-3-4b-it&quot;</code> 会被推断为 <code>gemma4</code>；<code>model_label=&quot;unknown-model&quot;</code> 不会被猜成某个模型族。</p>
+<h3 id="r1-4-reasoning-span-qwen">R1.4 reasoning span：Qwen<a class="anchor" href="#r1-4-reasoning-span-qwen" aria-label="本节链接">#</a></h3>
+<p>Qwen 的 reasoning 起点是第一个 <code>&lt;think&gt;</code> 之后；若没有 opening tag，则从字符 0 开始。终点取最后一个 <code>&lt;/think&gt;</code> 之前。</p>
+<p>例：</p>
+<pre><code class="language-text">&lt;think&gt;
+1. Chicago
+&lt;/think&gt;
+draft
+&lt;/think&gt;
+Total: 1</code></pre>
+<p>Qwen trace parser 会使用最后一个 <code>&lt;/think&gt;</code> 作为 reasoning 终点。这是为了适配 Qwen 输出中可能出现的重复 close；最终 <code>Total:</code> 不作为城市列表项。</p>
+<h3 id="r1-5-reasoning-span-gemma">R1.5 reasoning span：Gemma<a class="anchor" href="#r1-5-reasoning-span-gemma" aria-label="本节链接">#</a></h3>
+<p>Gemma 的 opening delimiter 是：</p>
+<pre><code class="language-text">&lt;|channel&gt;thought</code></pre>
+<p>close delimiter 是：</p>
+<pre><code class="language-text">&lt;channel|&gt;</code></pre>
+<p>Gemma 使用 opening 后的第一个 close 作为 reasoning 终点。</p>
+<p>例：</p>
+<pre><code class="language-text">&lt;|channel&gt;thought
+1. Chicago
+&lt;channel|&gt;final
+Total: 1</code></pre>
+<p>只有 <code>1. Chicago</code> 所在部分参与 trace parsing。</p>
+<h3 id="r1-6-close-缺失时的行为">R1.6 close 缺失时的行为<a class="anchor" href="#r1-6-close-缺失时的行为" aria-label="本节链接">#</a></h3>
+<p>若没有 close tag，reasoning 延伸到整个 <code>raw_output_text</code> 末尾。parser 不会自动假定最后一个 item 已完成；是否 parse hit 仍取决于 item 边界和列表终止证据。</p>
+<p>例：</p>
+<pre><code class="language-text">&lt;think&gt;
+1. Chicago</code></pre>
+<p>这一项虽有换行边界，但之后没有 close、非空 trailing prose、序号破坏或重启，因此没有列表终止证据，结果是 no-hit。</p>
+<p><strong>本节结论：</strong> parser 只看模型的 reasoning 区域；gold 和模型族是必需的实验元数据。delimiter 规则影响绝对字符坐标，因此下游 activation site 必须使用 parser 返回的绝对 span，不能自己再切一次字符串。</p>
+<hr>
+<h2 id="2-gold-city-匹配与逻辑-item-边界">2. Gold city 匹配与逻辑 item 边界<a class="anchor" href="#2-gold-city-匹配与逻辑-item-边界" aria-label="本节链接">#</a></h2>
+<h3 id="r2-1-城市名整词-大小写不敏感匹配">R2.1 城市名整词、大小写不敏感匹配<a class="anchor" href="#r2-1-城市名整词-大小写不敏感匹配" aria-label="本节链接">#</a></h3>
+<p>城市名使用 <code>(?&lt;!\w)CITY(?!\w)</code> 式边界，大小写不敏感。</p>
+<ul>
+<li><code>chicago</code> 可以匹配 gold <code>Chicago</code>。</li>
+<li>gold <code>Rome</code> 不会匹配 <code>chromed</code> 中间的 <code>rome</code>。</li>
+<li>若 gold 同时可能出现长短重叠名，长名优先，避免把 <code>Mexico City</code> 截成较短城市名。</li>
+</ul>
+<h3 id="r2-2-显式列表按-不同-gold-city-计数">R2.2 显式列表按“不同 gold city”计数<a class="anchor" href="#r2-2-显式列表按-不同-gold-city-计数" aria-label="本节链接">#</a></h3>
+<p>在显式列表中，同一 item 内同一个 gold city 重复两次，matcher 会先去重，所以仍算“恰好一个不同的 gold city”。</p>
+<pre><code class="language-text">1. Chicago, yes Chicago
+2. Baku
+&lt;/think&gt;</code></pre>
+<p>实际结果：接受城市序列是 <code>Chicago, Baku</code>，不是 <code>Chicago, Chicago, Baku</code>。</p>
+<p>这与 fallback 不同：completion recap 和 audit fallback 保存每次城市 occurrence，所以 recap 中的 <code>Chicago, Chicago, Baku</code> 会保留重复。</p>
+<h3 id="r2-3-parser-不检查-score">R2.3 parser 不检查 score<a class="anchor" href="#r2-3-parser-不检查-score" aria-label="本节链接">#</a></h3>
+<p>当前 trace parser 只使用 gold city 集合，不比较 item 中出现的数字与 gold score。</p>
+<pre><code class="language-text">1. Chicago has score 999
+2. Baku has score -7
+&lt;/think&gt;</code></pre>
+<p>若 gold city 是 Chicago/Baku，这两个 item 都可被接受；错误 score 不会使 parse 失败。score 正确性属于数据/答案评估，不属于 trace 边界定位。</p>
+<h3 id="r2-4-非-gold-城市对-matcher-不可见">R2.4 非 gold 城市对 matcher 不可见<a class="anchor" href="#r2-4-非-gold-城市对-matcher-不可见" aria-label="本节链接">#</a></h3>
+<pre><code class="language-text">1. Chicago and London
+2. Baku
+&lt;/think&gt;</code></pre>
+<p>若 London 不在该样本 gold 集合中，第一行仍被视为只含一个 gold city <code>Chicago</code>，因此可以接受。这是 gold-assisted parser 的明确限制：<code>all_items_gold_city=True</code> 的含义是“每个接受项都有且只有一个注册 gold city”，不是通用 NER 意义上的“行内没有其他城市”。</p>
+<h3 id="r2-5-物理换行是-item-边界">R2.5 物理换行是 item 边界<a class="anchor" href="#r2-5-物理换行是-item-边界" aria-label="本节链接">#</a></h3>
+<pre><code class="language-text">1. Chicago
+2. Baku</code></pre>
+<p>两个 item 的 <code>item_boundary_kinds</code> 都是 <code>newline</code>；<code>item_end_char</code> 不含换行，而 <code>cut_char</code> 保留最后一个接受项的换行。</p>
+<h3 id="r2-6-句号也可切出同一物理行中的多个逻辑-item">R2.6 句号也可切出同一物理行中的多个逻辑 item<a class="anchor" href="#r2-6-句号也可切出同一物理行中的多个逻辑-item" aria-label="本节链接">#</a></h3>
+<p>只有当句号后是空白或文本结束，而且句号前已经是“受支持 marker + 恰好一个 gold city”，或句号后开始一个受支持 marker 时，才把它当逻辑边界。</p>
+<pre><code class="language-text">First, I found Chicago. Then:Baku. Finally I found Taipei.</code></pre>
+<p>实际切成 3 个 item，边界都是 <code>period</code>，marker 规范化为 <code>(1,2,3)</code>。</p>
+<h3 id="r2-7-marker-自身的句点不能被误切">R2.7 marker 自身的句点不能被误切<a class="anchor" href="#r2-7-marker-自身的句点不能被误切" aria-label="本节链接">#</a></h3>
+<pre><code class="language-text">1. Chicago
+First. Baku</code></pre>
+<p><code>1.</code> 和 <code>First.</code> 中的点是 marker 标点，不是句子边界。parser 会继续读 marker 后的城市内容；只有 item 末尾的句点或换行才是 item 边界。</p>
+<h3 id="r2-8-保守句末规则">R2.8 保守句末规则<a class="anchor" href="#r2-8-保守句末规则" aria-label="本节链接">#</a></h3>
+<p><code>.</code>、<code>!</code>、<code>?</code> 在 episode parser 中都能结束 sentence unit；第一次 trace parser 的行内 item 切分只使用句点 <code>.</code>。句点若紧接非空白字符，不切分。</p>
+<pre><code class="language-text">First: Chicago.Then: Baku.</code></pre>
+<p>第一个句点后直接是 <code>Then</code>，因此不是合法保守边界；不能按这个位置拆成两个 trace item。</p>
+<p><strong>本节结论：</strong> 显式 trace 的基本单位不是“物理行”，而是保留精确字符 offset 的逻辑 item。城市匹配是 oracle-assisted、只关心 city、不关心 score；这保证 cutoff 边界稳定，但不能把 parser 命中解释为语义内容全部正确。</p>
+<hr>
+<h2 id="3-显式-marker-parser-的全部规则">3. 显式 marker parser 的全部规则<a class="anchor" href="#3-显式-marker-parser-的全部规则" aria-label="本节链接">#</a></h2>
+<h3 id="r3-1-candidate-必须从合法起点开始">R3.1 candidate 必须从合法起点开始<a class="anchor" href="#r3-1-candidate-必须从合法起点开始" aria-label="本节链接">#</a></h3>
+<p>candidate 起始逻辑 item 必须同时满足：</p>
+<ol>
+<li>含受支持 marker；</li>
+<li>含恰好一个不同的 gold city；</li>
+<li>有 newline 或 period 边界；</li>
+<li>数字/序数 candidate 必须从 1/First 开始；bullet 可从任意受支持 bullet 开始。</li>
+</ol>
+<p>反例：</p>
+<pre><code class="language-text">2. Baku
+3. Taipei
+&lt;/think&gt;</code></pre>
+<p>不能启动 indexed candidate，因为没有 <code>1</code>。</p>
+<h3 id="r3-2-阿拉伯数字-marker">R3.2 阿拉伯数字 marker<a class="anchor" href="#r3-2-阿拉伯数字-marker" aria-label="本节链接">#</a></h3>
+<p>支持 <code>数字.</code> 和 <code>数字)</code>，marker 后空格可省略；序列必须从 1 开始严格递增。</p>
+<pre><code class="language-text">1.Chicago
+2)Baku
+3. Taipei
+&lt;/think&gt;</code></pre>
+<p>实际结果：<code>marker_kind=indexed</code>，<code>item_markers=(1,2,3)</code>，one-to-one。</p>
+<p>序列破坏会终止已有 candidate：</p>
+<pre><code class="language-text">1. Chicago
+3. Baku</code></pre>
+<p>实际结果：接受的 trace 只有 <code>Chicago</code>，<code>termination_kind=marker_sequence_break</code>，cut 在 <code>1. Chicago\n</code> 后。数字 candidate 没有“至少两项”的额外限制，因此强序列破坏可以终止单项 candidate。</p>
+<p>序号重新从 1 开始也终止已有 candidate：</p>
+<pre><code class="language-text">1. Chicago
+2. Baku
+1. Chicago</code></pre>
+<p>第一个 candidate 是 <code>Chicago,Baku</code>，<code>termination_kind=marker_restart</code>；第三行不包含在第一次 cutoff prefix 中。</p>
+<h3 id="r3-3-英文序数-marker">R3.3 英文序数 marker<a class="anchor" href="#r3-3-英文序数-marker" aria-label="本节链接">#</a></h3>
+<p>支持 <code>First</code> 到 <code>Twentieth</code>，也支持 <code>Firstly</code> 到 <code>Twentiethly</code>；大小写不敏感。允许单/双星号或反引号 Markdown 包裹，允许 <code>. ) : , -</code> 或空格分隔，marker 后空格可省略。</p>
+<pre><code class="language-text">**First:**Chicago
+`Second`)Baku
+Thirdly-Taipei
+&lt;/think&gt;</code></pre>
+<p>规范化 marker 为 <code>(1,2,3)</code>。</p>
+<p>英文序数也必须从 First 开始并严格递增。gold N&gt;1 时，孤立的一个 First 项即使遇到 close 也被拒绝：</p>
+<pre><code class="language-text">First: Chicago
+&lt;/think&gt;</code></pre>
+<p>实际结果：<code>detected=false</code>，拒绝原因是 ordinal sequence 至少需要 2 项。这项限制用于避免把普通 prose 中的 “First” 误当完整目标列表。若 gold N=1，则单项 First 可以接受。</p>
+<h3 id="r3-4-then-和-finally">R3.4 <code>Then</code> 和 <code>Finally</code><a class="anchor" href="#r3-4-then-和-finally" aria-label="本节链接">#</a></h3>
+<p>它们只能加入已经由 First 启动的 ordinal candidate，不能自己启动 candidate。</p>
+<ul>
+<li><code>Then</code> 固定规范化为 rank 2，所以只在当前 <code>expected=2</code> 时接受。</li>
+<li><code>Finally</code> 规范化为当前 expected rank，并设置 <code>finally_seen=True</code>。</li>
+<li><code>Finally</code> 本身就是终止证据；后续同 family marker 不再接入这个 candidate。</li>
+</ul>
+<pre><code class="language-text">First, I found Chicago. Then:Baku. Finally I found Taipei.</code></pre>
+<p>实际结果：markers 为 <code>(1,2,3)</code>，城市为 <code>Chicago,Baku,Taipei</code>。</p>
+<p>反例：</p>
+<pre><code class="language-text">Then: Chicago
+Finally: Baku
+&lt;/think&gt;</code></pre>
+<p>没有 First，不能建立 ordinal candidate。</p>
+<p>若正在扫描 indexed 或 bullet candidate，<code>Then: Baku</code> 不被当作 marker-family change，而只作为 bridge prose；transition 词的顺序意义只在 ordinal 上下文中生效。</p>
+<h3 id="r3-5-bullet-marker">R3.5 bullet marker<a class="anchor" href="#r3-5-bullet-marker" aria-label="本节链接">#</a></h3>
+<p>支持 <code>-</code>、单个 <code>*</code>、<code>•</code>，bullet 与正文之间空格可省略，同一个 candidate 内三种符号可以混用。</p>
+<pre><code class="language-text">-Chicago
+*Baku
+•Taipei
+&lt;/think&gt;</code></pre>
+<p>实际结果：<code>marker_kind=bullet</code>，表面 markers 保存为 <code>(&#x27;-&#x27;, &#x27;*&#x27;, &#x27;•&#x27;)</code>，one-to-one。</p>
+<p>以下不接受为 bullet：</p>
+<pre><code class="language-text">**Chicago**
+-&gt; Baku</code></pre>
+<p>双星号是 Markdown 强调；<code>-&gt;</code> 是推导箭头，均不是 bullet item。</p>
+<h3 id="r3-6-每个显式-item-必须恰好含一个不同的-gold-city">R3.6 每个显式 item 必须恰好含一个不同的 gold city<a class="anchor" href="#r3-6-每个显式-item-必须恰好含一个不同的-gold-city" aria-label="本节链接">#</a></h3>
+<p>合法：</p>
+<pre><code class="language-text">1. Chicago has score 72</code></pre>
+<p>非法：</p>
+<pre><code class="language-text">1. Chicago and Baku</code></pre>
+<p>后者同一 item 含两个不同 gold city，不能接受为一个计数项。</p>
+<p>若 expected marker 不含恰好一个 gold city：</p>
+<ul>
+<li>已接受至少 2 项，或 gold N=1：它可作为终止证据，<code>termination_kind=expected_marker_not_gold_city</code>；</li>
+<li>gold N&gt;1 且此前只有 1 项：整个 candidate 不成立。</li>
+</ul>
+<p>对照例子：</p>
+<pre><code class="language-text">1. Chicago
+2. London
+&lt;/think&gt;</code></pre>
+<p>若 London 非 gold，实际 no-hit。</p>
+<pre><code class="language-text">1. Chicago
+2. Baku
+3. London
+&lt;/think&gt;</code></pre>
+<p>实际接受 <code>Chicago,Baku</code>，第三行证明列表结束。</p>
+<h3 id="r3-7-bullet-的单项防误判规则">R3.7 bullet 的单项防误判规则<a class="anchor" href="#r3-7-bullet-的单项防误判规则" aria-label="本节链接">#</a></h3>
+<p>gold N&gt;1 时，一个 gold bullet 后紧接 non-gold bullet，不足以证明前者是目标城市列表：</p>
+<pre><code class="language-text">- Chicago
+- Total records: 1
+&lt;/think&gt;</code></pre>
+<p>结果 no-hit，拒绝原因 <code>single_city_item_before_non_gold_bullet</code>。</p>
+<p>有两个已接受 bullet 后，non-gold bullet 可以终止：</p>
+<pre><code class="language-text">- Chicago
+* Baku
+• Total records: 2</code></pre>
+<p>接受 <code>Chicago,Baku</code>，<code>termination_kind=next_non_gold_bullet</code>，cut 在 <code>* Baku\n</code> 后。</p>
+<h3 id="r3-8-bridge-line-可以跨段拼接">R3.8 bridge line 可以跨段拼接<a class="anchor" href="#r3-8-bridge-line-可以跨段拼接" aria-label="本节链接">#</a></h3>
+<p>空行、普通解释、小标题、以及不构成“同 family marker + 单一 gold city”的文本可出现在两个已接受 item 之间。</p>
+<pre><code class="language-text">1. Chicago
+
+Checking again.
+2. Baku
+3. Taipei
+&lt;/think&gt;</code></pre>
+<p>实际仍是一个 indexed candidate，<code>bridge_line_count=2</code>（空行和解释行各 1）。bridge 只连接前后合法 item，不会自己成为 item。</p>
+<h3 id="r3-9-marker-family-改变">R3.9 marker family 改变<a class="anchor" href="#r3-9-marker-family-改变" aria-label="本节链接">#</a></h3>
+<p>扫描中若遇到“另一种非 transition marker + gold city”，当前 candidate 立即终止：</p>
+<pre><code class="language-text">1. Chicago
+2. Baku
+- Taipei</code></pre>
+<p>indexed candidate 只接受前两项，<code>termination_kind=gold_city_marker_change</code>。后面的 bullet 不进入第一次 candidate。</p>
+<h3 id="r3-10-合法终止证据全集">R3.10 合法终止证据全集<a class="anchor" href="#r3-10-合法终止证据全集" aria-label="本节链接">#</a></h3>
+<p>显式 candidate 必须具有以下至少一种终止证据：</p>
+<div class="table-wrap"><table><thead><tr>
+<th><code>termination_kind</code></th>
+<th>规则</th>
+<th>具体例子中的终止行</th>
+</tr></thead><tbody>
+<tr>
+<td><code>thinking_close</code></td>
+<td>已有 item，reasoning 随后遇到官方 close</td>
+<td><code>2. Baku\n&lt;/think&gt;</code></td>
+</tr>
+<tr>
+<td><code>trailing_prose</code></td>
+<td>最后一项后直到 reasoning 末尾存在非空 prose</td>
+<td><code>Therefore the total is two.</code></td>
+</tr>
+<tr>
+<td><code>marker_restart</code></td>
+<td>同 family 序号重新从 1/First 开始</td>
+<td><code>1. Chicago</code> 出现在已有 1,2 后</td>
+</tr>
+<tr>
+<td><code>marker_sequence_break</code></td>
+<td>同 family 序号不等于 expected</td>
+<td>1 后直接出现 <code>3. Baku</code></td>
+</tr>
+<tr>
+<td><code>expected_marker_not_gold_city</code></td>
+<td>合法 expected marker 但不含恰好一个 gold city，且已有足够项</td>
+<td>1,2 后出现 <code>3. Total</code></td>
+</tr>
+<tr>
+<td><code>next_non_gold_bullet</code></td>
+<td>至少两个 bullet item 后出现 non-gold bullet</td>
+<td><code>- Total records: 2</code></td>
+</tr>
+<tr>
+<td><code>gold_city_marker_change</code></td>
+<td>另一个 marker family 开始含 gold city 的项</td>
+<td>数字列表后出现 <code>- Taipei</code></td>
+</tr>
+<tr>
+<td><code>final_transition</code></td>
+<td>已接受 <code>Finally</code>，即使无 close 也可终止</td>
+<td><code>Finally: Taipei.</code></td>
+</tr>
+</tbody></table></div>
+<p>用来证明终止的后续行不进入 cutoff prefix。例如：</p>
+<pre><code class="language-text">1. Chicago
+2. Baku
+Therefore there are two records.</code></pre>
+<p>cut 严格位于 <code>2. Baku\n</code> 后，不保留 <code>Therefore...</code>。</p>
+<p>只有末尾空白、没有 close 的情况不算 <code>trailing_prose</code>，所以不能单独证明列表完成。</p>
+<h3 id="r3-11-返回第一个可靠终止的显式-candidate">R3.11 返回第一个可靠终止的显式 candidate<a class="anchor" href="#r3-11-返回第一个可靠终止的显式-candidate" aria-label="本节链接">#</a></h3>
+<p>parser 从前到后扫描，一旦遇到第一个 <code>terminated=True</code> 的显式 candidate 就立即返回，不按 coverage 最大化挑选后面的列表。</p>
+<pre><code class="language-text">1. Chicago
+2. Baku
+Done with this list.
+1. Chicago
+2. Baku
+3. Taipei
+Done again.</code></pre>
+<p>实际返回第一段 <code>Chicago,Baku</code>；虽然第二段覆盖更多，也不会事后替换第一段。这正是“第一次 trace cutoff”的定义。</p>
+<h3 id="r3-12-parse-hit-不要求覆盖全部-gold-也允许跨-item-重复">R3.12 parse hit 不要求覆盖全部 gold，也允许跨 item 重复<a class="anchor" href="#r3-12-parse-hit-不要求覆盖全部-gold-也允许跨-item-重复" aria-label="本节链接">#</a></h3>
+<p>gold 为 <code>Chicago,Baku,Taipei</code> 时：</p>
+<pre><code class="language-text">1. Chicago
+2. Taipei
+&lt;/think&gt;</code></pre>
+<p>是 parse hit，类别 <code>partial_unique</code>。</p>
+<pre><code class="language-text">1. Chicago
+2. Chicago
+3. Baku
+&lt;/think&gt;</code></pre>
+<p>也是 parse hit，类别 <code>partial_with_duplicates</code>，<code>duplicate_gold_city_items=1</code>。</p>
+<p><strong>本节结论：</strong> 显式 parser 的核心不是“找全 gold”，而是“从一个可靠起点建立格式一致的 city-item 序列，并找到可信终止边界”。因此 partial 和 duplicate trace 都能命中；正确性必须看后续分类字段。</p>
+<hr>
+<h2 id="4-没有显式-marker-时的两个-fallback">4. 没有显式 marker 时的两个 fallback<a class="anchor" href="#4-没有显式-marker-时的两个-fallback" aria-label="本节链接">#</a></h2>
+<p>两个 fallback 只有在没有任何显式 candidate 成功终止时才运行；优先顺序是 completion recap，再是 V4.4 audit sentence chain。</p>
+<h3 id="r4-1-completion-recap-必须位于-reasoning-后段">R4.1 completion recap 必须位于 reasoning 后段<a class="anchor" href="#r4-1-completion-recap-必须位于-reasoning-后段" aria-label="本节链接">#</a></h3>
+<p>候选句的结束位置必须满足：</p>
+<pre><code class="language-text">sentence_end &gt;= 0.45 × reasoning_character_length</code></pre>
+<p>也就是句子至少结束在 reasoning 的最后 55% 内。长句可以从阈值前开始，只要结束位置跨入后段。</p>
+<p>例：前面有较长扫描过程，末尾出现：</p>
+<pre><code class="language-text">Let me count again. Chicago, Chicago, Baku.</code></pre>
+<p>后一句可成为 recap；城市序列原样保存为 <code>Chicago,Chicago,Baku</code>。</p>
+<h3 id="r4-2-recap-必须有窄集合-counting-cue-或下一句一致的-count-summary">R4.2 recap 必须有窄集合 counting cue，或下一句一致的 count summary<a class="anchor" href="#r4-2-recap-必须有窄集合-counting-cue-或下一句一致的-count-summary" aria-label="本节链接">#</a></h3>
+<p>cue 可在城市句自身，也可在紧邻前一句。支持的语义包括 <code>counting them again</code>、<code>let me count</code>、<code>recounting</code>、<code>tallying up</code>、<code>cities listed/found/identified/counted</code>、<code>in total</code>、<code>there are exactly N cities</code> 等。</p>
+<pre><code class="language-text">Let me count again. Chicago, Baku, Taipei.</code></pre>
+<p>合法：前一句提供 cue。</p>
+<p>城市句和前一句都无 cue 时，紧邻下一句可以闭合，但 summary 数必须等于该城市句实际 mention 数；数字或英文基数词 1–20 都可。</p>
+<pre><code class="language-text">Chicago, Baku, Taipei. That&#x27;s three cities.</code></pre>
+<p>合法。</p>
+<pre><code class="language-text">Chicago, Baku, Taipei. That&#x27;s two cities.</code></pre>
+<p>不合法，因为 summary 说 2，而实际列了 3 个 mention。</p>
+<h3 id="r4-3-recap-必须紧凑">R4.3 recap 必须紧凑<a class="anchor" href="#r4-3-recap-必须紧凑" aria-label="本节链接">#</a></h3>
+<p>从首个到末个 gold-city mention 的跨度不能超过：</p>
+<pre><code class="language-text">max(220, 55 × mention_count) characters</code></pre>
+<p>这防止把散布在整段扫描 prose 中的城市误拼成 recap。</p>
+<pre><code class="language-text">I saw Chicago and later checked Baku.</code></pre>
+<p>即使紧凑，只要没有 counting cue，也仍是 no-hit。</p>
+<p>当前 recap cue 的词表是封闭的，完整分组如下：</p>
+<ol>
+<li><code>counting [them] [again]</code>；</li>
+<li><code>let me</code>、<code>let&#x27;s</code>、<code>I&#x27;ll</code>、<code>we&#x27;ll</code> + <code>count/recount [them] [again]</code>；</li>
+<li><code>tally/tallying [up]</code>，以及 <code>recount/recounting/recounted</code>；</li>
+<li><code>cities/entries/records/instances/mentions</code> + <code>listed/found/identified/counted/are</code>；</li>
+<li>上述名词 + <code>mentioned/seen are/were</code>；</li>
+<li>上述名词 + <code>I/we found/identified/counted/listed [are]</code>；</li>
+<li><code>found/identified/listed the following/these</code>；</li>
+<li><code>all [the] cities/entries/records/instances/mentions</code> 或 <code>the ... listed</code>；</li>
+<li><code>in total</code>、<code>total of</code>；</li>
+<li>可选 <code>there are/were exactly</code> + 数字或 one–ten + 可选 <code>explicit</code>、可选 <code>city-score audit</code> + 上述名词；</li>
+<li><code>only/single [city-score audit] record is</code>。</li>
+</ol>
+<p>不在这些组里的近义表达不会仅凭语义相似自动命中。例如 <code>I reviewed Chicago and Baku</code> 不在 cue 集合中。</p>
+<h3 id="r4-4-单城市-recap-的额外限制">R4.4 单城市 recap 的额外限制<a class="anchor" href="#r4-4-单城市-recap-的额外限制" aria-label="本节链接">#</a></h3>
+<p>通常 recap 至少需要两个 gold-city mention。只有 gold N=1，并且同一句明确含 <code>one</code>、<code>1</code>、<code>only</code> 或 <code>single</code>，单城市 recap 才接受。</p>
+<pre><code class="language-text">The only city-score audit record is Zagreb&#x27;s 64.</code></pre>
+<p>当 gold 只有 Zagreb 时可接受；同一句若没有 one/only/single 信号则拒绝。</p>
+<h3 id="r4-5-recap-不要求完整覆盖-保留重复">R4.5 recap 不要求完整覆盖，保留重复<a class="anchor" href="#r4-5-recap-不要求完整覆盖-保留重复" aria-label="本节链接">#</a></h3>
+<pre><code class="language-text">Counting them again: Chicago, Chicago, Baku.</code></pre>
+<p>gold 为 Chicago/Baku/Taipei 时，仍是 parse hit；分类为 <code>partial_with_duplicates</code>。fallback 给这些 occurrence 合成 <code>item_markers=(1,2,3)</code>，但这些是顺序代理，不是真实 index token。</p>
+<h3 id="r4-6-recap-cutoff-边界">R4.6 recap cutoff 边界<a class="anchor" href="#r4-6-recap-cutoff-边界" aria-label="本节链接">#</a></h3>
+<p><code>cut_char</code> 放在 recap 句的终止标点之后；每个城市 mention 的精确 span 分别保存。若下一句只是 count summary，它用于证明 recap，却不进入保留 prefix。</p>
+<pre><code class="language-text">Chicago, Baku, Taipei. That&#x27;s three cities.</code></pre>
+<p>cut 在 <code>Taipei.</code> 后，不保留 <code>That&#x27;s three cities.</code>。</p>
+<h3 id="r4-7-v4-4-audit-sentence-chain-的严格模板">R4.7 V4.4 audit sentence chain 的严格模板<a class="anchor" href="#r4-7-v4-4-audit-sentence-chain-的严格模板" aria-label="本节链接">#</a></h3>
+<p>若 recap 也没有命中，parser 查找 reasoning 中所有严格匹配下式的句子：</p>
+<pre><code class="language-text">In the 2024 city score audit, &lt;GOLD_CITY&gt; received a score of &lt;INTEGER&gt;.</code></pre>
+<p>城市和整数可以被单/双星号或反引号包裹。</p>
+<pre><code class="language-text">In the 2024 city score audit, **Chicago** received a score of **72**.
+In the 2024 city score audit, `Baku` received a score of `98`.</code></pre>
+<p>合法，保存城市序列 <code>Chicago,Baku</code>。</p>
+<h3 id="r4-8-audit-fallback-只验证模板与-gold-city-不验证-score">R4.8 audit fallback 只验证模板与 gold city，不验证 score<a class="anchor" href="#r4-8-audit-fallback-只验证模板与-gold-city-不验证-score" aria-label="本节链接">#</a></h3>
+<pre><code class="language-text">In the 2024 city score audit, Chicago received a score of 999.</code></pre>
+<p>只要 Chicago 是 gold city，仍匹配；999 不需要等于 gold score 72。</p>
+<p>普通 prose 不匹配：</p>
+<pre><code class="language-text">I found Chicago with score 72.</code></pre>
+<p>因为缺少完整固定模板。</p>
+<h3 id="r4-9-audit-chain-使用所有匹配-occurrence">R4.9 audit chain 使用所有匹配 occurrence<a class="anchor" href="#r4-9-audit-chain-使用所有匹配-occurrence" aria-label="本节链接">#</a></h3>
+<p>所有模板 match 按文本顺序组成一个隐式序列；可遗漏、可重复，cut 在最后一个匹配句的句点之后。它没有真实 index token，后续 geometry 中的 marker site 只能解释为模板前缀/隐式顺序代理，不能与数字标号混称。</p>
+<p><strong>本节结论：</strong> fallback 是为了覆盖 Qwen 常见的无显式 marker 计数，但仍保持高精度。它们不是任意城市 NER：recap 需要后段、计数 cue 和紧凑性；audit 需要精确 V4.4 模板。</p>
+<hr>
+<h2 id="5-trace-分类-no-hit-诊断-坐标与-v">5. Trace 分类、no-hit 诊断、坐标与 <code>-v</code><a class="anchor" href="#5-trace-分类-no-hit-诊断-坐标与-v" aria-label="本节链接">#</a></h2>
+<p>设接受城市序列为 <code>O</code>，gold 城市序列为 <code>G</code>；比较时大小写不敏感。</p>
+<h3 id="r5-1-one-to-one">R5.1 <code>one_to_one</code><a class="anchor" href="#r5-1-one-to-one" aria-label="本节链接">#</a></h3>
+<p>形式化条件：</p>
+<pre><code class="language-text">len(O) = len(G)  且  Counter(O) = Counter(G)</code></pre>
+<p>即每个 gold city 恰好一次，无遗漏、无重复。顺序不作为正确性的必要条件。</p>
+<ul>
+<li><code>forward</code>：<code>O == G</code>。例：gold <code>Chicago,Baku,Taipei</code>，trace 同序。</li>
+<li><code>reverse</code>：<code>O == reversed(G)</code>。例：<code>Taipei,Baku,Chicago</code>。</li>
+<li><code>other_permutation</code>：其余排列。例：<code>Baku,Chicago,Taipei</code>。</li>
+</ul>
+<p>三者都属于 <code>trace_one_to_one=true</code>。</p>
+<h3 id="r5-2-full-coverage-with-duplicates">R5.2 <code>full_coverage_with_duplicates</code><a class="anchor" href="#r5-2-full-coverage-with-duplicates" aria-label="本节链接">#</a></h3>
+<p>每个 gold city 至少出现一次，但 trace 中存在重复。</p>
+<pre><code class="language-text">Chicago, Baku, Taipei, Baku</code></pre>
+<p>coverage 完整，Baku 重复一次。</p>
+<h3 id="r5-3-partial-unique">R5.3 <code>partial_unique</code><a class="anchor" href="#r5-3-partial-unique" aria-label="本节链接">#</a></h3>
+<p>至少遗漏一个 gold city，接受项没有重复。</p>
+<pre><code class="language-text">Chicago, Taipei</code></pre>
+<p>gold 为 Chicago/Baku/Taipei 时遗漏 Baku。</p>
+<h3 id="r5-4-partial-with-duplicates">R5.4 <code>partial_with_duplicates</code><a class="anchor" href="#r5-4-partial-with-duplicates" aria-label="本节链接">#</a></h3>
+<p>既遗漏 gold city，又有重复。</p>
+<pre><code class="language-text">Chicago, Chicago, Baku</code></pre>
+<p>遗漏 Taipei，Chicago 重复。</p>
+<h3 id="r5-5-no-parser-hit">R5.5 <code>no_parser_hit</code><a class="anchor" href="#r5-5-no-parser-hit" aria-label="本节链接">#</a></h3>
+<p>没有任何候选同时满足受支持格式与可靠终止边界。no-hit 仍会返回“最佳失败 candidate”的诊断字段；最佳值按以下字典序选择：</p>
+<ol>
+<li><code>coverage_count</code> 最大；</li>
+<li>再取 <code>item_count</code> 最大；</li>
+<li>再取出现更早者。</li>
+</ol>
+<p>例：前面失败候选覆盖 Chicago，后面失败候选覆盖 Chicago/Baku，则 no-hit 记录后者的 marker 与 coverage，但 <code>detected</code> 仍为 false、<code>cut_char</code> 仍为 null。诊断字段不能当作 parse hit 使用。</p>
+<h3 id="r5-6-matched-gold-cities-去重-item-gold-cities-不去重">R5.6 <code>matched_gold_cities</code> 去重，<code>item_gold_cities</code> 不去重<a class="anchor" href="#r5-6-matched-gold-cities-去重-item-gold-cities-不去重" aria-label="本节链接">#</a></h3>
+<pre><code class="language-text">1. Chicago
+2. Chicago
+3. Baku</code></pre>
+<ul>
+<li><code>item_gold_cities = (Chicago, Chicago, Baku)</code>；</li>
+<li><code>matched_gold_cities = (Chicago, Baku)</code>；</li>
+<li><code>coverage_count = 2</code>；</li>
+<li><code>duplicate_gold_city_items = 1</code>。</li>
+</ul>
+<h3 id="r5-7-字符坐标语义">R5.7 字符坐标语义<a class="anchor" href="#r5-7-字符坐标语义" aria-label="本节链接">#</a></h3>
+<ul>
+<li><code>reasoning_start_char/end_char</code>：reasoning 在完整 raw output 中的绝对范围；</li>
+<li><code>list_start_char</code>：candidate 第一项起点；</li>
+<li><code>item_start_chars</code>：每个逻辑 item 的绝对起点；</li>
+<li><code>item_end_chars</code>：每项正文终点，不含换行/句号边界；</li>
+<li><code>item_boundary_kinds</code>：<code>newline</code>、<code>period</code>、<code>recap_period</code> 或 <code>audit_sentence_period</code>；</li>
+<li><code>cut_char</code>：最后一项结束边界之后的绝对字符位置。</li>
+</ul>
+<p>例如：</p>
+<pre><code class="language-text">&lt;think&gt;
+1. Chicago
+2. Baku
+Therefore...</code></pre>
+<p><code>cut_char</code> 指向 <code>2. Baku\n</code> 后；因此 <code>raw_text[:cut_char]</code> 保留该换行，但不含 <code>Therefore...</code>。</p>
+<h3 id="r5-8-cut-char-不等于-total-count-commit">R5.8 <code>cut_char</code> 不等于 total-count commit<a class="anchor" href="#r5-8-cut-char-不等于-total-count-commit" aria-label="本节链接">#</a></h3>
+<p>若模型写：</p>
+<pre><code class="language-text">3. Taipei
+Count: 3</code></pre>
+<p>第一次 trace parser 的 cut 在 <code>3. Taipei</code> item 边界后，通常不保留 <code>Count: 3</code>。所以“城市已经写完”不自动等于“模型已经在后续 marker/summary 中提交 total count”。这是解释 cutoff 行为与 activation 不一致时必须保留的限制。</p>
+<h3 id="r5-9-v-汇报规则">R5.9 <code>-v</code> 汇报规则<a class="anchor" href="#r5-9-v-汇报规则" aria-label="本节链接">#</a></h3>
+<p><code>-v</code> 不是逐行 debug。全部 JSONL parse 完成后才输出/保存：</p>
+<ul>
+<li>总行数、parser hit 数与比例；</li>
+<li>one-to-one 数与全体比例；</li>
+<li>coverage complete 数与全体比例；</li>
+<li><code>trace_category</code>、<code>marker_kind</code>、<code>termination_kind</code>、<code>trace_order_class</code>、gold N 分类；</li>
+<li>model × trace category 交叉分类。</li>
+</ul>
+<p>例：两条输入中一条 one-to-one、一条 no-hit，则 <code>parser_hit_rate=1/2</code>、<code>trace_one_to_one_rate_all=1/2</code>。这里分母是全部输入，不是仅 hit 子集。</p>
+<p>独立 parser 的 <code>-v</code> 不计算最终答案准确率，因为它没有把 answer evaluation 当作 trace 分类的一部分；需要下游显式 join <code>evaluation.exact_count</code>。</p>
+<p><strong>本节结论：</strong> trace 分类是对已接受城市序列的 multiset 审计。<code>item_*</code> 保存逐次访问，<code>matched_*</code> 保存 distinct coverage；二者不可互换。字符坐标描述文本边界，不直接声明内部计数状态已经完成。</p>
+<hr>
+<h2 id="6-从-parse-hit-到-cutoff-的下游规则">6. 从 parse hit 到 cutoff 的下游规则<a class="anchor" href="#6-从-parse-hit-到-cutoff-的下游规则" aria-label="本节链接">#</a></h2>
+<h3 id="r6-1-哪些-trace-类别可以尝试-cutoff">R6.1 哪些 trace 类别可以尝试 cutoff<a class="anchor" href="#r6-1-哪些-trace-类别可以尝试-cutoff" aria-label="本节链接">#</a></h3>
+<p>当前行为实验允许所有 parse hit 进入 cutoff 尝试：one-to-one、full coverage with duplicates、partial unique、partial with duplicates 都可以。trace 类别只用于分层分析，不是 intervention eligibility gate。</p>
+<h3 id="r6-2-字符-prefix-必须精确-round-trip">R6.2 字符 prefix 必须精确 round-trip<a class="anchor" href="#r6-2-字符-prefix-必须精确-round-trip" aria-label="本节链接">#</a></h3>
+<p>目标 prefix 是：</p>
+<pre><code class="language-text">raw_text[:cut_char]</code></pre>
+<p>tokenizer 重新编码后再解码必须逐字符等于该 prefix；否则 <code>text_prefix_did_not_round_trip</code>，不执行干预。</p>
+<h3 id="r6-3-token-边界跨界时只重-tokenize-后缀">R6.3 token 边界跨界时只重 tokenize 后缀<a class="anchor" href="#r6-3-token-边界跨界时只重-tokenize-后缀" aria-label="本节链接">#</a></h3>
+<p>若 newline cut 落在一个编码了双换行的 token 内，不能用原始 token ID 的简单前缀表达。当前规则允许从第一个不同 token 开始重 tokenize，但：</p>
+<ol>
+<li>更早的 baseline token prefix 必须完全相同；</li>
+<li>新 token 序列解码必须精确等于字符 prefix；</li>
+<li>这不是“取最近 token”的近似。</li>
+</ol>
+<p>结果记录 <code>literal_baseline_token_prefix</code> 或 <code>text_exact_boundary_retokenization</code>。</p>
+<h3 id="r6-4-闭合-thinking-并续写">R6.4 闭合 thinking 并续写<a class="anchor" href="#r6-4-闭合-thinking-并续写" aria-label="本节链接">#</a></h3>
+<p>精确 prefix 后追加模型官方 close delimiter，再沿用注册的 seed、temperature、top-p、top-k 继续生成；保留 prefix、close 与 continuation 总长度不能超过原 4096-token 输出预算。</p>
+<p>例：Qwen 使用 <code>&lt;/think&gt;</code>；Gemma 使用 <code>&lt;channel|&gt;</code>。</p>
+<h3 id="r6-5-all-sample-policy-回退">R6.5 all-sample policy 回退<a class="anchor" href="#r6-5-all-sample-policy-回退" aria-label="本节链接">#</a></h3>
+<p>没有 parse hit、token 对齐失败、无剩余预算或生成失败时，policy 输出回退到原始 baseline。于是：</p>
+<pre><code class="language-text">policy accuracy = 所有样本按“成功 cutoff 用 cutoff，否则用 baseline”后的准确率</code></pre>
+<p>它不同于 <code>completed-only cutoff accuracy</code>，后者的分母只包含实际完成 cutoff 的样本。</p>
+<p><strong>本节结论：</strong> parser 只给候选字符边界；真正完成 cutoff 还需通过严格 token 对齐和生成流程。parser hit rate、completed rate、completed-only accuracy 和 policy accuracy 是四个不同指标。</p>
+<hr>
+<h2 id="7-多轮重数-e1-e2-e3-episode-parser-的全部规则">7. 多轮重数 E1/E2/E3 episode parser 的全部规则<a class="anchor" href="#7-多轮重数-e1-e2-e3-episode-parser-的全部规则" aria-label="本节链接">#</a></h2>
+<p>这一 parser 位于当前 exact-K/episode clarity 分析代码中，目标是识别“完成的运行计数轨迹”，不是替代第一个 trace parser。</p>
+<h3 id="r7-1-sentence-unit-切分">R7.1 sentence unit 切分<a class="anchor" href="#r7-1-sentence-unit-切分" aria-label="本节链接">#</a></h3>
+<p>reasoning 先按物理换行切分，再在 <code>. ! ?</code> 处分 sentence unit；标点后必须是空白或文本末尾，紧随的引号、右括号、Markdown 结束符会一起包含在 unit 末尾。</p>
+<pre><code class="language-text">Chicago is relevant. First.</code></pre>
+<p>会形成城市 unit <code>Chicago is relevant.</code> 和 rank-only unit <code>First.</code>。</p>
+<h3 id="r7-2-rank-证据-行首数字">R7.2 rank 证据：行首数字<a class="anchor" href="#r7-2-rank-证据-行首数字" aria-label="本节链接">#</a></h3>
+<p>支持 1–2 位数字，后接 <code>.</code> 或 <code>)</code>，位于 unit 开头，可有有限的 Markdown/引用前缀。</p>
+<pre><code class="language-text">1. Chicago</code></pre>
+<p>由于句点也会切 unit，实际常形成 rank-only <code>1.</code> 与 city unit <code>Chicago</code>，随后通过邻接规则关联，<code>evidence_kind=rank_before_city</code>。</p>
+<h3 id="r7-3-rank-证据-行首英文序数">R7.3 rank 证据：行首英文序数<a class="anchor" href="#r7-3-rank-证据-行首英文序数" aria-label="本节链接">#</a></h3>
+<p>episode parser 支持 First–Twentieth，但不使用 <code>Firstly</code> 等 <code>-ly</code> 形式。</p>
+<pre><code class="language-text">Third: Taipei</code></pre>
+<p>得到 rank 3、<code>evidence_kind=ordinal_prefix</code>。</p>
+<h3 id="r7-4-rank-证据-labeled-numeric-rank">R7.4 rank 证据：labeled numeric rank<a class="anchor" href="#r7-4-rank-证据-labeled-numeric-rank" aria-label="本节链接">#</a></h3>
+<p>支持关键词 <code>count</code>、<code>record</code>、<code>entry</code>、<code>excerpt</code>、<code>instance</code>、<code>item</code>、<code>found</code>，后接可选 <code>number/no.</code>、分隔符及 1–2 位数字。</p>
+<pre><code class="language-text">Chicago was found count=1.
+Baku was found item #2.</code></pre>
+<p>分别得到 rank 1、2，<code>evidence_kind=labeled_rank</code>。</p>
+<h3 id="r7-5-rank-证据-trailing-ordinal">R7.5 rank 证据：trailing ordinal<a class="anchor" href="#r7-5-rank-证据-trailing-ordinal" aria-label="本节链接">#</a></h3>
+<p>支持如下语义尾标：</p>
+<pre><code class="language-text">Chicago ..., that is first.
+Baku ..., that&#x27;s the second record.
+Taipei ..., this is the third city.</code></pre>
+<p>分别得到 rank 1、2、3，<code>evidence_kind=trailing_ordinal</code>。</p>
+<p>特别注意：</p>
+<pre><code class="language-text">Beijing ..., that is one.</code></pre>
+<p>不匹配 trailing ordinal，因为 <code>one</code> 不是 <code>first</code>。只有精确的：</p>
+<pre><code class="language-text">Beijing ..., that is one record.</code></pre>
+<p>才由专门的 cardinal-one 规则得到 rank 1，<code>evidence_kind=cardinal_one</code>。</p>
+<h3 id="r7-6-城市与-rank-可在同一-unit-也可在相邻-rank-only-unit">R7.6 城市与 rank 可在同一 unit，也可在相邻 rank-only unit<a class="anchor" href="#r7-6-城市与-rank-可在同一-unit-也可在相邻-rank-only-unit" aria-label="本节链接">#</a></h3>
+<p>同一 unit 例子：</p>
+<pre><code class="language-text">Chicago is relevant, that is first.</code></pre>
+<p>得到 <code>(city=Chicago, rank=1, trailing_ordinal)</code>。</p>
+<p>rank 在城市后：</p>
+<pre><code class="language-text">Chicago is relevant. First.</code></pre>
+<p>只要相邻 gap ≤100 字符、rank unit 不含 gold city且只有一个 rank，得到 <code>rank_after_city</code>。</p>
+<p>rank 在城市前：</p>
+<pre><code class="language-text">1. Chicago</code></pre>
+<p>得到 <code>rank_before_city</code>。</p>
+<p>若前后两侧都存在合格 rank-only unit，选择字符 gap 更小者。</p>
+<h3 id="r7-7-单个-event-的唯一性条件">R7.7 单个 event 的唯一性条件<a class="anchor" href="#r7-7-单个-event-的唯一性条件" aria-label="本节链接">#</a></h3>
+<p>城市 unit 必须恰好有一个 gold-city occurrence；不是“一个不同城市”。因此：</p>
+<pre><code class="language-text">Chicago, yes Chicago, count=1.</code></pre>
+<p>含两个 occurrence，会被 episode parser 拒绝为直接 event；这与第一次 trace parser 的显式 item 去重规则不同。</p>
+<p>rank 方面，同一 unit 的等价重复信号会按 rank 去重：</p>
+<pre><code class="language-text">1. Chicago, count=1.</code></pre>
+<p>两个证据都指向 rank 1，最终只保留一个 event。这个具体写法会先在 <code>1.</code> 后切 sentence unit，城市 unit 内的直接证据是 <code>count=1</code>，所以核验结果为 <code>labeled_rank: count=1</code>。若改成不触发句点切分的：</p>
+<pre><code class="language-text">1) Chicago, count=1.</code></pre>
+<p>则 prefix 与 labeled evidence 位于同一 unit；二者 rank 相同而被去重，按检测顺序保留 <code>indexed_prefix</code>。因此“等价证据合并”是稳定规则，最终保存哪个 <code>evidence_kind</code> 还取决于 unit 切分与证据检测顺序。</p>
+<p>冲突 rank 会拒绝整个 unit：</p>
+<pre><code class="language-text">1. Chicago, count=2.</code></pre>
+<p>同时出现 rank 1 和 2，因而没有 event。可执行核验中，这会导致整段不能建立从 1 开始的完成 sequence。</p>
+<h3 id="r7-8-event-rank-范围">R7.8 event rank 范围<a class="anchor" href="#r7-8-event-rank-范围" aria-label="本节链接">#</a></h3>
+<p>只接受 1–20。0、21 或更大的 rank 不成为 <code>RunningCountEvent</code>。这解释了 episode parser 的理论上限为何可能高于数据 v4.4 的 gold N≤10：parser 的防御性语法上限是 20，但正式 v4.4 gold count 仍最多 10；二者不是数据设置变化。</p>
+<h3 id="r7-9-event-的四个关键位置">R7.9 event 的四个关键位置<a class="anchor" href="#r7-9-event-的四个关键位置" aria-label="本节链接">#</a></h3>
+<p>每个 event 保存：</p>
+<ul>
+<li><code>city_end_char</code>：城市名最后一个字符之后；</li>
+<li><code>city_unit_end_char</code>：包含城市的 sentence unit 末尾；</li>
+<li><code>rank_evidence_end_char</code>：rank 文本及相邻终止标点之后；</li>
+<li><code>semantic_end_char = max(city_unit_end_char, rank_evidence_end_char)</code>。</li>
+</ul>
+<p>例如：</p>
+<pre><code class="language-text">Chicago is relevant, that is first.</code></pre>
+<p><code>city_end</code> 在 <code>Chicago</code> 后，<code>rank_evidence_end</code> 在 <code>first.</code> 后，<code>semantic_end</code> 在整个句子末尾。</p>
+<pre><code class="language-text">Chicago is relevant. First.</code></pre>
+<p><code>city_end</code> 在 Chicago 后，<code>city_unit_end</code> 在第一个句点后，<code>rank_evidence_end/semantic_end</code> 在 <code>First.</code> 后。因此 cutoff/activation 若声称“这次 item 的 rank 已知”，应使用 <code>semantic_end</code>，不能只用 city end。</p>
+<h3 id="r7-10-sequence-必须从-rank-1-开始">R7.10 sequence 必须从 rank 1 开始<a class="anchor" href="#r7-10-sequence-必须从-rank-1-开始" aria-label="本节链接">#</a></h3>
+<p>events 按 semantic/trace end 排序。只有 rank 1 能启动 sequence；之后只接受严格 <code>+1</code>。</p>
+<pre><code class="language-text">2. Baku
+3. Taipei</code></pre>
+<p>不会建立 sequence。</p>
+<pre><code class="language-text">1. Chicago
+3. Taipei
+2. Baku
+3. Taipei</code></pre>
+<p>rank 3 在 expected=2 时被忽略，但不会破坏当前 sequence；随后 rank 2、3 仍可接入。这是“跳号 event 被忽略直到合法延续或 rank-1 重启”，不是第一次 trace parser 的“跳号立即终止”。</p>
+<h3 id="r7-11-相同-rank-相同-city-的重复-event-会替换前者">R7.11 相同 rank + 相同 city 的重复 event 会替换前者<a class="anchor" href="#r7-11-相同-rank-相同-city-的重复-event-会替换前者" aria-label="本节链接">#</a></h3>
+<p>若当前末项和新 event 的 rank、city 都相同，保留后出现的 event，通常代表更显式的 <code>Count=k</code> commit。</p>
+<pre><code class="language-text">Chicago ... that is first. Chicago ... count=1.</code></pre>
+<p>若两者被识别为连续同 rank/city event，sequence 中只保留后者的位置。</p>
+<p>相同 rank 但不同 city 会被当作新的 rank-1 restart（仅 rank=1 时）或被忽略（rank&gt;1），不会按“重复等价证据”合并。</p>
+<h3 id="r7-12-rank-1-重启开启新-raw-sequence">R7.12 rank 1 重启开启新 raw sequence<a class="anchor" href="#r7-12-rank-1-重启开启新-raw-sequence" aria-label="本节链接">#</a></h3>
+<p>当前 sequence 已存在时，新的 rank 1 会保存旧 sequence，并启动新 sequence。</p>
+<pre><code class="language-text">1. Chicago
+2. Baku
+3. Taipei
+Wait, count again.
+1. Chicago
+2. Baku
+3. Taipei</code></pre>
+<p>产生两条 raw sequence；若两条都通过完成条件，则是 E1、E2，<code>structural_recount=true</code>。</p>
+<h3 id="r7-13-完成条件一-terminal-rank-到达-gold-n">R7.13 完成条件一：terminal rank 到达 gold N<a class="anchor" href="#r7-13-完成条件一-terminal-rank-到达-gold-n" aria-label="本节链接">#</a></h3>
+<p>若 sequence 末 rank 等于 gold city 数 N，并且长度至少为 <code>1</code>（N=1）或 <code>2</code>（N&gt;1），则完成。</p>
+<ul>
+<li>后面没有下一条 sequence：<code>completion_kind=reached_gold_count</code>；</li>
+<li>后面还有 rank-1 restart：<code>rank_restart_reached_gold</code>。</li>
+</ul>
+<pre><code class="language-text">1. Chicago
+2. Baku
+3. Taipei
+&lt;/think&gt;</code></pre>
+<p>gold N=3 时是 <code>reached_gold_count</code>。</p>
+<p>注意：完成只看 terminal rank，不要求城市 multiset one-to-one。<code>1.Chicago / 2.Chicago / 3.Baku</code> 也可能成为完成 episode，但分类会是非 one-to-one。</p>
+<h3 id="r7-14-完成条件二-matching-closure-summary">R7.14 完成条件二：matching closure summary<a class="anchor" href="#r7-14-完成条件二-matching-closure-summary" aria-label="本节链接">#</a></h3>
+<p>若 terminal rank 没到 gold N，但从最后城市 unit 结束到下一次 restart/ reasoning 末尾之间的 summary 写出的 count 与 terminal rank 一致，则完成。</p>
+<p>支持的结构包括：</p>
+<ul>
+<li><code>final count/tally ... N</code>；</li>
+<li><code>total</code>、<code>total count</code>、<code>total of ... N</code>；</li>
+<li><code>that&#x27;s/that is ... N</code>；</li>
+<li><code>there are/were N</code>；</li>
+<li><code>I found/identified/counted/listed N</code>；</li>
+<li><code>N entries/records/instances/cities</code>。</li>
+</ul>
+<p>数字与英文 one–twenty 均可。</p>
+<pre><code class="language-text">1. Chicago
+2. Baku
+That is a total of 2.</code></pre>
+<p>gold N=3 时仍注册一个 <code>closure_summary</code> episode，terminal running index 为 2，trace 为 partial。</p>
+<p>若后面还有 restart，则 kind 为 <code>rank_restart_with_matching_summary</code>。</p>
+<h3 id="r7-15-完成条件三-最后-raw-sequence-与最终-total-一致">R7.15 完成条件三：最后 raw sequence 与最终 <code>Total:</code> 一致<a class="anchor" href="#r7-15-完成条件三-最后-raw-sequence-与最终-total-一致" aria-label="本节链接">#</a></h3>
+<p>仅对最后一条 raw sequence：若 raw output 中最后一个 <code>Total: d</code> 的 1–2 位非负整数等于 terminal rank，也可注册 <code>final_answer_agrees</code>。</p>
+<pre><code class="language-text">&lt;think&gt;
+1. Chicago
+2. Baku
+I will stop.
+&lt;/think&gt;
+Total: 2</code></pre>
+<p>gold N=3 时，若没有 matching closure，这条最后 sequence 仍可因 final answer agrees 完成。</p>
+<p>这里的 <code>_FINAL_TOTAL_RE</code> 只是 episode completion 证据，语法比正式最终答案 evaluator 更窄：只接受 1–2 位非负整数。不要把它当作最终准确率 parser。</p>
+<h3 id="r7-16-minimum-length">R7.16 minimum length<a class="anchor" href="#r7-16-minimum-length" aria-label="本节链接">#</a></h3>
+<p>gold N&gt;1 时，任何默认完成路径都要求 sequence 至少 2 个 event；gold N=1 时只需 1 个。</p>
+<pre><code class="language-text">1. Chicago
+Total: 1</code></pre>
+<p>gold N=3 时单项不因 final answer agrees 注册；它计入 <code>incomplete_sequences</code>。</p>
+<h3 id="r7-17-incomplete-sequence-与-episode-编号">R7.17 incomplete sequence 与 episode 编号<a class="anchor" href="#r7-17-incomplete-sequence-与-episode-编号" aria-label="本节链接">#</a></h3>
+<p>不满足任一完成条件的 raw sequence 不进入 <code>episodes</code>，只使 <code>incomplete_sequences += 1</code>。E1/E2/E3 是“完成 episode 的顺序编号”，不是所有 raw sequence 的编号。</p>
+<p>因此一条开头 incomplete sequence 被丢弃后，下一条完成 sequence 会被命名为 E1。这正是后来 restart-only 对照要审计的选择偏差。</p>
+<h3 id="r7-18-recount-reflection-cue-只做诊断-不决定结构">R7.18 recount/reflection cue 只做诊断，不决定结构<a class="anchor" href="#r7-18-recount-reflection-cue-只做诊断-不决定结构" aria-label="本节链接">#</a></h3>
+<p><code>strong_recount_cue</code> 检查诸如 <code>count again</code>、<code>recount</code>、<code>start over</code>、<code>count from the beginning</code>、<code>one more time</code>、<code>second pass</code>。</p>
+<p><code>reflection_cue</code> 检查 <code>wait</code>、<code>actually</code>、<code>double-check</code>、<code>verify again</code>、<code>make sure</code>、<code>did I miss</code> 等。</p>
+<p>完整 strong recount 形式为：<code>recount/count/list [them] again</code>、<code>start/starting [the count] over</code>、<code>count/counting from [the] start/beginning</code>、<code>one more count/time</code>、<code>second count/pass</code>。完整 reflection 形式为：<code>wait</code>、<code>actually</code>、<code>double-check</code>/<code>double check</code>、<code>check again</code>、<code>verify again</code>、<code>make sure</code>、<code>might have missed</code>、<code>did I miss</code>。</p>
+<pre><code class="language-text">Wait, let me count again.</code></pre>
+<p>会同时设置 strong recount 与 reflection，但只有实际检测到至少两个完成 episode 时，<code>structural_recount</code> 才为 true。反过来，即使没有这些文字 cue，只要出现两条完成的 rank-1 sequence，仍是 structural recount。</p>
+<h3 id="r7-19-episode-内-trace-分类">R7.19 episode 内 trace 分类<a class="anchor" href="#r7-19-episode-内-trace-分类" aria-label="本节链接">#</a></h3>
+<p>与第一次 trace parser相同，episode 的城市序列按 one-to-one、forward/reverse/other permutation、coverage 和 duplicate 分类；这些不是 episode completion gate。</p>
+<p>例：gold <code>Chicago,Baku,Taipei</code>：</p>
+<pre><code class="language-text">1. Baku
+2. Chicago
+3. Taipei</code></pre>
+<p>完成且 one-to-one，<code>order_class=other_permutation</code>。</p>
+<h3 id="r7-20-exact-k-样本定义">R7.20 exact-K 样本定义<a class="anchor" href="#r7-20-exact-k-样本定义" aria-label="本节链接">#</a></h3>
+<p><code>exact-3</code> 指 <code>episode_count == 3</code>，即恰好三次“通过完成条件的 episode”。它不等于文本中出现三次 <code>1.</code>，也不等于 recount cue 出现三次。</p>
+<p><strong>本节结论：</strong> episode parser 是“gold-city observation + rank evidence + 顺序轨迹 + 完成证据”的四层组合。E1/E2/E3 边界采用 <code>semantic_end</code>，保证城市和 rank 证据都已经出现；但默认会丢弃 incomplete raw sequence，因此 episode 编号存在条件选择，需要下一节的对照规则审计。</p>
+<hr>
+<h2 id="8-restart-only-e1-对照-parser">8. restart-only E1 对照 parser<a class="anchor" href="#8-restart-only-e1-对照-parser" aria-label="本节链接">#</a></h2>
+<h3 id="r8-1-只放宽第一条-raw-sequence">R8.1 只放宽第一条 raw sequence<a class="anchor" href="#r8-1-只放宽第一条-raw-sequence" aria-label="本节链接">#</a></h3>
+<p>对照 parser 的唯一改动是：若第一条 raw sequence 后面存在另一条由 gold-city rank-1 event 开始的 sequence，则第一条无条件注册为 E1。</p>
+<p>它不要求第一条：</p>
+<ul>
+<li>到达 gold N；</li>
+<li>有 matching closure；</li>
+<li>与最终 <code>Total:</code> 一致；</li>
+<li>长度至少 2。</li>
+</ul>
+<p>E2/E3 及后续 sequence 仍使用 R7.13–R7.16 的默认完成条件。</p>
+<h3 id="r8-2-具体对照例子">R8.2 具体对照例子<a class="anchor" href="#r8-2-具体对照例子" aria-label="本节链接">#</a></h3>
+<p>gold 为 Chicago/Baku/Taipei：</p>
+<pre><code class="language-text">1. Chicago
+Start the count over.
+1. Baku
+2. Chicago
+3. Taipei
+Count again.
+1. Chicago
+2. Baku
+3. Taipei</code></pre>
+<p>默认 episode parser：</p>
+<ul>
+<li>第一条 singleton sequence incomplete；</li>
+<li>后两条完成；</li>
+<li><code>episode_count=2</code>，<code>incomplete_sequences=1</code>。</li>
+</ul>
+<p>restart-only 对照：</p>
+<ul>
+<li>第一条注册为 E1，kind=<code>e1_followed_by_gold_city_rank1</code>；</li>
+<li>后两条仍按默认规则注册为 E2/E3；</li>
+<li><code>episode_count=3</code>，<code>incomplete_sequences=0</code>。</li>
+</ul>
+<h3 id="r8-3-一个细微边界-相同-city-rank-的紧邻重复可能先被去重">R8.3 一个细微边界：相同 city/rank 的紧邻重复可能先被去重<a class="anchor" href="#r8-3-一个细微边界-相同-city-rank-的紧邻重复可能先被去重" aria-label="本节链接">#</a></h3>
+<p>sequence assembly 在 completion classifier 之前运行。若第一条末项和后来的 event 都是完全相同的 <code>(rank=1, city=Chicago)</code>，后者可能按“相同 rank + 相同 city 的更晚证据”替换前者，而不是建立 restart。只有 <code>_deduplicate_and_sequence</code> 已经检测到下一条独立 rank-1 sequence时，restart-only 规则才会生效。</p>
+<p>例：</p>
+<pre><code class="language-text">1. Chicago
+1. Chicago
+2. Baku
+3. Taipei</code></pre>
+<p>前两个完全相同的 rank-1/city 可能合并为一个 sequence 起点；不能仅凭文本有两个 <code>1.</code> 就断言存在 E1 restart。</p>
+<h3 id="r8-4-该规则不是当前主-parser">R8.4 该规则不是当前主 parser<a class="anchor" href="#r8-4-该规则不是当前主-parser" aria-label="本节链接">#</a></h3>
+<p>restart-only 只用于报告中的 counterfactual 章节，回答“如果 E1 只由后续 rank-1 重启来界定，exact-3 cohort 和逐轮结论怎样变化”。正式主结果若未明确标注 <code>restart-only</code>，仍使用第 7 节默认 completion rules。</p>
+<p><strong>本节结论：</strong> restart-only 不是扩大通用 parse hit 的新默认，而是有针对性的 E1 选择偏差敏感性分析。解读图表时必须同时看 parser schema/章节标签。</p>
+<hr>
+<h2 id="9-最终-total-答案-parser">9. 最终 <code>Total:</code> 答案 parser<a class="anchor" href="#9-最终-total-答案-parser" aria-label="本节链接">#</a></h2>
+<h3 id="r9-1-先分离-reasoning-与-final">R9.1 先分离 reasoning 与 final<a class="anchor" href="#r9-1-先分离-reasoning-与-final" aria-label="本节链接">#</a></h3>
+<p>Qwen 使用最后一个 <code>&lt;/think&gt;</code> 后的文本作为 final；Gemma 使用第一个 <code>&lt;channel|&gt;</code> 后的文本。若 inference backend 已经移除 reasoning channel 且没有任何 thinking delimiter，则整个输出按 final 处理。</p>
+<h3 id="r9-2-total-必须独占一行-但可有额外-final-prose">R9.2 <code>Total:</code> 必须独占一行，但可有额外 final prose<a class="anchor" href="#r9-2-total-必须独占一行-但可有额外-final-prose" aria-label="本节链接">#</a></h3>
+<p>正式 <code>parse_total</code> 在 final 中寻找大小写不敏感的完整行：</p>
+<pre><code class="language-text">Total: &lt;signed integer&gt;</code></pre>
+<p>允许行首/行尾空白和若干已注册 end token；若有多个匹配行，取最后一个。</p>
+<pre><code class="language-text">Total: 2
+Correction.
+Total: 3</code></pre>
+<p>实际 <code>predicted_count=3</code>。</p>
+<p>final 最外层若完整包在 <code>&lt;response&gt;...&lt;/response&gt;</code> 或 <code>[RESPONSE]...[/RESPONSE]</code> 中，会先去掉 wrapper 再解析。例如：</p>
+<pre><code class="language-text">&lt;response&gt;
+Total: 3
+&lt;/response&gt;</code></pre>
+<p>等价于 <code>Total: 3</code>。</p>
+<pre><code class="language-text">The answer is 3.</code></pre>
+<p>没有 <code>Total:</code> 完整行，<code>predicted_count=null</code>、<code>parse_status=parse_fail</code>。</p>
+<h3 id="r9-3-数值可为负数">R9.3 数值可为负数<a class="anchor" href="#r9-3-数值可为负数" aria-label="本节链接">#</a></h3>
+<pre><code class="language-text">Total: -1</code></pre>
+<p>可以解析为 -1，但对 N≥1 的计数任务当然不正确。</p>
+<h3 id="r9-4-exact-count">R9.4 <code>exact_count</code><a class="anchor" href="#r9-4-exact-count" aria-label="本节链接">#</a></h3>
+<pre><code class="language-text">exact_count = (predicted_count == len(gold_pairs))</code></pre>
+<p>若 parse 失败，<code>predicted_count=None</code>，所以 <code>exact_count=false</code>。这项准确率不要求 final 只有一行。</p>
+<h3 id="r9-5-格式合规与-exact-count-分开">R9.5 格式合规与 exact count 分开<a class="anchor" href="#r9-5-格式合规与-exact-count-分开" aria-label="本节链接">#</a></h3>
+<p>native thinking 的 prompt 要求 final 恰好一行 <code>Total: n</code>。因此：</p>
+<pre><code class="language-text">The answer follows.
+Total: 3</code></pre>
+<p>可解析、<code>exact_count=true</code>，但 <code>response_format_compliant=false</code>。</p>
+<pre><code class="language-text">registered_success = exact_count
+                     AND response_format_compliant
+                     AND finish_reason != &quot;length&quot;</code></pre>
+<p>当前很多 cutoff/accuracy 图使用的是 <code>evaluation.exact_count</code>，不是更严格的 <code>registered_success</code>；报告中若写“正确率”，必须指明是哪一个字段。</p>
+<p>允许出现在 <code>Total:</code> 行尾、仍被当作格式字符的可选 end token 是：<code>&lt;|im_end|&gt;</code>、<code>&lt;turn|&gt;</code>、<code>&lt;|endoftext|&gt;</code>、<code>&lt;｜end▁of▁sentence｜&gt;</code>。其他任意文字不能放在同一 <code>Total:</code> 行上。例如 <code>Total: 3 because...</code> 不匹配。</p>
+<h3 id="r9-6-enumeration-prompt-的最终答案规则">R9.6 enumeration prompt 的最终答案规则<a class="anchor" href="#r9-6-enumeration-prompt-的最终答案规则" aria-label="本节链接">#</a></h3>
+<p>对于 roadmap 的 indexed/bullet enumeration prompt，final 还会解析：</p>
+<pre><code class="language-text">1. Chicago: 72
+2. Baku: 98
+Total: 2</code></pre>
+<p>或：</p>
+<pre><code class="language-text">- Chicago: 72
+- Baku: 98
+Total: 2</code></pre>
+<p>indexed 必须从 1 连续递增；混合 marker、使用错误 marker、没有 records 都会使 enumeration format 不合规。这里会比较 city-score pairs；它是最终回答格式审计，不是 native-thinking trace parser。</p>
+<p>具体边界：indexed final 只接受 <code>1. City: score</code>，不接受 <code>1) City: score</code>；bullet final 只接受 <code>- City: score</code>，不接受 <code>* City: score</code>。score 允许负整数。<code>Total:</code> 必须是最后一个非空行，且此前每个非空行都必须完全匹配所选 prompt mode 的 record 格式。</p>
+<h3 id="r9-7-evaluator-中较粗的-repetition-audit">R9.7 evaluator 中较粗的 repetition audit<a class="anchor" href="#r9-7-evaluator-中较粗的-repetition-audit" aria-label="本节链接">#</a></h3>
+<p>最终 evaluator 还保存一组旧式/粗粒度 overthinking 诊断：</p>
+<ul>
+<li>非空 reasoning 行先小写并压缩空白，完全相同的额外出现计为 <code>reasoning_duplicate_lines</code>；例：<code>Check Chicago</code> 写两行，第二行计 1 次重复。</li>
+<li>行首 <code>1.</code>/<code>1)</code> 式数字序列中，只要当前 index <code>&lt;=</code> 上一个 index，就使 <code>reasoning_enumeration_restart_count += 1</code>；例：<code>1,2,3,1</code> 计 1 次 restart，<code>1,2,2</code> 也计 1 次。</li>
+<li>reasoning 中精确形如 <code>1. City: score</code> 或 <code>- City: score</code> 的 record pair 重复，计入 <code>reasoning_duplicate_record_mentions</code>。</li>
+<li><code>finish_reason=&quot;length&quot;</code>、序号重启、record 重复、整行重复分别加入 <code>overthinking_signals</code>。</li>
+</ul>
+<p>这套 audit 不等于第 7 节 episode parser：它不要求 gold city、rank evidence 与完成条件，只是粗粒度字符串统计。当前正式“发生几次重数”的分析应以完成 episode 数为主，这些字段只能作为补充诊断。</p>
+<p><strong>本节结论：</strong> 最终答案 parser 与 trace/episode parser 完全分离。一次 trace 可以 one-to-one 但最终 <code>Total:</code> 错；也可以 trace partial 而最终 <code>Total:</code> 正确。分析 activation 与行为一致性时必须明确 target 是 gold N、episode terminal rank，还是模型最终 predicted count。</p>
+<hr>
+<h2 id="10-当前源码与可复核产物">10. 当前源码与可复核产物<a class="anchor" href="#10-当前源码与可复核产物" aria-label="本节链接">#</a></h2>
+<p>本报告按以下当前本地源码逐条核对：</p>
+<ul>
+<li>第一次 trace 主 parser：<code>Realistic_NiaH_Trace_Parser/src/realistic_niah_v3/city_list_termination.py</code></li>
+<li>reasoning span 与 token prefix 对齐：<code>Realistic_NiaH_Trace_Parser/src/realistic_niah_v3/first_list_cutoff.py</code></li>
+<li>独立 API/CLI：<code>Realistic_NiaH_Trace_Parser/src/niah_parser/api.py</code>、<code>cli.py</code>、<code>reporting.py</code></li>
+<li>多轮 episode parser：<code>runs/thinking_episode_analysis_v3_semantic_end/delivery_semantic_v2_local/code/count_sequence_parser.py</code></li>
+<li>restart-only 对照：<code>runs/episode_clarity_v34/code/analyze_restart_only_parser.py</code></li>
+<li>最终答案 evaluator：<code>Realistic_CoT_NiaH_Count/src/realistic_niah/parsing.py</code></li>
+</ul>
+<p>可执行例子脚本与实际输出：</p>
+<ul>
+<li><code>verify_parser_examples.py</code>：直接 import 上述真实实现；</li>
+<li><code>verified_examples.json</code>：保存每个核验例子的实际 parser 字段；</li>
+<li>这些例子不是另写的简化 parser，也没有通过复制正则来模拟结果。</li>
+</ul>
+<p>仓库中仍保留两个历史函数，但当前独立 CLI/API 不调用它们：</p>
+<ul>
+<li><code>find_first_completed_list</code>：只按连续的 <code>1. / 2.</code> 或 <code>- </code> 物理行找列表，不看 gold；</li>
+<li><code>find_first_gold_city_complete_list</code>：旧版必须覆盖全部 distinct gold city 才 hit。</li>
+</ul>
+<p>它们保留是为了旧结果兼容和复用 <code>locate_reasoning_span</code>/token alignment 工具，不属于本报告所称的“当前第一次 trace 主 parser”。当前 <code>parse_record</code> 的真实调用目标是 <code>find_first_terminated_gold_city_list</code>。</p>
+<h2 id="11-最终总括">11. 最终总括<a class="anchor" href="#11-最终总括" aria-label="本节链接">#</a></h2>
+<p>目前第一次 trace parser 的正式定义是：在对应模型的 reasoning span 中，优先寻找第一个“受支持 marker、每项一个注册 gold city、具有可靠 item 与终止边界”的显式序列；若没有，再尝试保守的后段 recap 和严格 V4.4 audit 模板。它允许遗漏和跨 item 重复，随后用互斥 trace category 分类。</p>
+<p>目前 E1/E2/E3 parser 的正式定义是：把单一 gold-city observation 与唯一 rank 证据配对，按 1,2,3…建立 raw sequence，并通过到达 gold N、matching closure 或最后 <code>Total:</code> 一致来判断完成 episode；只对完成 episode编号。restart-only 版本仅用于测试被默认规则丢弃的第一条 incomplete sequence是否改变 exact-3 结论。</p>
+<p>因此，任何后续报告至少应同时标明：使用 B 还是 C、marker/evidence kind、boundary/site、trace category、completion kind、最终正确性字段，以及是否启用了 restart-only counterfactual。缺少其中任何一项，都可能把“文本边界识别”“trace 正确”“内部 activation 可分”和“最终行为正确”混为一谈。</p>
+<hr>
+<h2 id="12-正式实验中的真实输入与实际-parse-结果">12. 正式实验中的真实输入与实际 parse 结果<a class="anchor" href="#12-正式实验中的真实输入与实际-parse-结果" aria-label="本节链接">#</a></h2>
+<p>本节不是为了覆盖规则而人工编写的 toy text。六个例子都来自本地持久化的 v4.4 正式模型输出或其 parser artifact：有完整 <code>raw_output_text</code> 的例子已用当前 standalone parser 重新执行；历史交付只保存上下文窗口的例子，会明确标为“保存的 artifact”，不会声称重新 parse 了缺失的完整文本。</p>
+<h3 id="真实例-1-qwen-显式数字列表-one-to-one">真实例 1：Qwen 显式数字列表，one-to-one<a class="anchor" href="#真实例-1-qwen-显式数字列表-one-to-one" aria-label="本节链接">#</a></h3>
+<p>来源：<code>Realistic_NiaH_Trace_Parser/examples/data/qwen3_8b_example.json</code> 请求：<code>v4.4-native-thinking/Qwen3-8B/native_thinking/cue_before_query_after/V4_4_T10000_N3_seed1238_realization018</code></p>
+<p>Gold：</p>
+<pre><code class="language-text">Taipei: 51
+Nanjing: 55
+Buenos Aires: 75
+N = 3</code></pre>
+<p>真实模型输出：</p>
+<pre><code class="language-text">&lt;think&gt;
+Okay, let&#x27;s see. The user wants me to count all the city-score audit records in the provided passage. A city-score audit record is defined as a line that names a city and gives its numeric score.
+
+First, I&#x27;ll need to scan through the entire passage to find any mentions of cities with scores. The passage is quite long, so I should look for keywords like &quot;city score audit&quot; or &quot;score&quot; followed by a city name.
+
+Looking through the text, I notice there are a few instances where a city is mentioned with a score. Let me check each occurrence:
+
+1. &quot;In the 2024 city score audit, Taipei received a score of 51.&quot; 每 This is one record: Taipei with 51.
+2. &quot;In the 2024 city score audit, Nanjing received a score of 55.&quot; 每 Second record: Nanjing with 55.
+3. &quot;In the 2024 city score audit, Buenos Aires received a score of 75.&quot; 每 Third record: Buenos Aires with 75.
+
+I&#x27;ll continue scanning to ensure there are no others. The rest of the passage discusses philosophy, startups, and other topics, but no other city scores are mentioned.
+
+So, there are three city-score audit records in total.
+&lt;/think&gt;
+
+Total: 3</code></pre>
+<p>当前 parser 实际输出的核心字段：</p>
+<pre><code class="language-json">{
+  &quot;detected&quot;: true,
+  &quot;status&quot;: &quot;ok_gold_city_list_terminated&quot;,
+  &quot;gold_city_count&quot;: 3,
+  &quot;marker_kind&quot;: &quot;indexed&quot;,
+  &quot;item_count&quot;: 3,
+  &quot;item_markers&quot;: [1, 2, 3],
+  &quot;item_gold_cities&quot;: [&quot;Taipei&quot;, &quot;Nanjing&quot;, &quot;Buenos Aires&quot;],
+  &quot;item_boundary_kinds&quot;: [&quot;newline&quot;, &quot;newline&quot;, &quot;newline&quot;],
+  &quot;coverage_count&quot;: 3,
+  &quot;duplicate_gold_city_items&quot;: 0,
+  &quot;trace_one_to_one&quot;: true,
+  &quot;trace_order_class&quot;: &quot;forward&quot;,
+  &quot;trace_category&quot;: &quot;one_to_one&quot;,
+  &quot;termination_kind&quot;: &quot;thinking_close&quot;,
+  &quot;reasoning_start_char&quot;: 7,
+  &quot;reasoning_end_char&quot;: 1093,
+  &quot;list_start_char&quot;: 552,
+  &quot;item_start_chars&quot;: [552, 656, 757],
+  &quot;item_end_chars&quot;: [655, 756, 866],
+  &quot;cut_char&quot;: 867,
+  &quot;trailing_line_count&quot;: 4
+}</code></pre>
+<p>解释：前三个行首数字严格为 1、2、3，每行恰有一个 gold city。最后一项后还有四个逻辑 trailing lines，但 reasoning 有官方 close，所以保存的优先终止标签是 <code>thinking_close</code>。<code>cut_char=867</code> 位于第三项换行之后，不包含后面的复查 prose。</p>
+<h3 id="真实例-2-gemma-没有受支持的显式-marker-命中-audit-sentence-fallback">真实例 2：Gemma 没有受支持的显式 marker，命中 audit-sentence fallback<a class="anchor" href="#真实例-2-gemma-没有受支持的显式-marker-命中-audit-sentence-fallback" aria-label="本节链接">#</a></h3>
+<p>来源：<code>Realistic_NiaH_Trace_Parser/examples/data/gemma4_e4b_example.json</code> 请求：<code>v4.4-native-thinking/Gemma4-E4B/native_thinking/cue_before_query_after/V4_4_T10000_N3_seed1257_realization005</code></p>
+<p>Gold：</p>
+<pre><code class="language-text">Tbilisi: 61
+Chengdu: 71
+Ulaanbaatar: 97
+N = 3</code></pre>
+<p>真实模型输出：</p>
+<pre><code class="language-text">&lt;|channel&gt;thought
+Here&#x27;s my plan to count the city-score audit records:
+1.  Scan the passage for the pattern: &quot;In the [Year] city score audit, [City] received a score of [Number].&quot;
+2.  Count each instance found.
+
+Scanning the passage:
+
+Instance 1: &quot;In the 2024 city score audit, Tbilisi received a score of 61.&quot; (Count = 1)
+Instance 2: &quot;In the 2024 city score audit, Chengdu received a score of 71.&quot; (Count = 2)
+Instance 3: &quot;In the 2024 city score audit, Ulaanbaatar received a score of 97.&quot; (Count = 3)
+
+The counting is complete.&lt;channel|&gt;Total: 3</code></pre>
+<p>当前 parser 实际输出的核心字段：</p>
+<pre><code class="language-json">{
+  &quot;detected&quot;: true,
+  &quot;marker_kind&quot;: &quot;audit_sentence&quot;,
+  &quot;item_count&quot;: 3,
+  &quot;item_markers&quot;: [1, 2, 3],
+  &quot;item_gold_cities&quot;: [&quot;Tbilisi&quot;, &quot;Chengdu&quot;, &quot;Ulaanbaatar&quot;],
+  &quot;item_boundary_kinds&quot;: [
+    &quot;audit_sentence_period&quot;,
+    &quot;audit_sentence_period&quot;,
+    &quot;audit_sentence_period&quot;
+  ],
+  &quot;coverage_count&quot;: 3,
+  &quot;duplicate_gold_city_items&quot;: 0,
+  &quot;trace_one_to_one&quot;: true,
+  &quot;trace_order_class&quot;: &quot;forward&quot;,
+  &quot;trace_category&quot;: &quot;one_to_one&quot;,
+  &quot;termination_kind&quot;: &quot;audit_sentence_chain_period&quot;,
+  &quot;reasoning_start_char&quot;: 18,
+  &quot;reasoning_end_char&quot;: 530,
+  &quot;list_start_char&quot;: 249,
+  &quot;item_start_chars&quot;: [249, 337, 425],
+  &quot;item_end_chars&quot;: [310, 398, 490],
+  &quot;cut_char&quot;: 490
+}</code></pre>
+<p>解释：<code>Instance 1:</code> 不是主 trace parser 支持的行首 marker，因此显式 parser 不命中。三个句子内部都完整出现严格 V4.4 模板，所以 audit fallback 收集它们。<code>item_markers=[1,2,3]</code> 是 fallback 合成的顺序代理，不是把 <code>Instance 1/2/3</code> 当成了正式 index token。</p>
+<h3 id="真实例-3-qwen-completion-recap-one-to-one">真实例 3：Qwen completion recap，one-to-one<a class="anchor" href="#真实例-3-qwen-completion-recap-one-to-one" aria-label="本节链接">#</a></h3>
+<p>来源：<code>runs/v22_v44_native_qwen_fallback_parser_preflight/analysis/Qwen3-8B/fallback_audit/gained_examples.json</code> 请求：<code>v4.4-native-thinking/Qwen3-8B/native_thinking/cue_before_query_after/V4_4_T10000_N10_seed1235</code></p>
+<p>这个历史 artifact 保存了正式输出的 cutoff 邻域，而没有重复保存 10k passage 和完整 raw output。保存的真实窗口是：</p>
+<pre><code class="language-text">[前文]
+... &quot;Kathmandu received a score of 63.&quot; Nine. And finally, &quot;Paris received a score of 73.&quot; Ten.
+
+Let me check again to make sure I didn&#x27;t miss any. The passage has excerpts with city names and scores each time.
+
+[被解析的句子]
+Counting them again: Brussels, Beijing, Barcelona, Sarajevo, Amsterdam, Tirana, Yangon, Osaka, Kathmandu, Paris.
+
+[后文]
+That&#x27;s ten cities. Each has a unique score. So the total should be 10.</code></pre>
+<p>保存的实际 parse 结果：</p>
+<pre><code class="language-json">{
+  &quot;detected&quot;: true,
+  &quot;marker_kind&quot;: &quot;completion_recap&quot;,
+  &quot;item_count&quot;: 10,
+  &quot;item_gold_cities&quot;: [
+    &quot;Brussels&quot;, &quot;Beijing&quot;, &quot;Barcelona&quot;, &quot;Sarajevo&quot;, &quot;Amsterdam&quot;,
+    &quot;Tirana&quot;, &quot;Yangon&quot;, &quot;Osaka&quot;, &quot;Kathmandu&quot;, &quot;Paris&quot;
+  ],
+  &quot;duplicate_gold_city_items&quot;: 0,
+  &quot;termination_kind&quot;: &quot;completion_recap_period&quot;,
+  &quot;trace_category&quot;: &quot;one_to_one&quot;,
+  &quot;trace_one_to_one&quot;: true,
+  &quot;trace_order_class&quot;: &quot;forward&quot;,
+  &quot;cut_reasoning_fraction&quot;: 0.9426751592,
+  &quot;baseline_correct&quot;: true
+}</code></pre>
+<p>解释：<code>Counting them again</code> 是直接 counting cue；10 个城市集中在同一句且与 gold 一一对应。cut 在 <code>Paris.</code> 后，后面的 <code>That&#x27;s ten cities.</code> 不进入 prefix。<code>cut_reasoning_fraction≈0.943</code> 说明边界位于 reasoning 的约 94.3% 处，满足后段 recap 规则。</p>
+<h3 id="真实例-4-qwen-completion-recap-覆盖完整-但重复一个城市">真实例 4：Qwen completion recap 覆盖完整，但重复一个城市<a class="anchor" href="#真实例-4-qwen-completion-recap-覆盖完整-但重复一个城市" aria-label="本节链接">#</a></h3>
+<p>来源同真实例 3。 请求：<code>v4.4-native-thinking/Qwen3-8B/native_thinking/cue_before_query_after/V4_4_T10000_N2_seed1255</code></p>
+<p>Gold：<code>Manila, Bogota</code>，N=2。保存的真实窗口：</p>
+<pre><code class="language-text">[前文]
+... Looking through the rest, there&#x27;s no other city names with scores. The rest of the text is about essays, programming, and other topics.
+
+[被解析的句子]
+So total city-score audit records are three: Manila, Bogota, Bogota.
+
+[后文]
+But maybe the user considers the two Bogota entries as one. However, the problem says &quot;count all,&quot; so I should count each occurrence. Therefore, the answer is 3. ...</code></pre>
+<p>保存的实际 parse 结果：</p>
+<pre><code class="language-json">{
+  &quot;detected&quot;: true,
+  &quot;marker_kind&quot;: &quot;completion_recap&quot;,
+  &quot;item_count&quot;: 3,
+  &quot;item_gold_cities&quot;: [&quot;Manila&quot;, &quot;Bogota&quot;, &quot;Bogota&quot;],
+  &quot;duplicate_gold_city_items&quot;: 1,
+  &quot;termination_kind&quot;: &quot;completion_recap_period&quot;,
+  &quot;trace_category&quot;: &quot;full_coverage_with_duplicates&quot;,
+  &quot;trace_one_to_one&quot;: false,
+  &quot;trace_order_class&quot;: &quot;not_one_to_one&quot;,
+  &quot;cut_reasoning_fraction&quot;: 0.8978880906,
+  &quot;baseline_correct&quot;: false
+}</code></pre>
+<p>解释：两个 gold city 都出现，所以 coverage complete；但 Bogota 出现两次，所以不是 one-to-one。Parser 忠实保存三次 occurrence，并不会为了贴近 gold N 而去重。模型最终也答 3，因此相对 gold N=2 为错误。</p>
+<h3 id="真实例-5-qwen-最终答案正确-但-trace-parser-no-hit">真实例 5：Qwen 最终答案正确，但 trace parser no-hit<a class="anchor" href="#真实例-5-qwen-最终答案正确-但-trace-parser-no-hit" aria-label="本节链接">#</a></h3>
+<p>来源：<code>runs/v26_v44_native_9000/analysis/Qwen3-8B/formal_no_hit_audit.json</code> 请求：<code>v4.4-native-thinking/Qwen3-8B/native_thinking/cue_before_query_after/V4_4_T10000_N10_seed1234_realization002</code></p>
+<p>Gold cities：Toronto、Kaohsiung、Hanoi、Harbin、Osaka、Milan、Antwerp、Ho Chi Minh City、Seoul、Vienna，N=10。</p>
+<p>真实模型输出：</p>
+<pre><code class="language-text">&lt;think&gt;
+Okay, let&#x27;s see. The user wants me to count all the city-score audit records in the given passage. A city-score audit record is defined as a line that names a city and gives its numeric score.
+
+First, I&#x27;ll need to scan through the passage and look for any lines that mention a city and a score. The passage is quite long, so I should look for keywords like &quot;city score audit&quot; or similar phrases.
+
+Looking through the text, I notice several excerpts. Each excerpt seems to start with something like &quot;In the 2024 city score audit, [City] received a score of [number].&quot; So each of these lines is a city-score audit record. Let me check each one.
+
+The first one is Toronto with 82. Then Kaohsiung with 71. Next is Hanoi with 61. Then Harbin with 60. Osaka with 78. Milan with 75. Antwerp with 58. Ho Chi Minh City with 62. Seoul with 63. Vienna with 66.
+
+Let me count them one by one. That&#x27;s 1. Toronto, 2. Kaohsiung, 3. Hanoi, 4. Harbin, 5. Osaka, 6. Milan, 7. Antwerp, 8. Ho Chi Minh City, 9. Seoul, 10. Vienna. Wait, that&#x27;s ten entries. Let me check again to make sure I didn&#x27;t miss any or count duplicates.
+
+Looking back, each of these lines is in separate excerpts, and each has a unique city and score. There are no other mentions of city scores elsewhere in the passage. So the total should be 10.
+&lt;/think&gt;
+
+Total: 10</code></pre>
+<p>用当前 parser 重新执行得到：</p>
+<pre><code class="language-json">{
+  &quot;detected&quot;: false,
+  &quot;status&quot;: &quot;no_terminated_gold_city_list&quot;,
+  &quot;gold_city_count&quot;: 10,
+  &quot;marker_kind&quot;: null,
+  &quot;item_count&quot;: 0,
+  &quot;item_markers&quot;: [],
+  &quot;item_gold_cities&quot;: [],
+  &quot;coverage_count&quot;: 0,
+  &quot;trace_one_to_one&quot;: false,
+  &quot;reported_trace_category&quot;: &quot;no_parser_hit&quot;,
+  &quot;termination_kind&quot;: null,
+  &quot;cut_char&quot;: null,
+  &quot;candidates_considered&quot;: 0,
+  &quot;baseline_correct&quot;: true
+}</code></pre>
+<p>解释：第一段城市是无 marker prose；第二段虽然写了 <code>That&#x27;s 1. Toronto, 2. Kaohsiung...</code>，但 marker 不在逻辑 item 开头，而且编号后的句点会把它切成多个短 sentence fragment，无法组成“同一个带 cue 的紧凑 recap”。所以 trace no-hit，但独立的最终答案 parser 仍正确读出 <code>Total: 10</code>。这是 <code>parse hit ≠ final accuracy</code> 的真实例子。</p>
+<h3 id="真实例-6-同一真实样本在默认-episode-parser-中是-exact-2-在-restart-only-中是-exact-3">真实例 6：同一真实样本在默认 episode parser 中是 exact-2，在 restart-only 中是 exact-3<a class="anchor" href="#真实例-6-同一真实样本在默认-episode-parser-中是-exact-2-在-restart-only-中是-exact-3" aria-label="本节链接">#</a></h3>
+<p>来源：<code>runs/episode_clarity_v34/analysis/e1_restart_only_parser/examples.json</code> 请求：<code>v4.4-native-thinking/Qwen3-8B/native_thinking/cue_before_query_after/V4_4_T10000_N10_seed1236_realization021</code> Gold N=10；原始最终答案 <code>Total: 10</code>，正确。</p>
+<p>保存的真实输出窗口首先出现：</p>
+<pre><code class="language-text">Here&#x27;s an excerpt: &quot;In the 2024 city score audit, Skopje received a score of 87.&quot; That&#x27;s one record.
+Then later: &quot;In the 2024 city score audit, Chicago received a score of 70.&quot; Another one.
+Continuing through the text, there&#x27;s &quot;Beijing received a score of 56,&quot; ...
+
+Wait, let me make sure I didn&#x27;t miss any. Let me go through each instance again.
+The passage has multiple excerpts ... Let me count each occurrence:
+
+1. Skopje - 87
+2. Chicago - 70
+3. Beijing - 56
+4. Sarajevo - 79
+5. Los Angeles - 66
+6. Ulaanbaatar - 50
+7. Almaty - 80
+8. Macau - 76
+9. Budapest - 88
+10. Copenhagen - 65
+
+Wait, I think I missed Budapest and Copenhagen. Let me check again. ...</code></pre>
+<p>默认 completion parser 的实际结果：</p>
+<pre><code class="language-json">{
+  &quot;episode_count&quot;: 2,
+  &quot;incomplete_sequences&quot;: 1,
+  &quot;episodes&quot;: [
+    {
+      &quot;episode_index&quot;: 1,
+      &quot;item_count&quot;: 10,
+      &quot;terminal_running_index&quot;: 10,
+      &quot;completion_kind&quot;: &quot;rank_restart_reached_gold&quot;,
+      &quot;one_to_one&quot;: true,
+      &quot;semantic_end_char&quot;: 1472
+    },
+    {
+      &quot;episode_index&quot;: 2,
+      &quot;item_count&quot;: 10,
+      &quot;terminal_running_index&quot;: 10,
+      &quot;completion_kind&quot;: &quot;reached_gold_count&quot;,
+      &quot;one_to_one&quot;: true,
+      &quot;semantic_end_char&quot;: 1874
+    }
+  ]
+}</code></pre>
+<p>开头的真实 event 是：</p>
+<pre><code class="language-json">{
+  &quot;rank&quot;: 1,
+  &quot;city&quot;: &quot;Skopje&quot;,
+  &quot;evidence_kind&quot;: &quot;rank_after_city&quot;,
+  &quot;evidence_text&quot;: &quot;That&#x27;s one record&quot;,
+  &quot;semantic_end_char&quot;: 725
+}</code></pre>
+<p>默认规则因为这条 raw sequence 只有一个 event、gold N&gt;1，且没有到达 N、matching closure 或 final-answer completion，所以把它计为 incomplete，不编号为 E1。后面两个完整十项 sequence 才分别成为 E1/E2。</p>
+<p>restart-only 对照的实际结果：</p>
+<pre><code class="language-json">{
+  &quot;episode_count&quot;: 3,
+  &quot;episodes&quot;: [
+    {
+      &quot;episode_index&quot;: 1,
+      &quot;item_count&quot;: 1,
+      &quot;terminal_running_index&quot;: 1,
+      &quot;completion_kind&quot;: &quot;e1_followed_by_gold_city_rank1&quot;,
+      &quot;one_to_one&quot;: false,
+      &quot;coverage_count&quot;: 1,
+      &quot;semantic_end_char&quot;: 725
+    },
+    {
+      &quot;episode_index&quot;: 2,
+      &quot;item_count&quot;: 10,
+      &quot;terminal_running_index&quot;: 10,
+      &quot;completion_kind&quot;: &quot;rank_restart_reached_gold&quot;,
+      &quot;one_to_one&quot;: true,
+      &quot;semantic_end_char&quot;: 1472
+    },
+    {
+      &quot;episode_index&quot;: 3,
+      &quot;item_count&quot;: 10,
+      &quot;terminal_running_index&quot;: 10,
+      &quot;completion_kind&quot;: &quot;reached_gold_count&quot;,
+      &quot;one_to_one&quot;: true,
+      &quot;semantic_end_char&quot;: 1874
+    }
+  ]
+}</code></pre>
+<p>解释：restart-only 只因后面存在新的 gold-city rank-1 sequence，就把 singleton Skopje 注册为 E1；后两个完成 episode 顺延为 E2/E3。这个真实例子直接说明，exact-3 cohort 会受 E1 completion 定义影响，不能把 episode number 当作不依赖 parser 的客观轮次。</p>
+<p>本节六个例子的机器可读完整交付位于 <code>runs/parser_rules_current_detailed/real_parser_examples.json</code>。其中 <code>provenance</code> 字段逐例注明是“当前 parser 重新执行”还是“正式运行保存的 excerpt-only artifact”。</p></main>
+</div><a class="top" href="#top">回到顶部</a></body></html>

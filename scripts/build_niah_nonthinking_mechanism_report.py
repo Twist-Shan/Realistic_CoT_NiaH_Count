@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import base64
 import csv
+import gzip
 import html
 import json
 import math
@@ -33,6 +34,11 @@ REPORTS = ROOT / "reports" / "v4_non-thinking_causal"
 
 def read_csv(path: Path) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def read_csv_gz(path: Path) -> list[dict[str, str]]:
+    with gzip.open(path, "rt", encoding="utf-8-sig", newline="") as handle:
         return list(csv.DictReader(handle))
 
 
@@ -74,6 +80,25 @@ def p_text(value: object) -> str:
     return f"{number:.2e}" if number < 0.001 else f"{number:.3f}"
 
 
+def wilson_interval(successes: int, total: int, z: float = 1.96) -> tuple[float, float]:
+    """Pointwise Wilson score interval for a binomial proportion."""
+
+    if total <= 0:
+        raise ValueError("Wilson interval requires a positive denominator")
+    proportion = successes / total
+    denominator = 1.0 + z * z / total
+    center = (proportion + z * z / (2.0 * total)) / denominator
+    half_width = (
+        z
+        * math.sqrt(
+            proportion * (1.0 - proportion) / total
+            + z * z / (4.0 * total * total)
+        )
+        / denominator
+    )
+    return max(0.0, center - half_width), min(1.0, center + half_width)
+
+
 def ci(row: dict[str, str], low: str, high: str, digits: int = 3) -> str:
     return f"{f(row[low], digits)}–{f(row[high], digits)}"
 
@@ -86,10 +111,14 @@ def svg_line_chart(
     x_label: str = "Transformer layer ℓ",
     x_value_prefix: str = "L",
     x_ticks: list[float] | None = None,
+    x_domain: tuple[float, float] | None = None,
     y_domain: tuple[float, float] | None = None,
     reference: tuple[float, str] | None = None,
     vertical_references: list[tuple[float, str]] | None = None,
     intervals: dict[str, list[tuple[float, float, float, bool]]] | None = None,
+    interval_kind: str = "effect",
+    interval_kinds: dict[str, str] | None = None,
+    x_as_percent: bool = False,
     width: int = 620,
     height: int = 320,
 ) -> str:
@@ -108,7 +137,7 @@ def svg_line_chart(
                 y_values.extend((low, high))
     if reference:
         y_values.append(reference[0])
-    x_min, x_max = min(x_values), max(x_values)
+    x_min, x_max = x_domain or (min(x_values), max(x_values))
     if y_domain is None:
         y_min, y_max = min(y_values), max(y_values)
         pad = max((y_max - y_min) * 0.12, 0.02)
@@ -139,7 +168,8 @@ def svg_line_chart(
     for tick in tick_values:
         x = sx(tick)
         parts.append(f'<line class="grid vertical" x1="{x:.2f}" y1="{top}" x2="{x:.2f}" y2="{height-bottom}"/>')
-        parts.append(f'<text class="tick" x="{x:.2f}" y="{height-bottom+23}" text-anchor="middle">{tick:.0f}</text>')
+        tick_label = f"{100 * tick:.1f}%" if x_as_percent else f"{tick:.0f}"
+        parts.append(f'<text class="tick" x="{x:.2f}" y="{height-bottom+23}" text-anchor="middle">{tick_label}</text>')
     if reference:
         y = sy(reference[0])
         parts.append(f'<line class="reference" x1="{left}" y1="{y:.2f}" x2="{width-right}" y2="{y:.2f}"/>')
@@ -159,6 +189,7 @@ def svg_line_chart(
             f'text-anchor="{anchor}">{html.escape(label)}</text>'
         )
     for label, points, color, dash in series:
+        series_interval_kind = (interval_kinds or {}).get(label, interval_kind)
         interval_lookup = {
             x: (low, high, significant)
             for x, low, high, significant in (intervals or {}).get(label, [])
@@ -195,17 +226,28 @@ def svg_line_chart(
             else:
                 low, high, significant = interval
                 marker_class = "ci-dot"
-                marker_fill = color if significant else "#fff"
-                marker_stroke = "#fff" if significant else color
+                descriptive_interval = series_interval_kind in {"binomial", "bootstrap"}
+                marker_fill = color if (significant or descriptive_interval) else "#fff"
+                marker_stroke = "#fff" if (significant or descriptive_interval) else color
                 marker_radius = 3.2
-                title_suffix = (
-                    f" · 95% CI [{low:.3f}, {high:.3f}]"
-                    f" · exact sign-flip p {'< 0.05' if significant else '≥ 0.05'}"
-                )
+                if series_interval_kind == "binomial":
+                    title_suffix = f" · pointwise 95% Wilson CI [{low:.3f}, {high:.3f}]"
+                elif series_interval_kind == "bootstrap":
+                    title_suffix = f" · 95% seed-bootstrap CI [{low:.3f}, {high:.3f}]"
+                else:
+                    title_suffix = (
+                        f" · 95% CI [{low:.3f}, {high:.3f}]"
+                        f" · exact sign-flip p {'< 0.05' if significant else '≥ 0.05'}"
+                    )
+            x_tooltip = (
+                f"{100 * x:.2f}% eligible heads"
+                if x_as_percent
+                else f"{html.escape(x_value_prefix)}{int(x)}"
+            )
             parts.append(
                 f'<circle class="{marker_class}" cx="{sx(x):.2f}" cy="{sy(y):.2f}" r="{marker_radius:.1f}" '
                 f'fill="{marker_fill}" stroke="{marker_stroke}"><title>{html.escape(label)} · '
-                f'{html.escape(x_value_prefix)}{int(x)} · {y:.3f}{html.escape(title_suffix)}</title></circle>'
+                f'{x_tooltip} · {y:.3f}{html.escape(title_suffix)}</title></circle>'
             )
     legend_x = left
     for label, _, color, dash in series:
@@ -689,6 +731,285 @@ def svg_head_score_map(
     return "".join(parts)
 
 
+def render_attention_token_example(payload: dict[str, Any]) -> str:
+    """Render one audited natural answer-query attention row at token resolution."""
+
+    selection = payload["selection"]
+    attention = payload["attention"]
+    category_mass = attention["category_mass"]
+    maximum = max(float(attention["max_token_attention"]), 1e-12)
+    category_labels = {
+        "active_needle": "active needles",
+        "ordinary_passage": "ordinary passage",
+        "hard_negative": "hard negatives",
+        "prompt_wrapper_or_instruction": "instruction / wrapper",
+        "answer_query": "answer query",
+    }
+
+    summary = "".join(
+        '<div class="attention-summary-item">'
+        f'<strong>{html.escape(category_labels[key])}</strong>'
+        f'<span>{100 * float(category_mass[key]):.2f}%</span>'
+        '<div class="attention-mass-track"><i '
+        f'style="width:{min(100.0, 100 * float(category_mass[key])):.2f}%"></i></div>'
+        '</div>'
+        for key in (
+            "active_needle",
+            "ordinary_passage",
+            "hard_negative",
+            "prompt_wrapper_or_instruction",
+            "answer_query",
+        )
+    )
+
+    needle_rows: list[str] = []
+    for row in attention["needle_rows"]:
+        token_html: list[str] = []
+        for token in row["tokens"]:
+            weight = float(token["attention"])
+            intensity = 0.06 + 0.88 * math.sqrt(max(weight, 0.0) / maximum)
+            display = str(token["display"]).replace("\u2028", "↵").replace("\u2029", "↵")
+            title = (
+                f"position {int(token['position'])}; attention={weight:.6f}; "
+                f"token={display!r}"
+            )
+            foreground = "#ffffff" if intensity >= 0.58 else "#5b1b16"
+            token_html.append(
+                '<span class="attention-token" '
+                f'style="background:rgba(180,35,24,{intensity:.3f});color:{foreground}" '
+                f'title="{html.escape(title, quote=True)}">{html.escape(display)}</span>'
+            )
+        needle_rows.append(
+            '<div class="needle-attention-row">'
+            '<div class="needle-attention-meta">'
+            f'<strong>N{int(row["slot_index"])} · {html.escape(str(row["city"]))}</strong>'
+            f'<span>score {int(row["score"])} · span mass {100 * float(row["attention_mass"]):.2f}%</span>'
+            '</div>'
+            f'<div class="needle-token-line">{"".join(token_html)}</div>'
+            '</div>'
+        )
+
+    top_non_needle = "".join(
+        "<li>"
+        f'<code>pos {int(token["position"])}</code> '
+        f'<span class="token-region">{html.escape(category_labels.get(str(token["region"]), str(token["region"])))}</span> '
+        f'<strong>{html.escape(str(token["display"]).replace(chr(0x2028), "↵").replace(chr(0x2029), "↵"))}</strong> '
+        f'({100 * float(token["attention"]):.2f}%)'
+        "</li>"
+        for token in attention["top_non_needle_tokens"][:12]
+    )
+    return (
+        '<div class="attention-example">'
+        '<div class="attention-example-head">'
+        f'<strong>Qwen3-8B · L{int(selection["layer"])}H{int(selection["head"])} · '
+        f'seed {int(selection["seed"])} · gold N={int(selection["gold_count"])}</strong>'
+        '<span>自然 forward 的最后一个 answer-query attention row</span>'
+        '</div>'
+        f'<div class="attention-summary">{summary}</div>'
+        '<div class="attention-token-legend"><span></span>颜色越深，单个 token 获得的 attention weight 越大；'
+        '悬停可看 token position 与精确权重。</div>'
+        f'<div class="attention-needle-list">{"".join(needle_rows)}</div>'
+        '<details class="collapsible-list"><summary>展开：attention 最高的 non-needle tokens</summary>'
+        f'<ol class="top-token-list">{top_non_needle}</ol></details>'
+        '</div>'
+    )
+
+
+def render_attention_gallery_controls(
+    payload: dict[str, Any],
+    gallery_id: str,
+) -> str:
+    heads = payload["selection"]["heads"]
+    prompts = payload["selection"]["prompts"]
+    head_options = "".join(
+        f'<option value="L{int(row["layer"])}H{int(row["head"])}">'
+        f'rank {int(row["frozen_rank"])} · L{int(row["layer"])}H{int(row["head"])}</option>'
+        for row in heads
+    )
+    prompt_options = "".join(
+        f'<option value="V4_4_T10000_N{int(row["gold_count"])}_seed{int(row["seed"])}"'
+        f'{" selected" if int(row["gold_count"]) == 6 else ""}>'
+        f'seed {int(row["seed"])} · gold N={int(row["gold_count"])}</option>'
+        for row in prompts
+    )
+    return (
+        '<div class="attention-gallery-controls">'
+        f'<label for="{gallery_id}-head">Frozen head<select id="{gallery_id}-head" '
+        f'data-gallery-head>{head_options}</select></label>'
+        f'<label for="{gallery_id}-prompt">Natural prompt<select id="{gallery_id}-prompt" '
+        f'data-gallery-prompt>{prompt_options}</select></label>'
+        '<span>选择只改变展示，不重新拟合或重跑统计检验。</span>'
+        '</div>'
+    )
+
+
+def render_attention_span_overview(
+    record: dict[str, Any],
+    *,
+    global_span_max: float,
+) -> str:
+    """Render a simple prompt-position strip plus one bar per active needle."""
+
+    selection = record["selection"]
+    prompt = record["prompt"]
+    attention = record["attention"]
+    sequence_length = int(prompt["sequence_length"])
+    needle_rows = attention["needle_rows"]
+    width = 1080
+    left, right = 164, 72
+    plot_width = width - left - right
+    row_height = 31
+    bar_top = 174
+    height = bar_top + row_height * len(needle_rows) + 64
+
+    def position_x(position: float) -> float:
+        return left + plot_width * position / max(sequence_length, 1)
+
+    def mass_x(value: float) -> float:
+        return left + plot_width * value / max(global_span_max, 1e-12)
+
+    parts = [
+        f'<svg class="attention-document-map" viewBox="0 0 {width} {height}" '
+        'role="img" aria-label="Full prompt needle positions and attention mass assigned to each complete needle span">',
+        '<text class="attention-panel-label" x="24" y="31">A · active needles 在全文中的位置</text>',
+        f'<rect class="attention-position-track" x="{left}" y="48" width="{plot_width}" height="26"/>',
+    ]
+    for span in attention["hard_negative_rows"]:
+        xx = position_x(float(span["token_start"]))
+        span_width = max(1.2, position_x(float(span["token_end"])) - xx)
+        parts.append(
+            f'<rect class="attention-hard-negative-tick" x="{xx:.2f}" y="51" '
+            f'width="{span_width:.2f}" height="20"/>'
+        )
+    for span in needle_rows:
+        xx = position_x(float(span["token_start"]))
+        span_width = max(4.0, position_x(float(span["token_end"])) - xx)
+        center = xx + span_width / 2
+        title = (
+            f'N{int(span["slot_index"])} {span["city"]}; tokens '
+            f'{int(span["token_start"])}–{int(span["token_end"])-1}; '
+            f'span attention={100*float(span["attention_mass"]):.3f}%'
+        )
+        parts.append(
+            f'<rect class="attention-needle-block" x="{xx:.2f}" y="46" '
+            f'width="{span_width:.2f}" height="30"><title>{html.escape(title)}</title></rect>'
+            f'<text class="attention-needle-label" x="{center:.2f}" y="42" '
+            f'text-anchor="middle">N{int(span["slot_index"])}</text>'
+        )
+    for fraction in (0.0, 0.25, 0.5, 0.75, 1.0):
+        position = round(sequence_length * fraction)
+        xx = position_x(position)
+        parts.append(
+            f'<line class="attention-position-tick" x1="{xx:.2f}" x2="{xx:.2f}" y1="76" y2="83"/>'
+        )
+        parts.append(
+            f'<text class="tick" x="{xx:.2f}" y="99" text-anchor="middle">{position:,}</text>'
+        )
+    parts.extend(
+        [
+            f'<text class="axis-label" x="{left+plot_width/2:.2f}" y="119" text-anchor="middle">全文 token position（约 {sequence_length:,} tokens）</text>',
+            '<text class="attention-panel-label" x="24" y="151">B · 该 head 分给每条完整 needle span 的 attention</text>',
+        ]
+    )
+    for fraction in (0.0, 0.5, 1.0):
+        value = global_span_max * fraction
+        xx = mass_x(value)
+        parts.append(
+            f'<line class="grid vertical" x1="{xx:.2f}" x2="{xx:.2f}" y1="162" '
+            f'y2="{bar_top + row_height * len(needle_rows) - 6}"/>'
+        )
+        parts.append(
+            f'<text class="tick" x="{xx:.2f}" y="168" text-anchor="middle">{100*value:.1f}%</text>'
+        )
+    for index, span in enumerate(needle_rows):
+        value = float(span["attention_mass"])
+        yy = bar_top + index * row_height
+        bar_width = max(1.0, mass_x(value) - left)
+        label = f'N{int(span["slot_index"])} · {html.escape(str(span["city"]))}'
+        parts.extend(
+            [
+                f'<text class="attention-span-row-label" x="{left-12}" y="{yy+16}" '
+                f'text-anchor="end">{label}</text>',
+                f'<rect class="attention-span-bar-bg" x="{left}" y="{yy+3}" '
+                f'width="{plot_width}" height="18"/>',
+                f'<rect class="attention-span-bar" x="{left}" y="{yy+3}" '
+                f'width="{bar_width:.2f}" height="18"><title>{label}; '
+                f'tokens {int(span["token_start"])}–{int(span["token_end"])-1}; '
+                f'{100*value:.3f}% of the complete attention row</title></rect>',
+                f'<text class="attention-bar-value" x="{min(width-right+8, left+bar_width+8):.2f}" '
+                f'y="{yy+17}">{100*value:.2f}%</text>',
+            ]
+        )
+    parts.extend(
+        [
+            f'<text class="axis-label" x="{left+plot_width/2:.2f}" y="{height-14}" text-anchor="middle">Span attention mass（占该 answer-query attention row 的百分比）</text>',
+            '</svg>',
+        ]
+    )
+    category_mass = attention["category_mass"]
+    return (
+        '<div class="attention-overview">'
+        '<div class="attention-example-head">'
+        f'<strong>Qwen3-8B · rank {int(selection["frozen_head_rank"])} · '
+        f'L{int(selection["layer"])}H{int(selection["head"])} · seed {int(selection["seed"])} · '
+        f'gold N={int(selection["gold_count"])}</strong>'
+        f'<span>needles {100*float(category_mass["active_needle"]):.1f}% · '
+        f'ordinary {100*float(category_mass["ordinary_passage"]):.1f}% · '
+        f'hard negatives {100*float(category_mass["hard_negative"]):.1f}%</span>'
+        '</div>'
+        f'{"".join(parts)}'
+        '<div class="attention-document-legend"><span class="legend-needle"></span>active needle span '
+        '<span class="legend-negative"></span>registered hard-negative span；'
+        '上图只画位置，下图的红条才是每条 needle 实际获得的 attention。</div>'
+        '</div>'
+    )
+
+
+def render_attention_gallery(
+    payload: dict[str, Any],
+    *,
+    gallery_id: str,
+    mode: str,
+) -> str:
+    """Render fixed gallery records with client-side head/prompt selectors."""
+
+    if mode not in {"overview", "tokens"}:
+        raise ValueError(f"Unsupported attention gallery mode: {mode}")
+    default_prompt = "V4_4_T10000_N6_seed1254"
+    default_head = "L27H18"
+    raw_span_max = max(
+        float(span["attention_mass"])
+        for record in payload["records"]
+        for span in record["attention"]["needle_rows"]
+    )
+    global_span_max = max(0.05, math.ceil(raw_span_max / 0.05) * 0.05)
+    panels: list[str] = []
+    for record in payload["records"]:
+        selection = record["selection"]
+        prompt_key = str(selection["stimulus_id"])
+        head_key = f'L{int(selection["layer"])}H{int(selection["head"])}'
+        active = prompt_key == default_prompt and head_key == default_head
+        content = (
+            render_attention_span_overview(
+                record,
+                global_span_max=global_span_max,
+            )
+            if mode == "overview"
+            else render_attention_token_example(record)
+        )
+        panels.append(
+            f'<div class="attention-gallery-panel" data-gallery-panel '
+            f'data-head="{head_key}" data-prompt="{prompt_key}"'
+            f'{"" if active else " hidden"}>{content}</div>'
+        )
+    return (
+        f'<div class="attention-gallery" data-attention-gallery id="{gallery_id}">'
+        f'{render_attention_gallery_controls(payload, gallery_id)}'
+        f'{"".join(panels)}'
+        '</div>'
+    )
+
+
 def classifier_data() -> dict[str, list[dict[str, str]]]:
     root = REPORTS / "v4_4_extension" / "classification"
     paths = {
@@ -736,6 +1057,108 @@ def build(output: Path) -> None:
         }
 
     classifiers = classifier_data()
+    classifier_oof_paths = {
+        "Qwen3-8B": (
+            extension
+            / "classification"
+            / "classification_all_qwen"
+            / "answer_classifier_oof_predictions.csv.gz"
+        ),
+        "Gemma4-E4B": (
+            extension
+            / "classification"
+            / "classification_all_gemma"
+            / "answer_classifier_oof_predictions.csv.gz"
+        ),
+    }
+    classifier_display_layers = {"Qwen3-8B": 29, "Gemma4-E4B": 37}
+    classifier_by_count: dict[str, list[dict[str, float | int]]] = {}
+    for model, path in classifier_oof_paths.items():
+        rows = [
+            row
+            for row in read_csv_gz(path)
+            if row["algorithm"] == "logistic_l2"
+            and int(row["layer"]) == classifier_display_layers[model]
+        ]
+        if len(rows) != 200:
+            raise RuntimeError(
+                f"Expected 200 grouped-OOF classifier rows for {model}; got {len(rows)}"
+            )
+        per_count: list[dict[str, float | int]] = []
+        for count in range(1, 11):
+            group = [row for row in rows if int(row["gold_count"]) == count]
+            if len(group) != 20:
+                raise RuntimeError(
+                    f"Expected 20 held-out classifier rows for {model} N={count}; got {len(group)}"
+                )
+            correct = sum(int(row["predicted_count"]) == count for row in group)
+            mae = sum(
+                abs(int(row["predicted_count"]) - count) for row in group
+            ) / len(group)
+            low, high = wilson_interval(correct, len(group))
+            per_count.append(
+                {
+                    "count": count,
+                    "correct": correct,
+                    "total": len(group),
+                    "accuracy": correct / len(group),
+                    "mae": mae,
+                    "ci_low": low,
+                    "ci_high": high,
+                }
+            )
+        classifier_by_count[model] = per_count
+    classifier_count_chart = svg_line_chart(
+        "Answer-query classifier accuracy by gold count",
+        "Grouped-OOF exact-count accuracy",
+        [
+            (
+                model,
+                [
+                    (float(row["count"]), float(row["accuracy"]))
+                    for row in classifier_by_count[model]
+                ],
+                color,
+                dash,
+            )
+            for model, color, dash in (
+                ("Qwen3-8B", "#0f766e", ""),
+                ("Gemma4-E4B", "#7c3aed", "6 5"),
+            )
+        ],
+        x_label="Gold count N",
+        x_value_prefix="N=",
+        x_ticks=list(range(1, 11)),
+        y_domain=(0.0, 1.05),
+        reference=(0.10, "ten-class chance"),
+        intervals={
+            model: [
+                (
+                    float(row["count"]),
+                    float(row["ci_low"]),
+                    float(row["ci_high"]),
+                    True,
+                )
+                for row in classifier_by_count[model]
+            ]
+            for model in classifier_by_count
+        },
+        interval_kind="binomial",
+        width=780,
+        height=350,
+    )
+    classifier_count_table_rows = "".join(
+        "<tr>"
+        f"<td>N={count}</td>"
+        + "".join(
+            f"<td>{int(next(row for row in classifier_by_count[model] if row['count'] == count)['correct'])}/20 "
+            f"({pct(next(row for row in classifier_by_count[model] if row['count'] == count)['accuracy'])})</td>"
+            f"<td>{f(next(row for row in classifier_by_count[model] if row['count'] == count)['mae'])}</td>"
+            for model in ("Qwen3-8B", "Gemma4-E4B")
+        )
+        + "</tr>"
+        for count in range(1, 11)
+    )
     regression = read_csv(extension / "geometry" / "count_regression_summary.csv")
     ranks = read_csv(extension / "geometry" / "rank_and_compression_by_layer.csv")
     clusters = read_csv(extension / "geometry" / "clustering_summary.csv")
@@ -1179,6 +1602,28 @@ def build(output: Path) -> None:
     topk_root = REPORTS / "v4_4_causal_v2" / "full_span_topk"
     topk = read_csv(topk_root / "full_span_topk_primary_statistics.csv")
     topk_membership = read_csv(topk_root / "full_span_topk_membership.csv")
+    additions_root = REPORTS / "v4_4_report_additions"
+    additions_audit = json.loads(
+        (additions_root / "report_additions_audit.json").read_text(encoding="utf-8")
+    )
+    if additions_audit.get("status") != "PASS":
+        raise RuntimeError("Report additions failed their source/coverage audit")
+    raw_topk = read_csv(additions_root / "full_span_topk_raw_arms.csv")
+    attention_gallery_payload = json.loads(
+        (additions_root / "qwen_attention_gallery.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    attention_span_gallery = render_attention_gallery(
+        attention_gallery_payload,
+        gallery_id="attention-span-gallery",
+        mode="overview",
+    )
+    attention_token_gallery = render_attention_gallery(
+        attention_gallery_payload,
+        gallery_id="attention-token-gallery",
+        mode="tokens",
+    )
     selected_heads = {
         "Qwen3-8B": [
             row for row in topk_membership
@@ -1192,6 +1637,7 @@ def build(output: Path) -> None:
     head_atlas = read_csv(REPORTS / "v4_4" / "realistic_niah_v4_head_atlas.csv")
     attention_maps: dict[str, str] = {}
     selected_head_tables: dict[str, str] = {}
+    eligible_head_counts: dict[str, int] = {}
     for model in ("Qwen3-8B", "Gemma4-E4B"):
         atlas_rows = [
             row for row in head_atlas
@@ -1199,6 +1645,11 @@ def build(output: Path) -> None:
             and row["variant"] == "v4.4"
             and row["pooling"] == "span_sum"
         ]
+        eligible_head_counts[model] = len(
+            {(int(row["layer"]), int(row["head"])) for row in atlas_rows}
+        )
+        if eligible_head_counts[model] <= 0:
+            raise RuntimeError(f"No discovery-eligible span-sum heads for {model}")
         attention_maps[model] = svg_head_score_map(model, atlas_rows, selected_heads[model])
         atlas_lookup = {
             (int(row["layer"]), int(row["head"])): row for row in atlas_rows
@@ -1210,92 +1661,207 @@ def build(output: Path) -> None:
             f"<td>{f(atlas_lookup[(int(row['layer']), int(row['head']))]['pool_primary'])}</td></tr>"
             for row in selected_heads[model]
         )
-    retrieval_series = []
-    retrieval_intervals: dict[str, list[tuple[float, float, float, bool]]] = {}
-    for model, color, dash in (
-        ("Qwen3-8B", "#0f766e", ""),
-        ("Gemma4-E4B", "#7c3aed", "6 5"),
+    retrieval_charts: dict[str, str] = {}
+    retrieval_damage_charts: dict[str, str] = {}
+    for model, color in (
+        ("Qwen3-8B", "#0f766e"),
+        ("Gemma4-E4B", "#7c3aed"),
     ):
+        denominator = eligible_head_counts[model]
         rows = [
             row
             for row in topk
             if row["model_label"] == model and row["analysis_population"] == "all_examples_signed"
         ]
         rows.sort(key=lambda row: int(row["top_n"]))
-        retrieval_series.append(
+        intervals = [
             (
-                model,
-                [(float(row["top_n"]), float(row["primary_effect"])) for row in rows],
-                color,
-                dash,
-            )
-        )
-        retrieval_intervals[model] = [
-            (
-                float(row["top_n"]),
+                float(row["top_n"]) / denominator,
                 float(row["ci95_low"]),
                 float(row["ci95_high"]),
                 float(row["exact_sign_flip_p"]) < 0.05,
             )
             for row in rows
         ]
-    retrieval_chart = svg_line_chart(
-        "Broad-head ranked ablation dose",
-        "Δ absolute count shift vs matched random heads",
-        retrieval_series,
-        x_label="Number of ablated heads K",
-        x_value_prefix="K",
-        x_ticks=[1, 2, 4, 8, 16, 32],
-        y_domain=(-0.15, 2.25),
-        reference=(0.0, "no excess shift"),
-        intervals=retrieval_intervals,
-        width=760,
-        height=340,
-    )
+        raw_shift = {
+            condition: sorted(
+                [
+                    row
+                    for row in raw_topk
+                    if row["model_label"] == model
+                    and row["metric"] == "absolute_count_shift"
+                    and row["condition"] == condition
+                ],
+                key=lambda row: int(row["top_n"]),
+            )
+            for condition in ("ranked", "layer_matched_random")
+        }
+        if any(len(condition_rows) != 6 for condition_rows in raw_shift.values()):
+            raise RuntimeError(f"Incomplete raw top-K shift arms for {model}")
+        raw_shift_intervals = {
+            label: [
+                (
+                    float(row["head_proportion"]),
+                    float(row["ci95_low"]),
+                    float(row["ci95_high"]),
+                    True,
+                )
+                for row in raw_shift[condition]
+            ]
+            for label, condition in (
+                ("ranked top-K (raw)", "ranked"),
+                ("layer-matched random (raw)", "layer_matched_random"),
+            )
+        }
+        max_prop = 32 / denominator
+        ticks = [max_prop * index / 4 for index in range(5)]
+        retrieval_charts[model] = svg_line_chart(
+            f"{model} broad-head raw arms and ranked-minus-random contrast",
+            "absolute count shift / contrast (counts)",
+            [
+                (
+                    "ranked top-K (raw)",
+                    [
+                        (float(row["head_proportion"]), float(row["mean"]))
+                        for row in raw_shift["ranked"]
+                    ],
+                    color,
+                    "",
+                ),
+                (
+                    "layer-matched random (raw)",
+                    [
+                        (float(row["head_proportion"]), float(row["mean"]))
+                        for row in raw_shift["layer_matched_random"]
+                    ],
+                    "#64748b",
+                    "7 4",
+                ),
+                (
+                    "ranked − random",
+                    [
+                        (
+                            float(row["top_n"]) / denominator,
+                            float(row["primary_effect"]),
+                        )
+                        for row in rows
+                    ],
+                    "#d97706",
+                    "2 4",
+                )
+            ],
+            x_label=f"Ablated share of discovery-eligible heads (H={denominator})",
+            x_ticks=ticks,
+            x_domain=(0.0, max_prop),
+            y_domain=(-0.15, 2.45),
+            reference=(0.0, "zero shift / zero contrast"),
+            intervals={**raw_shift_intervals, "ranked − random": intervals},
+            interval_kinds={
+                "ranked top-K (raw)": "bootstrap",
+                "layer-matched random (raw)": "bootstrap",
+                "ranked − random": "effect",
+            },
+            x_as_percent=True,
+            width=760,
+            height=320,
+        )
 
-    retrieval_damage_series = []
-    retrieval_damage_intervals: dict[str, list[tuple[float, float, float, bool]]] = {}
-    for model, color, dash in (
-        ("Qwen3-8B", "#0f766e", ""),
-        ("Gemma4-E4B", "#7c3aed", "6 5"),
-    ):
-        rows = [
+        damage_rows = [
             row
             for row in topk
             if row["model_label"] == model
             and row["analysis_population"] == "clean_correct_only"
         ]
-        rows.sort(key=lambda row: int(row["top_n"]))
-        retrieval_damage_series.append(
+        damage_rows.sort(key=lambda row: int(row["top_n"]))
+        damage_intervals = [
             (
-                model,
-                [(float(row["top_n"]), float(row["primary_effect"])) for row in rows],
-                color,
-                dash,
-            )
-        )
-        retrieval_damage_intervals[model] = [
-            (
-                float(row["top_n"]),
+                float(row["top_n"]) / denominator,
                 float(row["ci95_low"]),
                 float(row["ci95_high"]),
                 float(row["exact_sign_flip_p"]) < 0.05,
             )
-            for row in rows
+            for row in damage_rows
         ]
-    retrieval_damage_chart = svg_line_chart(
-        "Broad-head ablation on clean-correct examples",
-        "Δ correct→wrong rate vs matched random",
-        retrieval_damage_series,
-        x_label="Number of ablated heads K",
-        x_value_prefix="K",
-        x_ticks=[1, 2, 4, 8, 16, 32],
-        y_domain=(-0.12, 0.75),
-        reference=(0.0, "no excess accuracy damage"),
-        intervals=retrieval_damage_intervals,
-        width=760,
-        height=340,
-    )
+        raw_damage = {
+            condition: sorted(
+                [
+                    row
+                    for row in raw_topk
+                    if row["model_label"] == model
+                    and row["metric"] == "clean_correct_to_wrong_rate"
+                    and row["condition"] == condition
+                ],
+                key=lambda row: int(row["top_n"]),
+            )
+            for condition in ("ranked", "layer_matched_random")
+        }
+        if any(len(condition_rows) != 6 for condition_rows in raw_damage.values()):
+            raise RuntimeError(f"Incomplete raw top-K damage arms for {model}")
+        raw_damage_intervals = {
+            label: [
+                (
+                    float(row["head_proportion"]),
+                    float(row["ci95_low"]),
+                    float(row["ci95_high"]),
+                    True,
+                )
+                for row in raw_damage[condition]
+            ]
+            for label, condition in (
+                ("ranked top-K (raw)", "ranked"),
+                ("layer-matched random (raw)", "layer_matched_random"),
+            )
+        }
+        retrieval_damage_charts[model] = svg_line_chart(
+            f"{model} clean-correct raw damage arms and contrast",
+            "correct→wrong rate / contrast",
+            [
+                (
+                    "ranked top-K (raw)",
+                    [
+                        (float(row["head_proportion"]), float(row["mean"]))
+                        for row in raw_damage["ranked"]
+                    ],
+                    color,
+                    "",
+                ),
+                (
+                    "layer-matched random (raw)",
+                    [
+                        (float(row["head_proportion"]), float(row["mean"]))
+                        for row in raw_damage["layer_matched_random"]
+                    ],
+                    "#64748b",
+                    "7 4",
+                ),
+                (
+                    "ranked − random",
+                    [
+                        (
+                            float(row["top_n"]) / denominator,
+                            float(row["primary_effect"]),
+                        )
+                        for row in damage_rows
+                    ],
+                    "#d97706",
+                    "2 4",
+                )
+            ],
+            x_label=f"Ablated share of discovery-eligible heads (H={denominator})",
+            x_ticks=ticks,
+            x_domain=(0.0, max_prop),
+            y_domain=(-0.12, 0.85),
+            reference=(0.0, "zero damage / zero contrast"),
+            intervals={**raw_damage_intervals, "ranked − random": damage_intervals},
+            interval_kinds={
+                "ranked top-K (raw)": "bootstrap",
+                "layer-matched random (raw)": "bootstrap",
+                "ranked − random": "effect",
+            },
+            x_as_percent=True,
+            width=760,
+            height=320,
+        )
 
     topk_result_rows: list[str] = []
     for model in ("Qwen3-8B", "Gemma4-E4B"):
@@ -2293,6 +2859,56 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
 .ci-dot {{ stroke-width:1.5; }}
 .legend-line {{ stroke-width:2.4; }}
 .bar {{ opacity:.88; }}
+.attention-example {{ border:1px solid var(--line); background:#fff; }}
+.attention-example-head {{ display:flex; justify-content:space-between; gap:18px; padding:14px 16px; border-bottom:1px solid var(--line); background:#f8fafc; }}
+.attention-example-head span {{ color:#667085; font-size:12px; }}
+.attention-summary {{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; padding:14px 16px; }}
+.attention-summary-item {{ padding:9px 10px; border:1px solid #e4e8ef; background:#fbfcfe; }}
+.attention-summary-item strong,.attention-summary-item span {{ display:block; }}
+.attention-summary-item strong {{ font-size:11px; }}
+.attention-summary-item span {{ color:#475467; font-size:14px; font-variant-numeric:tabular-nums; }}
+.attention-mass-track {{ height:5px; margin-top:6px; overflow:hidden; background:#e8edf3; }}
+.attention-mass-track i {{ display:block; height:100%; background:#b42318; }}
+.attention-token-legend {{ padding:0 16px 12px; color:#667085; font-size:12px; }}
+.attention-token-legend > span {{ display:inline-block; width:35px; height:11px; margin-right:7px; vertical-align:-1px; background:linear-gradient(90deg,rgba(180,35,24,.08),rgba(180,35,24,.94)); }}
+.attention-needle-list {{ border-top:1px solid #e7ebf0; }}
+.needle-attention-row {{ display:grid; grid-template-columns:150px 1fr; gap:12px; padding:10px 16px; border-bottom:1px solid #edf0f4; }}
+.needle-attention-meta strong,.needle-attention-meta span {{ display:block; }}
+.needle-attention-meta strong {{ font-size:12px; }}
+.needle-attention-meta span {{ color:#667085; font-size:11px; font-variant-numeric:tabular-nums; }}
+.needle-token-line {{ display:flex; flex-wrap:wrap; align-content:flex-start; gap:2px; }}
+.attention-token {{ display:inline-block; min-width:8px; padding:2px 3px; border-radius:2px; font:600 11px ui-monospace,SFMono-Regular,Consolas,monospace; cursor:help; }}
+.top-token-list {{ columns:2; padding:0 38px 15px; color:#475467; font-size:12px; }}
+.token-region {{ color:#667085; }}
+.attention-gallery-controls {{ display:flex; align-items:end; gap:14px; flex-wrap:wrap; padding:14px 16px; border:1px solid var(--line); border-bottom:0; background:#f8fafc; }}
+.attention-gallery-controls label {{ color:#344054; font-size:12px; font-weight:700; }}
+.attention-gallery-controls select {{ display:block; min-width:205px; margin-top:5px; padding:7px 9px; border:1px solid #b8c1cf; background:#fff; color:var(--ink); }}
+.attention-gallery-controls > span {{ margin-left:auto; color:#667085; font-size:12px; }}
+.attention-gallery-panel[hidden] {{ display:none !important; }}
+.attention-overview {{ border:1px solid var(--line); background:#fff; }}
+.attention-document-map {{ display:block; width:100%; height:auto; background:#fff; }}
+.attention-panel-label {{ fill:#172033; font-size:13px; font-weight:700; }}
+.attention-position-track {{ fill:#edf1f6; stroke:#cfd6e2; }}
+.attention-position-tick {{ stroke:#98a2b3; stroke-width:1; }}
+.attention-needle-block {{ fill:#d92d20; opacity:.86; }}
+.attention-hard-negative-tick {{ fill:#fdb022; opacity:.65; }}
+.attention-needle-label {{ fill:#7a271a; font-size:10px; font-weight:700; }}
+.attention-span-row-label {{ fill:#344054; font-size:11px; font-weight:650; }}
+.attention-span-bar-bg {{ fill:#f1f3f6; }}
+.attention-span-bar {{ fill:#d92d20; opacity:.86; }}
+.attention-bar-value {{ fill:#7a271a; font-size:11px; font-weight:700; font-variant-numeric:tabular-nums; }}
+.attention-document-legend {{ display:flex; gap:9px; align-items:center; flex-wrap:wrap; padding:0 16px 12px; color:#667085; font-size:11px; }}
+.attention-document-legend span {{ display:inline-block; width:18px; height:9px; margin-left:8px; }}
+.attention-document-legend .legend-needle {{ margin-left:0; background:#d92d20; opacity:.86; }}
+.attention-document-legend .legend-negative {{ background:#fdb022; opacity:.55; }}
+.hidden-state-chain {{ display:grid; grid-template-columns:minmax(0,1fr) 190px minmax(0,1fr) 190px minmax(0,1fr); gap:10px; align-items:stretch; margin:20px 0; }}
+.hidden-state-node,.hidden-state-arrow {{ padding:14px; border:1px solid var(--line); background:#fbfcfe; }}
+.hidden-state-node {{ border-top:4px solid var(--teal); }}
+.hidden-state-node strong,.hidden-state-arrow strong {{ display:block; margin-bottom:5px; }}
+.hidden-state-node small,.hidden-state-arrow small {{ color:#667085; }}
+.hidden-state-arrow {{ position:relative; background:#f8fafc; color:#344054; font-size:12px; }}
+.hidden-state-arrow::after {{ content:"→"; position:absolute; right:-9px; top:42%; z-index:1; color:#98a2b3; font-size:19px; }}
+.hidden-state-arrow:last-of-type::after {{ display:block; }}
 .experiment {{ display:grid; grid-template-columns:150px 1fr; gap:18px; margin:18px 0; padding:18px 0; border-top:1px solid #e7ebf0; }}
 .experiment-label {{ color:var(--muted); font:600 12px ui-monospace,SFMono-Regular,Consolas,monospace; text-transform:uppercase; letter-spacing:.08em; }}
 .experiment h4 {{ margin:0 0 6px; }}
@@ -2335,7 +2951,7 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
 .extension-audit td:nth-child(2) {{ min-width:190px; font-weight:650; }}
 .extension-audit td:nth-child(4) {{ min-width:260px; }}
 .extension-audit td:nth-child(5),.extension-audit td:nth-child(6) {{ min-width:230px; }}
-@media(max-width:900px) {{ header,main {{ padding-left:28px; padding-right:28px; }} nav {{ padding-left:28px; }} .mechanism,.figure-grid,.chart-pair,.result-grid,.audit-summary,.contrast-grid,.reading-protocol,.evidence-triad,.figure-primer-grid,.paper-flow {{ grid-template-columns:1fr; }} .paper-prompt {{ grid-template-columns:1fr 1fr; }} .paper-step::after,.stage::after {{ display:none; }} .layer-lane {{ grid-template-columns:1fr 1fr; }} .lane-model {{ grid-column:1/-1; }} .figure-primer .primer-example {{ padding-left:0; padding-top:10px; border-left:0; border-top:1px solid #b8d9d5; }} .protocol-step,.triad-step {{ border-right:0; border-bottom:1px solid var(--line); }} .protocol-step:last-child,.triad-step:last-child {{ border-bottom:0; }} .chain-row {{ grid-template-columns:1fr; }} .chain-row.header {{ display:none; }} .chain-row > div {{ border-right:0; padding:9px 14px; }} .chain-row > div::before {{ display:block; color:#8791a3; font-size:10px; font-weight:700; text-transform:uppercase; }} .chain-row > div:nth-child(2)::before {{ content:"Mechanism"; }} .chain-row > div:nth-child(3)::before {{ content:"Representation"; }} .chain-row > div:nth-child(4)::before {{ content:"Causal test"; }} .chain-row > div:nth-child(5)::before {{ content:"Status"; }} .path {{ grid-template-columns:1fr; }} .node::after {{ display:none; }} .source-list {{ columns:1; }} }}
+@media(max-width:900px) {{ header,main {{ padding-left:28px; padding-right:28px; }} nav {{ padding-left:28px; }} .mechanism,.figure-grid,.chart-pair,.result-grid,.audit-summary,.contrast-grid,.reading-protocol,.evidence-triad,.figure-primer-grid,.paper-flow,.attention-summary,.attention-span-cards,.hidden-state-chain {{ grid-template-columns:1fr; }} .paper-prompt {{ grid-template-columns:1fr 1fr; }} .paper-step::after,.stage::after,.hidden-state-arrow::after {{ display:none; }} .layer-lane {{ grid-template-columns:1fr 1fr; }} .lane-model {{ grid-column:1/-1; }} .figure-primer .primer-example {{ padding-left:0; padding-top:10px; border-left:0; border-top:1px solid #b8d9d5; }} .protocol-step,.triad-step {{ border-right:0; border-bottom:1px solid var(--line); }} .protocol-step:last-child,.triad-step:last-child {{ border-bottom:0; }} .chain-row {{ grid-template-columns:1fr; }} .chain-row.header {{ display:none; }} .chain-row > div {{ border-right:0; padding:9px 14px; }} .chain-row > div::before {{ display:block; color:#8791a3; font-size:10px; font-weight:700; text-transform:uppercase; }} .chain-row > div:nth-child(2)::before {{ content:"Mechanism"; }} .chain-row > div:nth-child(3)::before {{ content:"Representation"; }} .chain-row > div:nth-child(4)::before {{ content:"Causal test"; }} .chain-row > div:nth-child(5)::before {{ content:"Status"; }} .path {{ grid-template-columns:1fr; }} .node::after {{ display:none; }} .source-list {{ columns:1; }} .needle-attention-row {{ grid-template-columns:1fr; }} .top-token-list {{ columns:1; }} .attention-gallery-controls > span {{ margin-left:0; width:100%; }} }}
 @media(max-width:560px) {{ .page {{ width:100%; margin:0; }} header,main {{ padding-left:18px; padding-right:18px; }} nav {{ padding-left:18px; }} h1 {{ font-size:34px; }} h2 {{ font-size:27px; }} .experiment,.chain-purpose {{ grid-template-columns:1fr; gap:5px; }} .three-d canvas {{ height:380px; }} .contrast-branches {{ grid-template-columns:1fr; }} .contrast-arm {{ min-height:0; }} }}
 @media print {{ body {{ background:#fff; }} .page {{ width:100%; margin:0; box-shadow:none; }} nav {{ display:none; }} section,figure {{ break-inside:avoid; }} }}
 </style>
@@ -2346,7 +2962,7 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
   <p class="eyebrow">Realistic NIAH · Non-thinking V4.4/V4.4.5 · Mechanistic analysis</p>
   <h1>Non-thinking 模型如何计数：分布式证据、广域检索与晚层写入</h1>
   <p class="dek">本报告按计算机制而非实验产生顺序组织证据：先给出可证伪的分阶段机制与层段总图，再依次检验 prompt-side evidence formation、answer-query retrieval、multi-head aggregation、late consolidation 与 architecture-specific write。全文严格区分 <strong>representation decodability、causal use、sufficiency 与 mediation</strong>，避免把可读方向直接解释为模型实际使用的计数器。</p>
-  <div class="meta"><span>模型：Qwen3-8B / Gemma4-E4B</span><span>计数范围：1–10</span><span>canonical seeds：1234–1263</span><span>位置：needle end / <code>Total:</code> 后首数字前</span><span>更新：2026-08-15</span></div>
+  <div class="meta"><span>模型：Qwen3-8B / Gemma4-E4B</span><span>计数范围：1–10</span><span>canonical seeds：1234–1263</span><span>位置：needle end / <code>Total:</code> 后首数字前</span><span>更新：2026-08-17</span></div>
 </header>
 <nav aria-label="report sections">
   <a href="#summary">机制总图</a><a href="#baseline">任务与行为</a><a href="#representation">通用表征判据</a><a href="#formation">链 A · form</a>
@@ -2376,7 +2992,7 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
         <div class="paper-token">Needle span N</div><div class="paper-token query">Answer query<br><code>Total:</code></div>
       </div>
       <div class="paper-flow">
-        <div class="paper-step"><strong>I · FORM</strong><span>每条完整 needle span 形成带 occurrence-order 信息的分布式 evidence；endpoint 只是容易读取的观测点。</span><span class="operation">写在多个 prompt token states 中</span></div>
+        <div class="paper-step"><strong>I · FORM</strong><span>Needle 文本经过前若干 blocks 后，改变该 span 内多个 token 的 residual hidden states，形成带 occurrence-order 信息的分布式 evidence；endpoint 只是容易读取的观测点。</span><span class="operation">needle input → H<sub>span</sub><sup>(ℓ)</sup></span></div>
         <div class="paper-step"><strong>II · RETRIEVE</strong><span>末尾 answer query 通过多个 broad heads 的 Q→K routing，同时回看多条 active spans。</span><span class="operation">决定“从哪些远端位置读取”</span></div>
         <div class="paper-step"><strong>IIb · AGGREGATE</strong><span>各 head 取到的 V-content 经 W<sub>O</sub> 写入，并在 answer-query residual 中相加；其中只有一部分落入 frozen count-aligned subspace。</span><span class="operation">Σ<sub>h</sub> W<sub>O,h</sub>(α<sub>h</sub>V<sub>h</sub>)</span></div>
         <div class="paper-step"><strong>III · CONSOLIDATE</strong><span>聚合结果在后续 blocks 中重参数化，逐渐形成可被 donor patch 接管、且对 count-aligned removal 敏感的 late-answer state。</span><span class="operation">从 noisy retrieved content 到可执行 count state</span></div>
@@ -2400,10 +3016,10 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
       </div>
       <p class="lane-note">层号均为 zero-based empirical landmarks。色块表示当前实验能支持的大致功能窗口，允许重叠；它们不是硬边界，也不声称每个区间内所有 heads 都执行同一功能。</p>
     </div>
-    <figcaption>上半部分画<strong>信息如何流动</strong>：完整 needle spans 提供分布式 evidence；answer query 的 broad attention 负责 retrieval；多头 post-O writes 在同一 query residual 中完成 aggregation；后续 blocks 将其重参数化为可执行的 late count state；最后再写向数字 logits。下半部分把这条功能链映射到两个模型的已验证层段。Qwen 的 source→retrieval 交接较渐进且晚层写入较局部；Gemma 的 source reuse 在 L16→17 陡降，而后续写入更分布式。范围来自 dense restoration、retrieval-subspace、answer-state patch/removal 与 OV/residual mediation 的联合证据，不是仅凭 classifier 峰值划分。</figcaption>
+    <figcaption>上半部分画<strong>信息如何流动</strong>：输入中的 needle 内容先改变相应 span-token hidden states；这些分布式 states 成为可复用 evidence；answer query 的 broad attention 负责 retrieval；多头 post-O writes 在同一 query residual 中完成 aggregation；后续 blocks 将其重参数化为可执行的 late count state；最后再写向数字 logits。下半部分把这条功能链映射到两个模型的已验证层段。Qwen 的 source→retrieval 交接较渐进且晚层写入较局部；Gemma 的 source reuse 在 L16→17 陡降，而后续写入更分布式。范围来自 input corruption、dense hidden-state restoration、retrieval-subspace、answer-state patch/removal 与 OV/residual mediation 的联合证据，不是仅凭 classifier 峰值划分。</figcaption>
   </figure>
   <div class="mechanism" role="img" aria-label="四阶段 non-thinking 计数机制：形成、检索、整合和写入输出">
-    <div class="stage"><span class="stage-no">STAGE I · FORM</span><h3>分布式 span evidence</h3><p>阅读每条 needle 时，局部 endpoint 很早出现 running-index ordering；真正能救回行为的 source unit 却是完整 span，而不是 endpoint 的冻结三维方向。</p><span class="evidence">readable endpoint · causal full span</span></div>
+    <div class="stage"><span class="stage-no">STAGE I · FORM</span><h3>Needle → 分布式 span state</h3><p>等长替换 needle 输入会改变对应 span 的内部 states；在保持 corrupt 输入不变时，把 clean full-span states 写回又能救答案。局部 endpoint 很早出现 running-index ordering，但它只是 readout，不是已确认的唯一 mediator。</p><span class="evidence">input→state contrast · state→count patch</span></div>
     <div class="stage"><span class="stage-no">STAGE II · RETRIEVE</span><h3>Answer query 广域取回</h3><p>多个 frozen broad heads 同时向多个 active spans 分配 attention，并把一部分 count-aligned content 写入 answer-query residual。</p><span class="evidence">partial natural aggregation path</span></div>
     <div class="stage"><span class="stage-no">STAGE III · CONSOLIDATE</span><h3>形成可执行 answer state</h3><p>中后层 count state 逐渐变得可 donor-transfer、对 aligned removal 敏感，并能沿相邻 block 选择性传播；坐标在跨层过程中继续变化。</p><span class="evidence">sufficient · direction-specific use</span></div>
     <div class="stage"><span class="stage-no">STAGE IV · WRITE</span><h3>模型特定的最终写入</h3><p>Qwen 可定位较局部的 L28 H16/H19 OV path；Gemma 有 head-level participation，但可确认的主要中介是 L37 以后更分布式的 residual path。</p><span class="evidence">same function · different granularity</span></div>
@@ -2420,7 +3036,7 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
   <h3>四条逻辑链及其判定门槛</h3>
   <div class="chain-map" role="table" aria-label="Four mechanism chains and their evidence gates">
     <div class="chain-row header" role="row"><div>Chain</div><div>Mechanism</div><div>Representation prediction</div><div>Decisive causal test</div><div>Status</div></div>
-    <div class="chain-row" role="row"><div class="chain-name">A · FORM</div><div>完整 needle spans 保存可复用的 occurrence evidence。</div><div>Endpoint running index 可读，但带 position/context noise。</div><div>Active-span corruption、full-span restoration、endpoint-vs-span contrast。</div><div class="chain-status">支持 span；否定局部 endpoint register</div></div>
+    <div class="chain-row" role="row"><div class="chain-name">A · FORM</div><div>Needle 输入先改变完整 span 内的多-token hidden states；这些 states 保存可复用的 occurrence evidence。</div><div>Clean/corrupt span states 不同；endpoint running index 可读，但带 position/context noise。</div><div>等长 active-span input corruption 建立 needle→state；固定 corrupt 输入的 clean full-span state patch 建立 state→count。</div><div class="chain-status">两步链在 span-state 粒度受支持；局部 endpoint register 不受支持</div></div>
     <div class="chain-row" role="row"><div class="chain-name">B · RETRIEVE</div><div>Answer query 经 broad head bank 聚合多个 spans。</div><div>Broad score 与合计 post-O write 携带 noisy final-count geometry。</div><div>Top-K vs layer-matched random；aligned vs equal-norm orthogonal；source mediation。</div><div class="chain-status">支持一条部分路径</div></div>
     <div class="chain-row" role="row"><div class="chain-name">C · CONSOLIDATE</div><div>Retrieval 结果被重写成晚层可执行 answer state。</div><div>Final count decodability、centroid map 和局部方向连续性在晚层增强。</div><div>Full-state donor patch、rank-3 removal、aligned one-block transport。</div><div class="chain-status">支持可执行晚层状态</div></div>
     <div class="chain-row" role="row"><div class="chain-name">D · WRITE</div><div>模型特定 writer/residual path 把 answer state 推向输出。</div><div>Natural head/residual carrier 随 count 有序变化。</div><div>Signed injection、matched removal、上游效应 mediation。</div><div class="chain-status">Qwen 局部；Gemma 分布式</div></div>
@@ -2503,6 +3119,8 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
   <div class="table-wrap"><table><thead><tr><th>Model</th><th>Site / layer</th><th>Ridge R²</th><th>Ridge MAD</th><th>PCA rank-3: all states</th><th>PCA rank-3: centroids</th><th>Stable rank</th><th>η² count</th><th>Cosine silhouette</th></tr></thead><tbody>{prompt_geometry_table_rows}</tbody></table></div>
   <h4>Answer-query final-count geometry（exact classifiers + manifold quantities）</h4>
   <div class="table-wrap"><table><thead><tr><th>Model</th><th>Site / layer</th><th>L2-logistic acc.</th><th>L2-logistic MAD</th><th>Nearest-centroid acc.</th><th>Nearest-centroid MAD</th><th>Ridge R²</th><th>Ridge MAD</th><th>PCA rank-3: all states</th><th>PCA rank-3: centroids</th><th>Stable rank</th><th>η² count</th><th>Cosine silhouette</th></tr></thead><tbody>{answer_geometry_table_rows}</tbody></table></div>
+  <figure><h4 class="figure-title">图 2c · Answer-query classifier accuracy 随 gold count 的变化</h4>{classifier_count_chart}<figcaption>横轴是 gold count N=1,…,10；纵轴是预注册代表层 Qwen L29 / Gemma L37 的 L2-logistic grouped-OOF exact-count accuracy。每个点恰有 20 个 held-out seed predictions；竖线为该 20-trial proportion 的 pointwise 95% Wilson interval，虚线 0.10 是十类 chance。Classifier 在每个 fold 内只用训练 seeds 拟合 scaler、PCA-32 与 logistic weights，held-out seed 不参与拟合。该图按 gold count 拆开整体 56%/53% accuracy，仍然只衡量 hidden-state clouds 的可分性，不是模型最终行为 accuracy。</figcaption></figure>
+  <details class="collapsible-list"><summary>展开：每个 count 的命中数与 classifier MAD</summary><div class="table-wrap"><table><thead><tr><th>Gold count</th><th>Qwen correct / 20</th><th>Qwen MAD</th><th>Gemma correct / 20</th><th>Gemma MAD</th></tr></thead><tbody>{classifier_count_table_rows}</tbody></table></div><p><strong>结果与分析。</strong>两模型在 N=1–3 最容易区分：Qwen 平均 91.7%，Gemma 90.0%；N=4–9 分别降至 36.7%/31.7%。但曲线<strong>不是单调下降</strong>：N=10 回升到 Qwen 60% 与 Gemma 70%。这类边界反弹可能来自最高类别没有更大的邻近 count、以及训练决策边界的端点效应；当前数据没有把这两个解释单独拆开。每个 count 只有 20 个 held-out predictions，因此应同时看 Wilson interval，而不能把相邻 5–10 percentage points 的差异当成稳定层级。</p><p><strong>目前结论。</strong>“N 越大越难”作为粗略趋势在中间与高 count 上成立，但严格的单调命题不成立。更准确的说法是：non-thinking answer manifold 对小 counts 最可分，中高 counts 的 clouds 重叠明显增大，而最高边界 N=10 出现可复现的分类回升。后续与 native thinking 比较时应逐 count 复用同一 split，而不只比较一个 overall accuracy。</p></details>
   <h4>V4.4.5 reused-state display-only 三维层</h4>
   <div class="table-wrap"><table><thead><tr><th>Model</th><th>Display layer</th><th>Confirmation 3-PC nearest-centroid accuracy</th><th>Integer MAD</th><th>Discovery rank-3 all-state capture</th></tr></thead><tbody>{answer_reuse_rows}</tbody></table></div>
   <p>这张补充表复用 canonical dense run 的每模型 300 个 clean natural forwards（共 23,400 个 layer-state rows）；basis 只在 discovery seeds 1234–1253 拟合，数值在 confirmation seeds 1254–1263 计算。层是按 confirmation 三维 nearest-centroid accuracy 最大化后选出的，所以 61%/63% <strong>只用于选择最好看的三维展示层</strong>。后续与 native thinking 做正式比较时，应预先冻结相同的 layer-selection 与 held-out-seed protocol，而不使用这两个 post-hoc display 数值。</p>
@@ -2557,7 +3175,23 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
   <div class="formula"><strong>Earlier-span preference。</strong>在当前 needle endpoint query 上，将全部较早 active-needle spans 的 attention mass 记为 <span class="math">A_{{needle}}</span>，将长度和相对位置匹配的 ordinary spans mass 记为 <span class="math">A_{{control}}</span>；preference=<span class="math">A_{{needle}}−A_{{control}}</span>，再先在 seed 内平均 occurrence rows、后跨 seeds 平均。<span class="example">例：某 head 对 earlier needles 的总 mass=0.80，对 matched ordinary spans 的 mass=0.10，则 preference=0.70。</span></div>
   <div class="experiment"><div class="experiment-label">Experiment 1A · representation</div><div><h4>Earlier-span attention：endpoint 在形成时会回看此前 evidence</h4><p><strong>目的。</strong>检查当前 needle endpoint 的候选 heads 是否优先读取此前 active needles。<strong>设置。</strong>在同一 query/head/layer 内，用长度和相对位置匹配的 ordinary spans 作 control；heads 只在 discovery seeds 冻结。<strong>结果。</strong>confirmation 中最强 Qwen head 为 L{earlier_qwen['layer']}H{earlier_qwen['head']}，preference={f(earlier_qwen['confirmation_preference_mean'])}（区间 {ci(earlier_qwen,'ci95_low','ci95_high')}）；Gemma 为 L{earlier_gemma['layer']}H{earlier_gemma['head']}，preference={f(earlier_gemma['confirmation_preference_mean'])}（{ci(earlier_gemma,'ci95_low','ci95_high')}）。<strong>分析与目前结论。</strong>这支持“当前 occurrence state 的形成会参考此前 needles”，但 attention preference 仍是 routing representation，不能证明该单头保存完整整数或对输出必要。</p></div></div>
 
-  <div class="step-heading"><span class="step-kicker">03 · Causal test</span><h3>3.3 Active evidence、endpoint direction 与 full span 的因果对照</h3></div>
+  <div class="step-heading"><span class="step-kicker">03 · Causal test</span><h3 id="hidden-state-causal-status">3.3 Needle → span hidden state → count：两个箭头分别如何因果检验？</h3></div>
+  <p class="lead">这里把 hidden state 明确放在逻辑链中间，并用<strong>两个不同的干预</strong>检验两个箭头。第一步改变输入中的 needle 内容，观察模型得到 clean 与 corrupt 两组 span states；第二步保持 corrupt 输入不变，只把 clean span states 写回网络内部，观察最终 count 是否被修复。Endpoint PCA 曲线只是这些高维 states 的一个可视化 readout，不被强行放成必经中介。</p>
+  <div class="hidden-state-chain" aria-label="Two-step causal chain from needle input through span hidden states to predicted count">
+    <div class="hidden-state-node"><strong>输入：needle spans</strong><small>长文本中真正应计数的 records</small></div>
+    <div class="hidden-state-arrow"><strong>箭头 A · input → state</strong><small>把 active needles 等长替换为 ordinary text；其余 prompt、长度与 query 位置不变。比较同层 H<sup>clean</sup><sub>span</sub> 与 H<sup>corrupt</sup><sub>span</sub>。</small></div>
+    <div class="hidden-state-node"><strong>中间变量：H<sup>(ℓ)</sup><sub>span</sub></strong><small>该层所有 active-span token 的完整 residual vectors；不是单个 endpoint，也不是仅 PC1–PC3。</small></div>
+    <div class="hidden-state-arrow"><strong>箭头 B · state → count</strong><small>固定 corrupt 输入，只在 Lℓ 把 H<sup>clean</sup><sub>span</sub> 写回一次；后续自由运行，并与等 token-budget ordinary-state patch 比较。</small></div>
+    <div class="hidden-state-node"><strong>结果：predicted count</strong><small>十个数字候选的 expected count 与严格生成答案</small></div>
+  </div>
+  <div class="table-wrap"><table><thead><tr><th>逻辑箭头</th><th>目前证据</th><th>因果状态</th><th>严谨结论</th></tr></thead><tbody>
+    <tr><td>Needle content → 完整 span hidden states</td><td>同一 seed/count 的 clean forward 与等长 active-needle replacement forward；逐层保存两者在同一 span positions 的 residual tensors</td><td><strong>Input intervention 直接定义了 clean–corrupt state contrast</strong></td><td>模型是确定性 forward；两次运行只在 registered needle input positions 不同，因此 <span class="math">ΔH<sub>span</sub><sup>(ℓ)</sup>=H<sub>span</sub><sup>clean</sup>−H<sub>span</sub><sup>corrupt</sup></span> 是 needle 内容造成的内部 state change。报告不把其范数当作机制强度；决定性检验是下一行能否利用这组 state difference。</td></tr>
+    <tr><td>完整 needle-span hidden states → prediction</td><td>固定 corrupt 输入；逐层 full-span clean-state restoration；endpoint 与 token-budget-matched ordinary restoration controls</td><td><strong>Span-state → count 已直接因果验证</strong></td><td>仅改变内部 H<sup>(ℓ)</sup><sub>span</sub> 就能在早层显著救回答案；因此完整多-token span state 是可用的 causal source。尚未定位其中哪一个 token、方向或非线性 feature 承担作用。</td></tr>
+    <tr><td>Span hidden states → downstream retrieval</td><td>同一次 restored forward 中重新读取 frozen broad bank 的 active-needle mass 与多-span coverage</td><td><strong>State patch 的下游因果响应已验证</strong></td><td>早层 clean span-state patch 会重新配置后续 answer-query retrieval；主要行为耦合窗口约止于 Qwen L20、Gemma L16。</td></tr>
+    <tr><td>Needles → endpoint PC1–PC3 curve → prediction</td><td>Endpoint geometry 与 earlier-span attention；随后对全部 endpoints 做 count rank-3 vs actual-norm-matched orthogonal removal</td><td><strong>曲线可读；作为局部 mediator 的效应很弱/近零</strong></td><td>PC/ridge 图能描述 running order，但现有结果反对“该单点线性三维曲线就是必要 counter register”的强版本。</td></tr>
+  </tbody></table></div>
+  <div class="claim"><strong>直接的 hidden-state 因果证据在哪里？</strong>就在本节下方的 <a href="#hidden-state-restoration-evidence"><strong>图 4b dense span restoration</strong></a>，而不在 classifier 或 PCA 图里。先用输入干预产生 <span class="math">H<sup>corrupt</sup></span>；再保持同一 corrupt prompt 不变，仅执行内部 state patch <span class="math">do(H<sub>span</sub><sup>(ℓ)</sup>:=H<sub>span,clean</sub><sup>(ℓ)</sup>)</span>。若最终 expected-count error 相对 ordinary-state patch 明显下降，就直接建立 span-state → count。图 4c 进一步显示该 state patch 会改变后续 retrieval。</div>
+  <div class="formula"><strong>一个具体例子。</strong>Gold count=6。Clean prompt 的六条 needles 产生 <span class="math">H<sup>clean</sup><sub>span</sub></span>；把六段输入换成等长 ordinary text 后得到 <span class="math">H<sup>corrupt</sup><sub>span</sub></span>，模型倾向答 2。现在不把输入文字改回来，只在 L8 将这些 span positions 的 residual vectors 换成 clean values；若答案回到 5，而同层恢复同样多 ordinary-position vectors 后仍答 2，差异只能归因于<strong>被写回的 needle-dependent hidden-state content</strong>，而不是文本长度、位置或 patch 大小。Endpoint PC1–PC3 即使在图上排列为 1→6，也仍只是这组高维 state 的一个 readout。<strong>目前结论：</strong>“needle → distributed span hidden state → downstream retrieval/answer computation → count”在 span-state 粒度有直接干预支持；“needle → 单 endpoint rank-3 counter → count”不受支持。</div>
   <div class="formula"><strong>Absolute-error increase 与 specificity。</strong>对 clean、needle-corrupt、matched-control 输出分别记为 <span class="math">ŷ_0,ŷ_N,ŷ_C</span>，条件 <span class="math">c</span> 的 error increase 为 <span class="math">Δe_{{abs}}(c)=|ŷ_c−N|−|ŷ_0−N|</span>；token specificity=<span class="math">Δe_{{abs}}(needle)−Δe_{{abs}}(control)=|ŷ_N−N|−|ŷ_C−N|</span>。Accuracy damage 是 <span class="math">d_{{acc}}(c)=𝟙[ŷ_0=N]−𝟙[ŷ_c=N]</span>，accuracy-damage specificity 同样为 needle damage 减 control damage。<span class="example">例：gold N=8，clean 输出 8、needle corruption 输出 1、control 输出 7；两种 absolute-error damage 分别为 7 与 1，所以 specificity=6 counts。此例 needle/control 都从 correct 变 wrong，accuracy damages 都为 1，故 accuracy specificity=0；若 control 仍输出 8，则为 1−0=1。</span></div>
   <div class="experiment"><div class="experiment-label">Experiment 1B · causal</div><div><h4>Token corruption：active needle 本身是强因果输入</h4><p><strong>目的。</strong>确认 needle 文本而非等规模的普通 passage 扰动决定计数。<strong>设置。</strong>Candidate 与 control 都用同 prompt 的 ordinary token sequences 做等长度替换，并保持总 token budget、序列长度和 query position；只改变被替换区域是否为 active needle。<strong>结果。</strong>Needle-minus-control absolute-error specificity 为 Qwen +8.930 counts（8.700–9.180）、Gemma +8.780（8.590–8.950）；accuracy-damage specificity 为 +0.450/+0.360，ordinary control 自身误差变化接近 0。<strong>分析与目前结论。</strong>Active needle evidence 是强因果输入；效应不能归因于任意等长文本替换。</p></div></div>
   <div class="formula"><strong>Prompt rank-3 removal。</strong>对同一 prompt 的所有 active needle-end states <span class="math">H</span>，删除 discovery-fitted count basis <span class="math">U_3</span> 上的 centered component：<span class="math">H′=H−(H−H̄)U_3U_3^⊤</span>。Orthogonal control basis 不是任取随机方向：它由 discovery rows 的 within-count residuals 拟合，先减各 count centroid、再移除 <span class="math">U_3</span>、取 residual PCA 前三轴并正交化到 <span class="math">U_3</span>。在每个测试 prompt 上，将 control projection 缩放到与 candidate 实际移除量相同的 Frobenius norm。报告的 absolute-error specificity 为 <span class="math">[|ŷ_{{rank3}}−N|−|ŷ_0−N|]−[|ŷ_{{orth}}−N|−|ŷ_0−N|]=|ŷ_{{rank3}}−N|−|ŷ_{{orth}}−N|</span>；正值才表示 count-aligned removal 比同位置、同 rank、等删除量的 nuisance-direction removal 更伤。<span class="example">例：gold N=8，clean 输出 8，rank-3 removal 输出 6（error increase 2），orthogonal removal 输出 7（increase 1），则 specificity=(2−0)−(1−0)=1 count。</span></div>
@@ -2565,6 +3199,15 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
 
   <figure><h4 class="figure-title">图 4 · “输入 evidence 必要”与“decoded endpoint subspace 必要”不是同一命题</h4>{formation_chart}<figcaption>横轴均为 candidate 相对其 paired control 多增加的 absolute count error，单位是 counts。长条的 candidate 是全 active-needle token replacement，control 是同一 prompt 内、相同 span-length vector 与总 token budget 的 ordinary-passage replacement；短条的 candidate 是全部 needle endpoints 上的 count rank-3 removal，control 是同层、同位置、同 rank、每个 prompt 实际删除 Frobenius norm 相同的 orthogonal within-count-residual removal。两者相差约两个数量级。该图不能推出 prompt states 完全无因果作用；它只排除了“当前线性 rank-3 endpoint subspace 是一个强、局部、必要 counter”这一较窄主张。</figcaption></figure>
   <div class="claim boundary"><strong>证据边界。</strong>我们将早层表述为 <em>noisy counter-like record</em>，而不是“无 causal effect 的 counter”。更准确的结论是：其 geometry 可解码，active evidence 强因果，但当前 endpoint rank-3 ablation 未检测到相称的局部必要效应。可能原因包括信息分散在整个 span/多个 token、非线性编码、跨位置冗余，或 broad heads 后续重新从原始 evidence 聚合。</div>
+
+  <div class="formula"><strong>完整 hidden-state patch 的主统计量。</strong>在同一 seed–count prompt 和同一层 <span class="math">ℓ</span>，先算恢复全部 clean needle-span residual vectors 后减少的 expected-count absolute error，再减去恢复同样数量、同样 span-length vector 的 ordinary-position residuals 所带来的改善。记为 <span class="math">S<sub>restore</sub>(ℓ)</span>。<span class="math">S<sub>restore</sub>(ℓ)&gt;0</span> 表示“写回真正的 needle-dependent hidden state”比“写回一块同样大的普通 hidden region”更能救回 count；这里 patch 的对象是完整 residual tensor，不要求先投影到任何 subspace。</div>
+  <span id="hidden-state-restoration-evidence"></span><figure><h4 class="figure-title">图 4b · Canonical dense span restoration 的完整逐层曲线</h4><div class="figure-stack"><div><h4>Qwen3-8B</h4>{span_layerwise_charts['Qwen3-8B']}</div><div><h4>Gemma4-E4B</h4>{span_layerwise_charts['Gemma4-E4B']}</div></div><figcaption>每个 panel 的横轴是只执行一次 clean-state restoration 的 zero-based post-block layer；纵轴是 <span class="math">S_{{restore}}(ℓ)</span>，即 full-needle restoration 相对等 token-budget ordinary restoration 多减少的 expected-count absolute error，单位 counts。实线是完整 span hidden-state 主分数；橙色虚线是 endpoint−ordinary control。每层先在同一 confirmation seed 内平均 counts 1–10，再对十个 seeds 等权平均；whisker 是 50,000 次 seed-cluster bootstrap 95% 区间。实心主曲线点表示 two-sided exact <span class="math">2^{{10}}</span> seed sign-flip nominal <span class="math">p&lt;0.05</span>，空心点表示未达到；未做跨层 multiplicity correction，因此“显著”只指逐层 nominal evidence。竖虚线标出 paired seed-level 最大相邻层下降。该图检验的是完整 span state 是否能修复行为，而不是某个预选三维方向是否必要。</figcaption></figure>
+  <div class="result-grid">
+    <div class="result"><span class="value">Qwen L0–L20</span><span class="label">21 个连续层具有正向 nominal evidence；早层约修复 2.5–2.8 counts，L20 仍为 {f(qwen_l20['mean'])} [{f(qwen_l20['ci95_low'])}, {f(qwen_l20['ci95_high'])}]，L21 降至 {f(qwen_l21['mean'])}。</span></div>
+    <div class="result"><span class="value">Gemma L0–L16</span><span class="label">17 个连续层具有正向 nominal evidence；L16 仍为 {f(gemma_l16['mean'])} [{f(gemma_l16['ci95_low'])}, {f(gemma_l16['ci95_high'])}]，L17 降至 {f(gemma_l17['mean'])}，形成更陡的 cliff。</span></div>
+  </div>
+  <div class="claim"><strong>3.3 的直接结果。</strong>完整多-token hidden state 的 causal effect 已经在两个模型中检测到，而且强度是 2–3 counts 量级；不显著的是更窄的“单 endpoint、线性 rank-3 component 必须被自然使用”主张。二者并不矛盾：模型可以依赖分布在多个 token、多个方向或非线性 feature 中的 state，而不依赖我们预先选出的三维投影。因而这里不需要把 hidden state 强行等同于 subspace。</div>
+  <details class="collapsible-list"><summary>展开：若要进一步提高 hidden-state 检验能力，应怎样设计而不是事后追求显著？</summary><div class="experiment"><div class="experiment-label">Prospective design</div><div><h4>保留完整 state，预先冻结统计量与窗口</h4><p><strong>第一，直接量化 input→state。</strong>预注册全向量 state-deformation specificity：<span class="math">D<sub>state</sub>(ℓ)=||H<sub>span</sub><sup>clean</sup>−H<sub>span</sub><sup>corrupt</sup>||<sub>F</sub>/√(|S|d)−D<sub>ordinary</sub>(ℓ)</span>，而不是先挑一个“看起来显著”的 PCA 方向。<strong>第二，做 state→count 剂量曲线。</strong>按预冻结规则恢复 25%/50%/75%/100% 的 registered span positions，检验 repair 是否随 restored state budget 单调增加，并保留等 token-budget ordinary control。<strong>第三，只检验一个预注册窗口统计量。</strong>用 discovery 数据冻结 early reusable window，在 confirmation 中先对该窗口求每 seed 的平均 effect，再做 seed-level randomization/bootstrap；这比对几十层分别追逐 p 值更有功效，也避免事后选层。<strong>第四，需要新的 confirmatory claim 时增加独立 seeds。</strong>现有十个 confirmation seeds 不能一边选层一边再充当独立验证；若要把弱效应升级为论文主张，应按 pilot variance 做 power analysis 后采集新的、预注册 seeds。<strong>严谨边界：</strong>这些设计可以提高真实效应的检验能力，但不能保证显著，也不应把当前 endpoint rank-3 null 通过换指标“做成显著”。</p></div></div></details>
 
   <h3>3.4 Dense span restoration：逐层追踪“prompt evidence 还来得及被使用吗？”</h3>
   <div class="experiment"><div class="experiment-label">Experiment 1D · causal</div><div><h4>在内部恢复 clean span state，定位 reusable-source window</h4><p><strong>目的。</strong>判定完整 prompt evidence 在多深的层仍可被后续 computation 使用，并直接比较 endpoint 与 whole-span sufficiency。<strong>设置。</strong>先保存 clean states，再破坏输入 needles；每个 patched forward 只在一个 post-block layer 恢复一次 endpoint、full span 或 token-budget-matched ordinary states，随后完全自由运行。<strong>结果。</strong>72,000-row canonical sweep 显示 Qwen whole-span repair 在 L0–L20 为正向 nominal window，Gemma 在 L0–L16；endpoint−ordinary 全层接近 0。<strong>分析与目前结论。</strong>因果 source 是分布式 span state；Qwen 的可用性逐步衰减，Gemma 在 L16→L17 出现更陡的边界。</p></div></div>
@@ -2579,7 +3222,6 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
   </tbody></table></div></details>
   <p>每个 seed-count 单元包含三个 baseline conditions，以及每层的 endpoint/full-span/ordinary 三种 restoration：Qwen 每单元 3+36×3=111 行、共 33,300 行；Gemma 3+42×3=129 行、共 38,700 行。总计 72,000 unique intervention rows；70,200 行含 patch，51,617 行使用优化后的两次 hook application，18,583 行为兼容保留的三次 application，审计 mismatch=0。<strong>目前结论：</strong>数据覆盖完整逐层扫描，不是从少数“好看层”外推的 coarse sweep。</p>
   <div class="formula"><strong>主分数只做两次减法。</strong>第一步，计算恢复 clean needle states 后少了多少误差：<span class="math">A^N_{{repair}}(ℓ)=|E_{{N-corrupt}}−N|−|E_{{N-restored,ℓ}}−N|</span>。第二步，减去恢复同样多 ordinary-position states 带来的机械收益：<span class="math">S_{{restore}}(ℓ)=A^N_{{repair}}(ℓ)−A^O_{{repair}}(ℓ)</span>。这里 <span class="math">E[c]=Σ_{{c=1}}^{{10}}c·p(c)</span> 是十个数字候选的 softmax expected count。<span class="example">例：gold N=8。擦掉 needles 后 E[c]=3，误差为 5；在 L8 恢复 whole-span states 后 E[c]=6，误差降为 2，因此 needle repair=3 counts。若同层 ordinary control 只修复 0.2 count，则图上的 L8 点为 3−0.2=2.8 counts。正值表示恢复真正的 needle evidence 有额外收益，0 表示它并不比恢复一块同样大的 ordinary hidden region 更有用。</span><details class="collapsible-list"><summary>展开：辅助 normalized recovery</summary><p><span class="math">R_{{restore}}=(E_{{restored}}−E_{{corrupt}})/(E_{{clean}}−E_{{corrupt}})</span>。0.6 表示恢复 clean–corrupt displacement 的 60%；它可因 overshoot 大于 1，也可因方向错误小于 0，所以正文以有 count 单位且更稳定的 <span class="math">S_{{restore}}</span> 为主。</p></details></div>
-  <figure><h4 class="figure-title">图 4b · Canonical dense span restoration 的完整逐层曲线</h4><div class="figure-stack"><div><h4>Qwen3-8B</h4>{span_layerwise_charts['Qwen3-8B']}</div><div><h4>Gemma4-E4B</h4>{span_layerwise_charts['Gemma4-E4B']}</div></div><figcaption>每个 panel 的横轴是只执行一次 clean-state restoration 的 zero-based post-block layer；纵轴是 <span class="math">S_{{restore}}(ℓ)</span>，即 full-needle restoration 相对等 token-budget ordinary restoration 多减少的 expected-count absolute error，单位 counts。实线是 whole-span 主分数；橙色虚线由 <span class="math">(full−ordinary)−(full−endpoint)</span> 得到，等价于 endpoint−ordinary。每层先在同一 confirmation seed 内平均 counts 1–10，再对十个 seeds 等权平均；whisker 是 50,000 次 seed-cluster bootstrap 95% 区间。实心主曲线点表示 two-sided exact <span class="math">2^{{10}}</span> seed sign-flip nominal <span class="math">p&lt;0.05</span>，空心点表示未达到；这里按要求不做 Holm 或其他跨层校正，所以“显著”只指逐层 nominal evidence。竖虚线标出 paired seed-level 最大相邻层下降，不是事后拟合的连续 change-point model。</figcaption></figure>
   <div class="table-wrap"><table><thead><tr><th>Model</th><th>正向 nominally detectable layers</th><th>最大相邻层下降 [95% CI], exact p</th><th>微小负向 nominal layers</th><th>Endpoint−ordinary 全层范围</th></tr></thead><tbody>{span_transition_rows_html}</tbody></table></div>
   <p><strong>Qwen 是多层斜坡，而不是单层开关。</strong>Whole-span specificity 从 L0–L14 大致保持在 2.5–2.7 counts，随后连续下降；L20 仍为 {f(qwen_l20['mean'])} [{f(qwen_l20['ci95_low'])}, {f(qwen_l20['ci95_high'])}]，L21 只剩 {f(qwen_l21['mean'])} [{f(qwen_l21['ci95_low'])}, {f(qwen_l21['ci95_high'])}] 且不再 nominally detectable。最大一步是 L{qwen_span_drop['from_layer']}→L{qwen_span_drop['to_layer']} 的 {f(qwen_span_drop['mean'])} counts [{f(qwen_span_drop['ci95_low'])}, {f(qwen_span_drop['ci95_high'])}]，exact p={p_text(qwen_span_drop['exact_signflip_p'])}。因此 Qwen 有效窗口是 L0–L20 共 21 层，转换主要铺在约 L15–L22。</p>
   <p><strong>Gemma 更接近真正的 cliff。</strong>L16 仍有 {f(gemma_l16['mean'])} [{f(gemma_l16['ci95_low'])}, {f(gemma_l16['ci95_high'])}] counts；到 L17 立刻变成 {f(gemma_l17['mean'])} [{f(gemma_l17['ci95_low'])}, {f(gemma_l17['ci95_high'])}]。L{gemma_span_drop['from_layer']}→L{gemma_span_drop['to_layer']} 的 paired drop 为 {f(gemma_span_drop['mean'])} [{f(gemma_span_drop['ci95_low'])}, {f(gemma_span_drop['ci95_high'])}]，exact p={p_text(gemma_span_drop['exact_signflip_p'])}，十个 seed 的差值全部为负。Gemma 的正向有效窗口因此是 L0–L16 共 17 层；discovery 选出的 L17 虽未复现“恰好减半”的数值，却准确落在 confirmation cliff 上。</p>
@@ -2624,10 +3266,16 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
     <div><h4>Gemma4-E4B top-8</h4><div class="table-wrap"><table class="head-table"><thead><tr><th>Rank</th><th>Head</th><th>M</th><th>C</th><th>B</th></tr></thead><tbody>{selected_head_tables['Gemma4-E4B']}</tbody></table></div><p class="lead">M 是完整 needle spans 的 attention mass，C 是 occurrence coverage，B=M×C。表内顺序严格来自 causal run 使用的 frozen membership；由于源 registry 与汇总 atlas 的数值聚合版本略有差异，B 列用于量级解释，rank/membership 以 frozen registry 为准。</p></div>
   </div>
 
+  <div class="experiment"><div class="experiment-label">Display panel · fixed before viewing</div><div><h4>从聚合 heatmap 展开到多个 head × 多条自然文本</h4><p><strong>目的。</strong>让读者检查“broad”是否只由一个特殊 head 或一条特殊文本造成，并同时看清全文位置分布与 span 内 token 分布。<strong>Head 选择。</strong>固定使用图 5 discovery ranking 的 Qwen top-4：L27H18、L28H19、L23H29、L23H13；confirmation attention 不参与排序。<strong>文本选择。</strong>固定最小 confirmation seed 1254，并在查看 raw attention 前选低/中/高三个 counts N=3/6/9；没有按图形显著程度挑文本。页面下拉框只切换已冻结的 4×3=12 条自然 attention rows，不重跑模型、不改变任何统计检验。<strong>分析与目前结论。</strong>该 panel 用于解释 routing 的空间与 token 形态；因果必要性仍由后面的 top-K matched ablation 与 rank-3 removal 判定。</p></div></div>
+
+  <figure><h4 class="figure-title">图 5b · 一条自然 forward 中：needles 在全文哪里、各自获得多少 attention</h4>{attention_span_gallery}<figcaption>每个可切换 panel 都是一条<strong>未干预自然 forward</strong>中，从最后 answer query 发出的单个 attention row。上半图只回答“needles 在哪里”：横轴是约 10k-token prompt 的 zero-based token position，红块是 active needle spans，黄色细标记是 registered hard-negative spans；它不把普通文本的每个 token 画出来。下半图才回答“head 看了多少”：每一行对应一整条 needle，红条长度等于该 span 内所有 token attention weights 的总和，占完整 attention row 的百分比；12 个 panels 共用同一横轴上限。顶部的 needles 百分比等于下方 N1…Nn 红条之和。<span class="example">例：N2 的红条为 17.6%，表示 answer query 的全部 attention 中有 17.6% 落在 N2 整段文字上；它不表示 N2 对最终答案贡献了 17.6%，因果重要性仍由后续 matched ablation 检验。</span></figcaption></figure>
+
+  <figure><h4 class="figure-title">图 5c · 选定 head–prompt 的 needle-token attention 细图</h4>{attention_token_gallery}<figcaption>该图与 5b 使用完全相同的 12 条冻结 rows，只把当前选择展开到 active needle 内部。每一行是一条真实 needle span；行首 span mass 是该 span 全部 token 权重之和，token 红色深浅按当前 row 的最大单-token weight 做平方根尺度显示。顶部五项把全序列 mass 分为 active needles、ordinary passage、hard negatives、instruction/wrapper 与 query。可切换不同 heads 与 N=3/6/9 文本，检查 head 是较均匀覆盖 record、偏向固定标点/模板，还是集中在少数 spans。图形语法参考 <a href="https://transformer-circuits.pub/2022/in-context-learning-and-induction-heads/">Olsson et al. (2022)</a>；attention weight 只表示 routing，不等于该 token 的 OV/logit attribution，也不证明删掉它会改变答案。</figcaption></figure>
+
   <div class="step-heading"><span class="step-kicker">03 · Causal test · routing</span><h3>4.2 Broad-head 集合是否比 layer-matched random 更重要？</h3></div>
   <div class="formula"><strong>Absolute count shift。</strong>对同一个样本，clean 生成数为 <span class="math">ŷ_0</span>，消融后为 <span class="math">ŷ_a</span>，定义 <span class="math">shift_{{abs}}=|ŷ_a−ŷ_0|</span>；它衡量输出被移动多少，不以 gold N 为参照，也不是 absolute error。Top-K 主效应在每个 seed 内计算 <span class="math">mean(shift_{{ranked}})−mean(shift_{{layer-matched random}})</span>，再对 20 seeds 等权平均。Clean-correct correct→wrong=<span class="math">𝟙[ŷ_0=N∧ŷ_a≠N]</span>。<span class="example">例：clean 输出 8；ranked-head ablation 输出 5，shift=3；matched random ablation 输出 7，shift=1；ranked-minus-random absolute count shift=3−1=2 counts。若 gold=8，该 ranked trial 的 correct→wrong=1；若 gold 不是 8，则它不进入 clean-correct 指标。</span></div>
   <div class="formula"><strong>逐 K 的区间与“统计可检出”判据。</strong>令第 <span class="math">s</span> 个 seed 的 ranked-minus-random 效应为 <span class="math">δ_s(K)</span>；报告值是 20 seeds 的等权均值 <span class="math">δ̄(K)=20^{{−1}}Σ_sδ_s(K)</span>。95% 区间由 10,000 次 seed-cluster bootstrap 得到。表中的 <span class="math">p&lt;0.05</span> 专指 two-sided exact seed sign-flip：固定 20 个效应绝对值，枚举全部 <span class="math">2^{{20}}</span> 个正负号并比较 <span class="math">|δ̄|</span>；这里不展示多重比较校正。这个 p 值回答“方向是否跨 seeds 稳定”，而 effect 的 count 单位回答“移动有多大”，两者不能互换。由于很多 seed effect 可以恰为零，bootstrap 区间与 sign-flip 判据偶尔会不同，因此同时列出正效应 seed 数。<span class="example">例：若 20 个 seed effects 都只有 +0.05 count，均值仍只有 +0.05，是很小的效应；但只有全正和全负两种符号分配达到同样大的 |mean|，所以 p=2/2²⁰=1.91×10⁻⁶。反过来，若大多数 seed effects 为 0，即使非零 seeds 都为正，p 仍可能不小。</span></div>
-  <div class="experiment"><div class="experiment-label">Experiment 2A · causal</div><div><h4>Ranked top-K ablation with layer-matched random-head controls</h4><p><strong>目的。</strong>检验 high-broad-score head set 是否比同层、同数量的普通 heads 更影响输出。<strong>正式数据。</strong>Qwen 与 Gemma 分开使用此前未参与 head ranking 的 seeds 1316–1335、counts 1–5，即每模型 20×5=100 个 prompt 单元；两个模型从不合并。<strong>K 网格。</strong>两个模型均预先固定 K∈{{1,2,4,8,16,32}}，每个 K 都是图 5 frozen broad ranking 的前 K 个 heads，不根据这 100 个单元的结果重选 K 或 membership。<strong>干预。</strong>只在原始完整 prompt 的一次 prefill 中，将所选 head 在 answer-query token 上、进入该层 W<sub>O</sub> 之前的 pre-O slice 置零；其他 token positions、未选 heads 与后续 decoding steps 不消融。<strong>Matched control。</strong>对每个 ranked prefix，逐层保留完全相同的 head 数，再从这些层的全部 heads 中无放回抽取；每个 K 使用 3 个固定随机 replicate，ranked/random 之间允许偶然重叠。<strong>结果。</strong>主效应为 Qwen K32 +1.623 counts（1.117–2.137，p=1.91e−06）和 Gemma K8 +0.767（0.607–0.950，p=1.91e−06）。剂量曲线非单调；例如 Gemma K4 虽方向稳定，效应仅 +0.087，Qwen K2 exact sign-flip p=0.125。<strong>分析与目前结论。</strong>冻结 broad bank 具有集合级 matched-control 行为作用，但 heads 不是可简单相加的独立 counters，统计稳定也不等于效应大。</p></div></div>
+  <div class="experiment"><div class="experiment-label">Experiment 2A · causal</div><div><h4>Ranked top-K ablation with layer-matched random-head controls</h4><p><strong>目的。</strong>检验 high-broad-score head set 是否比同层、同数量的普通 heads 更影响输出。<strong>正式数据。</strong>Qwen 与 Gemma 分开使用此前未参与 head ranking 的 seeds 1316–1335、counts 1–5，即每模型 20×5=100 个 prompt 单元；两个模型从不合并。<strong>K 网格。</strong>两个模型均预先固定 K∈{{1,2,4,8,16,32}}，每个 K 都是图 5 frozen broad ranking 的前 K 个 heads，不根据这 100 个单元的结果重选 K 或 membership。<strong>干预。</strong>只在原始完整 prompt 的一次 prefill 中，将所选 head 在 answer-query token 上、进入该层 W<sub>O</sub> 之前的 pre-O slice 置零；其他 token positions、未选 heads 与后续 decoding steps 不消融。<strong>Matched control。</strong>对每个 ranked prefix，逐层保留完全相同的 head 数，再从这些层的全部 heads 中无放回抽取；每个 K 使用 3 个固定随机 replicate，ranked/random 之间允许偶然重叠。<strong>图中同时报告原始两臂与差值。</strong>实色线是直接消融 top-K 后输出移动多少；灰线是在相同层消融 K 个 random heads 后移动多少；橙色线是两者之差，才是注册的方向特异主效应。<strong>结果。</strong>Qwen K32 的原始 ranked/random shift 为 1.750/0.127 counts，差值 +1.623（1.117–2.137，p=1.91e−06）；Gemma K8 为 0.980/0.213，差值 +0.767（0.607–0.950，p=1.91e−06）。剂量曲线非单调；例如 Gemma K4 的原始两臂为 0.270/0.183，虽差值方向稳定也只有 +0.087；Qwen K2 的原始两臂为 0.040/0.000，exact sign-flip p=0.125。<strong>分析与目前结论。</strong>冻结 broad bank 具有集合级 matched-control 行为作用，但 heads 不是可简单相加的独立 counters；random baseline 也可伤行为，所以必须看差值而不能只看 top-K raw 曲线。</p></div></div>
   <details class="collapsible-list"><summary>展开：Experiment 2A 的可复现数据、K 与 ablation 算子</summary><div class="table-wrap"><table><thead><tr><th>项目</th><th>冻结设置</th><th>为什么这样控制</th></tr></thead><tbody>
     <tr><td>Ranking discovery</td><td>Broad ranking 来自独立 discovery seeds 1274–1283；formal panel 的 1316–1335 在任何 outcome 被查看前已冻结 registry 与 K 网格。</td><td>避免在测试数据上选 heads 或挑最好看的 K。</td></tr>
     <tr><td>Formal evaluation</td><td>每模型 seeds 1316–1335 × counts 1–5=100 prompt 单元；K=1/2/4/8/16/32。</td><td>每个 seed 是推断单位；count 不被当成独立 replicate。</td></tr>
@@ -2636,8 +3284,8 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
     <tr><td>总 intervention coverage</td><td>每 K 每模型 400 rows；六个 K 共 2,400 rows/model，Qwen/Gemma 分析不 pooled。</td><td>所有 K 使用同一 stimulus panel，便于配对比较。</td></tr>
     <tr><td>精确置零位置</td><td>Full-prompt prefill 的 answer-query position、selected-head pre-O z slice；该 slice 置零后仍经过 head 自己的 W<sub>O</sub>。Prompt 其他位置与 generation token rows 保持 natural。</td><td>把结论限定为 answer-query retrieval/write 的局部必要性，而非全序列全时段 head knockout。</td></tr>
   </tbody></table></div><p><span class="example"><strong>例：</strong>若 Qwen 的 K=4 prefix 分布为 L27 一个 head、L28 一个、L23 两个，则每个 random replicate 也必须从 L27/L28/L23 分别抽 1/1/2 个 heads；不能从另一个更脆弱的层随便抽四个。对同一 seed-count prompt，ranked arm 和三个 random arms 都只在 answer query 的 pre-O slices 上置零。</span></p></details>
-  <figure><h4 class="figure-title">图 6a · Broad-head ablation 的 absolute-shift 剂量曲线</h4>{retrieval_chart}<figcaption>横轴是同时消融的 frozen top-K heads（K=1/2/4/8/16/32）；纵轴是 ranked ablation 相对 layer-matched random ablation 增加的 absolute count shift，单位 counts。竖向 whisker 是 20-seed equal-weight mean 的 95% seed-bootstrap 区间；实心点表示 two-sided exact seed sign-flip nominal p&lt;0.05，空心点表示未达到该判据。主叙述使用 Qwen K32 和 Gemma K8；完整曲线非单调，说明这些 heads 不能解释为可简单相加的独立计数器，增加 K 同时改变冗余、补偿与扰动子空间。</figcaption></figure>
-  <figure><h4 class="figure-title">图 6b · Clean-correct correct→wrong damage 的剂量曲线</h4>{retrieval_damage_chart}<figcaption>只保留 clean baseline 答对且格式有效、并在 ranked/random 条件间具有相同 stimulus ID 的样本。纵轴是 <span class="math">P(wrong|ranked, clean correct)−P(wrong|layer-matched random, clean correct)</span>；0.20 表示额外增加 20 percentage points 的 correct→wrong rate。Whisker、实心/空心点与图 6a 使用同一 20-seed bootstrap 和 exact sign-flip 判据。该 endpoint 直接衡量原本正确的行为是否被破坏：Qwen 的主要 damage 集中在 K16/K32，Gemma 集中在 K8/K16。</figcaption></figure>
+  <figure><h4 class="figure-title">图 6a · Broad-head ablation 的 absolute-shift 剂量曲线</h4><div class="figure-stack"><div><h4>Qwen3-8B</h4>{retrieval_charts['Qwen3-8B']}</div><div><h4>Gemma4-E4B</h4>{retrieval_charts['Gemma4-E4B']}</div></div><figcaption>每个 panel 的横轴是<strong>被消融 heads 占 discovery-eligible broad-atlas heads 的比例</strong>：Qwen 分母为 36×32=1,152，Gemma 仅 7 个 full-attention layers 可定义全 prompt broad score，分母为 7×8=56；六个点依次对应 K=1/2/4/8/16/32。纵轴统一用 counts：实色线是 ranked top-K ablation 的原始 absolute count shift，灰色虚线是三个 layer-matched random replicates 的原始均值，橙色点线是 ranked−random contrast。原始两臂的 whisker 是 10,000 次 seed bootstrap 95% CI；橙色 contrast 的实心/空心点才分别表示 exact seed sign-flip nominal p&lt;0.05/未达到。例：Qwen K32（2.78%）的 1.750 与 0.127 相减得到 +1.623 counts。由于两个模型的 eligible pool 大小不同，分 panel 避免把 Qwen 的 0.09%–2.78% 压在 Gemma 的 1.79%–57.14% 左端。</figcaption></figure>
+  <figure><h4 class="figure-title">图 6b · Clean-correct correct→wrong damage 的剂量曲线</h4><div class="figure-stack"><div><h4>Qwen3-8B</h4>{retrieval_damage_charts['Qwen3-8B']}</div><div><h4>Gemma4-E4B</h4>{retrieval_damage_charts['Gemma4-E4B']}</div></div><figcaption>只保留 clean baseline 答对且格式有效、并在 ranked/random 条件间具有相同 stimulus ID 的样本。横轴与图 6a 相同；纵轴改为 correct→wrong rate。实色/灰色线分别给出 ranked 与 layer-matched random 的原始错误化概率，橙色线给出两者差值 <span class="math">P(wrong|ranked, clean correct)−P(wrong|random, clean correct)</span>；0.20 即额外 20 percentage points。原始两臂用 bootstrap CI，只有橙色 contrast 的点形编码 exact sign-flip 判据。该 endpoint 直接衡量原本正确的行为是否被破坏：Qwen 的主要 damage 集中在 K16/K32，Gemma 集中在 K8/K16。</figcaption></figure>
   <h4>表 2 · 每个 K 的完整 matched-control ablation 结果</h4>
   <div class="table-wrap"><table><thead><tr><th>Model</th><th>K</th><th>Δ absolute shift [95% CI]</th><th>Positive seeds</th><th>Shift nominal p&lt;.05?</th><th>Δ correct→wrong [95% CI]</th><th>Damage nominal p&lt;.05?</th></tr></thead><tbody>{topk_result_table}</tbody></table></div>
   <p class="lead">两列效应都是 ranked top-K 减去 layer-matched random-head control；正值表示 broad-ranked heads 被消融后，输出移动得更多或更容易由 clean-correct 变为错误。每个 K、每个模型均使用 20 seeds；每个 seed 有 5 个 ranked count examples，random control 为同 5 examples 的 3 个 layer-matched replicates。</p>
@@ -2910,6 +3558,7 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
     <li><code>v4_4_extension/prompt_subspace_ablation/subspace_ablation_statistics.csv</code>。</li>
     <li><code>v4_4_extension/endpoint_attention_mask/*earlier_span_head_confirmation.csv</code>。</li>
     <li><code>v4_4/realistic_niah_v4_head_atlas.csv</code> 与 <code>v4_4_causal_v2/full_span_topk/{'{'}full_span_topk_membership,full_span_topk_primary_statistics{'}'}.csv</code>。</li>
+    <li><code>v4_4_report_additions/full_span_topk_raw_arms.csv</code>：由 formal 2,400-row/model top-K detail 重新汇总的 ranked/random 原始两臂均值与 seed-bootstrap CI；逐 K 的 raw difference 与预注册 contrast 最大差异 ≤2.23×10<sup>−16</sup>。<code>qwen_attention_gallery.json</code>：exact-tokenizer 重建的 discovery-frozen top-4 heads × seed1254、N=3/6/9 固定文本网格，共 12 条全文/token-level attention rows；逐条审计 sequence/query、64-token bin sum、region/span mass 与 Filestream raw/metric SHA。<code>qwen_attention_example_l27h18.json</code> 保留旧单例作为 provenance；全部由 <code>report_additions_audit.json</code> 标记 PASS。</li>
     <li><code>v4_4/v4_4_answer_query_patching.csv</code> 与 <code>v4_4_causal_v2/correct_patching_pooled.csv</code>。</li>
     <li><code>v4_4_extension/layerwise_subspace/{'{'}layer_maps,map_causal_link,answer_query_removal,transport{'}'}/*.csv</code>：三维 map、gauge-aligned stability、removal 与单剂量 transport。</li>
     <li><code>v4_4_4/*analysis.json</code>：Qwen natural OV/read-write/upstream chain。</li>
@@ -3076,6 +3725,21 @@ class PointCloud3D {{
 }}
 new PointCloud3D('prompt-canvas','prompt-model','prompt-layer','prompt',{{'Qwen3-8B':8,'Gemma4-E4B':9}});
 new PointCloud3D('answer-canvas','answer-model','answer-layer','answer',{{'Qwen3-8B':28,'Gemma4-E4B':37}});
+
+function setupAttentionGallery(root) {{
+  const head=root.querySelector('[data-gallery-head]');
+  const prompt=root.querySelector('[data-gallery-prompt]');
+  const panels=[...root.querySelectorAll('[data-gallery-panel]')];
+  const refresh=()=>{{
+    for(const panel of panels) {{
+      panel.hidden=!(panel.dataset.head===head.value && panel.dataset.prompt===prompt.value);
+    }}
+  }};
+  head.addEventListener('change',refresh);
+  prompt.addEventListener('change',refresh);
+  refresh();
+}}
+document.querySelectorAll('[data-attention-gallery]').forEach(setupAttentionGallery);
 </script>
 </body>
 </html>
@@ -3133,9 +3797,9 @@ new PointCloud3D('answer-canvas','answer-model','answer-layer','answer',{{'Qwen3
     # separate on purpose: object, reading rule, and a concrete one-unit example.
     figure_guides: dict[str, tuple[str, str, str]] = {
         "机制图 M0 · 从 needle-span evidence 到数字输出的分层计算链": (
-            "这是整篇报告的<strong>机制示意图</strong>，不是新增的一组数值结果。上排把一次完整 forward 拆成 form、retrieve、aggregate、consolidate 和 write；下排把这些功能映射到 Qwen 与 Gemma 已被实验约束的大致层段。",
-            "从左向右读信息流：完整 spans 先形成 distributed evidence；answer query 再用 broad attention 选择远端位置；各 head 的 post-O writes 在 query residual 中求和；后续 blocks 将结果重参数化为可执行 state；最后写向数字 logits。层段允许重叠，不能把相邻色块理解为单层硬开关。",
-            "假设 passage 有三条有效 records：早层并不是把数字 3 存在一个 endpoint，而是在三条 spans 上留下可复用 evidence；末尾 query 回看三处并合计 content，形成更接近 count=3 的 late state，再把数字 3 的 logit 推高。Qwen 与 Gemma都走这条功能链，但具体交接层和 writer 粒度不同。",
+            "这是整篇报告的<strong>机制示意图</strong>，不是新增的一组数值结果。上排把一次完整 forward 拆成 needle input→span hidden state、retrieve、aggregate、consolidate 和 write；下排把这些功能映射到 Qwen 与 Gemma 已被实验约束的大致层段。",
+            "从左向右读信息流：needle 内容先改变完整 spans 内多个 token 的 hidden states；answer query 再用 broad attention 选择远端 positions；各 head 的 post-O writes 在 query residual 中求和；后续 blocks 将结果重参数化为可执行 state；最后写向数字 logits。层段允许重叠，不能把相邻色块理解为单层硬开关。",
+            "假设 passage 有三条有效 records：将它们换成等长普通文本会改变对应 span hidden states；固定这份 corrupt 输入、只把三段 clean states 写回，答案又可被救回。末尾 query 随后回看三处并合计 content，形成更接近 count=3 的 late state，再把数字 3 的 logit 推高。",
         ),
         "机制图 M1 · 同一 forward 中的有序 partial serial mediation": (
             "六根柱回答三个简单问题：恢复正确的 needle spans 能救回多少答案；救回之后，阻断 retrieval 会损失多少收益；阻断更晚的 count state 又会损失多少收益。绿色是 Qwen，紫色是 Gemma。",
@@ -3161,6 +3825,11 @@ new PointCloud3D('answer-canvas','answer-model','answer-layer','answer',{{'Qwen3
             "这张三维点云画的是生成首个数字前 answer query 的 hidden state；每个点的标签是整篇 prompt 的最终 gold count，而不是当前 running index。",
             "同色小点是一类 count 的不同 seeds，大编号圆点是 centroid。图只展示 frozen PC1–PC3 投影；真实 classifier 使用更高维 PCA-32，因此视觉重叠不等同于完全不可读。",
             "Gold=8 的十个 confirmation states 若大多靠近 centroid 8，nearest-centroid 会判对；若它们散到 7/9 的云中，三维图仍可有一条平均轨迹，但类别并不紧致。",
+        ),
+        "图 2c · Answer-query classifier accuracy 随 gold count 的变化": (
+            "这条曲线把代表层 grouped-OOF classifier 的整体 accuracy 拆成 N=1 到 N=10 十个 gold-count 条件，检查较大 count 是否系统性更难区分。",
+            "横轴是 gold count，纵轴是该 count 的 20 个 held-out seed states 中被分对的比例；竖线是 pointwise Wilson interval。它是 hidden-state separability，不是模型生成答案的行为准确率。",
+            "Qwen N=6 的 7/20 给出 35% accuracy；N=10 的 12/20 给出 60%。所以中高 count 较难是总体趋势，但“随 N 单调下降”被 N=10 的边界回升直接否定。",
         ),
         "图 3 · Counter manifold 的可读性与低维结构如何跨层变化（descriptive baseline）": (
             "这组折线逐层回答两个描述性问题：count 是否能从 held-out state 读出，以及全部样本/十个 centroids 的方差有多少落在前三个 PCA 方向。",
@@ -3197,15 +3866,25 @@ new PointCloud3D('answer-canvas','answer-model','answer-layer','answer',{{'Qwen3
             "横轴=head，纵轴=layer；颜色越深表示 discovery prompts 上平均更广泛地回看 needles。黑框和数字是随后冻结做 causal test 的 heads。它不是单个 prompt 的 token×token attention map，也不显示写入内容。",
             "某个 L21H7 格子很深，只表示该 head 在多个样本中把较多 attention 分给多条 needles；要说它参与计数，还必须看到消融它比同层 random head 更伤答案。",
         ),
+        "图 5b · 一条自然 forward 中：needles 在全文哪里、各自获得多少 attention": (
+            "这是<strong>全文尺度</strong>的 answer-query attention：可在 discovery-frozen Qwen top-4 heads 与预先固定的 seed 1254、N=3/6/9 三条自然文本之间切换。图被拆成两个简单问题：needles 位于全文哪里，以及该 head 给每条完整 needle 多少 attention。",
+            "上半图的横轴是全文 token position，红块只标 active needles，黄标记是 hard negatives；下半图每行一条 needle，红条是该 span 内所有 token weights 的总和。所有 12 个 panels 共用 attention 百分比上限，可直接比较不同 head/prompt 的 span mass。",
+            "若 N2 位于 token 4,800 附近且其 30 个 tokens 的 weights 相加为 0.176，上半图在中部标 N2，下半图 N2 红条为 17.6%。这说明 query 路由到 N2，不等于 N2 对答案有 17.6% 的因果贡献。",
+        ),
+        "图 5c · 选定 head–prompt 的 needle-token attention 细图": (
+            "这张图对图 5b 当前选中的同一 head–prompt row 做<strong>token 级放大</strong>：只展开 active needle spans，不把整篇普通文本逐词铺开。",
+            "每行对应一个 needle；span mass 是整行权重之和，token 红色越深表示该 token 的 attention 越大。顶部小条仍统计全序列五类位置，因此能看见针内细节而不丢掉全文分母。不同 panel 的 token 色深按各自最大值归一，精确跨 panel 比较应读百分比。",
+            "一条 record 中若城市 token 得到 0.2%、句号得到 4%，句号会更深；这可能反映模板边界 routing，但不能据此说‘句号存了 count’，因为图没有计算 value/output contribution。",
+        ),
         "图 6a · Broad-head ablation 的 absolute-shift 剂量曲线": (
-            "这条剂量曲线逐步同时消融 discovery-frozen top-K broad heads，并与消融相同层分布的 random heads 配对，问候选 head bank 是否更特异地改变生成 count。",
-            "横轴 K 是一次移除多少 heads；纵轴是 ranked ablation 比 layer-matched random 多造成的 absolute count shift。正值支持候选集合被自然使用；非单调不等于无效，可能反映冗余与补偿。",
-            "若 K=8 时 ranked/random 两臂让生成 count 相对 clean 平均移动 0.9/0.3，则图中点=0.6 count。",
+            "这条剂量曲线逐步同时消融 discovery-frozen top-K broad heads，并把 top-K 原始行为损伤、同层 random-head 原始损伤及二者差值画在一起。",
+            "横轴是 K 占 discovery-eligible heads 的比例。实色线=top-K raw shift，灰线=random raw shift，橙线=ranked−random；前两者回答‘各自移动多少’，橙线才回答候选 heads 是否比删同层普通 heads 更特异。",
+            "Qwen K32 的实色/灰色点是 1.750/0.127 counts，橙色点因此是 1.623；这让读者同时看见强 raw damage 与 matched baseline 并非严格为零。",
         ),
         "图 6b · Clean-correct correct→wrong damage 的剂量曲线": (
-            "这张图只保留模型原本答对的 prompts，直接问消融候选 broad heads 是否比 matched random heads 更容易把正确答案变错。",
-            "横轴仍是 K；纵轴是 ranked 与 random 两臂的 correct→wrong rate 差，使用 percentage-point 尺度。正值表示候选 heads 对维持原本正确行为更重要。",
-            "100 个 clean-correct prompts 中，ranked ablation 令 30 个变错、random 令 10 个变错，则点为 0.30−0.10=0.20，也就是额外 20 percentage points。",
+            "这张图只保留模型原本答对的 prompts，把 ranked/random 两臂各自将正确答案变错的概率与两者差值同时画出。",
+            "横轴仍是 eligible-head proportion。实色/灰色线是两臂 raw correct→wrong rate，橙线是 ranked−random；只有橙色差值隔离了删掉相同层数、相同 head 数本身的损伤。",
+            "若 ranked 令 30% 的 clean-correct prompts 变错、random 令 10% 变错，图上三条线分别在 0.30、0.10、0.20；橙色 0.20 就是额外 20 percentage points。",
         ),
         "图 6c · 4.3 实际测量的对象：从多头读取到一个合计写入向量": (
             "这是<strong>计算对象示意图</strong>，不是新的结果：它说明 representation analysis 分类的并非 raw attention，而是 frozen broad heads 在同一层、answer query 处的实际 post-O writes 之和。",

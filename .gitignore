@@ -10,6 +10,12 @@ wandb/
 *.pt
 *.pth
 *.safetensors
+*.ckpt
+*.npy
+*.npz
+*.onnx
+*.arrow
+*.parquet
 data/niah-example/
 data/realistic_niah_v3/
 data/realistic_niah_v3_1/
@@ -33,41 +39,17 @@ versions/
 reports/niah_eight_model_report_*/
 reports/qwen_query_last_mode_specific_empirical_law_*/
 reports/generated/
+reports/*_diagnostic/
 
 # Generated Realistic NiaH analysis releases contain request-level tables,
 # rendered reports, figures, and copied build scripts. Keep the complete
 # release local/Drive rather than committing any part of the report tree.
 reports/v*_realistic_niah_analysis_*/
 
-# Local CHTC V3.1 execution bundles and extracted inspection trees.  The
-# curated submit files live under infra/chtc; frozen bundles stay local.
-/work/chtc_v31_20260807/
-/work/chtc_v31_operations_20260807/
-/work/realistic_v31_bundle_inspect/
-
-# Local mechanistic-analysis scratch trees and resumable GPU captures. Curated
-# summaries belong under reports/; raw states and temporary audits stay local.
-/work/e3_pytest_tmp_*/
-/work/v445_gemma_partial_analysis/
-/work/v445_gemma_partial_run/
-/work/v446_layerwise_subspace_20260809/
-/work/v5_position_geometry_inputs/
-/work/v5_final_count_inputs/
-/work/v5_trace_parser_v2/
-/work/hybrid_parser_audit_*.jsonl
-/work/compare_parser_v2_to_structural.py
-/work/nonthinking_v44_geometry_300_*/
-/work/niah-parser-reference/
-/work/remote_native_traces_*/
-/work/audit_confirmation_qwen_partial.jsonl
-/work/audit_pilot_*.jsonl
-/work/audit_v445_canonical_stimuli.py
-/work/audit_v445_paused_jsonl.py
-/work/*_detail_snapshot.jsonl
-/work/*_summary.csv
-/work/v445_dense_pause_snapshot_*.json
-/work/v445_gemma_pilot_*.jsonl
-/work/v445_qwen_pilot_*.csv
+# Machine-local scratch, downloaded snapshots, resumable GPU captures, and
+# temporary audits. Durable code belongs in src/, scripts/, tests/, or infra/;
+# curated results belong in reports/. Force-add from work/ only after review.
+/work/
 
 # Local credentials and machine-specific configuration.
 .env
@@ -78,7 +60,9 @@ reports/v*_realistic_niah_analysis_*/
 
 # Hugging Face/model caches and scheduler scratch files.
 .cache/
+.huggingface/
 huggingface/
+hf-cache/
 hf_cache/
 model_cache/
 tokenizer_cache/

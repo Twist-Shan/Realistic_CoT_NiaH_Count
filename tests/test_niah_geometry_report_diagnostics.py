@@ -7,7 +7,9 @@ import numpy as np
 import pandas as pd
 
 from scripts.analyze_native_geometry_bands import (
+    band_conditioned_confirmation_snr,
     center_within_trajectory,
+    fit_discovery_frozen_bands,
     two_band_fit,
 )
 from scripts.augment_niah_geometry_comparison_report import (
@@ -22,6 +24,7 @@ from scripts.augment_niah_geometry_comparison_report import (
     unresolved_trace_examples,
 )
 from scripts.build_niah_geometry_comparison_report_v7 import _band_verdict
+from realistic_niah_v5.trace_stratified_geometry import confirmation_metrics
 
 
 def test_center_within_trajectory_removes_each_trajectory_mean() -> None:
@@ -133,6 +136,67 @@ def test_qwen_band_marker_analysis_distinguishes_marker_taxonomies() -> None:
     assert result["hybrid_nmi"] == 0.0
 
 
+def test_discovery_frozen_bands_assign_confirmation_without_refitting() -> None:
+    coordinates = np.asarray(
+        [
+            [0.0, -10.0, 0.0],
+            [0.1, -9.0, 0.0],
+            [0.0, 9.0, 0.0],
+            [0.1, 10.0, 0.0],
+            [0.0, -8.0, 0.0],
+            [0.0, 8.0, 0.0],
+        ]
+    )
+    discovery = np.asarray([True, True, True, True, False, False])
+    result = fit_discovery_frozen_bands(coordinates, discovery, random_state=0)
+    assert result["fit_split"] == "discovery"
+    assert result["discovery_cluster_sizes"] == {"upper": 2, "lower": 2}
+    assert result["band"].tolist()[-2:] == ["lower", "upper"]
+
+
+def test_band_conditioned_snr_removes_between_band_offset_from_noise() -> None:
+    rng = np.random.default_rng(7)
+    rows = []
+    states = []
+    bands = []
+    for split, seed_start in (("discovery", 0), ("confirmation", 100)):
+        for label in (1, 2, 3):
+            for band_name, offset in (("lower", -12.0), ("upper", 12.0)):
+                for repeat in range(5):
+                    noise = rng.normal(0.0, 0.05, size=2)
+                    states.append([offset + noise[0], 3.0 * label + noise[1]])
+                    rows.append(
+                        {
+                            "split": split,
+                            "seed": seed_start + repeat,
+                            "gold_count": 3,
+                            "occurrence": label,
+                        }
+                    )
+                    bands.append(band_name)
+    matrix = np.asarray(states, dtype=np.float32)
+    metadata = pd.DataFrame(rows)
+    global_result = confirmation_metrics(
+        matrix,
+        metadata,
+        (1, 2, 3),
+        pca_dim=2,
+        random_state=0,
+        pca_whiten=True,
+    )
+    conditioned = band_conditioned_confirmation_snr(
+        matrix,
+        metadata,
+        np.asarray(bands),
+        (1, 2, 3),
+        pca_dim=2,
+        random_state=0,
+    )
+    assert conditioned["per_band"]["upper"]["retained_labels"] == [1, 2, 3]
+    assert conditioned["per_band"]["lower"]["retained_labels"] == [1, 2, 3]
+    assert conditioned["macro_within_band"]["snr_db"] > (
+        global_result["confirmation_class_balanced_snr_db"] + 5.0
+    )
 def test_legacy_marker_summary_keeps_unresolved_in_full_denominator() -> None:
     rows = []
     for model in ("Qwen3-8B", "Gemma4-E4B"):

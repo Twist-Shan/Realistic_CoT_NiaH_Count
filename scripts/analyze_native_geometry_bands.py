@@ -144,6 +144,241 @@ def two_band_fit(coordinates: np.ndarray, random_state: int) -> dict[str, Any]:
     }
 
 
+def summarize_frozen_bands(
+    coordinates: np.ndarray,
+    band: np.ndarray,
+    mask: np.ndarray | None = None,
+) -> dict[str, Any]:
+    """Summarize already-assigned bands without fitting on the summarized rows."""
+
+    selected = np.ones(len(coordinates), dtype=bool) if mask is None else mask
+    values = coordinates[selected]
+    names = np.asarray(band, dtype=str)[selected]
+    if len(values) < 4:
+        raise ValueError("Two-band diagnostic needs at least four rows")
+    encoded = np.asarray([1 if value == "upper" else 0 for value in names])
+    silhouette = (
+        float(silhouette_score(values, encoded))
+        if len(np.unique(encoded)) == 2
+        else math.nan
+    )
+    vertical = display_vertical(values)
+    return {
+        "silhouette": silhouette,
+        "cluster_sizes": {
+            name: int(np.sum(names == name)) for name in ("upper", "lower")
+        },
+        "display_vertical_means": {
+            name: (
+                float(vertical[names == name].mean())
+                if np.any(names == name)
+                else math.nan
+            )
+            for name in ("upper", "lower")
+        },
+    }
+
+
+def fit_discovery_frozen_bands(
+    coordinates: np.ndarray,
+    discovery: np.ndarray,
+    random_state: int,
+) -> dict[str, Any]:
+    """Fit two bands on discovery only and assign every row with frozen centers."""
+
+    if int(discovery.sum()) < 4:
+        raise ValueError("Discovery band fit needs at least four rows")
+    estimator = KMeans(n_clusters=2, n_init=50, random_state=random_state).fit(
+        coordinates[discovery]
+    )
+    labels = estimator.predict(coordinates)
+    discovery_vertical = display_vertical(coordinates[discovery])
+    discovery_labels = labels[discovery]
+    means = {
+        label: float(discovery_vertical[discovery_labels == label].mean())
+        for label in (0, 1)
+    }
+    upper_label = max(means, key=means.get)
+    band = np.asarray(
+        ["upper" if value == upper_label else "lower" for value in labels]
+    )
+    centers = estimator.cluster_centers_
+    return {
+        "band": band,
+        "fit_split": "discovery",
+        "discovery_cluster_sizes": {
+            name: int(np.sum(band[discovery] == name))
+            for name in ("upper", "lower")
+        },
+        "centers": {
+            "upper": [float(value) for value in centers[upper_label]],
+            "lower": [float(value) for value in centers[1 - upper_label]],
+        },
+    }
+
+
+def _class_balanced_snr(
+    projected: np.ndarray,
+    labels: np.ndarray,
+    row_mask: np.ndarray,
+    ordinal_labels: Iterable[int],
+    *,
+    minimum_support: int = 2,
+) -> dict[str, Any]:
+    """Compute a class-balanced SNR inside one pre-specified row subset."""
+
+    support = {
+        int(label): int(np.sum(row_mask & (labels == int(label))))
+        for label in ordinal_labels
+    }
+    retained = [label for label, count in support.items() if count >= minimum_support]
+    excluded = [label for label, count in support.items() if count < minimum_support]
+    if len(retained) < 2:
+        return {
+            "status": "insufficient_support",
+            "minimum_support": int(minimum_support),
+            "retained_labels": retained,
+            "excluded_labels": excluded,
+            "support": {str(key): value for key, value in support.items()},
+            "rows": int(row_mask.sum()),
+            "signal_power": math.nan,
+            "noise_power": math.nan,
+            "snr": math.nan,
+            "snr_db": math.nan,
+        }
+    class_means = np.stack(
+        [projected[row_mask & (labels == label)].mean(axis=0) for label in retained]
+    )
+    balanced_grand = class_means.mean(axis=0)
+    signal_power = float(
+        np.square(class_means - balanced_grand).sum(axis=1).mean()
+    )
+    class_noise = np.asarray(
+        [
+            np.square(
+                projected[row_mask & (labels == label)] - class_means[index]
+            )
+            .sum(axis=1)
+            .mean()
+            for index, label in enumerate(retained)
+        ],
+        dtype=float,
+    )
+    noise_power = float(class_noise.mean())
+    if noise_power <= np.finfo(float).eps or signal_power <= 0:
+        snr = math.nan
+        snr_db = math.nan
+    else:
+        snr = float(signal_power / noise_power)
+        snr_db = float(10.0 * np.log10(snr))
+    return {
+        "status": "ok",
+        "minimum_support": int(minimum_support),
+        "retained_labels": retained,
+        "excluded_labels": excluded,
+        "support": {str(key): value for key, value in support.items()},
+        "rows": int(row_mask.sum()),
+        "signal_power": signal_power,
+        "noise_power": noise_power,
+        "snr": snr,
+        "snr_db": snr_db,
+    }
+
+
+def band_conditioned_confirmation_snr(
+    states: np.ndarray,
+    metadata: pd.DataFrame,
+    frozen_band: np.ndarray,
+    ordinal_labels: Iterable[int] = ORDINAL_LABELS,
+    *,
+    pca_dim: int = 16,
+    random_state: int = 0,
+    minimum_support: int = 2,
+) -> dict[str, Any]:
+    """Measure count SNR within discovery-fitted bands on confirmation rows.
+
+    Standardization/PCA16-whitening and the two-band assignment are both frozen
+    before confirmation is evaluated.  The macro value averages signal and
+    noise powers across valid bands, so the distance between the band means is
+    excluded from the signal and noise terms.
+    """
+
+    labels = tuple(map(int, ordinal_labels))
+    occurrence = metadata["occurrence"].to_numpy(dtype=int)
+    label_mask = metadata["occurrence"].astype(int).isin(labels).to_numpy()
+    discovery = metadata["split"].astype(str).eq("discovery").to_numpy() & label_mask
+    confirmation = (
+        metadata["split"].astype(str).eq("confirmation").to_numpy() & label_mask
+    )
+    scaler = StandardScaler().fit(states[discovery].astype(np.float32))
+    scaled = scaler.transform(states.astype(np.float32))
+    components = min(
+        int(pca_dim),
+        int(discovery.sum() - len(labels)),
+        int(scaled.shape[1]),
+    )
+    if components < 2:
+        raise ValueError("Discovery rows support fewer than two PCA components")
+    pca = PCA(
+        n_components=components,
+        svd_solver="randomized",
+        whiten=True,
+        random_state=random_state,
+    ).fit(scaled[discovery])
+    projected = pca.transform(scaled)
+    band_array = np.asarray(frozen_band, dtype=str)
+    per_band = {
+        name: _class_balanced_snr(
+            projected,
+            occurrence,
+            confirmation & (band_array == name),
+            labels,
+            minimum_support=minimum_support,
+        )
+        for name in ("upper", "lower")
+    }
+    valid = [value for value in per_band.values() if value["status"] == "ok"]
+    complete_label_coverage = all(
+        value["retained_labels"] == list(labels) for value in per_band.values()
+    )
+    if valid:
+        signal = float(np.mean([value["signal_power"] for value in valid]))
+        noise = float(np.mean([value["noise_power"] for value in valid]))
+        ratio = float(signal / noise) if noise > np.finfo(float).eps else math.nan
+        db = float(10.0 * np.log10(ratio)) if ratio > 0 else math.nan
+        status = "ok"
+    else:
+        signal = noise = ratio = db = math.nan
+        status = "insufficient_support"
+    return {
+        "status": status,
+        "band_fit_split": "discovery",
+        "projection_fit_split": "discovery",
+        "projection": f"StandardScaler + PCA{components}-whitened",
+        "minimum_class_support_per_band": int(minimum_support),
+        "per_band": per_band,
+        "macro_within_band": {
+            "status": status,
+            "valid_band_count": int(len(valid)),
+            "complete_label_coverage": complete_label_coverage,
+            "signal_power": signal,
+            "noise_power": noise,
+            "snr": ratio,
+            "snr_db": db,
+        },
+        "definition": (
+            "Within each frozen band, average count-centroid separation around "
+            "that band's class-balanced grand centroid and divide by the mean "
+            "within-(band,count) residual power. Macro SNR is the ratio of the "
+            "equal-band mean signal power to equal-band mean noise power."
+        ),
+        "caveat": (
+            "Band membership is a post-hoc nuisance diagnostic derived from "
+            "discovery hidden geometry. It is not a primary cross-mode metric."
+        ),
+    }
+
+
 def categorical_association(
     frame: pd.DataFrame, column: str, *, band_column: str = "band"
 ) -> dict[str, Any]:
@@ -350,9 +585,11 @@ def nuisance_band_summary(
         scaled[discovery]
     )
     coordinates = pca.transform(scaled)
-    raw = two_band_fit(coordinates[confirmation], random_state)
+    raw_frozen = fit_discovery_frozen_bands(coordinates, discovery, random_state)
+    raw_band = raw_frozen["band"]
+    raw = summarize_frozen_bands(coordinates, raw_band, confirmation)
     frame = metadata.loc[confirmation].reset_index(drop=True).copy()
-    frame["band"] = raw["band"]
+    frame["band"] = raw_band[confirmation]
     raw_marker_nmi = float(
         normalized_mutual_info_score(
             frame["marker_kind"].fillna("<missing>").astype(str), frame["band"]
@@ -378,8 +615,14 @@ def nuisance_band_summary(
         n_components=3, svd_solver="randomized", random_state=random_state
     ).fit(centered_scaled[discovery])
     centered_coordinates = centered_pca.transform(centered_scaled)
-    centered = two_band_fit(centered_coordinates[confirmation], random_state)
-    frame["centered_band"] = centered["band"]
+    centered_frozen = fit_discovery_frozen_bands(
+        centered_coordinates, discovery, random_state
+    )
+    centered_band = centered_frozen["band"]
+    centered = summarize_frozen_bands(
+        centered_coordinates, centered_band, confirmation
+    )
+    frame["centered_band"] = centered_band[confirmation]
     centered_marker_nmi = float(
         normalized_mutual_info_score(
             frame["marker_kind"].fillna("<missing>").astype(str),
@@ -495,8 +738,10 @@ def analyze(
         scaled[discovery]
     )
     coordinates = pca.transform(scaled)
-    raw_band = two_band_fit(coordinates[confirmation], random_state)
-    raw_band_full = two_band_fit(coordinates, random_state)
+    raw_frozen = fit_discovery_frozen_bands(coordinates, discovery, random_state)
+    raw_band_all = raw_frozen["band"]
+    raw_band = summarize_frozen_bands(coordinates, raw_band_all, confirmation)
+    raw_band_full = summarize_frozen_bands(coordinates, raw_band_all)
 
     centered_states = center_within_trajectory(states, metadata)
     centered_scaler = StandardScaler().fit(centered_states[discovery])
@@ -505,29 +750,37 @@ def analyze(
         n_components=3, svd_solver="randomized", random_state=random_state
     ).fit(centered_scaled[discovery])
     centered_coordinates = centered_pca.transform(centered_scaled)
-    centered_band = two_band_fit(centered_coordinates[confirmation], random_state)
-    centered_band_full = two_band_fit(centered_coordinates, random_state)
+    centered_frozen = fit_discovery_frozen_bands(
+        centered_coordinates, discovery, random_state
+    )
+    centered_band_all = centered_frozen["band"]
+    centered_band = summarize_frozen_bands(
+        centered_coordinates, centered_band_all, confirmation
+    )
+    centered_band_full = summarize_frozen_bands(
+        centered_coordinates, centered_band_all
+    )
 
     all_points = enriched.reset_index(drop=True).copy()
     all_points["pc1"] = coordinates[:, 0]
     all_points["pc2"] = coordinates[:, 1]
     all_points["pc3"] = coordinates[:, 2]
     all_points["display_vertical"] = display_vertical(coordinates)
-    all_points["band"] = raw_band_full["band"]
+    all_points["band"] = raw_band_all
     all_points["centered_pc1"] = centered_coordinates[:, 0]
     all_points["centered_pc2"] = centered_coordinates[:, 1]
     all_points["centered_pc3"] = centered_coordinates[:, 2]
-    all_points["centered_band"] = centered_band_full["band"]
+    all_points["centered_band"] = centered_band_all
     points = all_points.loc[confirmation].reset_index(drop=True).copy()
     points["pc1"] = coordinates[confirmation, 0]
     points["pc2"] = coordinates[confirmation, 1]
     points["pc3"] = coordinates[confirmation, 2]
     points["display_vertical"] = display_vertical(coordinates[confirmation])
-    points["band"] = raw_band["band"]
+    points["band"] = raw_band_all[confirmation]
     points["centered_pc1"] = centered_coordinates[confirmation, 0]
     points["centered_pc2"] = centered_coordinates[confirmation, 1]
     points["centered_pc3"] = centered_coordinates[confirmation, 2]
-    points["centered_band"] = centered_band["band"]
+    points["centered_band"] = centered_band_all[confirmation]
     trajectories = trajectory_summary(points)
     all_trajectories = trajectory_summary(all_points)
 
@@ -589,6 +842,15 @@ def analyze(
         random_state=random_state,
         pca_whiten=True,
     )
+    conditioned_snr = band_conditioned_confirmation_snr(
+        states,
+        metadata,
+        raw_band_all,
+        ORDINAL_LABELS,
+        pca_dim=16,
+        random_state=random_state,
+        minimum_support=2,
+    )
     sensitivity = site_layer_sensitivity(
         capture_index,
         selected_layer=layer,
@@ -608,7 +870,7 @@ def analyze(
         ascending=[False, False, True],
     ).iloc[0]
     report = {
-        "schema_version": "native_geometry_band_diagnostic_v1",
+        "schema_version": "native_geometry_band_diagnostic_v2_frozen_band",
         "model_label": dataset.model_label,
         "capture_index": str(capture_index.resolve()),
         "trace_archive": None if trace_archive is None else str(trace_archive.resolve()),
@@ -645,6 +907,8 @@ def analyze(
         },
         "display_pca3": {
             "fit_split": "discovery",
+            "band_fit_split": "discovery",
+            "discovery_band_sizes": raw_frozen["discovery_cluster_sizes"],
             "explained_variance_ratio": [float(value) for value in pca.explained_variance_ratio_],
             "explained_variance_ratio_sum": float(pca.explained_variance_ratio_.sum()),
             "confirmation_two_band": {
@@ -658,6 +922,8 @@ def analyze(
         },
         "within_trajectory_centered_pca3": {
             "fit_split": "discovery after per-trajectory mean subtraction",
+            "band_fit_split": "discovery after per-trajectory mean subtraction",
+            "discovery_band_sizes": centered_frozen["discovery_cluster_sizes"],
             "explained_variance_ratio": [
                 float(value) for value in centered_pca.explained_variance_ratio_
             ],
@@ -685,6 +951,7 @@ def analyze(
         },
         "ordinal_decodability": {
             "raw": metric_subset(raw_metrics),
+            "band_conditioned_confirmation_snr": conditioned_snr,
             "within_trajectory_centered_diagnostic": metric_subset(centered_metrics),
             "centering_caveat": (
                 "Per-trajectory centering uses all observed states in each trajectory; "
