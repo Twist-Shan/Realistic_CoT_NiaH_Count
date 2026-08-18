@@ -92,6 +92,7 @@ def run_pipeline(
     output: Path,
     manifest: Path,
     domain_transfer_root: Path | None = None,
+    covariance_root: Path | None = None,
     pca_dim: int = 16,
     cv_folds: int = 5,
     random_state: int = 0,
@@ -162,6 +163,7 @@ def run_pipeline(
         output=output,
         manifest_path=manifest,
         domain_transfer_root=domain_transfer_root,
+        covariance_root=covariance_root,
     )
 
 
@@ -175,6 +177,7 @@ def main() -> None:
     parser.add_argument("--analysis-root", type=Path, required=True)
     parser.add_argument("--band-root", type=Path, required=True)
     parser.add_argument("--domain-transfer-root", type=Path)
+    parser.add_argument("--covariance-root", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--pca-dim", type=int, default=16)
@@ -192,6 +195,11 @@ def main() -> None:
         domain_transfer_root=(
             args.domain_transfer_root.resolve()
             if args.domain_transfer_root is not None
+            else None
+        ),
+        covariance_root=(
+            args.covariance_root.resolve()
+            if args.covariance_root is not None
             else None
         ),
         output=args.output.resolve(),

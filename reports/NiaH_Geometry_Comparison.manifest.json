@@ -1,6 +1,6 @@
 {
-  "schema_version": "niah_geometry_comparison_v10_entity_domain_transfer",
-  "generated_at": "2026-08-17T23:26:04.800371+00:00",
+  "schema_version": "niah_geometry_comparison_v12_metric_guide",
+  "generated_at": "2026-08-18T02:38:54.809595+00:00",
   "cohorts": {
     "full": "10 gold counts x 30 seeds = 300 trajectories",
     "confirmation": "10 gold counts x 10 seeds = 100 trajectories"
@@ -10,8 +10,12 @@
   "primary_analysis": "running sites fixed to span_end/item_end; pooled discovery-only layer selection; frozen confirmation evaluation",
   "trace_format_site_layer_sweep": "omitted from main; marker/band diagnostics moved to appendix",
   "native_band_snr": "bands and PCA16 frozen on discovery; per-band confirmation SNR requires at least two states per retained k",
+  "nonthinking_internal_comparison": "supportive running span_end versus pre-answer answer_query_v3; each endpoint and metric independently selects a layer on discovery; PCA16 confirmation SNR/RSA are primary and unequal state units are disclosed",
+  "metric_guide": "Logistic/NCC balanced accuracy, isotropic SNR, frozen Fisher trace, Mahalanobis silhouette, and held-out ordinal RSA each include an exact calculation, practical interpretation, worked example, and boundary",
   "entity_domain_transfer": "city-discovery-200 layer selection/probe fitting and frozen city/flower/animal confirmation-100 evaluation; city-anchored PCA3; running endpoints archived at all layers",
   "inputs": {
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\covariance_geometry_comparison\\audit.json": "4524f328ccd6784c5e0cad707b013406bda86194da045ea697d8a13451bd4d97",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\covariance_geometry_comparison\\discovery_selected_metrics.csv": "3cf4477e19550592615ed18434760f5dae2d2921b2ddbd9b99b420845b303aea",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\native_geometry_band_diagnostic_full300\\Gemma4-E4B\\all_points.csv": "493745dddb16ac256e5d645644597c75cb7bb0dd0f93f1f927d493aeaea000a3",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\native_geometry_band_diagnostic_full300\\Gemma4-E4B\\band_diagnostic.json": "091391c5e93ce6316596c32a9a138060b3eddcaaaae18a6bcca1c3cdca4a9136",
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\native_geometry_band_diagnostic_full300\\Gemma4-E4B\\confirmation_points.csv": "6373ae779da934432b3dd7f9359b918baf2d865667568b8d5f74f13f6b4187b1",
@@ -50,5 +54,5 @@
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_geometry_full_panel\\running\\Qwen3-8B\\shards\\Qwen3-8B__native_thinking__v5__V4_4_T10000_N1_seed1234\\capture_manifest.json": "0ce6f781628fc5f0cd6d482d6cfdaf0da35ace79257adcc573a5eaeb38ffc654"
   },
   "output": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\NiaH_Geometry_Comparison.html",
-  "output_sha256": "acae290a5a0b5b3d5a0e1a8d71ad6a17d1816f7d95d04c9ca7318a1670f062e0"
+  "output_sha256": "398e8c5d93136b31d711891cef47246313de2031f25dbdc8088caf7a2ddbe963"
 }

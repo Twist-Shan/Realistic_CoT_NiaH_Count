@@ -47,7 +47,7 @@ from scripts.build_niah_geometry_comparison_report import (  # noqa: E402
 )
 
 
-REPORT_SCHEMA_VERSION = "niah_geometry_comparison_v10_entity_domain_transfer"
+REPORT_SCHEMA_VERSION = "niah_geometry_comparison_v12_metric_guide"
 
 
 def _pct(value: Any) -> str:
@@ -158,6 +158,286 @@ def empirical_claims(
 <div class="metric-legend"><span><i class="legend-non"></i>non-thinking</span><span><i class="legend-native"></i>native-thinking</span><span>右侧数值：non → native</span></div>
 <div class="metric-grid">{''.join(charts)}</div>
 <ul>{''.join(verdicts)}</ul>
+</section>"""
+
+
+def metric_guide_section() -> str:
+    """Explain every primary probe/geometry metric with examples and limits."""
+
+    return """
+<section id="metric-guide"><h2>指标字典：六个数分别回答什么</h2>
+<div class="callout"><strong>先统一符号：</strong>对每个 count 类别 k，<code>μₖ</code> 是该类 hidden states 的 centroid，<code>μ̄</code> 是十个类别 centroid 的等权平均。<code>Σ<sub>B</sub></code> 是十个 centroid 围绕 <code>μ̄</code> 的 class-balanced between-count covariance；<code>Σ<sub>W</sub></code> 是先在每类内部求 residual covariance、再对十类等权平均的 within-count covariance。因此 running 中样本较多的低 k 不会自动获得更大权重。</div>
+<div class="metric-guide-grid">
+<article class="metric-guide-card"><h3>Logistic balanced accuracy</h3><p class="formula">BAcc = (1/10) Σₖ recallₖ</p><p><strong>怎么算：</strong>在 discovery 拟合 StandardScaler、whitened PCA16 和带 class balancing 的十分类线性 Logistic；层也只由 seed-grouped discovery OOF 选择。冻结后在 confirmation 预测 k/N，最后等权平均十类 recall。</p><p><strong>现实意义：</strong>回答“一个简单线性下游读出器能否恢复 count”。它允许学习十个线性 decision regions，因此是 <em>linear decodability</em> 指标。</p><p><strong>例：</strong>若十个 count 的 recall 分别约为 80%，BAcc 就约为 80%；即使 running 的 k=1 states 更多，永远猜 1 也只接近 10% chance，而不会因样本量膨胀。</p><p class="small"><strong>不能说明：</strong>可解码不等于模型因果使用该变量，也不保证每类形成紧密球状簇。</p></article>
+<article class="metric-guide-card"><h3>Nearest-centroid balanced accuracy (NCC)</h3><p class="formula">ŷ = arg minₖ ‖z − μₖ<sup>disc</sup>‖²；BAcc = meanₖ recallₖ</p><p><strong>怎么算：</strong>在与 Logistic 相同的 discovery-fitted whitened PCA16 中求每个 count 的 discovery centroid；confirmation state 直接分给欧氏距离最近的 centroid，不再学习额外 decision weights。</p><p><strong>现实意义：</strong>回答“count 是否已被组织成可由简单原型读取的几何”。NCC 高而 Logistic 也高时，证据不只依赖一个灵活的线性边界。</p><p><strong>例：</strong>若某 state 到 count-4 centroid 的距离为 0.8，到 count-3/5 centroid 为 1.4/1.2，则预测 4；十类分别算 recall 后再平均。</p><p class="small"><strong>不能说明：</strong>弯曲流形或强各向异性簇可能线性可分却不接近自己的欧氏 centroid，所以 NCC 与 Logistic 不必同步。</p></article>
+<article class="metric-guide-card"><h3>Isotropic SNR</h3><p class="formula">SNR = tr(Σ<sub>B</sub>) / tr(Σ<sub>W</sub>)；SNR<sub>dB</sub> = 10 log₁₀(SNR)</p><p><strong>怎么算：</strong>先用 discovery-fitted StandardScaler 与 PCA16 whitening 变换 states，再在 confirmation 上按上面的 class-balanced 定义计算 centroid energy 与类内 residual energy。</p><p><strong>现实意义：</strong>回答“总的 between-count signal 相对总的 within-count variation 有多大”。0 dB 表示两者相等；负值表示类内总变异更大；数值越高越清楚。</p><p><strong>例：</strong>若 <code>tr(Σ<sub>B</sub>)=4</code>、<code>tr(Σ<sub>W</sub>)=1</code>，SNR=4，即 6.02 dB。由 −4.04 dB 升到 −1.78 dB 表示比值提高约 1.68 倍，而不是说 noise 本身一定缩小。</p><p class="small"><strong>不能说明：</strong>trace 把 16 个方向直接相加，不区分某个方向本来就很 noisy；升高既可能来自 centroid 拉开，也可能来自类内残差减小。</p></article>
+<article class="metric-guide-card"><h3>Fisher trace</h3><p class="formula">F = tr[(Σ<sub>W</sub><sup>disc</sup> + λI)<sup>−1</sup> Σ<sub>B</sub><sup>conf</sup>]</p><p><strong>怎么算：</strong>在 discovery-fitted PCA16 空间估计 class-balanced within covariance，加一个按 covariance scale 缩放的 ridge 后求 precision；该 precision 完全冻结，只用 confirmation 的 between-count covariance 评价。每个 metric 的层仍由 discovery OOF Fisher 选择。</p><p><strong>现实意义：</strong>回答“confirmation 的 count centroids 是否沿 discovery 中稳定、低噪声的方向分开”。它是 covariance-aware 的 separation：同样的 centroid 差，落在低噪声方向会得到更高权重。</p><p><strong>例：</strong>二维玩具例中，若 <code>Σ<sub>B</sub>=diag(4,1)</code>、<code>Σ<sub>W</sub>=diag(1,9)</code>，则 F≈4/1+1/9=4.11；第二维虽然有 signal=1，但 noise=9，所以贡献很小。这个例子说明 Fisher 为什么能处理各向异性 noise。</p><p class="small"><strong>不能说明：</strong>F 没有 0–1 上界，也没有通用“及格线”；它依赖 discovery covariance 的稳定性与 ridge。若 discovery/confirmation noise 分布漂移，需同时检查 frozen precision 的 noise calibration，不能只看 F。</p></article>
+<article class="metric-guide-card"><h3>Mahalanobis silhouette</h3><p class="formula">sᵢ = (bᵢ − aᵢ) / max(aᵢ,bᵢ)，范围 [−1,1]</p><p><strong>怎么算：</strong>先用 discovery 的 <code>Σ<sub>W</sub><sup>−1/2</sup></code> whitening PCA16 states；对 confirmation 点 i，<code>aᵢ</code> 是它到同 count 其他点的平均距离，<code>bᵢ</code> 是它到“最近的另一个 count 类”的平均距离。先在每个 count 内平均 <code>sᵢ</code>，再对十类等权平均。</p><p><strong>现实意义：</strong>回答“单个 state 是否更像自己 count 的 cloud，而不是最近的其他 count cloud”。接近 1 表示 pointwise cluster membership 清楚，接近 0 表示边界重叠，负值表示平均更靠近别类。</p><p><strong>例：</strong>若某点的 <code>a=1</code>、<code>b=3</code>，则 silhouette=(3−1)/3=0.67；若 <code>a=3</code>、<code>b=1</code>，则为 −0.67。</p><p class="small"><strong>不能说明：</strong>它不关心 count 顺序；十个彼此隔离但按 1,7,2,9… 排列的簇仍可有很高 silhouette。</p></article>
+<article class="metric-guide-card"><h3>Held-out ordinal RSA</h3><p class="formula">ρ = Spearman({|k−ℓ|}, {d<sub>Mahalanobis</sub>(μₖ,μℓ)})，共 C(10,2)=45 对</p><p><strong>怎么算：</strong>用与 silhouette 相同的 discovery-frozen Mahalanobis metric，在 confirmation 求十个 count centroids；枚举 45 个 centroid pair，将几何距离与数字差 <code>|k−ℓ|</code> 做 Spearman rank correlation。</p><p><strong>现实意义：</strong>回答“表征是否近似一条有序 count axis”：数字相差越大，centroid 是否通常也越远。ρ 接近 1 表示高度单调有序，接近 0 表示没有稳定的 ordinal relation。</p><p><strong>例：</strong>对 counts 1,2,3，若 d(1,2)=1、d(2,3)=1、d(1,3)=2，distance rank 与 gap rank 一致，ρ 接近 1；若 1 与 10 反而相邻，ρ 会下降。</p><p class="small"><strong>不能说明：</strong>centroid 可以排得很有序，但各类 cloud 仍大量重叠；因此 RSA 高不等于 silhouette 高或分类准确率高。</p></article>
+</div>
+<details><summary>统一的防泄漏与比较规则</summary><div class="callout"><p>所有 label 都使用 gold running index/final N，模型答错的 trajectory 也保留。StandardScaler、PCA、Logistic、centroid、within-covariance metric 与 layer selection 都只从 discovery 得到；confirmation 不参与选层，只用于冻结评价。</p><p>Logistic/NCC 与主 SNR 使用 discovery-fitted whitened PCA16。Fisher、Mahalanobis silhouette 与 ordinal RSA 先使用 discovery-fitted、未 PCA-whiten 的 16-D scores，再只按 discovery 的 within-count covariance 做 noise whitening。每个 model × mode × endpoint × metric 各选自己的最佳层，因此表中的绝对值回答各指标自己的最佳可读性，不是假设所有指标共享同一层。</p></div></details>
+</section>"""
+
+
+def load_nonthinking_internal_metrics(
+    covariance_root: Path,
+) -> tuple[dict[str, dict[str, dict[str, Mapping[str, str]]]], list[Path]]:
+    """Load the discovery-selected, confirmation-frozen non-thinking metrics."""
+
+    covariance_root = covariance_root.resolve()
+    selected_path = covariance_root / "discovery_selected_metrics.csv"
+    audit_path = covariance_root / "audit.json"
+    rows = read_csv(selected_path)
+    audit = read_json(audit_path)
+    if str(audit.get("schema_version")) != "niah_covariance_geometry_v1":
+        raise ValueError(
+            f"Unexpected covariance audit schema in {audit_path}: "
+            f"{audit.get('schema_version')!r}"
+        )
+    if int(audit.get("pca_dim", -1)) != 16:
+        raise ValueError(f"Expected PCA16 covariance audit in {audit_path}")
+
+    endpoints = ("running_index", "final_count")
+    selectors = (
+        "isotropic_snr",
+        "ordinal_rsa",
+        "mahalanobis_silhouette",
+        "fisher_trace",
+    )
+    indexed: dict[str, dict[str, dict[str, Mapping[str, str]]]] = {
+        model: {endpoint: {} for endpoint in endpoints} for model in MODELS
+    }
+    for row in rows:
+        if str(row.get("mode")) != "non_thinking":
+            continue
+        model = str(row.get("model_label"))
+        endpoint = str(row.get("endpoint"))
+        selector = str(row.get("selector"))
+        if model not in indexed or endpoint not in endpoints or selector not in selectors:
+            continue
+        if selector in indexed[model][endpoint]:
+            raise ValueError(
+                f"Duplicate covariance winner for {model}/{endpoint}/{selector}"
+            )
+        if int(float(row["pca_components"])) != 16:
+            raise ValueError(
+                f"Expected PCA16 winner for {model}/{endpoint}/{selector}"
+            )
+        expected_confirmation_rows = 550 if endpoint == "running_index" else 100
+        if int(float(row["confirmation_rows"])) != expected_confirmation_rows:
+            raise ValueError(
+                f"Unexpected confirmation support for {model}/{endpoint}/{selector}: "
+                f"{row['confirmation_rows']}"
+            )
+        indexed[model][endpoint][selector] = row
+
+    missing = [
+        f"{model}/{endpoint}/{selector}"
+        for model in MODELS
+        for endpoint in endpoints
+        for selector in selectors
+        if selector not in indexed[model][endpoint]
+    ]
+    if missing:
+        raise ValueError(
+            "Missing non-thinking covariance winners: " + ", ".join(missing)
+        )
+    return indexed, [selected_path, audit_path]
+
+
+def _internal_endpoint_metric_svg(
+    metrics: Mapping[str, Mapping[str, Mapping[str, Mapping[str, str]]]],
+    *,
+    selector: str,
+    title: str,
+    axis_title: str,
+    domain: tuple[float, float],
+    ticks: Iterable[float],
+    decimals: int,
+) -> str:
+    """Draw a two-model running-to-pre-answer comparison for one metric."""
+
+    width, height = 700, 186
+    x0, x1 = 155.0, 520.0
+    low, high = domain
+    scale = lambda value: x0 + (float(value) - low) / (high - low) * (x1 - x0)
+    grid = []
+    for tick in ticks:
+        x = scale(tick)
+        label = f"{tick:.{decimals}f}"
+        grid.append(
+            f'<line class="metric-gridline" x1="{x:.1f}" y1="31" '
+            f'x2="{x:.1f}" y2="140"/><text class="metric-tick" '
+            f'x="{x:.1f}" y="19" text-anchor="middle">{esc(label)}</text>'
+        )
+    marks = []
+    for index, model in enumerate(MODELS):
+        y = 62 + 57 * index
+        running = metrics[model]["running_index"][selector]
+        answer = metrics[model]["final_count"][selector]
+        running_value = float(running["confirmation_value"])
+        answer_value = float(answer["confirmation_value"])
+        running_layer = int(float(running["selected_layer"]))
+        answer_layer = int(float(answer["selected_layer"]))
+        marks.append(
+            f'<text class="metric-label" x="8" y="{y+4}">{esc(model)}</text>'
+            f'<line class="metric-link" x1="{scale(running_value):.1f}" y1="{y}" '
+            f'x2="{scale(answer_value):.1f}" y2="{y}"/>'
+            f'<circle class="metric-dot metric-running" '
+            f'cx="{scale(running_value):.1f}" cy="{y}" r="6"/>'
+            f'<circle class="metric-dot metric-answer" '
+            f'cx="{scale(answer_value):.1f}" cy="{y}" r="6"/>'
+            f'<text class="metric-value" x="536" y="{y+4}">'
+            f'{running_value:.{decimals}f} (L{running_layer}) → '
+            f'{answer_value:.{decimals}f} (L{answer_layer})</text>'
+        )
+    return (
+        f'<figure class="metric-figure"><h3>{esc(title)}</h3>'
+        f'<svg viewBox="0 0 {width} {height}" role="img" '
+        f'aria-label="{esc(title)}, non-thinking running needle end versus pre-answer query">'
+        f'<title>{esc(title)}</title>'
+        '<desc>Discovery-selected layers evaluated on frozen confirmation data. '
+        'Purple is the running needle-end endpoint and teal is the pre-answer query endpoint.</desc>'
+        + "".join(grid)
+        + "".join(marks)
+        + f'<text class="metric-axis-title" x="337" y="174" '
+        f'text-anchor="middle">{esc(axis_title)}</text>'
+        + "</svg></figure>"
+    )
+
+
+def _metric_pair_cell(
+    metrics: Mapping[str, Mapping[str, Mapping[str, str]]],
+    selector: str,
+    *,
+    decimals: int,
+    suffix: str = "",
+) -> str:
+    running = metrics["running_index"][selector]
+    answer = metrics["final_count"][selector]
+    running_value = float(running["confirmation_value"])
+    answer_value = float(answer["confirmation_value"])
+    running_layer = int(float(running["selected_layer"]))
+    answer_layer = int(float(answer["selected_layer"]))
+    return (
+        f"{running_value:.{decimals}f}{suffix} @ L{running_layer} → "
+        f"{answer_value:.{decimals}f}{suffix} @ L{answer_layer}"
+    )
+
+
+def nonthinking_internal_section(
+    metrics: Mapping[str, Mapping[str, Mapping[str, Mapping[str, str]]]],
+    *,
+    domain_evidence_included: bool,
+) -> str:
+    """Render the supportive running-to-pre-answer comparison within non-thinking."""
+
+    charts = [
+        _internal_endpoint_metric_svg(
+            metrics,
+            selector="isotropic_snr",
+            title="Confirmation SNR",
+            axis_title="PCA16 isotropic SNR (dB; higher is clearer)",
+            domain=(-8.0, 0.0),
+            ticks=(-8.0, -6.0, -4.0, -2.0, 0.0),
+            decimals=2,
+        ),
+        _internal_endpoint_metric_svg(
+            metrics,
+            selector="ordinal_rsa",
+            title="Held-out ordinal RSA",
+            axis_title="Spearman ρ (higher means count distances are more ordinal)",
+            domain=(0.7, 1.0),
+            ticks=(0.7, 0.8, 0.9, 1.0),
+            decimals=3,
+        ),
+    ]
+    rows = []
+    verdicts = []
+    case_cards = []
+    for model in MODELS:
+        model_metrics = metrics[model]
+        running_snr = float(
+            model_metrics["running_index"]["isotropic_snr"]["confirmation_value"]
+        )
+        answer_snr = float(
+            model_metrics["final_count"]["isotropic_snr"]["confirmation_value"]
+        )
+        running_rsa = float(
+            model_metrics["running_index"]["ordinal_rsa"]["confirmation_value"]
+        )
+        answer_rsa = float(
+            model_metrics["final_count"]["ordinal_rsa"]["confirmation_value"]
+        )
+        running_silhouette = float(
+            model_metrics["running_index"]["mahalanobis_silhouette"][
+                "confirmation_value"
+            ]
+        )
+        answer_silhouette = float(
+            model_metrics["final_count"]["mahalanobis_silhouette"][
+                "confirmation_value"
+            ]
+        )
+        running_fisher = float(
+            model_metrics["running_index"]["fisher_trace"]["confirmation_value"]
+        )
+        answer_fisher = float(
+            model_metrics["final_count"]["fisher_trace"]["confirmation_value"]
+        )
+        rows.append(
+            (
+                esc(model),
+                esc(_metric_pair_cell(model_metrics, "isotropic_snr", decimals=2, suffix=" dB")),
+                esc(_metric_pair_cell(model_metrics, "ordinal_rsa", decimals=3)),
+                esc(_metric_pair_cell(model_metrics, "mahalanobis_silhouette", decimals=3)),
+                esc(_metric_pair_cell(model_metrics, "fisher_trace", decimals=1)),
+            )
+        )
+        verdicts.append(
+            f"<li><strong>{esc(model)}：</strong>pre-answer 相对 running 的 SNR "
+            f"提高 {answer_snr-running_snr:+.2f} dB，ordinal RSA 提高 "
+            f"{answer_rsa-running_rsa:+.3f}。</li>"
+        )
+        if answer_silhouette > running_silhouette and answer_fisher > running_fisher:
+            case_text = (
+                "四项指标都上升：除了 count ordering 与 global signal/noise ratio，"
+                "pointwise cluster membership 和 discovery-low-noise directions 上的"
+                " centroid separation 也同向变清楚。"
+            )
+        else:
+            silhouette_direction = (
+                "上升" if answer_silhouette > running_silhouette else "下降"
+            )
+            fisher_direction = "上升" if answer_fisher > running_fisher else "下降"
+            case_text = (
+                f"这是指标分歧的实际案例：SNR/RSA 上升，但 silhouette {silhouette_direction}、"
+                f"Fisher {fisher_direction}。它表示 count axis 的总体相对强度与顺序更清楚，"
+                "却不能推出每个 state 更贴近自己簇，或 centroids 在 discovery-low-noise "
+                "directions 上也更分离。"
+            )
+        case_cards.append(
+            f"<div><h3>{esc(model)} · 如何读四项结果</h3><p>{esc(case_text)}</p></div>"
+        )
+    domain_note = (
+        "同时，Appendix C 的 entity-domain probe 显示 non-thinking pre-answer state "
+        "仍保留明显的实体域信息；因此这里的 consolidation 更接近表征重组，"
+        "不是把 prompt semantics 完全过滤掉。"
+        if domain_evidence_included
+        else "当前报告未载入实体域迁移结果，因此不能据此判断 prompt semantics 是否被过滤。"
+    )
+    return f"""
+<section id="nonthinking-internal"><h2>Non-thinking 内部：needle-end → pre-answer query</h2>
+<div class="callout"><strong>支持性结论：</strong>在 Qwen 与 Gemma 中，pre-answer query 的 final-count 表征都呈现更高的 confirmation SNR 与 ordinal RSA。这支持“生成答案前，count information 更有序，且 count-centroid separation 相对 within-count variation 更大”的说法；但不支持“所有几何指标都更紧”或“prompt 内容已被完全删除”。</div>
+<div class="definitions two"><div><h3>Running endpoint</h3><p>在 prompt 的第 k 个 needle span 末 token 取 hidden state，并以 k=1…10 标注。每条 trajectory 可贡献多个 ragged states。</p></div><div><h3>Pre-answer endpoint</h3><p>取 <code>answer_query_v3</code>：prompt-final <code>Total:</code> 的冒号 hidden state，并以最终 N=1…10 标注。它位于生成数字之前，因此没有读取答案 digit。</p></div></div>
+<div class="metric-legend"><span><i class="legend-running"></i>running needle-end</span><span><i class="legend-answer"></i>pre-answer query</span><span>每个 endpoint/metric 各自由 discovery 选择最佳层</span></div>
+<div class="metric-grid">{''.join(charts)}</div>
+{table(['模型','SNR: running → pre-answer','Ordinal RSA: running → pre-answer','Mahalanobis silhouette','Fisher trace'], rows)}
+<ul>{''.join(verdicts)}</ul>
+<div class="definitions two">{''.join(case_cards)}</div>
+<p>{esc(domain_note)}</p>
+<div class="callout warning"><strong>为什么是“支持性、非严格”：</strong>两端共享同一套 trajectory panel，但统计单位与标签语义不同：running 是每条 trajectory 的多个中间 k，confirmation 共 550 states，且 k 的 support 呈三角形；pre-answer 是每条 trajectory 一个最终 N，共 100 states且每类 10 条。class-balanced 指标和 discovery-frozen 选择减轻了 support 不均衡，却不能把两端变成严格的一一配对 contraction test。Mahalanobis silhouette 与 Fisher trace 在两个模型间也方向不一致，所以主张限定为 <em>clearer ordinal count organization</em>，而不是 universal cluster compactness。</div>
+<p class="muted"><strong>暂缓项：</strong>native-thinking 的 running → answer 内部比较等待新的 answer-side 实验；本版不据现有 broad-retrieval 不充分的 endpoint 下 consolidation 结论。</p>
 </section>"""
 
 
@@ -333,7 +613,7 @@ def snr_section(
             )
     return f"""
 <section id="snr"><h2>SNR：global 与 band-conditioned 要回答两个不同问题</h2>
-<div class="definitions two"><div><h3>Global SNR（主指标）</h3><p>在 discovery-fitted PCA16-whitened 空间中，对 confirmation 每个 k 求 centroid。Signal 是各 k centroid 到 class-balanced grand centroid 的平均平方距离；noise 是各 k 内残差平方距离的 class-balanced 平均。SNR<sub>dB</sub>=10 log<sub>10</sub>(signal/noise)。同一个 k 若落在不同 trace-template band，band offset 会进入 noise——这正是未条件化表示的总变异。</p></div><div><h3>Within-band SNR（混杂诊断）</h3><p>先只用 discovery PCA3 拟合两个 K-means band 并冻结，再把 confirmation 指派到 upper/lower。在每条 band 内以该 band 自己的 grand centroid 计算 signal，并以 (band,k) centroid 计算 residual；因此上下 band 的均值差既不算 signal，也不算 noise。每个 k 在该 band 至少需要 2 states，否则剔除并公开 support。</p></div></div>
+<div class="definitions two"><div><h3>Global SNR（主指标）</h3><p>完整公式、数值例子和解释边界见上面的 <a href="#metric-guide">指标字典</a>。本节强调其 estimand：同一个 k 若落在不同 trace-template band，band offset 会进入 global within-count noise；因此它衡量的是模型未先验知道 band 时所面对的总变异。</p></div><div><h3>Within-band SNR（混杂诊断）</h3><p>先只用 discovery PCA3 拟合两个 K-means band 并冻结，再把 confirmation 指派到 upper/lower。在每条 band 内以该 band 自己的 grand centroid 计算 signal，并以 (band,k) centroid 计算 residual；因此上下 band 的均值差既不算 signal，也不算 noise。每个 k 在该 band 至少需要 2 states，否则剔除并公开 support。</p></div></div>
 <div class="metric-legend"><span><i class="legend-non"></i>non global</span><span><i class="legend-native"></i>native global</span><span><i class="legend-upper"></i>native upper</span><span><i class="legend-lower"></i>native lower</span></div>
 <div class="metric-grid">{''.join(charts)}</div>
 {table(['模型','Native running · global','Upper · conditional','Lower · conditional','Equal-band macro'], rows)}
@@ -768,8 +1048,8 @@ def _domain_metric_definitions() -> str:
 <h3>如何读下面两张表</h3>
 <div class="callout"><strong>统一流程：</strong>只用原始 <code>city discovery 200</code> 选层并训练 count 读出器 → 全部冻结 → 再看 <code>confirmation</code>。两个 count accuracy 问“count 还读不读得出来”（越高越好）；最后一个问“去掉 count 后实体类型还剩多少”（越低越好）。</div>
 {table(('表头', '它实际在问什么', '怎么算', '如何判读'), rows)}
-<p class="small"><strong>Log / NCC：</strong>同一数据给两种简单读出器。Log 用线性分类边界；NCC 把点分给最近的类别中心。单元格始终按 <code>Log / NCC</code> 排列。<strong>BAcc</strong> 是各类别 recall 的平均；本实验类别平衡，所以数值也等于普通 accuracy。</p>
-<details><summary>严格计算细节（复现时再看）</summary><div class="callout"><p>每个 probe 的 <code>StandardScaler</code> 和 whitened PCA 都只在相应训练折拟合，测试数据只做冻结 transform。Log 使用 logistic regression（<code>lbfgs</code>、L2/<code>C=1</code>），NCC 使用 PCA 空间中的欧氏最近 centroid；<code>BAcc=(1/C)Σ recall_c</code>。</p><p>选层时，city discovery 200 按 seed 做 5-fold grouped CV；每层分数是 Log 与 NCC 的跨折均值再取平均，同分取较早层。</p><p>Residual-domain 每折用 9 个 confirmation seeds 估计各 count centroid <code>μ_N</code>，对训练和 held-out seed 都计算 <code>r_i=h_i−μ_{{N_i}}</code>，再用 residual 预测 city/flower/animal，最后平均 10 折。它只移除训练折可估计的加性 count centroid，不保证移除非线性 domain information。</p></div></details>
+<p class="small"><strong>Log / NCC / BAcc：</strong>统一计算与例子见 <a href="#metric-guide">指标字典</a>；本 appendix 的单元格始终按 <code>Log / NCC</code> 排列。这里的三域类别平衡，所以 BAcc 也等于普通 accuracy。</p>
+<details><summary>本 appendix 特有的复现细节</summary><div class="callout"><p>选层时，city discovery 200 按 seed 做 5-fold grouped CV；每层分数是 Log 与 NCC 的跨折均值再取平均，同分取较早层。</p><p>Residual-domain 每折用 9 个 confirmation seeds 估计各 count centroid <code>μ_N</code>，对训练和 held-out seed 都计算 <code>r_i=h_i−μ_{{N_i}}</code>，再用 residual 预测 city/flower/animal，最后平均 10 折。它只移除训练折可估计的加性 count centroid，不保证移除非线性 domain information。</p></div></details>
 """
 
 
@@ -1016,11 +1296,12 @@ def build_html(
     band_html: str,
     band_visual: Mapping[str, Any],
     band_audits: Mapping[str, Mapping[str, Any]],
+    nonthinking_internal_html: str = "",
     domain_html: str = "",
     domain_visual: Mapping[str, Any] | None = None,
 ) -> str:
     css = """
-:root{--paper:#F3EEE4;--surface:#FFFDF8;--ink:#20242D;--muted:#626A74;--line:#C9C2B6;--indigo:#23165C;--teal:#00A88F;--yellow:#D6B52C}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;overflow-x:hidden;background:var(--paper);color:var(--ink);font-family:"Segoe UI",Arial,sans-serif;line-height:1.62}nav{position:sticky;top:0;z-index:5;display:flex;gap:18px;padding:10px 22px;background:rgba(243,238,228,.96);border-bottom:1px solid var(--line);overflow-x:auto}nav a{color:var(--indigo);font-size:13px;font-weight:750;text-decoration:none;white-space:nowrap}main{max-width:1480px;margin:auto;padding:38px 28px 80px}header{max-width:1080px;border-bottom:2px solid var(--ink);padding-bottom:28px}.eyebrow{font:700 12px/1.2 Consolas,monospace;letter-spacing:.12em;color:var(--teal)}h1{font-size:44px;line-height:1.08;margin:10px 0 16px;letter-spacing:-.035em}h2{font-size:29px;margin:0 0 12px}h4{color:var(--indigo)}.lead{font-size:18px;color:#404852;max-width:92ch}section{padding:46px 0;border-bottom:1px solid var(--line)}.callout{max-width:1120px;background:var(--surface);border-left:4px solid var(--teal);padding:15px 19px;margin:20px 0}.warning{border-left-color:var(--yellow)}.definitions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}.definitions.two{grid-template-columns:repeat(2,minmax(0,1fr))}.definitions>div,.geometry-card,.appendix-model{min-width:0;background:var(--surface);border:1px solid var(--line);padding:17px}.definitions h3,.geometry-card h3{color:var(--indigo);margin:0 0 8px;font-size:17px}.definitions p,.geometry-card p{font-size:13px;color:var(--muted);margin:0 0 12px}.controls{display:flex;gap:12px;flex-wrap:wrap}.controls label{font-size:12px;font-weight:700;color:var(--muted)}select{display:block;margin-top:4px;border:1px solid var(--line);background:var(--surface);padding:7px 28px 7px 9px;color:var(--ink)}.dual-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:28px}.geometry-card canvas{display:block;width:100%;height:390px;background:#F8F4EC;border:1px solid #DDD5C9;touch-action:none;cursor:grab}.geometry-card canvas:active{cursor:grabbing}.rotate-hint{margin-top:5px;color:#7A7270;font:10px/1.4 Consolas,monospace}.panel-stats{min-height:70px;margin-top:7px;color:var(--muted);font:12px/1.5 Consolas,monospace}.table-scroll{overflow:auto;background:var(--surface);border:1px solid var(--line);margin:16px 0 22px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid #DED8CE}th{background:#ECE6DA;color:#303744}.muted,.small{color:var(--muted);font-size:12px}.metric-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0 20px}.metric-figure{min-width:0;margin:0;background:var(--surface);border:1px solid var(--line);padding:13px}.metric-figure h3{margin:0;color:var(--indigo);font-size:17px}.metric-figure svg{display:block;width:100%;height:auto}.metric-gridline{stroke:#D9D2C7;stroke-width:1}.metric-zero{stroke:#756E68;stroke-width:1.5}.metric-tick,.metric-label,.metric-value,.metric-axis-title{fill:#303744;font:12px Consolas,monospace}.metric-tick{fill:var(--muted);font-size:11px}.metric-link{stroke:#8A838E;stroke-width:2}.metric-dot{stroke:#FFFDF8;stroke-width:2}.metric-non,.snr-non{fill:#20242D}.metric-native,.snr-native{fill:#00A88F}.snr-upper{fill:#E76F51}.snr-lower{fill:#6750E8}.metric-legend,.band-dynamic-legend{display:flex;gap:15px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:10px 0}.metric-legend span,.band-dynamic-legend span{display:inline-flex;align-items:center;gap:6px}.metric-legend i,.band-dynamic-legend i{display:inline-block;width:11px;height:11px;border-radius:50%;background:#8A838E}.metric-legend .legend-non{background:#20242D}.metric-legend .legend-native{background:#00A88F}.metric-legend .legend-upper{background:#E76F51}.metric-legend .legend-lower{background:#6750E8}.band-dynamic-legend i.square{border-radius:0}.band-dynamic-legend b{font-weight:500}.token-flow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:20px 0}.token-flow article{min-width:0;background:var(--surface);border:1px solid var(--line);padding:17px}.token-flow h3{color:var(--indigo);margin:0 0 8px;font-size:17px}.token-flow p{font-size:13px;color:var(--muted)}.token-strip{display:flex;gap:5px;align-items:flex-start;flex-wrap:wrap;margin:17px 0 26px}.token-strip span{position:relative;background:#ECE6DA;padding:5px 7px;font:12px Consolas,monospace}.token-strip span[data-pos]::after{content:attr(data-pos);position:absolute;left:50%;top:100%;transform:translateX(-50%);font:9px Consolas,monospace;color:#7A7270}.token-strip .picked{background:#00A88F;color:#FFFDF8}.token-strip b{font:11px Consolas,monospace;color:var(--indigo);padding:5px}.boundary-example{display:flex;align-items:stretch;margin:15px 0;font:12px/1.5 Consolas,monospace}.boundary-example span{background:#ECE6DA;padding:8px 10px}.boundary-example i{display:block;width:4px;background:#E76F51}.boundary-example .answer-token{background:#D9F1EA}.band-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0}.band-figure{min-width:0;margin:0;background:#FFFDF8;border:1px solid var(--line);padding:12px}.band-figure h4{font-size:15px;color:var(--indigo);margin:0 0 8px}.band-figure canvas{display:block;width:100%;height:380px;background:#F8F4EC;border:1px solid #DDD5C9;touch-action:none;cursor:grab}.band-figure canvas:active{cursor:grabbing}.band-controls{margin-top:15px}.appendix-model{margin:22px 0}.domain-legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:-14px 0 18px}.domain-legend span{display:inline-flex;align-items:center;gap:6px}.domain-legend i{display:inline-block;width:11px;height:11px;background:#20242D}.domain-legend .domain-city{border-radius:50%}.domain-legend .domain-flower{background:#00A88F;clip-path:polygon(50% 0,100% 100%,0 100%)}.domain-legend .domain-animal{background:#E76F51}.domain-dim-figure{margin:18px 0}.domain-dim-line{fill:none;stroke-width:2.3}.domain-line-non{stroke:#20242D;fill:#20242D}.domain-line-native{stroke:#00A88F;fill:#00A88F}.domain-dim-mark{stroke:#FFFDF8;stroke-width:1.4}.domain-chance{stroke:#8A838E;stroke-width:1.3;stroke-dasharray:5 4}.provenance{font:11px/1.6 Consolas,monospace;color:var(--muted)}details{background:var(--surface);border:1px solid var(--line);margin:18px 0}summary{cursor:pointer;padding:12px 15px;font-weight:750;color:var(--indigo)}@media(max-width:1000px){.dual-grid,.definitions,.definitions.two,.metric-grid,.token-flow,.band-grid{grid-template-columns:1fr}}@media(max-width:650px){main{padding:25px 13px 60px}h1{font-size:34px}.geometry-card canvas,.band-figure canvas{height:330px}.metric-value{font-size:10px}}
+:root{--paper:#F3EEE4;--surface:#FFFDF8;--ink:#20242D;--muted:#626A74;--line:#C9C2B6;--indigo:#23165C;--teal:#00A88F;--yellow:#D6B52C}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;overflow-x:hidden;background:var(--paper);color:var(--ink);font-family:"Segoe UI",Arial,sans-serif;line-height:1.62}a{color:var(--indigo)}nav{position:sticky;top:0;z-index:5;display:flex;gap:18px;padding:10px 22px;background:rgba(243,238,228,.96);border-bottom:1px solid var(--line);overflow-x:auto}nav a{color:var(--indigo);font-size:13px;font-weight:750;text-decoration:none;white-space:nowrap}main{max-width:1480px;margin:auto;padding:38px 28px 80px}header{max-width:1080px;border-bottom:2px solid var(--ink);padding-bottom:28px}.eyebrow{font:700 12px/1.2 Consolas,monospace;letter-spacing:.12em;color:var(--teal)}h1{font-size:44px;line-height:1.08;margin:10px 0 16px;letter-spacing:-.035em}h2{font-size:29px;margin:0 0 12px}h4{color:var(--indigo)}.lead{font-size:18px;color:#404852;max-width:92ch}section{padding:46px 0;border-bottom:1px solid var(--line)}.callout{max-width:1120px;background:var(--surface);border-left:4px solid var(--teal);padding:15px 19px;margin:20px 0}.warning{border-left-color:var(--yellow)}.definitions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}.definitions.two{grid-template-columns:repeat(2,minmax(0,1fr))}.definitions>div,.geometry-card,.appendix-model{min-width:0;background:var(--surface);border:1px solid var(--line);padding:17px}.definitions h3,.geometry-card h3{color:var(--indigo);margin:0 0 8px;font-size:17px}.definitions p,.geometry-card p{font-size:13px;color:var(--muted);margin:0 0 12px}.controls{display:flex;gap:12px;flex-wrap:wrap}.controls label{font-size:12px;font-weight:700;color:var(--muted)}select{display:block;margin-top:4px;border:1px solid var(--line);background:var(--surface);padding:7px 28px 7px 9px;color:var(--ink)}.dual-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:28px}.geometry-card canvas{display:block;width:100%;height:390px;background:#F8F4EC;border:1px solid #DDD5C9;touch-action:none;cursor:grab}.geometry-card canvas:active{cursor:grabbing}.rotate-hint{margin-top:5px;color:#7A7270;font:10px/1.4 Consolas,monospace}.panel-stats{min-height:70px;margin-top:7px;color:var(--muted);font:12px/1.5 Consolas,monospace}.table-scroll{overflow:auto;background:var(--surface);border:1px solid var(--line);margin:16px 0 22px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid #DED8CE}th{background:#ECE6DA;color:#303744}.muted,.small{color:var(--muted);font-size:12px}.metric-grid,.metric-guide-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0 20px}.metric-guide-card{min-width:0;background:var(--surface);border:1px solid var(--line);padding:17px}.metric-guide-card h3{color:var(--indigo);margin:0 0 9px;font-size:17px}.metric-guide-card p{font-size:13px;margin:8px 0}.metric-guide-card .formula{background:#ECE6DA;color:#303744;padding:8px 10px;font:12px/1.5 Consolas,monospace}.metric-figure{min-width:0;margin:0;background:var(--surface);border:1px solid var(--line);padding:13px}.metric-figure h3{margin:0;color:var(--indigo);font-size:17px}.metric-figure svg{display:block;width:100%;height:auto}.metric-gridline{stroke:#D9D2C7;stroke-width:1}.metric-zero{stroke:#756E68;stroke-width:1.5}.metric-tick,.metric-label,.metric-value,.metric-axis-title{fill:#303744;font:12px Consolas,monospace}.metric-tick{fill:var(--muted);font-size:11px}.metric-link{stroke:#8A838E;stroke-width:2}.metric-dot{stroke:#FFFDF8;stroke-width:2}.metric-non,.snr-non{fill:#20242D}.metric-native,.snr-native,.metric-answer{fill:#00A88F}.metric-running{fill:#6750E8}.snr-upper{fill:#E76F51}.snr-lower{fill:#6750E8}.metric-legend,.band-dynamic-legend{display:flex;gap:15px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:10px 0}.metric-legend span,.band-dynamic-legend span{display:inline-flex;align-items:center;gap:6px}.metric-legend i,.band-dynamic-legend i{display:inline-block;width:11px;height:11px;border-radius:50%;background:#8A838E}.metric-legend .legend-non{background:#20242D}.metric-legend .legend-native,.metric-legend .legend-answer{background:#00A88F}.metric-legend .legend-running{background:#6750E8}.metric-legend .legend-upper{background:#E76F51}.metric-legend .legend-lower{background:#6750E8}.band-dynamic-legend i.square{border-radius:0}.band-dynamic-legend b{font-weight:500}.token-flow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:20px 0}.token-flow article{min-width:0;background:var(--surface);border:1px solid var(--line);padding:17px}.token-flow h3{color:var(--indigo);margin:0 0 8px;font-size:17px}.token-flow p{font-size:13px;color:var(--muted)}.token-strip{display:flex;gap:5px;align-items:flex-start;flex-wrap:wrap;margin:17px 0 26px}.token-strip span{position:relative;background:#ECE6DA;padding:5px 7px;font:12px Consolas,monospace}.token-strip span[data-pos]::after{content:attr(data-pos);position:absolute;left:50%;top:100%;transform:translateX(-50%);font:9px Consolas,monospace;color:#7A7270}.token-strip .picked{background:#00A88F;color:#FFFDF8}.token-strip b{font:11px Consolas,monospace;color:var(--indigo);padding:5px}.boundary-example{display:flex;align-items:stretch;margin:15px 0;font:12px/1.5 Consolas,monospace}.boundary-example span{background:#ECE6DA;padding:8px 10px}.boundary-example i{display:block;width:4px;background:#E76F51}.boundary-example .answer-token{background:#D9F1EA}.band-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0}.band-figure{min-width:0;margin:0;background:#FFFDF8;border:1px solid var(--line);padding:12px}.band-figure h4{font-size:15px;color:var(--indigo);margin:0 0 8px}.band-figure canvas{display:block;width:100%;height:380px;background:#F8F4EC;border:1px solid #DDD5C9;touch-action:none;cursor:grab}.band-figure canvas:active{cursor:grabbing}.band-controls{margin-top:15px}.appendix-model{margin:22px 0}.domain-legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:-14px 0 18px}.domain-legend span{display:inline-flex;align-items:center;gap:6px}.domain-legend i{display:inline-block;width:11px;height:11px;background:#20242D}.domain-legend .domain-city{border-radius:50%}.domain-legend .domain-flower{background:#00A88F;clip-path:polygon(50% 0,100% 100%,0 100%)}.domain-legend .domain-animal{background:#E76F51}.domain-dim-figure{margin:18px 0}.domain-dim-line{fill:none;stroke-width:2.3}.domain-line-non{stroke:#20242D;fill:#20242D}.domain-line-native{stroke:#00A88F;fill:#00A88F}.domain-dim-mark{stroke:#FFFDF8;stroke-width:1.4}.domain-chance{stroke:#8A838E;stroke-width:1.3;stroke-dasharray:5 4}.provenance{font:11px/1.6 Consolas,monospace;color:var(--muted)}details{background:var(--surface);border:1px solid var(--line);margin:18px 0}summary{cursor:pointer;padding:12px 15px;font-weight:750;color:var(--indigo)}@media(max-width:1000px){.dual-grid,.definitions,.definitions.two,.metric-grid,.metric-guide-grid,.token-flow,.band-grid{grid-template-columns:1fr}}@media(max-width:650px){main{padding:25px 13px 60px}h1{font-size:34px}.geometry-card canvas,.band-figure canvas{height:330px}.metric-value{font-size:10px}}
 """
     script = (
         _dual_script(dual_visual)
@@ -1028,12 +1309,14 @@ def build_html(
         + _domain_script(domain_visual or {})
     )
     return f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NiaH Geometry Comparison</title><style>{css}</style></head><body>
-<nav><a href="#scope">口径</a><a href="#tokens">Token 提取</a><a href="#dual">主结果</a><a href="#claims">Confirmation 结论</a><a href="#snr">SNR</a><a href="#appendix-markers">Marker appendix</a><a href="#appendix-bands">分层 appendix</a>{'<a href="#appendix-domain-transfer">实体迁移 appendix</a>' if domain_html else ''}</nav><main>
+<nav><a href="#scope">口径</a><a href="#tokens">Token 提取</a><a href="#metric-guide">指标定义</a><a href="#dual">主结果</a><a href="#claims">Confirmation 结论</a>{'<a href="#nonthinking-internal">Non-thinking 内部</a>' if nonthinking_internal_html else ''}<a href="#snr">SNR</a><a href="#appendix-markers">Marker appendix</a><a href="#appendix-bands">分层 appendix</a>{'<a href="#appendix-domain-transfer">实体迁移 appendix</a>' if domain_html else ''}</nav><main>
 <header><div class="eyebrow">REALISTIC NIAH · ALL-COUNT GEOMETRY</div><h1>NiaH Geometry Comparison</h1><p class="lead">Running index 与 final count 两组比较都覆盖 N=1…10，并可在完整 300 trajectories 与 confirmation 100 trajectories 之间切换。Running index 固定比较 prompt <code>span_end</code> 与 thinking-trace <code>item_end</code>；两个模式只各自选择最佳 decoder layer。</p></header>
 <section id="scope"><h2>严格比较口径</h2><div class="definitions"><div><h3>Full 300</h3><p>10 个 gold N × 30 seeds。它是 descriptive geometry view；PCA3 仍只由 discovery 200 拟合，避免 confirmation 反向选显示 basis。</p></div><div><h3>Confirmation 100</h3><p>10 个 gold N × 10 held-out seeds。主表的 Logistic、nearest-centroid 与 SNR 都是 discovery-frozen 后在这里评价。</p></div><div><h3>Native running 的 ragged rule</h3><p>每条 trace 只贡献 parser 实际观察到的 1…M。数到 8 就贡献八个 states；不按 gold N 或最终 Total 补到 9/10。</p></div></div></section>
 {token_html}
+{metric_guide_section()}
 {dual_endpoint_section(dual_results, dual_visual)}
 {empirical_claims(dual_results)}
+{nonthinking_internal_html}
 {snr_section(dual_results, band_audits)}
 {marker_html}{band_html}{domain_html}
 <section><h2>解释边界</h2><p>这些图和 probes 证明的是 within-task decodability/geometry，不单独证明离散计数器、逐步加一算法或因果使用。两个 mode 的 end token 语义和最佳层仍不同，因此比较的是两个单-token 完成边界上同一任务变量的可读性，而不是共享坐标系中的绝对距离。</p><p class="provenance">Report schema: {REPORT_SCHEMA_VERSION} · pooled 10 counts × 30 seeds · full/confirmation views: 300/100 trajectories · running sites fixed: span_end/item_end · layer selector: pooled discovery only · trace-format sweep: appendix-only diagnostic</p></section>
@@ -1051,6 +1334,7 @@ def build_report(
     output: Path,
     manifest_path: Path,
     domain_transfer_root: Path | None = None,
+    covariance_root: Path | None = None,
 ) -> dict[str, Any]:
     dual_results, dual_inputs = load_dual_endpoint_results(
         dual_endpoint_root.resolve()
@@ -1075,6 +1359,16 @@ def build_report(
         domain_html, domain_inputs, domain_visual = domain_transfer_appendix(
             domain_transfer_root.resolve()
         )
+    nonthinking_internal_html = ""
+    covariance_inputs: list[Path] = []
+    if covariance_root is not None:
+        internal_metrics, covariance_inputs = load_nonthinking_internal_metrics(
+            covariance_root.resolve()
+        )
+        nonthinking_internal_html = nonthinking_internal_section(
+            internal_metrics,
+            domain_evidence_included=bool(domain_html),
+        )
     document = build_html(
         dual_results=dual_results,
         dual_visual=dual_visual,
@@ -1083,6 +1377,7 @@ def build_report(
         band_html=band_html,
         band_visual=band_visual,
         band_audits=band_audits,
+        nonthinking_internal_html=nonthinking_internal_html,
         domain_html=domain_html,
         domain_visual=domain_visual,
     )
@@ -1096,6 +1391,7 @@ def build_report(
             + band_inputs
             + token_inputs
             + domain_inputs
+            + covariance_inputs
             + [parser_audit.resolve()]
         ),
         key=str,
@@ -1112,6 +1408,18 @@ def build_report(
         "primary_analysis": "running sites fixed to span_end/item_end; pooled discovery-only layer selection; frozen confirmation evaluation",
         "trace_format_site_layer_sweep": "omitted from main; marker/band diagnostics moved to appendix",
         "native_band_snr": "bands and PCA16 frozen on discovery; per-band confirmation SNR requires at least two states per retained k",
+        "nonthinking_internal_comparison": (
+            "supportive running span_end versus pre-answer answer_query_v3; "
+            "each endpoint and metric independently selects a layer on discovery; "
+            "PCA16 confirmation SNR/RSA are primary and unequal state units are disclosed"
+            if covariance_root is not None
+            else "not included"
+        ),
+        "metric_guide": (
+            "Logistic/NCC balanced accuracy, isotropic SNR, frozen Fisher trace, "
+            "Mahalanobis silhouette, and held-out ordinal RSA each include an "
+            "exact calculation, practical interpretation, worked example, and boundary"
+        ),
         "entity_domain_transfer": (
             "city-discovery-200 layer selection/probe fitting and frozen "
             "city/flower/animal confirmation-100 evaluation; city-anchored PCA3; "
@@ -1141,6 +1449,7 @@ def main() -> None:
     parser.add_argument("--parser-audit", type=Path, required=True)
     parser.add_argument("--band-root", type=Path, required=True)
     parser.add_argument("--domain-transfer-root", type=Path)
+    parser.add_argument("--covariance-root", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
@@ -1152,6 +1461,7 @@ def main() -> None:
         parser_audit=args.parser_audit,
         band_root=args.band_root,
         domain_transfer_root=args.domain_transfer_root,
+        covariance_root=args.covariance_root,
         output=args.output,
         manifest_path=args.manifest,
     )
