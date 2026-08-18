@@ -1,6 +1,6 @@
 {
-  "schema_version": "niah_geometry_comparison_v12_metric_guide",
-  "generated_at": "2026-08-18T02:38:54.809595+00:00",
+  "schema_version": "niah_geometry_comparison_v13_appendix_reorganization",
+  "generated_at": "2026-08-18T02:50:11.661930+00:00",
   "cohorts": {
     "full": "10 gold counts x 30 seeds = 300 trajectories",
     "confirmation": "10 gold counts x 10 seeds = 100 trajectories"
@@ -10,7 +10,8 @@
   "primary_analysis": "running sites fixed to span_end/item_end; pooled discovery-only layer selection; frozen confirmation evaluation",
   "trace_format_site_layer_sweep": "omitted from main; marker/band diagnostics moved to appendix",
   "native_band_snr": "bands and PCA16 frozen on discovery; per-band confirmation SNR requires at least two states per retained k",
-  "nonthinking_internal_comparison": "supportive running span_end versus pre-answer answer_query_v3; each endpoint and metric independently selects a layer on discovery; PCA16 confirmation SNR/RSA are primary and unequal state units are disclosed",
+  "native_band_conclusion": "Appendix B is descriptive/exploratory with no inferential significance test; Qwen is consistent with marker/boundary-format offset, while Gemma is running-position-associated and does not support one shared mechanism",
+  "nonthinking_internal_comparison": "Appendix D exploratory Qwen-only running span_end versus pre-answer answer_query_v3; each endpoint and metric independently selects a layer on discovery; unequal state units and mixed metric directions are disclosed",
   "metric_guide": "Logistic/NCC balanced accuracy, isotropic SNR, frozen Fisher trace, Mahalanobis silhouette, and held-out ordinal RSA each include an exact calculation, practical interpretation, worked example, and boundary",
   "entity_domain_transfer": "city-discovery-200 layer selection/probe fitting and frozen city/flower/animal confirmation-100 evaluation; city-anchored PCA3; running endpoints archived at all layers",
   "inputs": {
@@ -54,5 +55,5 @@
     "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_geometry_full_panel\\running\\Qwen3-8B\\shards\\Qwen3-8B__native_thinking__v5__V4_4_T10000_N1_seed1234\\capture_manifest.json": "0ce6f781628fc5f0cd6d482d6cfdaf0da35ace79257adcc573a5eaeb38ffc654"
   },
   "output": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\NiaH_Geometry_Comparison.html",
-  "output_sha256": "398e8c5d93136b31d711891cef47246313de2031f25dbdc8088caf7a2ddbe963"
+  "output_sha256": "af57be0c39879b4b37e7e9609cae602eba99f6ec737f786243e9179697f9332c"
 }

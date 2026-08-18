@@ -41,3 +41,9 @@ Do not yet claim a native-thinking running-to-answer consolidation effect. Its a
 The report must define all six criteria used around this comparison: Logistic balanced accuracy, nearest-centroid balanced accuracy, isotropic SNR, frozen Fisher trace, Mahalanobis silhouette, and held-out ordinal RSA. Each definition includes the exact calculation, practical question, a worked example, and a non-claim boundary.
 
 The mixed Qwen result is retained as an important real case rather than hidden: pre-answer SNR and ordinal RSA rise, while Mahalanobis silhouette and Fisher trace fall. This supports clearer global/ordinal count organization but not universal pointwise cluster tightening. Gemma moves upward on all four covariance-geometry criteria, so its within-non-thinking evidence is broader, while still remaining a supportive endpoint comparison rather than a strict paired contraction estimand.
+
+## Report placement amendment
+
+The main report no longer presents this as a primary section. Appendix D shows the Qwen-only running-index versus pre-answer comparison, because its mixed metric directions make it useful as an interpretive diagnostic rather than a headline result. The Gemma values above remain archived here and in the frozen covariance CSV, but are not used to broaden Appendix D's claim.
+
+Appendix B (native-thinking upper/lower bands) is explicitly labeled descriptive and exploratory. It has no p-value, confidence interval, or seed/trajectory-aware permutation test, and state rows are nested within trajectories. Qwen provides a coherent descriptive pattern consistent with marker/boundary-format offset; Gemma instead follows running position and survives trajectory centering. Therefore Appendix B supports no shared cross-model two-band mechanism and must not be described as statistically significant.

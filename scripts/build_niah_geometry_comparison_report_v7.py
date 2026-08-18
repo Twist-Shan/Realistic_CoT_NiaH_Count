@@ -47,7 +47,7 @@ from scripts.build_niah_geometry_comparison_report import (  # noqa: E402
 )
 
 
-REPORT_SCHEMA_VERSION = "niah_geometry_comparison_v12_metric_guide"
+REPORT_SCHEMA_VERSION = "niah_geometry_comparison_v13_appendix_reorganization"
 
 
 def _pct(value: Any) -> str:
@@ -248,6 +248,7 @@ def load_nonthinking_internal_metrics(
 def _internal_endpoint_metric_svg(
     metrics: Mapping[str, Mapping[str, Mapping[str, Mapping[str, str]]]],
     *,
+    models: Iterable[str],
     selector: str,
     title: str,
     axis_title: str,
@@ -255,9 +256,14 @@ def _internal_endpoint_metric_svg(
     ticks: Iterable[float],
     decimals: int,
 ) -> str:
-    """Draw a two-model running-to-pre-answer comparison for one metric."""
+    """Draw a running-to-pre-answer comparison for one metric."""
 
-    width, height = 700, 186
+    models = tuple(models)
+    if not models:
+        raise ValueError("Internal endpoint metric figure requires a model")
+    width = 700
+    plot_bottom = 82 + 57 * (len(models) - 1)
+    height = plot_bottom + 45
     x0, x1 = 155.0, 520.0
     low, high = domain
     scale = lambda value: x0 + (float(value) - low) / (high - low) * (x1 - x0)
@@ -267,11 +273,11 @@ def _internal_endpoint_metric_svg(
         label = f"{tick:.{decimals}f}"
         grid.append(
             f'<line class="metric-gridline" x1="{x:.1f}" y1="31" '
-            f'x2="{x:.1f}" y2="140"/><text class="metric-tick" '
+            f'x2="{x:.1f}" y2="{plot_bottom}"/><text class="metric-tick" '
             f'x="{x:.1f}" y="19" text-anchor="middle">{esc(label)}</text>'
         )
     marks = []
-    for index, model in enumerate(MODELS):
+    for index, model in enumerate(models):
         y = 62 + 57 * index
         running = metrics[model]["running_index"][selector]
         answer = metrics[model]["final_count"][selector]
@@ -300,7 +306,7 @@ def _internal_endpoint_metric_svg(
         'Purple is the running needle-end endpoint and teal is the pre-answer query endpoint.</desc>'
         + "".join(grid)
         + "".join(marks)
-        + f'<text class="metric-axis-title" x="337" y="174" '
+        + f'<text class="metric-axis-title" x="337" y="{height-12}" '
         f'text-anchor="middle">{esc(axis_title)}</text>'
         + "</svg></figure>"
     )
@@ -330,11 +336,13 @@ def nonthinking_internal_section(
     *,
     domain_evidence_included: bool,
 ) -> str:
-    """Render the supportive running-to-pre-answer comparison within non-thinking."""
+    """Render the exploratory Qwen comparison as Appendix D."""
 
+    models = ("Qwen3-8B",)
     charts = [
         _internal_endpoint_metric_svg(
             metrics,
+            models=models,
             selector="isotropic_snr",
             title="Confirmation SNR",
             axis_title="PCA16 isotropic SNR (dB; higher is clearer)",
@@ -344,6 +352,7 @@ def nonthinking_internal_section(
         ),
         _internal_endpoint_metric_svg(
             metrics,
+            models=models,
             selector="ordinal_rsa",
             title="Held-out ordinal RSA",
             axis_title="Spearman ρ (higher means count distances are more ordinal)",
@@ -355,7 +364,7 @@ def nonthinking_internal_section(
     rows = []
     verdicts = []
     case_cards = []
-    for model in MODELS:
+    for model in models:
         model_metrics = metrics[model]
         running_snr = float(
             model_metrics["running_index"]["isotropic_snr"]["confirmation_value"]
@@ -417,7 +426,8 @@ def nonthinking_internal_section(
                 "directions 上也更分离。"
             )
         case_cards.append(
-            f"<div><h3>{esc(model)} · 如何读四项结果</h3><p>{esc(case_text)}</p></div>"
+            f'<div class="callout"><strong>{esc(model)} · 四项合并判读：</strong>'
+            f'{esc(case_text)}</div>'
         )
     domain_note = (
         "同时，Appendix C 的 entity-domain probe 显示 non-thinking pre-answer state "
@@ -427,16 +437,16 @@ def nonthinking_internal_section(
         else "当前报告未载入实体域迁移结果，因此不能据此判断 prompt semantics 是否被过滤。"
     )
     return f"""
-<section id="nonthinking-internal"><h2>Non-thinking 内部：needle-end → pre-answer query</h2>
-<div class="callout"><strong>支持性结论：</strong>在 Qwen 与 Gemma 中，pre-answer query 的 final-count 表征都呈现更高的 confirmation SNR 与 ordinal RSA。这支持“生成答案前，count information 更有序，且 count-centroid separation 相对 within-count variation 更大”的说法；但不支持“所有几何指标都更紧”或“prompt 内容已被完全删除”。</div>
+<section id="appendix-nonthinking-internal"><h2>Appendix D · Qwen non-thinking：running index → pre-answer query</h2>
+<div class="callout warning"><strong>结论等级：exploratory、支持性。</strong>Qwen 的 pre-answer final-count 表征有更高的 confirmation SNR 与 ordinal RSA，但 Mahalanobis silhouette 和 Fisher trace 反而更低。因此这里只能说答案生成前的 count axis 更有序、global between/within ratio 更高；不能说所有意义上的 cluster 都更紧，也不能据此建立严格的 consolidation effect。</div>
 <div class="definitions two"><div><h3>Running endpoint</h3><p>在 prompt 的第 k 个 needle span 末 token 取 hidden state，并以 k=1…10 标注。每条 trajectory 可贡献多个 ragged states。</p></div><div><h3>Pre-answer endpoint</h3><p>取 <code>answer_query_v3</code>：prompt-final <code>Total:</code> 的冒号 hidden state，并以最终 N=1…10 标注。它位于生成数字之前，因此没有读取答案 digit。</p></div></div>
 <div class="metric-legend"><span><i class="legend-running"></i>running needle-end</span><span><i class="legend-answer"></i>pre-answer query</span><span>每个 endpoint/metric 各自由 discovery 选择最佳层</span></div>
 <div class="metric-grid">{''.join(charts)}</div>
 {table(['模型','SNR: running → pre-answer','Ordinal RSA: running → pre-answer','Mahalanobis silhouette','Fisher trace'], rows)}
 <ul>{''.join(verdicts)}</ul>
-<div class="definitions two">{''.join(case_cards)}</div>
+{''.join(case_cards)}
 <p>{esc(domain_note)}</p>
-<div class="callout warning"><strong>为什么是“支持性、非严格”：</strong>两端共享同一套 trajectory panel，但统计单位与标签语义不同：running 是每条 trajectory 的多个中间 k，confirmation 共 550 states，且 k 的 support 呈三角形；pre-answer 是每条 trajectory 一个最终 N，共 100 states且每类 10 条。class-balanced 指标和 discovery-frozen 选择减轻了 support 不均衡，却不能把两端变成严格的一一配对 contraction test。Mahalanobis silhouette 与 Fisher trace 在两个模型间也方向不一致，所以主张限定为 <em>clearer ordinal count organization</em>，而不是 universal cluster compactness。</div>
+<div class="callout warning"><strong>为什么不是严格比较：</strong>两端共享同一套 trajectory panel，但统计单位与标签语义不同：running 是每条 trajectory 的多个中间 k，confirmation 共 550 states，且 k 的 support 呈三角形；pre-answer 是每条 trajectory 一个最终 N，共 100 states且每类 10 条。class-balanced 指标和 discovery-frozen 选择减轻了 support 不均衡，却不能把两端变成严格的一一配对 contraction test。</div>
 <p class="muted"><strong>暂缓项：</strong>native-thinking 的 running → answer 内部比较等待新的 answer-side 实验；本版不据现有 broad-retrieval 不充分的 endpoint 下 consolidation 结论。</p>
 </section>"""
 
@@ -753,20 +763,50 @@ def _band_verdict(audit: Mapping[str, Any]) -> str:
     marker = _association(audit, "marker_kind", full=False)
     seed = _association(audit, "seed", full=False)
     occurrence = _association(audit, "occurrence", full=False)
+    association_rows = {
+        str(row["column"]): row for row in audit["categorical_associations"]
+    }
+    boundary = float(association_rows.get("boundary_kind", {}).get("nmi", math.nan))
     purity = float(
         audit["trajectory_band_summary"]["mean_within_trajectory_band_purity"]
     )
+    centered_nmi = float(
+        audit.get("within_trajectory_centered_pca3", {}).get(
+            "raw_vs_centered_band_nmi", math.nan
+        )
+    )
     if purity >= 0.8 and max(marker, seed) > occurrence + 0.1:
+        centered_text = (
+            f"；逐 trajectory centering 后原 band 与新 band 的 NMI={centered_nmi:.3f}"
+            if math.isfinite(centered_nmi)
+            else ""
+        )
+        boundary_text = (
+            f"、boundary={boundary:.3f}" if math.isfinite(boundary) else ""
+        )
         return (
-            "分层主要随整条 trajectory 的 template/seed offset，而不是随 running k；"
-            "它更像叠加在 ordinal manifold 上的 nuisance direction。"
+            "探索性判读（不是显著性检验）：confirmation 的 band 与 "
+            f"marker NMI={marker:.3f}{boundary_text}，而 running k NMI="
+            f"{occurrence:.3f}、seed NMI={seed:.3f}{centered_text}。这一组方向一致的"
+            "描述性证据更符合 marker/boundary-format 的 trajectory offset，即叠加在"
+            " count geometry 上的 nuisance direction；它不证明因果来源。"
         )
     if occurrence > max(marker, seed) + 0.1:
+        centered_text = (
+            f"；centering 后 band identity NMI={centered_nmi:.3f}，仍未消失"
+            if math.isfinite(centered_nmi)
+            else ""
+        )
         return (
-            "分层与 running k 的关联高于 marker/seed；不能把它简单归因于 trace template。"
+            "探索性判读（不是显著性检验）：confirmation 的 running k NMI="
+            f"{occurrence:.3f}，高于 marker={marker:.3f}、seed={seed:.3f}"
+            f"{centered_text}。因此分层更像与 trajectory 内的计数位置纠缠，而不是"
+            "简单的 template offset；但各 band 的 k support 不同且 K-means 强制二分，"
+            "仍不能称为两个计数器。"
         )
     return (
-        "marker、seed 与 occurrence 的关联没有形成单一主导解释；当前只能报告多因素混合。"
+        "探索性判读（不是显著性检验）：marker、seed 与 occurrence 的关联没有形成"
+        "单一主导解释；当前只能报告多因素混合。"
     )
 
 
@@ -877,6 +917,7 @@ def band_appendix(
         inputs.extend((audit_path, all_points_path, confirmation_points_path))
     return f"""
 <section id="appendix-bands"><h2>Appendix B · Native-thinking 的上下分层</h2>
+<div class="callout warning"><strong>结论先说：</strong>本 appendix 没有 p-value、置信区间或 seed/trajectory-aware permutation，而且同一 trajectory 贡献多个相关 states；所以不能写成“统计显著”或“不显著”。若“显著”只是指图形方向是否清楚：Qwen 的 marker/boundary association、centering 后 band identity 消失、count probes 基本保留，三项描述性证据一致地支持 format/trajectory offset；Gemma 不复现这个解释，它的 band 更随 running k 且 centering 后仍保留。因此没有一个跨模型统一的“两层机制”结论，本段只作为 exploratory confound diagnostic。</div>
 <div class="definitions"><div><h3>Step 1 · 冻结分带</h3><p>StandardScaler 与 PCA3 只在 discovery states 上拟合；K-means 的两个中心也只在 discovery 拟合。再用冻结中心给 full/confirmation 指派 band。“upper/lower”只是固定初始相机下的显示名称，不是模型内生标签。</p></div><div><h3>Step 2 · 找分带在跟随什么</h3><p>分别计算 band 与 marker、seed、running k、boundary 的 NMI。NMI=0 表示在该样本中无离散关联，NMI=1 表示一方完全决定另一方；它不提供因果方向。</p></div><div><h3>Step 3 · 去 trajectory offset</h3><p>逐 trajectory 在原 hidden space 减去自己的 mean，再重新拟合 discovery PCA3。如果原 band 消失而 ordinal probe 保留，更符合“trace/template offset 叠加在 count geometry 上”。</p></div></div>
 <div class="callout warning"><strong>不要把两团直接叫两个计数器：</strong>PCA3 只是总方差的低维显示，K-means 又强制给出两组。必须同时看 frozen confirmation silhouette、NMI、support、trajectory centering 与 within-band SNR；任何单张图都不足以识别机制。</div>
 {''.join(blocks)}
@@ -1309,16 +1350,16 @@ def build_html(
         + _domain_script(domain_visual or {})
     )
     return f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NiaH Geometry Comparison</title><style>{css}</style></head><body>
-<nav><a href="#scope">口径</a><a href="#tokens">Token 提取</a><a href="#metric-guide">指标定义</a><a href="#dual">主结果</a><a href="#claims">Confirmation 结论</a>{'<a href="#nonthinking-internal">Non-thinking 内部</a>' if nonthinking_internal_html else ''}<a href="#snr">SNR</a><a href="#appendix-markers">Marker appendix</a><a href="#appendix-bands">分层 appendix</a>{'<a href="#appendix-domain-transfer">实体迁移 appendix</a>' if domain_html else ''}</nav><main>
+<nav><a href="#scope">口径</a><a href="#tokens">Token 提取</a><a href="#metric-guide">指标定义</a><a href="#dual">主结果</a><a href="#claims">Confirmation 结论</a><a href="#snr">SNR</a><a href="#appendix-markers">Appendix A</a><a href="#appendix-bands">Appendix B</a>{'<a href="#appendix-domain-transfer">Appendix C</a>' if domain_html else ''}{'<a href="#appendix-nonthinking-internal">Appendix D</a>' if nonthinking_internal_html else ''}</nav><main>
 <header><div class="eyebrow">REALISTIC NIAH · ALL-COUNT GEOMETRY</div><h1>NiaH Geometry Comparison</h1><p class="lead">Running index 与 final count 两组比较都覆盖 N=1…10，并可在完整 300 trajectories 与 confirmation 100 trajectories 之间切换。Running index 固定比较 prompt <code>span_end</code> 与 thinking-trace <code>item_end</code>；两个模式只各自选择最佳 decoder layer。</p></header>
 <section id="scope"><h2>严格比较口径</h2><div class="definitions"><div><h3>Full 300</h3><p>10 个 gold N × 30 seeds。它是 descriptive geometry view；PCA3 仍只由 discovery 200 拟合，避免 confirmation 反向选显示 basis。</p></div><div><h3>Confirmation 100</h3><p>10 个 gold N × 10 held-out seeds。主表的 Logistic、nearest-centroid 与 SNR 都是 discovery-frozen 后在这里评价。</p></div><div><h3>Native running 的 ragged rule</h3><p>每条 trace 只贡献 parser 实际观察到的 1…M。数到 8 就贡献八个 states；不按 gold N 或最终 Total 补到 9/10。</p></div></div></section>
 {token_html}
 {metric_guide_section()}
 {dual_endpoint_section(dual_results, dual_visual)}
 {empirical_claims(dual_results)}
-{nonthinking_internal_html}
 {snr_section(dual_results, band_audits)}
 {marker_html}{band_html}{domain_html}
+{nonthinking_internal_html}
 <section><h2>解释边界</h2><p>这些图和 probes 证明的是 within-task decodability/geometry，不单独证明离散计数器、逐步加一算法或因果使用。两个 mode 的 end token 语义和最佳层仍不同，因此比较的是两个单-token 完成边界上同一任务变量的可读性，而不是共享坐标系中的绝对距离。</p><p class="provenance">Report schema: {REPORT_SCHEMA_VERSION} · pooled 10 counts × 30 seeds · full/confirmation views: 300/100 trajectories · running sites fixed: span_end/item_end · layer selector: pooled discovery only · trace-format sweep: appendix-only diagnostic</p></section>
 </main><script>{script}</script></body></html>"""
 
@@ -1408,10 +1449,15 @@ def build_report(
         "primary_analysis": "running sites fixed to span_end/item_end; pooled discovery-only layer selection; frozen confirmation evaluation",
         "trace_format_site_layer_sweep": "omitted from main; marker/band diagnostics moved to appendix",
         "native_band_snr": "bands and PCA16 frozen on discovery; per-band confirmation SNR requires at least two states per retained k",
+        "native_band_conclusion": (
+            "Appendix B is descriptive/exploratory with no inferential significance "
+            "test; Qwen is consistent with marker/boundary-format offset, while Gemma "
+            "is running-position-associated and does not support one shared mechanism"
+        ),
         "nonthinking_internal_comparison": (
-            "supportive running span_end versus pre-answer answer_query_v3; "
-            "each endpoint and metric independently selects a layer on discovery; "
-            "PCA16 confirmation SNR/RSA are primary and unequal state units are disclosed"
+            "Appendix D exploratory Qwen-only running span_end versus pre-answer "
+            "answer_query_v3; each endpoint and metric independently selects a layer "
+            "on discovery; unequal state units and mixed metric directions are disclosed"
             if covariance_root is not None
             else "not included"
         ),
