@@ -47,7 +47,7 @@ from scripts.build_niah_geometry_comparison_report import (  # noqa: E402
 )
 
 
-REPORT_SCHEMA_VERSION = "niah_geometry_comparison_v13_appendix_reorganization"
+REPORT_SCHEMA_VERSION = "niah_geometry_comparison_v14_appendix_d_3d_models"
 
 
 def _pct(value: Any) -> str:
@@ -331,14 +331,65 @@ def _metric_pair_cell(
     )
 
 
+def _internal_geometry_blocks(
+    metrics: Mapping[str, Mapping[str, Mapping[str, Mapping[str, str]]]],
+    dual_visual: Mapping[str, Any],
+    *,
+    models: Iterable[str],
+) -> str:
+    """Render Appendix-D controls/canvases using the existing all-layer states."""
+
+    blocks = []
+    for model in models:
+        slug = "qwen" if model.startswith("Qwen") else "gemma"
+        running_layer = int(
+            float(metrics[model]["running_index"]["isotropic_snr"]["selected_layer"])
+        )
+        answer_layer = int(
+            float(metrics[model]["final_count"]["isotropic_snr"]["selected_layer"])
+        )
+        panels = dual_visual[model]["panels"]
+        running_layers = list(map(int, panels["running_non"]["layers"]))
+        answer_layers = list(map(int, panels["final_non"]["layers"]))
+        if running_layer not in running_layers or answer_layer not in answer_layers:
+            raise ValueError(
+                f"Appendix-D SNR layer missing from visual states for {model}: "
+                f"running L{running_layer}, answer L{answer_layer}"
+            )
+        running_options = "".join(
+            f'<option value="{layer}"'
+            f'{(" selected" if layer == running_layer else "")}>L{layer}</option>'
+            for layer in running_layers
+        )
+        answer_options = "".join(
+            f'<option value="{layer}"'
+            f'{(" selected" if layer == answer_layer else "")}>L{layer}</option>'
+            for layer in answer_layers
+        )
+        blocks.append(
+            f"""<article class="appendix-model internal-model"><h3>{esc(model)}</h3>
+<div class="controls internal-controls"><label>Rows<select id="internal-{slug}-cohort"><option value="all">full panel · 300 source trajectories · N=1…10</option><option value="confirmation" selected>confirmation · 100 source trajectories · N=1…10</option></select></label></div>
+<div class="band-grid"><figure class="band-figure"><h4>Running index · prompt needle-end</h4>
+<div class="controls"><label>Layer <span class="small">(default: discovery-selected SNR)</span><select id="internal-{slug}-running-layer">{running_options}</select></label></div>
+<canvas id="internal-{slug}-running" role="img" aria-label="{esc(model)} non-thinking running-index geometry in three dimensions"></canvas>
+<p class="rotate-hint">drag to rotate · color/centroid label = running k · discovery-fitted PCA3</p><p class="panel-stats" id="internal-{slug}-running-stats"></p></figure>
+<figure class="band-figure"><h4>Pre-answer query · final count</h4>
+<div class="controls"><label>Layer <span class="small">(default: discovery-selected SNR)</span><select id="internal-{slug}-answer-layer">{answer_options}</select></label></div>
+<canvas id="internal-{slug}-answer" role="img" aria-label="{esc(model)} non-thinking pre-answer final-count geometry in three dimensions"></canvas>
+<p class="rotate-hint">drag to rotate · color/centroid label = gold N · discovery-fitted PCA3</p><p class="panel-stats" id="internal-{slug}-answer-stats"></p></figure></div></article>"""
+        )
+    return "".join(blocks)
+
+
 def nonthinking_internal_section(
     metrics: Mapping[str, Mapping[str, Mapping[str, Mapping[str, str]]]],
     *,
+    dual_visual: Mapping[str, Any],
     domain_evidence_included: bool,
 ) -> str:
-    """Render the exploratory Qwen comparison as Appendix D."""
+    """Render the exploratory two-model non-thinking comparison as Appendix D."""
 
-    models = ("Qwen3-8B",)
+    models = MODELS
     charts = [
         _internal_endpoint_metric_svg(
             metrics,
@@ -436,10 +487,15 @@ def nonthinking_internal_section(
         if domain_evidence_included
         else "当前报告未载入实体域迁移结果，因此不能据此判断 prompt semantics 是否被过滤。"
     )
+    geometry_blocks = _internal_geometry_blocks(
+        metrics, dual_visual, models=models
+    )
     return f"""
-<section id="appendix-nonthinking-internal"><h2>Appendix D · Qwen non-thinking：running index → pre-answer query</h2>
-<div class="callout warning"><strong>结论等级：exploratory、支持性。</strong>Qwen 的 pre-answer final-count 表征有更高的 confirmation SNR 与 ordinal RSA，但 Mahalanobis silhouette 和 Fisher trace 反而更低。因此这里只能说答案生成前的 count axis 更有序、global between/within ratio 更高；不能说所有意义上的 cluster 都更紧，也不能据此建立严格的 consolidation effect。</div>
+<section id="appendix-nonthinking-internal"><h2>Appendix D · Non-thinking 内部：running index → pre-answer query</h2>
+<div class="callout warning"><strong>结论等级：exploratory、支持性。</strong>Qwen 与 Gemma 的 pre-answer final-count 表征都有更高的 confirmation SNR 与 ordinal RSA。但 Qwen 的 Mahalanobis silhouette 和 Fisher trace 同时下降，Gemma 则四项都上升。因此 Gemma 的“答案前表征更清楚”证据更广；Qwen 只支持 count axis 更有序、global between/within ratio 更高，不支持 universal cluster tightening。两者都不构成严格的 consolidation effect。</div>
 <div class="definitions two"><div><h3>Running endpoint</h3><p>在 prompt 的第 k 个 needle span 末 token 取 hidden state，并以 k=1…10 标注。每条 trajectory 可贡献多个 ragged states。</p></div><div><h3>Pre-answer endpoint</h3><p>取 <code>answer_query_v3</code>：prompt-final <code>Total:</code> 的冒号 hidden state，并以最终 N=1…10 标注。它位于生成数字之前，因此没有读取答案 digit。</p></div></div>
+<div class="callout"><strong>3-D 图如何对齐定量结果：</strong>左右图默认分别使用该 endpoint 由 discovery SNR 选出的 layer，也可查看所有层和 full/confirmation 两种 cohort。每张图的 StandardScaler/PCA3 只在该 endpoint、该层的 discovery states 上独立拟合；因此可比较 count 顺序和相对散度，不能直接比较左右坐标的绝对尺度。</div>
+{geometry_blocks}
 <div class="metric-legend"><span><i class="legend-running"></i>running needle-end</span><span><i class="legend-answer"></i>pre-answer query</span><span>每个 endpoint/metric 各自由 discovery 选择最佳层</span></div>
 <div class="metric-grid">{''.join(charts)}</div>
 {table(['模型','SNR: running → pre-answer','Ordinal RSA: running → pre-answer','Mahalanobis silhouette','Fisher trace'], rows)}
@@ -1262,7 +1318,24 @@ function drawDual3D(model,panel){
 }
 function setup(model,panel){const ids=dualIds(model,panel);ids.layer.addEventListener('change',()=>drawDual3D(model,panel));ids.split.addEventListener('change',()=>drawDual3D(model,panel));let active=false,lastX=0,lastY=0;ids.canvas.addEventListener('pointerdown',e=>{active=true;lastX=e.clientX;lastY=e.clientY;ids.canvas.setPointerCapture(e.pointerId)});ids.canvas.addEventListener('pointermove',e=>{if(!active)return;const view=VIEWS[ids.canvas.id]||(VIEWS[ids.canvas.id]={yaw:-.72,pitch:.46});view.yaw+=(e.clientX-lastX)*.009;view.pitch=Math.max(-1.45,Math.min(1.45,view.pitch+(e.clientY-lastY)*.009));lastX=e.clientX;lastY=e.clientY;drawDual3D(model,panel)});const stop=()=>{active=false};ids.canvas.addEventListener('pointerup',stop);ids.canvas.addEventListener('pointercancel',stop);drawDual3D(model,panel)}
 for(const model of Object.keys(DUAL))for(const panel of Object.keys(DUAL[model].panels))setup(model,panel);
-let timer;window.addEventListener('resize',()=>{clearTimeout(timer);timer=setTimeout(()=>{for(const model of Object.keys(DUAL))for(const panel of Object.keys(DUAL[model].panels))drawDual3D(model,panel)},100)});
+const INTERNAL_VIEWS={};
+function internalIds(model,endpoint){const s=slug(model),base='internal-'+s+'-'+endpoint;return {base,cohort:document.getElementById('internal-'+s+'-cohort'),layer:document.getElementById(base+'-layer'),canvas:document.getElementById(base),stats:document.getElementById(base+'-stats')}}
+function internalLabel(point,endpoint){return endpoint==='running'?point[2]:point[6]}
+function drawInternal3D(model,endpoint){
+  const ids=internalIds(model,endpoint);if(!ids.canvas)return;const panel=endpoint==='running'?'running_non':'final_non',payload=DUAL[model].panels[panel],layer=+ids.layer.value,cohort=ids.cohort.value,block=payload.coordinates[String(layer)],points=block.points.filter(p=>cohort==='all'||p[0]==='confirmation'),canvas=ids.canvas,rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+  canvas.width=Math.max(1,Math.round(rect.width*dpr));canvas.height=Math.max(1,Math.round(rect.height*dpr));const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);const w=rect.width,h=rect.height;c.clearRect(0,0,w,h);if(!points.length){c.fillStyle='#626A74';c.font='14px Segoe UI';c.fillText('No states in this cohort.',20,30);return}
+  const view=INTERNAL_VIEWS[canvas.id]||(INTERNAL_VIEWS[canvas.id]={yaw:-.72,pitch:.46}),groups=new Map();for(const p of points){const label=internalLabel(p,endpoint);if(!groups.has(label))groups.set(label,[]);groups.get(label).push(p)}
+  const cent=[...groups.entries()].sort((a,b)=>a[0]-b[0]).map(([label,ps])=>[label,ps.reduce((s,p)=>s+p[3],0)/ps.length,ps.reduce((s,p)=>s+p[4],0)/ps.length,ps.reduce((s,p)=>s+p[5],0)/ps.length,ps.length]),rotated=points.map(p=>({p,r:rotate3(p[3],p[4],p[5],view)})),rcent=cent.map(p=>({p,r:rotate3(p[1],p[2],p[3],view)}));
+  const maxAbs=Math.max(...points.flatMap(p=>[Math.abs(p[3]),Math.abs(p[4]),Math.abs(p[5])]),1e-6),axisLen=maxAbs*.72,axes=[['PC1','#D14B4B',rotate3(axisLen,0,0,view)],['PC2','#008E7B',rotate3(0,axisLen,0,view)],['PC3','#6750E8',rotate3(0,0,axisLen,view)]],xy=rotated.map(o=>o.r).concat(rcent.map(o=>o.r),axes.map(a=>a[2]),[[0,0,0]]);let xmin=Math.min(...xy.map(v=>v[0])),xmax=Math.max(...xy.map(v=>v[0])),ymin=Math.min(...xy.map(v=>v[1])),ymax=Math.max(...xy.map(v=>v[1]));const dx=Math.max(xmax-xmin,1e-6),dy=Math.max(ymax-ymin,1e-6);xmin-=dx*.11;xmax+=dx*.11;ymin-=dy*.11;ymax+=dy*.11;const pad={l:24,r:24,t:18,b:23},sx=x=>pad.l+(x-xmin)/(xmax-xmin)*(w-pad.l-pad.r),sy=y=>h-pad.b-(y-ymin)/(ymax-ymin)*(h-pad.t-pad.b);
+  for(const [label,color,end] of axes){c.strokeStyle=color;c.lineWidth=1.2;c.beginPath();c.moveTo(sx(0),sy(0));c.lineTo(sx(end[0]),sy(end[1]));c.stroke();c.fillStyle=color;c.font='10px Consolas';c.fillText(label,sx(end[0])+3,sy(end[1])-3)}
+  c.strokeStyle='#4B5563';c.globalAlpha=.75;c.lineWidth=2;c.beginPath();rcent.forEach((o,i)=>i?c.lineTo(sx(o.r[0]),sy(o.r[1])):c.moveTo(sx(o.r[0]),sy(o.r[1])));c.stroke();const depths=rotated.map(o=>o.r[2]),zmin=Math.min(...depths),zmax=Math.max(...depths),zspan=Math.max(zmax-zmin,1e-6);rotated.sort((a,b)=>a.r[2]-b.r[2]);
+  for(const o of rotated){const label=internalLabel(o.p,endpoint),depth=(o.r[2]-zmin)/zspan;c.globalAlpha=.38+.50*depth;c.fillStyle=COLORS[Math.max(0,Math.min(9,label-1))];c.strokeStyle=o.p[0]==='confirmation'?'#FFFDF8':'#20242D';c.lineWidth=o.p[0]==='confirmation'?1.9:.8;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),2.4+1.1*depth,0,Math.PI*2);c.fill();c.stroke()}
+  c.globalAlpha=1;for(const o of rcent){const label=o.p[0];c.fillStyle=COLORS[Math.max(0,Math.min(9,label-1))];c.strokeStyle='#20242D';c.lineWidth=1.4;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),5.8,0,Math.PI*2);c.fill();c.stroke();c.fillStyle='#20242D';c.font='10px Consolas';c.fillText(String(label),sx(o.r[0])+7,sy(o.r[1])-6)}
+  const trajectories=new Set(points.map(p=>p[0]+':'+p[1]+':'+p[6])).size,seeds=new Set(points.map(p=>p[0]+':'+p[1])).size,support=cent.map(p=>p[4]),evr=100*block.evr.reduce((a,b)=>a+b,0),source=cohort==='all'?300:100,labelName=endpoint==='running'?'running k':'gold N';ids.stats.textContent=`${payload.token_site} · L${layer} · ${cohort==='all'?'full 300-source':'confirmation 100-source'} · ${trajectories}/${source} trajectories · ${points.length} states / ${seeds} seeds · ${labelName} support nₖ ${Math.min(...support)}–${Math.max(...support)} · EVR3 ${evr.toFixed(1)}%`;
+}
+function setupInternal(model,endpoint){const ids=internalIds(model,endpoint);if(!ids.canvas)return;const redraw=()=>drawInternal3D(model,endpoint);ids.layer.addEventListener('change',redraw);ids.cohort.addEventListener('change',redraw);let active=false,lastX=0,lastY=0;ids.canvas.addEventListener('pointerdown',e=>{active=true;lastX=e.clientX;lastY=e.clientY;ids.canvas.setPointerCapture(e.pointerId)});ids.canvas.addEventListener('pointermove',e=>{if(!active)return;const view=INTERNAL_VIEWS[ids.canvas.id]||(INTERNAL_VIEWS[ids.canvas.id]={yaw:-.72,pitch:.46});view.yaw+=(e.clientX-lastX)*.009;view.pitch=Math.max(-1.45,Math.min(1.45,view.pitch+(e.clientY-lastY)*.009));lastX=e.clientX;lastY=e.clientY;redraw()});const stop=()=>{active=false};ids.canvas.addEventListener('pointerup',stop);ids.canvas.addEventListener('pointercancel',stop);redraw()}
+for(const model of Object.keys(DUAL))for(const endpoint of ['running','answer'])setupInternal(model,endpoint);
+let timer;window.addEventListener('resize',()=>{clearTimeout(timer);timer=setTimeout(()=>{for(const model of Object.keys(DUAL)){for(const panel of Object.keys(DUAL[model].panels))drawDual3D(model,panel);for(const endpoint of ['running','answer'])drawInternal3D(model,endpoint)}},100)});
 """.replace("__DUAL__", payload)
 
 
@@ -1408,6 +1481,7 @@ def build_report(
         )
         nonthinking_internal_html = nonthinking_internal_section(
             internal_metrics,
+            dual_visual=dual_visual,
             domain_evidence_included=bool(domain_html),
         )
     document = build_html(
@@ -1455,9 +1529,10 @@ def build_report(
             "is running-position-associated and does not support one shared mechanism"
         ),
         "nonthinking_internal_comparison": (
-            "Appendix D exploratory Qwen-only running span_end versus pre-answer "
-            "answer_query_v3; each endpoint and metric independently selects a layer "
-            "on discovery; unequal state units and mixed metric directions are disclosed"
+            "Appendix D exploratory Qwen and Gemma running span_end versus pre-answer "
+            "answer_query_v3; interactive PCA3 uses each endpoint's discovery-SNR layer "
+            "by default with all layers and full/confirmation cohorts available; unequal "
+            "state units, independent display bases, and mixed metric directions are disclosed"
             if covariance_root is not None
             else "not included"
         ),
