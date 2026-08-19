@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eo pipefail
+
+# Anvil's module bootstrap reads optional shell variables such as ROOTSAFE.
+# Load it before enabling nounset so a clean Slurm environment cannot fail
+# before the experiment's own validation starts.
+source /etc/profile.d/modules.sh
+set -u
 
 [[ $# -eq 1 ]] || { echo "Usage: $0 RUN_ROOT" >&2; exit 2; }
 [[ -n "${SLURM_JOB_ID:-}" && -n "${SLURM_NTASKS:-}" ]] \
@@ -25,7 +31,6 @@ actual_commit="$(git -C "${repo}" rev-parse HEAD)"
 [[ "${actual_commit}" == "${expected_commit}" ]] \
   || { echo "Formal V3.1 commit mismatch: ${actual_commit} != ${expected_commit}" >&2; exit 2; }
 
-source /etc/profile.d/modules.sh
 module --force purge
 module load modtree/gpu
 module load conda
