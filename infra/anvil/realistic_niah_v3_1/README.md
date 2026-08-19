@@ -64,7 +64,7 @@ From the repository root on an Anvil login node:
 
 ```bash
 RUN_ROOT="$PROJECT/runs/realistic_niah_v3_1/run_YYYYMMDD"
-CODE_COMMIT="99331c19997e02f2e2b54c4b171634e1ccabf881"
+CODE_COMMIT="b101f889618249a50cb500222f9d86f57e58b24f"
 
 bash infra/anvil/realistic_niah_v3_1/submit_anvil.sh \
   "$RUN_ROOT" \
