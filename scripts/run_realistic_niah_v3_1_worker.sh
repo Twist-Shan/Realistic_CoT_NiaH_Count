@@ -14,6 +14,7 @@ python_bin="${REALISTIC_NIAH_PYTHON:-/home/ubuntu/venvs/realistic-niah-vllm/bin/
 device_mode="${REALISTIC_NIAH_DEVICE_MODE:-explicit}"
 worker_id="${REALISTIC_NIAH_WORKER_ID:-gpu${worker_slot}}"
 stagger_slot="${REALISTIC_NIAH_STAGGER_SLOT:-${worker_slot}}"
+claim_grace_seconds="${REALISTIC_NIAH_CLAIM_GRACE_SECONDS:-120}"
 stimuli="${run_root}/dataset/stimuli.jsonl"
 plan_tsv="${run_root}/orchestration/formal_bundles.tsv"
 state_root="${run_root}/orchestration/shard_state"
@@ -28,6 +29,8 @@ esac
   || { echo "REALISTIC_NIAH_WORKER_ID contains unsafe characters" >&2; exit 2; }
 [[ "${stagger_slot}" =~ ^[0-9]+$ ]] \
   || { echo "REALISTIC_NIAH_STAGGER_SLOT must be non-negative" >&2; exit 2; }
+[[ "${claim_grace_seconds}" =~ ^[0-9]+$ ]] \
+  || { echo "REALISTIC_NIAH_CLAIM_GRACE_SECONDS must be non-negative" >&2; exit 2; }
 case "${device_mode}" in
   explicit)
     nvidia-smi --query-gpu=index --format=csv,noheader \
@@ -69,6 +72,28 @@ engine_settings_for() {
   esac
 }
 
+write_two_row_marker() {
+  local destination="$1"
+  local header="$2"
+  local row="$3"
+  local temporary
+  temporary="$(mktemp "${destination}.tmp.XXXXXX")"
+  printf '%s\n%s\n' "${header}" "${row}" > "${temporary}"
+  mv -f -- "${temporary}" "${destination}"
+}
+
+archive_invalid_bundle_marker() {
+  local bundle_id="$1"
+  local marker="${state_root}/completed_bundles/${bundle_id}.tsv"
+  local archive_root="${state_root}/failed_attempts/${bundle_id}"
+  local stamp
+  [[ -e "${marker}" ]] || return 0
+  stamp="$(date -u +%Y%m%dT%H%M%SZ).${worker_id}.$RANDOM"
+  mkdir -p "${archive_root}"
+  mv "${marker}" "${archive_root}/invalid-completion.${stamp}.tsv" \
+    2>/dev/null || return 0
+}
+
 archive_previous_attempt_if_safe() {
   local bundle_id="$1"
   local claim_dir="${state_root}/claims/${bundle_id}"
@@ -77,6 +102,9 @@ archive_previous_attempt_if_safe() {
   local prior_host=""
   local prior_pid=""
   local prior_scheduler_job_id=""
+  local claim_age_seconds=0
+  local claim_mtime=0
+  local now_epoch=0
   local stamp
 
   if [[ ! -d "${claim_dir}" ]]; then
@@ -88,28 +116,35 @@ archive_previous_attempt_if_safe() {
     fi
     return 0
   fi
-  if [[ -s "${claim_dir}/claim.tsv" ]]; then
+  if [[ -s "${claim_dir}/claim.tsv" ]] \
+    && [[ "$(wc -l < "${claim_dir}/claim.tsv")" -eq 2 ]]; then
     prior_host="$(awk -F $'\t' 'NR==2 {print $4}' "${claim_dir}/claim.tsv")"
     prior_pid="$(awk -F $'\t' 'NR==2 {print $3}' "${claim_dir}/claim.tsv")"
     prior_scheduler_job_id="$(awk -F $'\t' 'NR==2 {print $8}' "${claim_dir}/claim.tsv")"
-  fi
-  if [[ "${prior_host}" == "$(hostname)" ]] \
-    && [[ "${prior_pid}" =~ ^[0-9]+$ ]] \
-    && kill -0 "${prior_pid}" 2>/dev/null; then
-    return 1
   fi
   if [[ -n "${prior_scheduler_job_id}" ]] \
     && command -v squeue >/dev/null 2>&1 \
     && [[ -n "$(squeue -h -j "${prior_scheduler_job_id}" 2>/dev/null)" ]]; then
     return 1
   fi
+  if [[ -z "${prior_scheduler_job_id}" ]] \
+    && [[ "${prior_host}" == "$(hostname)" ]] \
+    && [[ "${prior_pid}" =~ ^[0-9]+$ ]] \
+    && kill -0 "${prior_pid}" 2>/dev/null; then
+    return 1
+  fi
+  if [[ -z "${prior_host}" ]]; then
+    claim_mtime="$(stat -c %Y "${claim_dir}")"
+    now_epoch="$(date +%s)"
+    claim_age_seconds="$((now_epoch - claim_mtime))"
+    if [[ "${claim_age_seconds}" -lt "${claim_grace_seconds}" ]]; then
+      return 1
+    fi
+  fi
   if [[ "${prior_host}" != "$(hostname)" ]] \
     && [[ -z "${prior_scheduler_job_id}" ]] \
     && [[ ! -s "${failed_file}" ]]; then
     # A legacy claim on another host cannot be proven stale safely.
-    return 1
-  fi
-  if [[ ! -s "${failed_file}" && -z "${prior_host}" ]]; then
     return 1
   fi
   stamp="$(date -u +%Y%m%dT%H%M%SZ).${worker_id}.$RANDOM"
@@ -136,17 +171,28 @@ do
   bundle_completed_file="${state_root}/completed_bundles/${bundle_id}.tsv"
   failed_file="${state_root}/failed_bundles/${bundle_id}.tsv"
   claim_dir="${state_root}/claims/${bundle_id}"
-  [[ -s "${bundle_completed_file}" ]] && continue
+  if PYTHONPATH="${repo}/src" "${python_bin}" \
+    "${repo}/scripts/audit_realistic_niah_v3_1_shard_state.py" \
+      --run-root "${run_root}" --bundle-id "${bundle_id}" --quiet \
+      >/dev/null 2>&1; then
+    continue
+  fi
+  archive_invalid_bundle_marker "${bundle_id}"
   archive_previous_attempt_if_safe "${bundle_id}" || continue
-  mkdir "${claim_dir}" 2>/dev/null || continue
   attempt_id="$(date -u +%Y%m%dT%H%M%SZ).${worker_id}.$RANDOM"
+  claim_temporary="$(mktemp "${state_root}/claims/.${bundle_id}.${worker_id}.XXXXXX")"
   printf "bundle_id\tworker_slot\tpid\thostname\tclaimed_at_utc\tattempt_id\tworker_id\tscheduler_job_id\n" \
-    > "${claim_dir}/claim.tsv"
+    > "${claim_temporary}"
   printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
     "${bundle_id}" "${worker_slot}" "$$" \
     "$(hostname)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${attempt_id}" \
     "${worker_id}" "${SLURM_JOB_ID:-}" \
-    >> "${claim_dir}/claim.tsv"
+    >> "${claim_temporary}"
+  if ! mkdir "${claim_dir}" 2>/dev/null; then
+    rm -f -- "${claim_temporary}"
+    continue
+  fi
+  mv -- "${claim_temporary}" "${claim_dir}/claim.tsv"
   read -r request_batch_size max_num_seqs gpu_utilization \
     < <(engine_settings_for "${model}")
   log_file="${run_root}/orchestration/logs/${bundle_id}.${attempt_id}.log"
@@ -181,25 +227,27 @@ do
         "${output_dir}/run_manifest.json" 3360
       prompt_mode="${task_id##*__}"
       completed_file="${state_root}/completed/${task_id}.tsv"
-      printf "task_id\tmodel\tprompt_mode\tworker_id\tattempt_id\tcompleted_at_utc\n" \
-        > "${completed_file}"
-      printf "%s\t%s\t%s\t%s\t%s\t%s\n" "${task_id}" "${model}" \
+      printf -v marker_row "%s\t%s\t%s\t%s\t%s\t%s" "${task_id}" "${model}" \
         "${prompt_mode}" "${worker_id}" "${attempt_id}" \
-        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${completed_file}"
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      write_two_row_marker "${completed_file}" \
+        $'task_id\tmodel\tprompt_mode\tworker_id\tattempt_id\tcompleted_at_utc' \
+        "${marker_row}"
     done
-    printf "bundle_id\tmodel\tlogical_shards\trequests\tworker_id\tattempt_id\tcompleted_at_utc\n" \
-      > "${bundle_completed_file}"
-    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "${bundle_id}" "${model}" \
+    printf -v marker_row "%s\t%s\t%s\t%s\t%s\t%s\t%s" "${bundle_id}" "${model}" \
       "${expected_logical_shards}" "${expected_requests}" "${worker_id}" \
       "${attempt_id}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      >> "${bundle_completed_file}"
+    write_two_row_marker "${bundle_completed_file}" \
+      $'bundle_id\tmodel\tlogical_shards\trequests\tworker_id\tattempt_id\tcompleted_at_utc' \
+      "${marker_row}"
   else
     exit_code=$?
-    printf "bundle_id\tmodel\tprompt_modes\tworker_id\tattempt_id\texit_code\tlog\n" \
-      > "${failed_file}"
-    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "${bundle_id}" "${model}" \
+    printf -v marker_row "%s\t%s\t%s\t%s\t%s\t%s\t%s" "${bundle_id}" "${model}" \
       "${prompt_modes}" "${worker_id}" "${attempt_id}" "${exit_code}" \
-      "${log_file}" >> "${failed_file}"
+      "${log_file}"
+    write_two_row_marker "${failed_file}" \
+      $'bundle_id\tmodel\tprompt_modes\tworker_id\tattempt_id\texit_code\tlog' \
+      "${marker_row}"
     exit "${exit_code}"
   fi
 done < "${plan_tsv}"

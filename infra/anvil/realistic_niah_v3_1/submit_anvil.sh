@@ -16,6 +16,7 @@ Options:
   --constraint NAME     Node feature (default: H100)
   --cpus-per-worker N   CPU cores per GPU worker (default: 12)
   --mem-per-node SIZE   Memory per node (default: 120G per resident worker)
+  --expected-commit SHA Exact Git commit authorized for this formal run
   --dry-run             Print the resolved sbatch command without submitting
   -h, --help            Show this help
 
@@ -23,7 +24,8 @@ Environment overrides:
   REALISTIC_NIAH_REPO_ROOT, REALISTIC_NIAH_PYTHON,
   REALISTIC_NIAH_HF_CACHE, ANVIL_ACCOUNT, ANVIL_PARTITION,
   ANVIL_CONSTRAINT, ANVIL_WORKERS, ANVIL_TIME_LIMIT,
-  ANVIL_CPUS_PER_WORKER, ANVIL_MEM_PER_NODE
+  ANVIL_CPUS_PER_WORKER, ANVIL_MEM_PER_NODE,
+  REALISTIC_NIAH_EXPECTED_COMMIT
 EOF
 }
 
@@ -41,11 +43,12 @@ partition="${ANVIL_PARTITION:-ai}"
 constraint="${ANVIL_CONSTRAINT:-H100}"
 cpus_per_worker="${ANVIL_CPUS_PER_WORKER:-12}"
 mem_per_node="${ANVIL_MEM_PER_NODE:-}"
+expected_commit="${REALISTIC_NIAH_EXPECTED_COMMIT:-}"
 dry_run=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --workers|--time|--account|--partition|--constraint|--cpus-per-worker|--mem-per-node)
+    --workers|--time|--account|--partition|--constraint|--cpus-per-worker|--mem-per-node|--expected-commit)
       [[ $# -ge 2 ]] || { echo "Missing value for $1" >&2; exit 2; }
       option="$1"
       value="$2"
@@ -58,6 +61,7 @@ while [[ $# -gt 0 ]]; do
         --constraint) constraint="${value}" ;;
         --cpus-per-worker) cpus_per_worker="${value}" ;;
         --mem-per-node) mem_per_node="${value}" ;;
+        --expected-commit) expected_commit="${value}" ;;
       esac
       ;;
     --dry-run)
@@ -82,6 +86,8 @@ done
   || { echo "--cpus-per-worker must be a positive integer" >&2; exit 2; }
 [[ -n "${account}" && -n "${partition}" && -n "${constraint}" ]] \
   || { echo "Account, partition, and constraint must be non-empty" >&2; exit 2; }
+[[ "${expected_commit}" =~ ^[0-9a-f]{40}$ ]] \
+  || { echo "--expected-commit must be an exact 40-character Git SHA" >&2; exit 2; }
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repo="${REALISTIC_NIAH_REPO_ROOT:-$(cd -- "${script_dir}/../../.." && pwd -P)}"
@@ -90,7 +96,7 @@ if [[ -n "${REALISTIC_NIAH_PYTHON:-}" ]]; then
 else
   [[ -n "${PROJECT:-}" && -n "${USER:-}" ]] \
     || { echo "Set PROJECT and USER, or REALISTIC_NIAH_PYTHON" >&2; exit 2; }
-  python_bin="${PROJECT}/envs/${USER}/niah/bin/python"
+  python_bin="${PROJECT}/envs/${USER}/niah-v31/bin/python"
 fi
 if [[ -n "${REALISTIC_NIAH_HF_CACHE:-}" ]]; then
   hf_cache="${REALISTIC_NIAH_HF_CACHE}"
@@ -116,13 +122,15 @@ done
 [[ -d "${hf_cache}" ]] || { echo "HF cache does not exist: ${hf_cache}" >&2; exit 2; }
 repo_status="$(git -C "${repo}" status --short)"
 if [[ -n "${repo_status}" ]]; then
-  if [[ "${dry_run}" -eq 1 ]]; then
-    echo "WARNING: a real submission would fail because the Git worktree is dirty" >&2
-  else
-    echo "Formal V3.1 submission requires a clean Git worktree" >&2
-    exit 2
-  fi
+  echo "Formal V3.1 submission requires a clean Git worktree" >&2
+  exit 2
 fi
+actual_commit="$(git -C "${repo}" rev-parse HEAD)"
+[[ "${actual_commit}" == "${expected_commit}" ]] \
+  || { echo "Formal V3.1 commit mismatch: ${actual_commit} != ${expected_commit}" >&2; exit 2; }
+PYTHONPATH="${repo}/src" "${python_bin}" \
+  "${repo}/scripts/validate_realistic_niah_v3_1_dataset.py" \
+  --dataset-dir "${run_root}/dataset" >/dev/null
 
 nodes="$(((workers + 3) / 4))"
 tasks_per_node=4
@@ -144,6 +152,7 @@ export REALISTIC_NIAH_REPO_ROOT="${repo}"
 export REALISTIC_NIAH_PYTHON="${python_bin}"
 export REALISTIC_NIAH_HF_CACHE="${hf_cache}"
 export REALISTIC_NIAH_TASKS_PER_NODE="${tasks_per_node}"
+export REALISTIC_NIAH_EXPECTED_COMMIT="${expected_commit}"
 
 sbatch_args=(
   --parsable
@@ -160,7 +169,7 @@ sbatch_args=(
   --job-name="${job_name}"
   --output="${slurm_log_dir}/%x-%j.out"
   --error="${slurm_log_dir}/%x-%j.out"
-  --export=ALL
+  --export=HOME,USER,PATH,SHELL,REALISTIC_NIAH_REPO_ROOT,REALISTIC_NIAH_PYTHON,REALISTIC_NIAH_HF_CACHE,REALISTIC_NIAH_TASKS_PER_NODE,REALISTIC_NIAH_EXPECTED_COMMIT
   "${job_script}"
   "${run_root}"
 )

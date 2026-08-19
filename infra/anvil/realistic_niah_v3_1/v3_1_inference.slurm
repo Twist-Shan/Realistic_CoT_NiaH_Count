@@ -9,6 +9,7 @@ run_root="$(readlink -f "$1")"
 repo="${REALISTIC_NIAH_REPO_ROOT:?Set REALISTIC_NIAH_REPO_ROOT}"
 python_bin="${REALISTIC_NIAH_PYTHON:?Set REALISTIC_NIAH_PYTHON}"
 hf_cache="${REALISTIC_NIAH_HF_CACHE:?Set REALISTIC_NIAH_HF_CACHE}"
+expected_commit="${REALISTIC_NIAH_EXPECTED_COMMIT:?Set REALISTIC_NIAH_EXPECTED_COMMIT}"
 tasks_per_node="${REALISTIC_NIAH_TASKS_PER_NODE:-4}"
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
@@ -20,10 +21,16 @@ esac
 [[ -d "${hf_cache}" ]] || { echo "HF cache does not exist: ${hf_cache}" >&2; exit 2; }
 [[ -z "$(git -C "${repo}" status --short)" ]] \
   || { echo "Formal V3.1 execution requires a clean Git worktree" >&2; exit 2; }
+actual_commit="$(git -C "${repo}" rev-parse HEAD)"
+[[ "${actual_commit}" == "${expected_commit}" ]] \
+  || { echo "Formal V3.1 commit mismatch: ${actual_commit} != ${expected_commit}" >&2; exit 2; }
 
 module --force purge
 module load modtree/gpu
 module load conda
+
+"${python_bin}" -c \
+  'import sys; from importlib.metadata import version; from packaging.version import Version; assert sys.version_info[:2] == (3, 11); assert version("transformers") == "5.14.1"; assert version("vllm") == "0.25.1"; assert Version("1.8.6") <= Version(version("mistral-common")) < Version("2")'
 
 slurm_dir="${run_root}/orchestration/slurm"
 mkdir -p "${slurm_dir}"
@@ -46,7 +53,8 @@ provenance_file="${slurm_dir}/job-${SLURM_JOB_ID}-provenance.txt"
 
 cd "${repo}"
 PYTHONPATH=src "${python_bin}" scripts/prepare_realistic_niah_v3_1.py \
-  --run-root "${run_root}" --repo-root "${repo}"
+  --run-root "${run_root}" --repo-root "${repo}" \
+  --expected-commit "${expected_commit}" --require-source-revision
 
 srun \
   --ntasks="${SLURM_NTASKS}" \

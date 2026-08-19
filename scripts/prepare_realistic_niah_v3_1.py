@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import platform
 import subprocess
@@ -9,12 +8,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from realistic_niah_v3_1.integrity import validate_frozen_dataset
 from realistic_niah_v3_1.sharding import formal_bundle_plan, formal_shard_plan
-from realistic_niah_v3_1.spec import EXPECTED_STIMULI, PROTOCOL_VERSION
+from realistic_niah_v3_1.spec import EXPECTED_STIMULI
 
 
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _atomic_text(path: Path, payload: str) -> None:
@@ -45,7 +51,13 @@ def _mount_snapshot(path: Path) -> dict[str, Any]:
     return {"available": True, "findmnt": json.loads(result.stdout)}
 
 
-def prepare(run_root: Path, repo_root: Path) -> dict[str, Any]:
+def prepare(
+    run_root: Path,
+    repo_root: Path,
+    expected_commit: str | None = None,
+    *,
+    require_source_revision: bool = False,
+) -> dict[str, Any]:
     run_root = run_root.resolve()
     repo_root = repo_root.resolve()
     dataset = run_root / "dataset"
@@ -56,18 +68,18 @@ def prepare(run_root: Path, repo_root: Path) -> dict[str, Any]:
     for path in (stimuli_path, manifest_path, audit_path):
         if not path.is_file() or path.stat().st_size == 0:
             raise FileNotFoundError(f"Missing V3.1 dataset file: {path}")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    dataset_audit = json.loads(audit_path.read_text(encoding="utf-8"))
-    if (
-        manifest.get("protocol_version") != PROTOCOL_VERSION
-        or dataset_audit.get("protocol_version") != PROTOCOL_VERSION
-        or dataset_audit.get("passed") is not True
-        or int(dataset_audit.get("rows_checked", -1)) != EXPECTED_STIMULI
-    ):
-        raise RuntimeError("The frozen V3.1 dataset has not passed its audit")
+    dataset_integrity = validate_frozen_dataset(
+        dataset, require_source_revision=require_source_revision
+    )
     dirty = _git(repo_root, "status", "--short")
     if dirty:
         raise RuntimeError("Formal V3.1 preparation requires a clean worktree")
+    actual_commit = _git(repo_root, "rev-parse", "HEAD")
+    resolved_expected_commit = expected_commit or actual_commit
+    if actual_commit != resolved_expected_commit:
+        raise RuntimeError(
+            f"Formal V3.1 commit mismatch: {actual_commit} != {resolved_expected_commit}"
+        )
     plan = formal_shard_plan()
     orchestration.mkdir(parents=True, exist_ok=True)
     json_path = orchestration / "formal_shards.json"
@@ -122,13 +134,16 @@ def prepare(run_root: Path, repo_root: Path) -> dict[str, Any]:
         "run_root": str(run_root),
         "repo_root": str(repo_root),
         "git": {
-            "commit": _git(repo_root, "rev-parse", "HEAD"),
+            "commit": actual_commit,
+            "expected_commit": resolved_expected_commit,
             "branch": _git(repo_root, "rev-parse", "--abbrev-ref", "HEAD"),
             "dirty": False,
         },
         "mount": _mount_snapshot(run_root),
         "dataset": {
             "stimuli": EXPECTED_STIMULI,
+            "dataset_id": dataset_integrity["dataset_id"],
+            "revision": dataset_integrity["revision"],
             "stimuli_sha256": _sha256(stimuli_path),
             "manifest_sha256": _sha256(manifest_path),
             "audit_sha256": _sha256(audit_path),
@@ -159,10 +174,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Prepare a frozen V3.1 run.")
     parser.add_argument("--run-root", required=True)
     parser.add_argument("--repo-root", default=".")
+    parser.add_argument("--expected-commit")
+    parser.add_argument("--require-source-revision", action="store_true")
     args = parser.parse_args()
     print(
         json.dumps(
-            prepare(Path(args.run_root), Path(args.repo_root)),
+            prepare(
+                Path(args.run_root),
+                Path(args.repo_root),
+                args.expected_commit,
+                require_source_revision=args.require_source_revision,
+            ),
             ensure_ascii=False,
             indent=2,
             sort_keys=True,
