@@ -8,7 +8,7 @@ GPU 推理与最终合并；统计拟合不占用本次 H100 作业，待推理�
 ### 代码
 
 - GitHub：<https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count>
-- 固定 commit：`b101f889618249a50cb500222f9d86f57e58b24f`
+- 固定 commit：`cdb6e8dd2781b83b46883999d1baa566822fff47`
 - 不使用可移动的 `main`/branch tip；正式运行必须 checkout 上述 commit。
 - 不做 sparse checkout。该 commit 中实际入口为
   `infra/anvil/realistic_niah_v3_1/submit_anvil.sh`，它会继续调用固定的
@@ -82,7 +82,7 @@ login node 上直接运行模型推理。
 ## 3. 从 GitHub 获取固定代码
 
 ```bash
-CODE_COMMIT="b101f889618249a50cb500222f9d86f57e58b24f"
+CODE_COMMIT="cdb6e8dd2781b83b46883999d1baa566822fff47"
 
 git clone https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git \
   "$PROJECT/niah"
@@ -198,7 +198,7 @@ exit
 
 ```bash
 cd "$PROJECT/niah"
-CODE_COMMIT="b101f889618249a50cb500222f9d86f57e58b24f"
+CODE_COMMIT="cdb6e8dd2781b83b46883999d1baa566822fff47"
 RUN_ROOT="$PROJECT/runs/realistic_niah_v3_1/20260819_formal"
 
 bash infra/anvil/realistic_niah_v3_1/submit_anvil.sh \
