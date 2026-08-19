@@ -8,7 +8,7 @@ GPU 推理与最终合并；统计拟合不占用本次 H100 作业，待推理�
 ### 代码
 
 - GitHub：<https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count>
-- 固定 commit：`4c69d464d8a18d955a1b065e56ac2d1fc10eebe6`
+- 固定 commit：`99331c19997e02f2e2b54c4b171634e1ccabf881`
 - 不使用可移动的 `main`/branch tip；正式运行必须 checkout 上述 commit。
 - 不做 sparse checkout。该 commit 中实际入口为
   `infra/anvil/realistic_niah_v3_1/submit_anvil.sh`，它会继续调用固定的
@@ -82,7 +82,7 @@ login node 上直接运行模型推理。
 ## 3. 从 GitHub 获取固定代码
 
 ```bash
-CODE_COMMIT="4c69d464d8a18d955a1b065e56ac2d1fc10eebe6"
+CODE_COMMIT="99331c19997e02f2e2b54c4b171634e1ccabf881"
 
 git clone https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git \
   "$PROJECT/niah"
@@ -114,7 +114,7 @@ sinteractive -A mth260088-ai -p ai -C H100 \
 module load modtree/gpu
 module load conda
 
-ENV_DIR="$PROJECT/envs/$USER/niah"
+ENV_DIR="$PROJECT/envs/$USER/niah-v31"
 conda create --prefix "$ENV_DIR" python=3.11 pip -y
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$ENV_DIR"
@@ -130,15 +130,12 @@ Hugging Face token 写入脚本或日志。
 下载完整固定 snapshot：
 
 ```bash
-DATASET_ID="twistshan/realistic-niah-count-empirical-law"
-DATASET_REVISION="af28be936adf92d40971aed4fa341c92b6ecf799"
-RUN_ROOT="$PROJECT/runs/realistic_niah_v3_1/20260807_formal"
+RUN_ROOT="$PROJECT/runs/realistic_niah_v3_1/20260819_formal"
 
-mkdir -p "$RUN_ROOT/dataset"
-hf download "$DATASET_ID" \
-  --type dataset \
-  --revision "$DATASET_REVISION" \
-  --local-dir "$RUN_ROOT/dataset"
+REALISTIC_NIAH_REPO_ROOT="$PROJECT/niah" \
+REALISTIC_NIAH_PYTHON="$ENV_DIR/bin/python" \
+REALISTIC_NIAH_HF_BIN="$ENV_DIR/bin/hf" \
+  bash scripts/download_realistic_niah_v3_1_dataset.sh "$RUN_ROOT"
 ```
 
 校验下载内容：
@@ -163,7 +160,7 @@ test "$(stat -c %s stimuli.jsonl)" -eq 184690729
 作业开始后再下载。
 
 ```bash
-ENV_DIR="$PROJECT/envs/$USER/niah"
+ENV_DIR="$PROJECT/envs/$USER/niah-v31"
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$ENV_DIR"
 cd "$PROJECT/niah"
@@ -201,14 +198,15 @@ exit
 
 ```bash
 cd "$PROJECT/niah"
-RUN_ROOT="$PROJECT/runs/realistic_niah_v3_1/20260807_formal"
+CODE_COMMIT="99331c19997e02f2e2b54c4b171634e1ccabf881"
+RUN_ROOT="$PROJECT/runs/realistic_niah_v3_1/20260819_formal"
 
 bash infra/anvil/realistic_niah_v3_1/submit_anvil.sh \
-  "$RUN_ROOT" --workers 8 --dry-run
+  "$RUN_ROOT" --workers 8 --expected-commit "$CODE_COMMIT" --dry-run
 
 # 确认输出为 nodes=2、ntasks=8、H100、account=mth260088-ai 后提交：
 bash infra/anvil/realistic_niah_v3_1/submit_anvil.sh \
-  "$RUN_ROOT" --workers 8
+  "$RUN_ROOT" --workers 8 --expected-commit "$CODE_COMMIT"
 ```
 
 默认资源是 2 个 H100 节点、8 个单卡 worker、每 worker 12 CPU、每节点
@@ -231,8 +229,8 @@ tail -f "$RUN_ROOT/orchestration/slurm/"*.out
 成功后检查：
 
 ```bash
-"$PROJECT/envs/$USER/niah/bin/python" -c \
-  'import json,os; p=os.path.join(os.environ["PROJECT"],"runs/realistic_niah_v3_1/20260807_formal/orchestration/final_shard_audit.json"); a=json.load(open(p)); assert a["passed"] is True; assert a["requests"]==a["unique_request_ids"]==161280; print("INFERENCE AUDIT PASS", p)'
+"$PROJECT/envs/$USER/niah-v31/bin/python" -c \
+  'import json,os; p=os.path.join(os.environ["PROJECT"],"runs/realistic_niah_v3_1/20260819_formal/orchestration/final_shard_audit.json"); a=json.load(open(p)); assert a["passed"] is True; assert a["requests"]==a["unique_request_ids"]==161280; print("INFERENCE AUDIT PASS", p)'
 
 jobinfo JOB_ID
 seff JOB_ID

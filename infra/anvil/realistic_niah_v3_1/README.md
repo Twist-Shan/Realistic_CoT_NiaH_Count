@@ -18,7 +18,7 @@ The defaults follow the Anvil project guide:
 
 ```text
 $PROJECT/niah/                                  repository
-$PROJECT/envs/$USER/niah/bin/python             inference Python
+$PROJECT/envs/$USER/niah-v31/bin/python         inference Python
 $PROJECT/hf-cache/                              durable model cache
 $PROJECT/runs/realistic_niah_v3_1/RUN_NAME/     durable run root
 ```
@@ -29,6 +29,7 @@ The run root must already contain the audited frozen dataset:
 dataset/stimuli.jsonl
 dataset/manifest.json
 dataset/audit_report.json
+dataset/source_revision.json
 ```
 
 The repository must be clean. The environment must contain compatible pinned
@@ -47,7 +48,7 @@ OLMo-compatible inference environment:
 module load modtree/gpu
 module load conda
 
-ENV_DIR="$PROJECT/envs/$USER/niah"
+ENV_DIR="$PROJECT/envs/$USER/niah-v31"
 conda create --prefix "$ENV_DIR" python=3.11 pip -y
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$ENV_DIR"
@@ -63,10 +64,12 @@ From the repository root on an Anvil login node:
 
 ```bash
 RUN_ROOT="$PROJECT/runs/realistic_niah_v3_1/run_YYYYMMDD"
+CODE_COMMIT="99331c19997e02f2e2b54c4b171634e1ccabf881"
 
 bash infra/anvil/realistic_niah_v3_1/submit_anvil.sh \
   "$RUN_ROOT" \
-  --workers 8
+  --workers 8 \
+  --expected-commit "$CODE_COMMIT"
 ```
 
 Resolved defaults:
@@ -98,7 +101,8 @@ bash infra/anvil/realistic_niah_v3_1/submit_anvil.sh \
   "$RUN_ROOT" \
   --workers 1 \
   --time 02:00:00 \
-  --mem-per-node 120G
+  --mem-per-node 120G \
+  --expected-commit "$CODE_COMMIT"
 ```
 
 The interface accepts 1-12 workers. At most four tasks are placed on one H100
