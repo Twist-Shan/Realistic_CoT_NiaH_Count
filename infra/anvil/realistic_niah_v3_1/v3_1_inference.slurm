@@ -25,6 +25,7 @@ actual_commit="$(git -C "${repo}" rev-parse HEAD)"
 [[ "${actual_commit}" == "${expected_commit}" ]] \
   || { echo "Formal V3.1 commit mismatch: ${actual_commit} != ${expected_commit}" >&2; exit 2; }
 
+source /etc/profile.d/modules.sh
 module --force purge
 module load modtree/gpu
 module load conda

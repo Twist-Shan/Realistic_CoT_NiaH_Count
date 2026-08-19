@@ -188,8 +188,12 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     submit = (
         root / "infra" / "anvil" / "realistic_niah_v3_1" / "submit_anvil.sh"
     ).read_text()
+    slurm = (
+        root / "infra" / "anvil" / "realistic_niah_v3_1" / "v3_1_inference.slurm"
+    ).read_text()
     assert "while true" not in finalizer
     assert "audit_realistic_niah_v3_1_shard_state.py" in finalizer
     assert "write_two_row_marker" in worker
     assert "--export=ALL" not in submit
     assert "--expected-commit" in submit
+    assert "source /etc/profile.d/modules.sh" in slurm
