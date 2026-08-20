@@ -43,6 +43,13 @@ export PATH="${env_bin}:${PATH}"
 command -v ninja >/dev/null 2>&1 \
   || { echo "ninja is unavailable from the frozen environment: ${env_bin}" >&2; exit 2; }
 
+# vLLM 0.25.1 enables FlashInfer sampling by default.  On Anvil this can
+# trigger a JIT build for compute_90a with the site nvcc, even though the
+# frozen PyTorch wheel already carries its own CUDA runtime.  Use vLLM's
+# documented native-sampler fallback so H100 execution does not depend on a
+# compatible system CUDA compiler.
+export VLLM_USE_FLASHINFER_SAMPLER=0
+
 "${python_bin}" -c \
   'import sys; from importlib.metadata import version; from packaging.version import Version; assert sys.version_info[:2] == (3, 11); assert version("transformers") == "5.14.1"; assert version("vllm") == "0.25.1"; assert Version("1.8.6") <= Version(version("mistral-common")) < Version("2")'
 

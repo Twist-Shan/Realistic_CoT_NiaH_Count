@@ -35,6 +35,8 @@ dataset/source_revision.json
 The repository must be clean. The environment must contain compatible pinned
 builds of PyTorch, Transformers, and vLLM. Warm the Hugging Face cache before a
 formal launch so eight workers do not download large checkpoints concurrently.
+The Slurm adapter disables vLLM's optional FlashInfer sampler and uses the
+native sampler, avoiding a runtime JIT dependency on Anvil's system `nvcc`.
 
 The generic transfer example in the Anvil account guide excludes `.git`; that
 example cannot be used unchanged for this formal workflow. Clone the repository
