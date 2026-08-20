@@ -198,3 +198,5 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     assert "--expected-commit" in submit
     assert "source /etc/profile.d/modules.sh" in slurm
     assert slurm.index("source /etc/profile.d/modules.sh") < slurm.index("set -u")
+    assert 'export PATH="${env_bin}:${PATH}"' in slurm
+    assert "command -v ninja" in slurm

@@ -35,6 +35,14 @@ module --force purge
 module load modtree/gpu
 module load conda
 
+# The restricted Slurm export intentionally does not activate the conda
+# environment.  vLLM launches tools such as ninja by executable name, so make
+# the frozen environment's executables discoverable before runtime preflight.
+env_bin="$(dirname -- "${python_bin}")"
+export PATH="${env_bin}:${PATH}"
+command -v ninja >/dev/null 2>&1 \
+  || { echo "ninja is unavailable from the frozen environment: ${env_bin}" >&2; exit 2; }
+
 "${python_bin}" -c \
   'import sys; from importlib.metadata import version; from packaging.version import Version; assert sys.version_info[:2] == (3, 11); assert version("transformers") == "5.14.1"; assert version("vllm") == "0.25.1"; assert Version("1.8.6") <= Version(version("mistral-common")) < Version("2")'
 
