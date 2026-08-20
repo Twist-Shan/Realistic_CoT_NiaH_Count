@@ -8,7 +8,7 @@ GPU 推理与最终合并；统计拟合不占用本次 H100 作业，待推理�
 ### 代码
 
 - GitHub：<https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count>
-- 固定 commit：`9cecb34853c04457e285b42d65ccec6a2b0fcb24`
+- 固定 commit：`f6eaa7c622c5f85b5a4428a49e3b0fae67f4216c`
 - 不使用可移动的 `main`/branch tip；正式运行必须 checkout 上述 commit。
 - 不做 sparse checkout。该 commit 中实际入口为
   `infra/anvil/realistic_niah_v3_1/submit_anvil.sh`，它会继续调用固定的
@@ -82,7 +82,7 @@ login node 上直接运行模型推理。
 ## 3. 从 GitHub 获取固定代码
 
 ```bash
-CODE_COMMIT="9cecb34853c04457e285b42d65ccec6a2b0fcb24"
+CODE_COMMIT="f6eaa7c622c5f85b5a4428a49e3b0fae67f4216c"
 
 git clone https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git \
   "$PROJECT/niah"
@@ -198,7 +198,7 @@ exit
 
 ```bash
 cd "$PROJECT/niah"
-CODE_COMMIT="9cecb34853c04457e285b42d65ccec6a2b0fcb24"
+CODE_COMMIT="f6eaa7c622c5f85b5a4428a49e3b0fae67f4216c"
 RUN_ROOT="$PROJECT/runs/realistic_niah_v3_1/20260819_formal"
 
 bash infra/anvil/realistic_niah_v3_1/submit_anvil.sh \
@@ -212,7 +212,9 @@ bash infra/anvil/realistic_niah_v3_1/submit_anvil.sh \
 默认资源是 2 个 H100 节点、8 个单卡 worker、每 worker 12 CPU、每节点
 480 GB 内存、最长 48 小时。这里是 8 个独立 worker 动态消费 14 个 bundle，
 不是单模型 TP=8。不得修改 model revisions、BF16、seed、prompt、decoding 或
-冻结数据。
+冻结数据。Slurm 适配会设置 `VLLM_USE_FLASHINFER_SAMPLER=0`，使用 vLLM 原生
+采样器，避免 FlashInfer 在 Anvil 上调用不兼容的系统 `nvcc` 编译
+`compute_90a`；该设置不改变冻结的采样参数。
 
 ## 6. 监控、续跑与验收
 
