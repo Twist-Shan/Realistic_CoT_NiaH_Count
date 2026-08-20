@@ -9,16 +9,23 @@ import pytest
 from realistic_niah_v5.causal import (
     bootstrap_seed_mean_ci,
     build_causal_plan,
+    control_feasible_ranked_bank,
     fit_centroid_subspace,
+    global_random_controls,
     layer_matched_random_controls,
     mechanism_continuations,
     paired_seed_effects,
     query_context_mask,
     rank_mechanism_heads,
+    rank_pooled_source_specific_heads,
     rank_retrieval_heads,
     sign_flip_pvalue,
+    strict_ranked_bank,
 )
-from realistic_niah_v5.encoding import build_native_trace_encoding
+from realistic_niah_v5.encoding import (
+    build_native_causal_encoding,
+    build_native_trace_encoding,
+)
 from realistic_niah_v5.generation import render_native_prompt
 from realistic_niah_v5.parsing import (
     PARSER_FILE_SHA256,
@@ -92,17 +99,31 @@ def _row(family: str = "qwen3") -> dict[str, object]:
             "Therefore there are two.\n<channel|>\nTotal: 2"
         )
         label = "Gemma4-E4B"
+    prompt = "Chicago received a score of 72.\nBaku received a score of 98.\n"
+    chicago_end = prompt.index("\n") + 1
     return {
         "request_id": f"test-{family}",
         "model_label": label,
         "model_family": family,
         "raw_output_text": raw,
         "output_token_ids": [ord(value) for value in raw],
-        "input_ids": [1, 2, 3],
-        "attention_mask": [1, 1, 1],
+        "input_ids": [ord(value) for value in prompt],
+        "attention_mask": [1] * len(prompt),
         "prompt_record_spans": [
-            {"slot_index": 1, "city": "Chicago", "score": 72, "start": 0, "end": 1},
-            {"slot_index": 2, "city": "Baku", "score": 98, "start": 1, "end": 2},
+            {
+                "slot_index": 1,
+                "city": "Chicago",
+                "score": 72,
+                "start": 0,
+                "end": chicago_end,
+            },
+            {
+                "slot_index": 2,
+                "city": "Baku",
+                "score": 98,
+                "start": chicago_end,
+                "end": len(prompt),
+            },
         ],
         "gold_records": [
             {"city": "Chicago", "score": 72},
@@ -224,34 +245,63 @@ def test_sparse_context_controls_have_exactly_matched_key_budgets() -> None:
     assert int(control[0, encoding.query_position]) == 1
 
 
-def test_parser_boundaries_define_targeted_and_progress_causal_continuations() -> None:
-    targeted, targeted_excluded = mechanism_continuations(
-        _row(), CharacterTokenizer(), mechanism="targeted_retrieval"
+def test_parser_boundaries_define_fixed_city_transition_anchors() -> None:
+    localized, localized_excluded = mechanism_continuations(
+        _row(), CharacterTokenizer(), mechanism="retrieval_anchor_localization"
     )
     progress, progress_excluded = mechanism_continuations(
         _row(), CharacterTokenizer(), mechanism="progress_transition"
     )
-    assert not targeted_excluded
-    assert [(row["query_site_id"], row["target_city"]) for row in targeted] == [
-        ("marker_end:1", "Chicago"),
-        ("marker_end:2", "Baku"),
-    ]
+    assert localized
+    assert all(row["target_city"] == "Baku" for row in localized)
+    assert len({row["query_output_token_index"] for row in localized}) == len(
+        localized
+    )
+    assert len(
+        {
+            (
+                row["target_output_token_start"],
+                row["target_output_token_end"],
+                tuple(row["target_token_ids"]),
+            )
+            for row in localized
+        }
+    ) == 1
+    roles = {role for row in localized for role in row["anchor_roles"]}
+    assert {"p0_item_end", "city_pre_d1"}.issubset(roles)
+    assert all(row["status"] == "not_applicable" for row in localized_excluded)
+    specification = localized[0]
+    encoding = build_native_causal_encoding(
+        _row(),
+        CharacterTokenizer(),
+        query_output_token_index=specification["query_output_token_index"],
+        sequence_output_token_end=specification["target_output_token_end"],
+        selected_site=specification,
+    )
+    assert encoding.query_position == (
+        encoding.prompt_token_count + specification["query_output_token_index"]
+    )
+    assert encoding.sequence_length == (
+        encoding.prompt_token_count + specification["target_output_token_end"]
+    )
     assert not progress_excluded
-    assert [(row["transition_phase"], row["target_city"]) for row in progress] == [
-        ("continue", "Baku"),
-        ("stop", None),
-    ]
+    assert len(progress) == 1
+    assert progress[0]["target_city"] == "Baku"
+    assert "p0_item_end" in progress[0]["anchor_roles"]
+    with pytest.raises(ValueError, match="legacy targeted_retrieval"):
+        mechanism_continuations(
+            _row(), CharacterTokenizer(), mechanism="targeted_retrieval"
+        )
 
 
 def test_v5_config_freezes_sites_and_disjoint_seed_splits() -> None:
     config = V5Config()
     config.validate()
     assert config.primary_trace_site == "item_end"
-    assert config.causal_head_mechanisms == (
-        "targeted_retrieval",
-        "progress_transition",
-    )
-    assert "broad" not in config.causal_head_selection_metric
+    assert config.causal_head_mechanisms == ("retrieval_anchor_localization",)
+    assert config.causal_head_selection_metric.startswith("seed_first")
+    assert set(config.all_seeds).issubset(config.causal_development_seeds)
+    assert not config.causal_confirmation_seeds
     assert set(config.discovery_seeds).isdisjoint(config.confirmation_seeds)
     with pytest.raises(ValueError, match="primary site"):
         V5Config(primary_trace_site="city_end").validate()
@@ -341,43 +391,413 @@ def test_discovery_head_ranking_and_layer_matched_controls() -> None:
         seed_text="registered",
     )
     assert len(controls) == 3
+    assert len({tuple(bank) for bank in controls}) == 3
     assert all([layer for layer, _head in bank] == [0, 1] for bank in controls)
     assert all((0, 0) not in bank and (1, 0) not in bank for bank in controls)
 
 
-def test_causal_plan_audits_unmatched_banks_instead_of_scheduling_them(
-    tmp_path,
-) -> None:
-    attention_rows = [
+def test_ranked_bank_preserves_capacity_for_exact_layer_controls() -> None:
+    ranking = pd.DataFrame(
+        [
             {
-                "model_label": "Qwen3-8B",
-                "split": "discovery",
-                "mechanism": mechanism,
-                "gold_count": 10,
-                "trace_one_to_one": True,
-                "layer": 0,
+                "layer": layer,
                 "head": head,
-                "target_needle_raw_mass": 1.0 - head / 10,
-                "target_needle_relative_mass": 0.8,
-                "target_needle_top1": True,
+                "discovery_rank": 1 + layer * 4 + head,
             }
-            for mechanism in ("targeted_retrieval", "progress_transition")
+            for layer in (0, 1)
             for head in range(4)
         ]
-    attention = pd.DataFrame(attention_rows)
-    source = tmp_path / "attention.csv"
-    attention.to_csv(source, index=False)
-    config = V5Config(causal_head_bank_sizes=(4,), causal_random_controls=1)
-    paths = build_causal_plan(source, tmp_path / "plan", config=config)
+    )
+    selected = control_feasible_ranked_bank(ranking, bank_size=3)
+    assert selected == [(0, 0), (0, 1), (1, 0)]
+    controls = layer_matched_random_controls(
+        ranking, selected, repeats=2, seed_text="capacity"
+    )
+    assert all(len(bank) == 3 for bank in controls)
+
+
+def test_local_pooled_ranking_is_seed_equal_and_event_proportional() -> None:
+    rows = []
+    values = {
+        (1234, 0): [1.0, 1.0, 10.0],
+        (1235, 0): [0.0],
+        (1234, 1): [1.0, 1.0, 1.0],
+        (1235, 1): [1.0],
+    }
+    for (seed, head), event_values in values.items():
+        for event_index, value in enumerate(event_values):
+            rows.append(
+                {
+                    "model_label": "Qwen3-8B",
+                    "request_id": f"request-{seed}",
+                    "seed": seed,
+                    "anchor_role": "p0_item_end",
+                    "primary_anchor_eligible": False,
+                    "local_anchor_eligible": True,
+                    "event_specific": True,
+                    "status": "ok",
+                    "layer": 0,
+                    "head": head,
+                    "target_source_attention_mass": value,
+                    "event_index": event_index,
+                }
+            )
+    ranking = rank_pooled_source_specific_heads(
+        pd.DataFrame(rows),
+        anchor_role="p0_item_end",
+        selection_metric="target_source_attention_mass",
+        selection_eligibility_scope="local",
+        selection_aggregation="seed_event_mean",
+    )
+    scores = {
+        int(row.head): float(row.discovery_selection_value)
+        for row in ranking.itertuples(index=False)
+    }
+    assert scores[0] == pytest.approx(2.0)
+    assert scores[1] == pytest.approx(1.0)
+    assert tuple(ranking.iloc[0][["layer", "head"]].astype(int)) == (0, 0)
+    assert set(ranking["selection_eligibility_scope"]) == {"local"}
+    assert set(ranking["selection_aggregation"]) == {"seed_event_mean"}
+
+
+def test_global_random_controls_keep_literal_treatment_and_same_k() -> None:
+    ranking = pd.DataFrame(
+        [
+            {
+                "layer": layer,
+                "head": head,
+                "discovery_rank": 1 + layer * 8 + head,
+            }
+            for layer in range(3)
+            for head in range(8)
+        ]
+    )
+    selected = strict_ranked_bank(ranking, bank_size=7)
+    controls = global_random_controls(
+        ranking,
+        selected,
+        repeats=3,
+        seed_text="global-same-k",
+    )
+    assert len(controls) == 3
+    assert len({tuple(bank) for bank in controls}) == 3
+    assert all(len(bank) == len(selected) for bank in controls)
+    assert all(set(selected).isdisjoint(bank) for bank in controls)
+
+
+def test_strict_ranked_bank_is_not_rewritten_for_controls() -> None:
+    ranking = pd.DataFrame(
+        [
+            {"layer": 0, "head": head, "discovery_rank": head + 1}
+            for head in range(8)
+        ]
+        + [
+            {"layer": 1, "head": head, "discovery_rank": head + 9}
+            for head in range(8)
+        ]
+    )
+    assert strict_ranked_bank(ranking, bank_size=5) == [
+        (0, 0),
+        (0, 1),
+        (0, 2),
+        (0, 3),
+        (0, 4),
+    ]
+    with pytest.raises(ValueError, match="Not enough non-selected heads"):
+        layer_matched_random_controls(
+            ranking,
+            strict_ranked_bank(ranking, bank_size=5),
+            repeats=1,
+            seed_text="treatment-is-frozen",
+        )
+
+
+def test_ranked_bank_preserves_three_distinct_exact_controls() -> None:
+    ranking = pd.DataFrame(
+        [
+            {
+                "layer": layer,
+                "head": head,
+                "discovery_rank": 1 + layer * 8 + head,
+            }
+            for layer in (0, 1, 2)
+            for head in range(8)
+        ]
+    )
+    selected = control_feasible_ranked_bank(
+        ranking,
+        bank_size=8,
+        control_repeats=3,
+    )
+    selected_counts = pd.Series(
+        [layer for layer, _head in selected]
+    ).value_counts()
+    assert selected_counts.max() <= 3
+    controls = layer_matched_random_controls(
+        ranking,
+        selected,
+        repeats=3,
+        seed_text="three-distinct-controls",
+    )
+    selected_set = set(selected)
+    assert len(controls) == 3
+    assert len({tuple(bank) for bank in controls}) == 3
+    for bank in controls:
+        control_counts = pd.Series(
+            [layer for layer, _head in bank]
+        ).value_counts()
+        assert control_counts.to_dict() == selected_counts.to_dict()
+        assert selected_set.isdisjoint(bank)
+
+
+def test_causal_plan_crossfits_source_specific_anchor_pooled_banks(
+    tmp_path,
+) -> None:
+    write_rows = [
+            {
+                "model_label": "Qwen3-8B",
+                "request_id": f"r{seed}-{anchor}",
+                "seed": seed,
+                "anchor_role": anchor,
+                "event_specific": True,
+                "primary_anchor_eligible": True,
+                "status": "ok",
+                "layer": 0,
+                "head": head,
+                "source_specific_ov_write_norm": 10.0 - head,
+                "source_attention_mass": 0.1 + 0.1 * head,
+                "target_source_attention_mass": 0.1 + 0.1 * head,
+                "target_source_relative_attention_mass": 0.1 + 0.2 * head,
+                "target_minus_max_wrong_source_attention_mass": -0.3 + 0.2 * head,
+                "grammar_pair": (
+                    "adjacent_rank_after_city -> same_unit_rank_before_city"
+                ),
+            }
+            for seed in range(1234, 1264)
+            for anchor in ("p0_item_end", "city_pre_d1")
+            for head in range(4)
+        ]
+    writes = pd.DataFrame(write_rows)
+    ranking = rank_pooled_source_specific_heads(writes)
+    assert tuple(ranking.iloc[0][["layer", "head"]].astype(int)) == (0, 0)
+    source = tmp_path / "source_writes.csv"
+    writes.to_csv(source, index=False)
+    config = V5Config(
+        causal_primary_bank_size=2,
+        causal_crossfit_folds=2,
+        causal_random_controls=1,
+    )
+    paths = build_causal_plan(
+        source,
+        tmp_path / "plan",
+        config=config,
+        anchor_role="p0_item_end",
+    )
     plan = pd.read_csv(paths["plan"])
     audit = json.loads(paths["audit"].read_text(encoding="utf-8"))
-    assert plan.empty
-    assert {row["mechanism"] for row in audit["skipped_banks"]} == {
-        "targeted_retrieval",
-        "progress_transition",
+    assert len(plan) == 4
+    assert set(plan["mechanism"]) == {"retrieval_anchor_localization"}
+    assert set(plan["condition"]) == {"selected_bank", "layer_matched_random"}
+    assert set(plan["bank_size"]) == {2}
+    assert set(plan["fold"]) == {0, 1}
+    assert audit["confirmation_used_for_selection"] is False
+    assert audit["mechanism"]["target"] == (
+        "identical next-city token span at every anchor"
+    )
+    sweep_paths = build_causal_plan(
+        source,
+        tmp_path / "plan_k1",
+        config=config,
+        bank_size=1,
+        anchor_role="p0_item_end",
+        minimum_layer=0,
+        maximum_layer=0,
+    )
+    sweep_plan = pd.read_csv(sweep_paths["plan"])
+    sweep_audit = json.loads(sweep_paths["audit"].read_text(encoding="utf-8"))
+    assert set(sweep_plan["bank_size"]) == {1}
+    assert sweep_audit["registered_bank_size"] == 1
+    assert sweep_audit["selection_anchor_role"] == "p0_item_end"
+    assert sweep_audit["representation_guided_minimum_layer"] == 0
+    assert sweep_audit["representation_guided_maximum_layer"] == 0
+    smoke_source = tmp_path / "source_writes_smoke.csv"
+    writes.loc[writes["seed"].isin([1234, 1235])].to_csv(
+        smoke_source, index=False
+    )
+    smoke_paths = build_causal_plan(
+        smoke_source,
+        tmp_path / "plan_smoke",
+        config=config,
+        anchor_role="p0_item_end",
+        allow_incomplete_development_smoke=True,
+    )
+    smoke_audit = json.loads(
+        smoke_paths["audit"].read_text(encoding="utf-8")
+    )
+    assert smoke_audit["formal_inference_eligible"] is False
+    assert smoke_audit["source_seed_coverage"]["Qwen3-8B"] == [1234, 1235]
+
+    selected_only_paths = build_causal_plan(
+        source,
+        tmp_path / "plan_selected_only",
+        config=config,
+        bank_size=3,
+        anchor_role="p0_item_end",
+        include_random_controls=False,
+    )
+    selected_only_plan = pd.read_csv(selected_only_paths["plan"])
+    selected_only_audit = json.loads(
+        selected_only_paths["audit"].read_text(encoding="utf-8")
+    )
+    assert set(selected_only_plan["condition"]) == {"selected_bank"}
+    assert selected_only_audit["random_controls_included"] is False
+    assert selected_only_audit["formal_inference_eligible"] is False
+
+    global_paths = build_causal_plan(
+        source,
+        tmp_path / "plan_global_random",
+        config=config,
+        bank_size=2,
+        anchor_role="p0_item_end",
+        random_control_matching="global",
+    )
+    global_plan = pd.read_csv(global_paths["plan"])
+    global_audit = json.loads(
+        global_paths["audit"].read_text(encoding="utf-8")
+    )
+    assert set(global_plan["condition"]) == {"selected_bank", "global_random"}
+    assert set(global_plan["random_control_matching"]) == {"global"}
+    assert global_audit["random_control_matching"] == "global"
+
+    confirmation_config = V5Config(
+        discovery_seeds=tuple(range(1234, 1264)),
+        confirmation_seeds=(1336, 1337),
+        causal_development_seeds=tuple(range(1234, 1264)),
+        causal_confirmation_seeds=(1336, 1337),
+        causal_primary_bank_size=2,
+        causal_crossfit_folds=2,
+        causal_random_controls=1,
+    )
+    confirmation_paths = build_causal_plan(
+        source,
+        tmp_path / "plan_confirmation",
+        config=confirmation_config,
+        anchor_role="p0_item_end",
+        confirmation_plan=True,
+    )
+    confirmation_plan = pd.read_csv(confirmation_paths["plan"])
+    confirmation_audit = json.loads(
+        confirmation_paths["audit"].read_text(encoding="utf-8")
+    )
+    assert len(confirmation_plan) == 2
+    assert set(confirmation_plan["fold"]) == {0}
+    assert {
+        tuple(json.loads(value))
+        for value in confirmation_plan["validation_seeds"]
+    } == {(1336, 1337)}
+    assert confirmation_audit["confirmation_plan"] is True
+    assert confirmation_audit["formal_inference_eligible"] is True
+
+    full_panel_paths = build_causal_plan(
+        smoke_source,
+        tmp_path / "plan_full_panel",
+        config=confirmation_config,
+        anchor_role="p0_item_end",
+        full_panel_plan=True,
+    )
+    full_panel_plan = pd.read_csv(full_panel_paths["plan"])
+    full_panel_audit = json.loads(
+        full_panel_paths["audit"].read_text(encoding="utf-8")
+    )
+    assert len(full_panel_plan) == 2
+    assert set(full_panel_plan["fold"]) == {0}
+    assert {
+        tuple(json.loads(value))
+        for value in full_panel_plan["validation_seeds"]
+    } == {tuple(range(1234, 1264)) + (1336, 1337)}
+    assert full_panel_audit["full_panel_plan"] is True
+    assert full_panel_audit["formal_inference_eligible"] is False
+    assert full_panel_audit["registered_confirmation_subcohort_eligible"] is True
+
+
+def test_same_site_attention_metric_and_target_grammar_choose_the_bank() -> None:
+    rows = []
+    for seed in (1234, 1235):
+        for grammar in ("grammar_a", "grammar_b"):
+            for head in range(4):
+                rows.append(
+                    {
+                        "model_label": "Gemma4-E4B",
+                        "request_id": f"r{seed}-{grammar}",
+                        "seed": seed,
+                        "anchor_role": "city_pre_d1",
+                        "anchor_roles": ["city_pre_d1"],
+                        "event_specific": True,
+                        "primary_anchor_eligible": True,
+                        "status": "ok",
+                        "grammar_pair": f"source -> {grammar}",
+                        "target_retrieval_surface_variant": (
+                            "rank_before_city_compact"
+                            if grammar == "grammar_a"
+                            else "rank_before_city_record_clause"
+                        ),
+                        "layer": 0,
+                        "head": head,
+                        # OV favors H0, while target attention at the same
+                        # query favors H1 for grammar_a and H2 for grammar_b.
+                        "source_specific_ov_write_norm": 10.0 - head,
+                        "source_attention_mass": (
+                            0.9
+                            if head == (1 if grammar == "grammar_a" else 2)
+                            else 0.1
+                        ),
+                        "target_source_attention_mass": (
+                            0.9
+                            if head == (1 if grammar == "grammar_a" else 2)
+                            else 0.1
+                        ),
+                        "target_source_relative_attention_mass": (
+                            0.8
+                            if head == (1 if grammar == "grammar_a" else 2)
+                            else 0.05
+                        ),
+                        "target_minus_max_wrong_source_attention_mass": (
+                            0.6
+                            if head == (1 if grammar == "grammar_a" else 2)
+                            else -0.3
+                        ),
+                    }
+                )
+    writes = pd.DataFrame(rows)
+    ov = rank_pooled_source_specific_heads(
+        writes,
+        anchor_role="city_pre_d1",
+        selection_metric="source_specific_ov_write_norm",
+        target_grammar_class="grammar_a",
+    )
+    attention_a = rank_pooled_source_specific_heads(
+        writes,
+        anchor_role="city_pre_d1",
+        selection_metric="target_source_relative_attention_mass",
+        target_grammar_class="grammar_a",
+        target_retrieval_surface_variant="rank_before_city_compact",
+    )
+    attention_b = rank_pooled_source_specific_heads(
+        writes,
+        anchor_role="city_pre_d1",
+        selection_metric="target_source_relative_attention_mass",
+        target_grammar_class="grammar_b",
+    )
+    assert int(ov.iloc[0]["head"]) == 0
+    assert int(attention_a.iloc[0]["head"]) == 1
+    assert int(attention_b.iloc[0]["head"]) == 2
+    assert set(attention_a["selection_anchor_role"]) == {"city_pre_d1"}
+    assert set(attention_a["selection_target_grammar_class"]) == {
+        "grammar_a"
     }
-    assert audit["skipped_banks"][0]["bank_size"] == 4
-    assert "Not enough non-selected heads" in audit["skipped_banks"][0]["reason"]
+    assert set(
+        attention_a["selection_target_retrieval_surface_variant"]
+    ) == {"rank_before_city_compact"}
 
 
 def test_subspace_and_seed_level_statistics() -> None:
@@ -399,10 +819,10 @@ def test_subspace_and_seed_level_statistics() -> None:
 def test_causal_query_rows_are_averaged_before_seed_inference() -> None:
     trials = pd.DataFrame(
         [
-            {"model_label": "Qwen3-8B", "seed": 1, "condition": "ranked", "y": 0.0},
-            {"model_label": "Qwen3-8B", "seed": 1, "condition": "ranked", "y": 2.0},
-            {"model_label": "Qwen3-8B", "seed": 1, "condition": "random", "y": 2.0},
-            {"model_label": "Qwen3-8B", "seed": 1, "condition": "random", "y": 4.0},
+            {"model_label": "Qwen3-8B", "seed": 1, "request_id": "r1", "anchor_equivalence_id": "a", "condition": "ranked", "y": 0.0},
+            {"model_label": "Qwen3-8B", "seed": 1, "request_id": "r1", "anchor_equivalence_id": "b", "condition": "ranked", "y": 2.0},
+            {"model_label": "Qwen3-8B", "seed": 1, "request_id": "r1", "anchor_equivalence_id": "a", "condition": "random", "y": 2.0},
+            {"model_label": "Qwen3-8B", "seed": 1, "request_id": "r1", "anchor_equivalence_id": "b", "condition": "random", "y": 4.0},
         ]
     )
     effects = paired_seed_effects(

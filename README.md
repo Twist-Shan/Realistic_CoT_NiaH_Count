@@ -61,6 +61,7 @@ Remote: <https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git>
 | Goal | Primary entry point | Detailed specification |
 | --- | --- | --- |
 | Run the V5 native-thinking representation + causal replication | `scripts/run_realistic_niah_v5.py`, `scripts/compare_realistic_niah_position_geometry.py`, `configs/realistic_niah_v5.json` | [`docs/realistic_niah_v5.md`](docs/realistic_niah_v5.md) |
+| Test native count state by intermediate trace-to-trace patching versus independent final prompt/trace broad-head ablation | `scripts/run_realistic_niah_v5_count_stream.py`, `configs/realistic_niah_v5_native_count_stream_dev.json` | [`docs/realistic_niah_v5_native_count_stream.md`](docs/realistic_niah_v5_native_count_stream.md) |
 | Rebuild the shared V4.4 geometry panel, mode contracts, and causal-extension registry | `scripts/build_realistic_niah_mechanism_dataset.py` | [Hugging Face dataset](https://huggingface.co/datasets/twistshan/realistic-niah-count-mechanism-analysis) |
 | Run the Realistic NIAH V4 mechanism study | `scripts/freeze_realistic_niah_v4.py`, `scripts/run_realistic_niah_v4.py` | [`docs/realistic_niah_v4.md`](docs/realistic_niah_v4.md) |
 | Inspect the completed V4 numeric non-thinking run | `run_20260731_v4_numeric_presentation_v3` | [`docs/realistic_niah_v4_numeric_results_20260731.md`](docs/realistic_niah_v4_numeric_results_20260731.md) |

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-SCHEMA_VERSION = "realistic_niah_v5_config_v1"
+SCHEMA_VERSION = "realistic_niah_v5_config_v2"
 PRIMARY_TRACE_SITE = "item_end"
 REGISTERED_TRACE_SITES = (
     "pre_marker",
@@ -26,8 +26,15 @@ REGISTERED_COHORTS = (
     "one_to_one_correct",
 )
 REGISTERED_CAUSAL_HEAD_MECHANISMS = (
-    "targeted_retrieval",
-    "progress_transition",
+    "retrieval_anchor_localization",
+)
+REGISTERED_CAUSAL_HEAD_SELECTION_METRICS = (
+    "seed_first_equal_anchor_mean_target_source_attention_mass",
+    "seed_first_equal_anchor_mean_target_source_relative_attention_mass",
+    "seed_first_equal_anchor_mean_source_attention_mass",
+    "seed_first_equal_anchor_mean_target_minus_max_wrong_source_attention_mass",
+    # Retained only so historical manifests/configs remain readable.
+    "seed_first_equal_anchor_mean_source_specific_ov_write_norm",
 )
 
 
@@ -75,12 +82,18 @@ class V5Config:
     representation_n10_only: bool = False
     hidden_save_dtype: str = "float16"
     ridge_alphas: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0, 100.0)
-    bootstrap_samples: int = 5000
+    bootstrap_samples: int = 10000
+    # Every existing 1234--1263 trajectory has already informed design
+    # decisions, so all are development data for the rebooted causal chain.
+    causal_development_seeds: tuple[int, ...] = tuple(range(1234, 1264))
+    # Frozen only after the smoke fixes anchors, layers, K and endpoints.
+    causal_confirmation_seeds: tuple[int, ...] = ()
     causal_head_mechanisms: tuple[str, ...] = REGISTERED_CAUSAL_HEAD_MECHANISMS
     causal_head_selection_metric: str = (
-        "query_weighted_mean_target_needle_raw_mass"
+        "seed_first_equal_anchor_mean_target_source_attention_mass"
     )
-    causal_head_bank_sizes: tuple[int, ...] = (1, 2, 4, 8, 16, 32)
+    causal_primary_bank_size: int = 8
+    causal_crossfit_folds: int = 5
     causal_random_controls: int = 3
     candidate_counts: tuple[int, ...] = tuple(range(1, 11))
     decoding: DecodingSpec = field(default_factory=DecodingSpec)
@@ -126,18 +139,48 @@ class V5Config:
             raise ValueError("ridge_alphas must be positive")
         if self.bootstrap_samples < 100:
             raise ValueError("bootstrap_samples must be at least 100")
+        if not self.causal_development_seeds:
+            raise ValueError("causal_development_seeds cannot be empty")
+        if len(set(self.causal_development_seeds)) != len(
+            self.causal_development_seeds
+        ):
+            raise ValueError("causal_development_seeds must be unique")
+        if len(set(self.causal_confirmation_seeds)) != len(
+            self.causal_confirmation_seeds
+        ):
+            raise ValueError("causal_confirmation_seeds must be unique")
+        if set(self.causal_development_seeds) & set(
+            self.causal_confirmation_seeds
+        ):
+            raise ValueError(
+                "Causal development and confirmation seeds must be disjoint"
+            )
+        causal_seed_roles = set(self.causal_development_seeds) | set(
+            self.causal_confirmation_seeds
+        )
+        if set(self.all_seeds) != causal_seed_roles:
+            raise ValueError(
+                "Dataset seeds must be partitioned exactly into causal "
+                "development and causal confirmation roles"
+            )
         if self.causal_head_mechanisms != REGISTERED_CAUSAL_HEAD_MECHANISMS:
             raise ValueError(
-                "V5 causal heads must be targeted_retrieval and progress_transition"
+                "V5 causal head smoke is retrieval_anchor_localization"
             )
-        if self.causal_head_selection_metric != (
-            "query_weighted_mean_target_needle_raw_mass"
+        if self.causal_head_selection_metric not in (
+            REGISTERED_CAUSAL_HEAD_SELECTION_METRICS
         ):
-            raise ValueError("V5 causal head selection cannot use broad aggregation")
-        if tuple(sorted(set(self.causal_head_bank_sizes))) != self.causal_head_bank_sizes:
-            raise ValueError("causal_head_bank_sizes must be unique and increasing")
-        if min(self.causal_head_bank_sizes) < 1:
-            raise ValueError("causal_head_bank_sizes must be positive")
+            raise ValueError(
+                "Unknown V5 causal head selection metric"
+            )
+        if self.causal_primary_bank_size < 1:
+            raise ValueError("causal_primary_bank_size must be positive")
+        if not 2 <= self.causal_crossfit_folds <= len(
+            self.causal_development_seeds
+        ):
+            raise ValueError(
+                "causal_crossfit_folds must be between 2 and development n"
+            )
         if self.causal_random_controls < 1:
             raise ValueError("At least one random causal control is required")
         if len(set(self.candidate_counts)) != len(self.candidate_counts):
@@ -158,9 +201,10 @@ class V5Config:
             "counts",
             "discovery_seeds",
             "confirmation_seeds",
+            "causal_development_seeds",
+            "causal_confirmation_seeds",
             "sensitivity_trace_sites",
             "ridge_alphas",
-            "causal_head_bank_sizes",
             "causal_head_mechanisms",
             "candidate_counts",
         }
