@@ -388,6 +388,82 @@ def build_native_trace_encoding(
     )
 
 
+def build_native_causal_encoding(
+    row: Mapping[str, Any],
+    tokenizer: Any,
+    *,
+    query_output_token_index: int,
+    sequence_output_token_end: int,
+    selected_site: Mapping[str, Any],
+    model_family: str | None = None,
+) -> NativeTraceEncoding:
+    """Build an exact teacher-forced prefix for a registry-defined anchor.
+
+    Unlike :func:`build_native_trace_encoding`, this constructor never asks the
+    legacy site parser to invent a site ID.  The grammar-aware causal compiler
+    supplies an output-token query and a fixed target endpoint, while the
+    stored output token IDs remain the sole model input.
+    """
+
+    from .causal_sites import build_output_token_map
+
+    family = infer_model_family(row, model_family)
+    prompt_ids = prompt_token_ids(row)
+    output_ids = output_token_ids(row)
+    query = int(query_output_token_index)
+    output_end = int(sequence_output_token_end)
+    if not 0 <= query < output_end <= len(output_ids):
+        raise ValueError(
+            "Causal query/target bounds must satisfy "
+            "0 <= query < target_end <= output length"
+        )
+    prompt_mask_value = row.get("attention_mask")
+    if prompt_mask_value is None:
+        prompt_mask = (1,) * len(prompt_ids)
+    else:
+        prompt_mask = tuple(int(value) for value in prompt_mask_value)
+        if len(prompt_mask) != len(prompt_ids):
+            raise ValueError("Prompt attention mask length does not match input IDs")
+    output_prefix = tuple(int(value) for value in output_ids[:output_end])
+    full_ids = prompt_ids + output_prefix
+    token_map = build_output_token_map(row, tokenizer)
+    raw_end = int(token_map.offsets[output_end - 1][1])
+    raw_prefix = raw_output_text(row)[:raw_end]
+    prompt_text = str(row.get("rendered_prompt", row.get("generation_prompt", "")))
+    stimulus_id = str(row.get("stimulus_id", row.get("request_id", "unknown")))
+    request_id = str(row.get("request_id", stimulus_id))
+    model_label = str(row.get("model_label", row.get("model", family)))
+    return NativeTraceEncoding(
+        stimulus_id=stimulus_id,
+        request_id=request_id,
+        design_variant=str(row.get("design_variant", "v4.4")),
+        seed=int(row.get("seed", -1)),
+        split=str(row.get("split") or "unregistered"),
+        count=len(gold_records(row)),
+        model_label=model_label,
+        model_family=family,
+        answer_format="numeric",
+        text=prompt_text + raw_prefix,
+        generation_prompt=prompt_text + raw_prefix,
+        input_ids=full_ids,
+        attention_mask=prompt_mask + (1,) * len(output_prefix),
+        query_position=len(prompt_ids) + query,
+        prompt_token_count=len(prompt_ids),
+        raw_prefix_text=raw_prefix,
+        selected_site=dict(selected_site),
+        prompt_record_spans=_registered_prompt_record_spans(
+            row, prompt_token_count=len(prompt_ids)
+        ),
+        trace_item_spans=(),
+        slot_spans=(),
+        needle_spans=(),
+        hard_negative_spans=(),
+        count_candidate_texts=(),
+        count_candidate_answer_token_ids=(),
+        count_candidate_token_ids=(),
+    )
+
+
 def item_site_ids(row: Mapping[str, Any], *, model_family: str | None = None) -> list[str]:
     family = infer_model_family(row, model_family)
     raw = raw_output_text(row)

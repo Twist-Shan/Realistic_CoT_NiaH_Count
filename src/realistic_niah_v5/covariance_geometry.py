@@ -15,6 +15,7 @@ confirmation metric without using confirmation for selection.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Sequence
 
@@ -318,6 +319,7 @@ def evaluate_covariance_geometry_layer(
     if fold_count < 2:
         raise ValueError("Discovery covariance geometry requires at least two seeds")
     fold_metrics: list[dict[str, float]] = []
+    invalid_fold_support: list[dict[str, list[int]]] = []
     splitter = GroupKFold(n_splits=fold_count)
     for train_index, test_index in splitter.split(
         discovery_projected, discovery_y, groups=discovery_seeds
@@ -327,10 +329,16 @@ def evaluate_covariance_geometry_layer(
         missing_train = sorted(set(map(int, classes)) - set(train_y.tolist()))
         missing_test = sorted(set(map(int, classes)) - set(test_y.tolist()))
         if missing_train or missing_test:
-            raise ValueError(
-                "Discovery grouped CV lacks class support: "
-                f"train={missing_train}, test={missing_test}"
+            # Sparse token sites (for example, an explicit-marker-only site)
+            # need not occur for every count in every seed.  Their full-split
+            # and frozen-confirmation covariance metrics remain well defined,
+            # but a grouped discovery fold that omits a class does not.  Keep
+            # the usable folds and make the reduced OOF support explicit in
+            # the returned audit fields instead of aborting the whole sweep.
+            invalid_fold_support.append(
+                {"missing_train": missing_train, "missing_test": missing_test}
             )
+            continue
         test_isotropic = class_balanced_scatter(
             discovery_pca_whitened[test_index], test_y, classes
         )
@@ -367,9 +375,13 @@ def evaluate_covariance_geometry_layer(
         )
 
     def fold_mean(name: str) -> float:
+        if not fold_metrics:
+            return float("nan")
         return float(np.mean([row[name] for row in fold_metrics]))
 
     def fold_std(name: str) -> float:
+        if len(fold_metrics) < 2:
+            return float("nan")
         return float(np.std([row[name] for row in fold_metrics], ddof=1))
 
     return {
@@ -399,7 +411,12 @@ def evaluate_covariance_geometry_layer(
         "confirmation_mahalanobis_silhouette": confirmation_silhouette,
         "discovery_ordinal_rsa": discovery_rsa,
         "confirmation_ordinal_rsa": confirmation_rsa,
-        "discovery_cv_fold_count": int(fold_count),
+        "discovery_cv_requested_fold_count": int(fold_count),
+        "discovery_cv_fold_count": int(len(fold_metrics)),
+        "discovery_cv_invalid_fold_count": int(len(invalid_fold_support)),
+        "discovery_cv_invalid_fold_support": json.dumps(
+            invalid_fold_support, sort_keys=True
+        ),
         "discovery_oof_isotropic_snr_db": fold_mean("isotropic_snr_db"),
         "discovery_oof_isotropic_snr_db_fold_sd": fold_std("isotropic_snr_db"),
         "discovery_oof_fisher_trace": fold_mean("fisher_trace"),

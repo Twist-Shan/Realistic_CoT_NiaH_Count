@@ -5,9 +5,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from realistic_niah.prompts import (
+    COMMON_COUNTING_CUE,
     build_messages,
     query_block,
     render_generation_prompt,
+)
+from realistic_niah.entity_domains import (
+    nonthinking_query_text,
+    resolve_entity_domain,
 )
 from realistic_niah_v3.spec import resolve_model_spec as resolve_v3_model_spec
 
@@ -267,9 +272,25 @@ def render_v4_prompt(
     registered_query = query_block(config.prompt_mode)
     if len(messages) != 1 or not str(messages[0]["content"]).endswith(registered_query):
         raise RuntimeError("Unexpected base prompt layout for registered V4")
-    messages[0]["content"] = str(messages[0]["content"])[: -len(registered_query)] + (
+    entity_domain = resolve_entity_domain(stimulus.get("entity_domain"))
+    prompt_prefix = str(messages[0]["content"])[: -len(registered_query)]
+    if entity_domain.name != "city":
+        if prompt_prefix.count(COMMON_COUNTING_CUE) != 1:
+            raise RuntimeError("Cannot replace the registered V4 counting cue")
+        prompt_prefix = prompt_prefix.replace(
+            COMMON_COUNTING_CUE,
+            entity_domain.counting_cue,
+            1,
+        )
+    query_text = (
         V4_QUERY_BLOCKS[answer_format]
+        if entity_domain.name == "city"
+        else nonthinking_query_text(
+            entity_domain=entity_domain.name,
+            answer_format=answer_format,
+        )
     )
+    messages[0]["content"] = prompt_prefix + query_text
     generation_prompt = render_generation_prompt(
         tokenizer,
         messages,
@@ -309,7 +330,7 @@ def render_v4_prompt(
                 end=end,
                 active=bool(slot["active"]),
                 kind=str(slot["content_kind"]),
-                canonical_length=int(slot["canonical_token_length"]),
+                canonical_length=int(slot.get("canonical_token_length", end - start)),
                 model_token_length=end - start,
             )
         )
@@ -327,7 +348,9 @@ def render_v4_prompt(
                 end=end,
                 active=False,
                 kind="hard_negative",
-                canonical_length=int(negative["canonical_token_length"]),
+                canonical_length=int(
+                    negative.get("canonical_token_length", end - start)
+                ),
                 model_token_length=end - start,
             )
         )

@@ -23,7 +23,10 @@ from scripts.augment_niah_geometry_comparison_report import (
     trace_category_summary,
     unresolved_trace_examples,
 )
-from scripts.build_niah_geometry_comparison_report_v7 import _band_verdict
+from scripts.build_niah_geometry_comparison_report_v7 import (
+    _band_verdict,
+    _normalized_mutual_information,
+)
 from realistic_niah_v5.trace_stratified_geometry import confirmation_metrics
 
 
@@ -250,15 +253,21 @@ def test_unresolved_trace_examples_attaches_raw_reasoning(tmp_path: Path) -> Non
     assert examples[0]["old_candidates"] == 0
 
 
-def test_band_verdict_prefers_trajectory_nuisance_over_running_index() -> None:
+def test_band_verdict_identifies_grammar_mixture() -> None:
     audit = {
-        "trajectory_band_summary": {
-            "mean_within_trajectory_band_purity": 0.95
-        },
         "categorical_associations": [
-            {"column": "marker_kind", "nmi": 0.70},
-            {"column": "seed", "nmi": 0.55},
             {"column": "occurrence", "nmi": 0.10},
         ],
     }
-    assert "nuisance direction" in _band_verdict(audit)
+    assert "多种 trace grammar" in _band_verdict(audit, 0.60, 0.61)
+
+
+def test_normalized_mutual_information_matches_simple_extremes() -> None:
+    assert np.isclose(
+        _normalized_mutual_information(["a", "a", "b", "b"], ["x", "x", "y", "y"]),
+        1.0,
+    )
+    assert np.isclose(
+        _normalized_mutual_information(["a", "a", "b", "b"], ["x", "y", "x", "y"]),
+        0.0,
+    )

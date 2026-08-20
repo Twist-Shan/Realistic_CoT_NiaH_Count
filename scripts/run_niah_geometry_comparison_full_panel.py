@@ -87,10 +87,14 @@ def run_pipeline(
     native_final_root: Path,
     native_trace_root: Path,
     parser_audit: Path,
+    grammar_registry: Path,
     analysis_root: Path,
     band_root: Path,
+    grammar_filter_root: Path | None = None,
     output: Path,
     manifest: Path,
+    domain_transfer_root: Path | None = None,
+    covariance_root: Path | None = None,
     pca_dim: int = 16,
     cv_folds: int = 5,
     random_state: int = 0,
@@ -158,8 +162,12 @@ def run_pipeline(
         dual_endpoint_root=analysis_root,
         parser_audit=parser_audit,
         band_root=band_root,
+        grammar_registry=grammar_registry,
+        grammar_filter_root=grammar_filter_root,
         output=output,
         manifest_path=manifest,
+        domain_transfer_root=domain_transfer_root,
+        covariance_root=covariance_root,
     )
 
 
@@ -170,8 +178,12 @@ def main() -> None:
     parser.add_argument("--native-final-root", type=Path, required=True)
     parser.add_argument("--native-trace-root", type=Path, required=True)
     parser.add_argument("--parser-audit", type=Path, required=True)
+    parser.add_argument("--grammar-registry", type=Path, required=True)
     parser.add_argument("--analysis-root", type=Path, required=True)
     parser.add_argument("--band-root", type=Path, required=True)
+    parser.add_argument("--grammar-filter-root", type=Path)
+    parser.add_argument("--domain-transfer-root", type=Path)
+    parser.add_argument("--covariance-root", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--pca-dim", type=int, default=16)
@@ -184,8 +196,24 @@ def main() -> None:
         native_final_root=args.native_final_root.resolve(),
         native_trace_root=args.native_trace_root.resolve(),
         parser_audit=args.parser_audit.resolve(),
+        grammar_registry=args.grammar_registry.resolve(),
         analysis_root=args.analysis_root.resolve(),
         band_root=args.band_root.resolve(),
+        grammar_filter_root=(
+            args.grammar_filter_root.resolve()
+            if args.grammar_filter_root is not None
+            else None
+        ),
+        domain_transfer_root=(
+            args.domain_transfer_root.resolve()
+            if args.domain_transfer_root is not None
+            else None
+        ),
+        covariance_root=(
+            args.covariance_root.resolve()
+            if args.covariance_root is not None
+            else None
+        ),
         output=args.output.resolve(),
         manifest=args.manifest.resolve(),
         pca_dim=args.pca_dim,

@@ -958,6 +958,22 @@ def _extract_attentions(output: Any) -> Sequence[Any]:
     )
 
 
+def _extract_shared_kv_states(output: Any) -> Any | None:
+    shared = getattr(output, "shared_kv_states", None)
+    if shared is not None:
+        return shared
+    for name in (
+        "language_model_output",
+        "text_model_output",
+        "model_output",
+    ):
+        nested = getattr(output, name, None)
+        shared = getattr(nested, "shared_kv_states", None)
+        if shared is not None:
+            return shared
+    return None
+
+
 def _attention_tensor(value: Any) -> torch.Tensor:
     if isinstance(value, torch.Tensor):
         tensor = value
@@ -1008,13 +1024,20 @@ def position_attention_outputs(
         )
     prefix_ids = input_ids[:, :query]
     prefix_mask = attention_mask[:, :query]
-    prefix_output = model(
-        input_ids=prefix_ids,
-        attention_mask=prefix_mask,
-        use_cache=True,
-        output_attentions=False,
-        **_bounded_logits_kwargs(model),
+    uses_shared_kv = any(
+        bool(getattr(attention, "is_kv_shared_layer", False))
+        for attention in adapter.attentions
     )
+    prefix_kwargs: dict[str, Any] = {
+        "input_ids": prefix_ids,
+        "attention_mask": prefix_mask,
+        "use_cache": True,
+        "output_attentions": False,
+        **_bounded_logits_kwargs(model),
+    }
+    if uses_shared_kv:
+        prefix_kwargs["return_shared_kv_states"] = True
+    prefix_output = model(**prefix_kwargs)
     past = getattr(prefix_output, "past_key_values", None)
     if past is None:
         raise RuntimeError("Prefix forward did not return a KV cache")
@@ -1034,7 +1057,9 @@ def position_attention_outputs(
         query_kwargs["cache_position"] = torch.tensor(
             [query], dtype=torch.long, device=input_ids.device
         )
-    shared = getattr(prefix_output, "shared_kv_states", None)
+    shared = _extract_shared_kv_states(prefix_output)
+    if uses_shared_kv and shared is None:
+        raise RuntimeError("Shared-KV model did not return its prefix shared states")
     if shared is not None and _accepts_keyword(model, "shared_kv_states"):
         query_kwargs["shared_kv_states"] = shared
     with _temporary_attention_backend(model, "eager"):
