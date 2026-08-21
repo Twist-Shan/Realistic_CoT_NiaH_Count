@@ -931,7 +931,12 @@ def command_causal_heads(args: argparse.Namespace) -> None:
         )
         if int(row["seed"]) in development
     ]
-    plan = pd.read_csv(args.plan).reset_index().rename(
+    # Causal plans contain long JSON-encoded head banks.  The Python parser is
+    # slower but avoids a rare native-parser crash on those wide fields, and
+    # string-preserving reads keep plan identity stable across environments.
+    plan = pd.read_csv(
+        args.plan, engine="python", dtype=str, keep_default_na=False
+    ).reset_index().rename(
         columns={"index": "plan_file_row"}
     )
     plan = plan.loc[plan["model_label"].eq(args.model)].reset_index(drop=True)
@@ -1189,7 +1194,9 @@ def command_causal_source_edge(args: argparse.Namespace) -> None:
         )
         if int(row["seed"]) in development
     ]
-    plan = pd.read_csv(args.plan).reset_index().rename(
+    plan = pd.read_csv(
+        args.plan, engine="python", dtype=str, keep_default_na=False
+    ).reset_index().rename(
         columns={"index": "plan_file_row"}
     )
     plan = plan.loc[
@@ -1457,6 +1464,20 @@ def _validate_behavior_selection_window(
             f"window={declared_roles!r}"
         )
     return declared_roles
+
+
+def _selection_intervention_site_decoupled(
+    selection_anchor_role: str | None,
+    intervention_anchor_roles: list[str] | tuple[str, ...],
+) -> bool:
+    """Return whether bank localization and intervention use disjoint sites."""
+
+    if selection_anchor_role is None:
+        return False
+    roles = {str(value) for value in intervention_anchor_roles}
+    if not roles:
+        raise ValueError("At least one intervention anchor role is required")
+    return str(selection_anchor_role) not in roles
 
 
 def _route_transition_anchors(
@@ -1750,7 +1771,9 @@ def command_causal_heads_behavior(args: argparse.Namespace) -> None:
             "No registered behavioral generations remain for "
             f"counts {evaluation_counts} and split {args.evaluation_split!r}"
         )
-    plan = pd.read_csv(args.plan).reset_index().rename(
+    plan = pd.read_csv(
+        args.plan, engine="python", dtype=str, keep_default_na=False
+    ).reset_index().rename(
         columns={"index": "plan_file_row"}
     )
     plan = plan.loc[
@@ -1838,30 +1861,66 @@ def command_causal_heads_behavior(args: argparse.Namespace) -> None:
         if planned_surfaces:
             planned_target_surface = next(iter(planned_surfaces))
     requested_target_surface = args.target_retrieval_surface_variant
-    site_bank_transfer = bool(
-        planned_anchor_role is not None
-        and anchor_routing is None
-        and str(args.anchor_role) != planned_anchor_role
+    # Selection and intervention timing are distinct experimental variables.
+    # Most registered experiments keep them identical.  The hybrid localizer
+    # experiment deliberately selects a bank at post_marker (P2) but starts a
+    # persistent intervention at p0_item_end (P0).  Resolve the behavior-side
+    # roles before validating transfer flags so that this design is explicit
+    # in the manifest rather than disguised as a generic development transfer.
+    if anchor_routing is None:
+        intervention_anchor_roles_requested = [str(args.anchor_role)]
+    else:
+        intervention_anchor_roles_requested = _validate_behavior_selection_window(
+            anchor_routing,
+            selection_anchor_role=planned_anchor_role,
+            target_grammar_class=behavior_target_grammar,
+            require_selection_anchor=False,
+        )
+    selection_intervention_site_decoupled = (
+        _selection_intervention_site_decoupled(
+            planned_anchor_role, intervention_anchor_roles_requested
+        )
     )
     surface_bank_transfer = bool(
         planned_target_surface is not None
         and requested_target_surface is not None
         and planned_target_surface != str(requested_target_surface)
     )
-    selection_scope_bank_transfer = bool(
-        cross_grammar_bank_transfer
-        or site_bank_transfer
-        or surface_bank_transfer
+    non_site_selection_scope_bank_transfer = bool(
+        cross_grammar_bank_transfer or surface_bank_transfer
     )
-    if selection_scope_bank_transfer and not allow_selection_scope_bank_transfer:
+    selection_scope_bank_transfer = bool(
+        non_site_selection_scope_bank_transfer
+        or selection_intervention_site_decoupled
+    )
+    allow_selection_intervention_site_decoupling = bool(
+        args.allow_selection_intervention_site_decoupling
+        # Backward compatibility for archived development transfer commands.
+        or args.allow_selection_scope_bank_transfer
+    )
+    if (
+        non_site_selection_scope_bank_transfer
+        and not allow_selection_scope_bank_transfer
+    ):
         raise ValueError(
-            "Selection grammar/surface/site differs from the behavior scope. "
+            "Selection grammar or surface differs from the behavior scope. "
             "Pass --allow-selection-scope-bank-transfer for an explicit "
             "development transfer audit: "
             f"selection=({planned_target_grammar!r}, "
             f"{planned_target_surface!r}, {planned_anchor_role!r}), "
             f"behavior=({behavior_target_grammar!r}, "
             f"{requested_target_surface!r}, {args.anchor_role!r})"
+        )
+    if (
+        selection_intervention_site_decoupled
+        and not allow_selection_intervention_site_decoupling
+    ):
+        raise ValueError(
+            "Head-selection and intervention sites differ. Pass "
+            "--allow-selection-intervention-site-decoupling only for a "
+            "preregistered localizer design: "
+            f"selection={planned_anchor_role!r}, "
+            f"intervention_roles={intervention_anchor_roles_requested!r}"
         )
     target_surface_filter = (
         requested_target_surface
@@ -1872,14 +1931,9 @@ def command_causal_heads_behavior(args: argparse.Namespace) -> None:
             else requested_target_surface
         )
     )
-    selection_window_roles: list[str] = []
-    if anchor_routing is not None:
-        selection_window_roles = _validate_behavior_selection_window(
-            anchor_routing,
-            selection_anchor_role=planned_anchor_role,
-            target_grammar_class=behavior_target_grammar,
-            require_selection_anchor=not selection_scope_bank_transfer,
-        )
+    selection_window_roles: list[str] = list(
+        intervention_anchor_roles_requested if anchor_routing is not None else []
+    )
     manifest_extra.update(
         {
             "plan_selection_anchor_role": planned_anchor_role,
@@ -1896,15 +1950,28 @@ def command_causal_heads_behavior(args: argparse.Namespace) -> None:
             "selection_scope_bank_transfer_explicitly_allowed": bool(
                 allow_selection_scope_bank_transfer
             ),
+            "selection_intervention_site_decoupled": bool(
+                selection_intervention_site_decoupled
+            ),
+            "selection_intervention_site_decoupling_explicitly_allowed": bool(
+                allow_selection_intervention_site_decoupling
+            ),
+            "intervention_anchor_roles_requested": list(
+                intervention_anchor_roles_requested
+            ),
+            "intervention_start_contract": (
+                "persistent_from_earliest_requested_anchor_through_decode_end"
+                if int(args.decode_head_ablation_steps) == -1
+                else "requested_anchor_window_with_finite_decode_schedule"
+            ),
             "selection_ablation_site_identity_enforced": bool(
                 planned_anchor_role is not None
-                and anchor_routing is None
-                and not selection_scope_bank_transfer
+                and not selection_intervention_site_decoupled
             ),
             "selection_anchor_in_intervention_window_enforced": bool(
                 planned_anchor_role is not None
                 and anchor_routing is not None
-                and not selection_scope_bank_transfer
+                and not selection_intervention_site_decoupled
             ),
             "selection_window_declared_roles": selection_window_roles,
             "same_selected_bank_reused_across_intervention_sites": bool(
@@ -2381,6 +2448,19 @@ def command_causal_heads_behavior(args: argparse.Namespace) -> None:
                 "bank_sha256": bank_sha256,
                 "planned_bank_size": planned_bank_size,
                 "head_selection_anchor_role": planned_anchor_role,
+                "selection_intervention_site_decoupled": bool(
+                    planned_anchor_role is not None
+                    and planned_anchor_role
+                    not in {
+                        str(value)
+                        for value in result.get("intervention_anchor_roles", [])
+                    }
+                ),
+                "intervention_start_anchor_role": (
+                    str(result.get("intervention_anchor_roles", [""])[0])
+                    if result.get("intervention_anchor_roles")
+                    else None
+                ),
                 "head_selection_target_grammar_class": (
                     planned_target_grammar
                 ),
@@ -3187,6 +3267,16 @@ def build_parser() -> argparse.ArgumentParser:
             "Development-only audit that applies a frozen bank at another "
             "grammar, surface subtype, or exact semantic anchor while "
             "retaining the original selection provenance."
+        ),
+    )
+    heads_behavior.add_argument(
+        "--allow-selection-intervention-site-decoupling",
+        action="store_true",
+        help=(
+            "Preregistered localizer design: preserve the plan's exact head-"
+            "selection site while starting the intervention at a different "
+            "explicit --anchor-role or routed anchor window. The manifest and "
+            "every result row record both sites."
         ),
     )
     heads_behavior.add_argument(

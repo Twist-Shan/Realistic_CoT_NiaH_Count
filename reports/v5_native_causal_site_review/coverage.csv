@@ -1,0 +1,102 @@
+level,model_label,sequence_source,trace_category,causal_cohort,grammar_signature,grammar_class,association,surface_order,marker_kind,transition_kind,count,city_zero_spill_count,eligible_count,format_shell_control_eligible_count,grammar_pair,invariant_surface_control_eligible_count,local_eligible_count,marker_control_eligible_count,marker_semantics,max_continuation_tokens,max_interstitial_tokens,mean_continuation_tokens,mean_interstitial_tokens,primary_eligible_count,progress_commit_eligible_count,rank_span_count,rank_zero_spill_count,retrieval_eligible_count,with_exclusion_count
+trajectory,Gemma4-E4B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,adjacent_rank_after_city,,,,inline_count,,84,,84,,,,,,,,,,,,,,,,0
+trajectory,Gemma4-E4B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,adjacent_rank_after_city + adjacent_rank_before_city,,,,inline_count,,4,,4,,,,,,,,,,,,,,,,0
+trajectory,Gemma4-E4B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,adjacent_rank_after_city + same_unit_rank_before_city,,,,inline_count,,2,,2,,,,,,,,,,,,,,,,0
+trajectory,Gemma4-E4B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,adjacent_rank_before_city,,,,inline_count,,1,,1,,,,,,,,,,,,,,,,0
+trajectory,Gemma4-E4B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,same_unit_rank_after_city,,,,inline_count,,7,,7,,,,,,,,,,,,,,,,0
+trajectory,Gemma4-E4B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,same_unit_rank_before_city,,,,inline_count,,108,,108,,,,,,,,,,,,,,,,0
+trajectory,Gemma4-E4B,rank_supported_episode,partial_unique,secondary_local_partial_unique,adjacent_rank_after_city,,,,inline_count,,38,,0,,,,,,,,,,,,,,,,0
+trajectory,Gemma4-E4B,rank_supported_episode,partial_unique,secondary_local_partial_unique,same_unit_rank_after_city,,,,inline_count,,1,,0,,,,,,,,,,,,,,,,0
+trajectory,Gemma4-E4B,rank_supported_episode,partial_unique,secondary_local_partial_unique,same_unit_rank_before_city,,,,inline_count,,34,,0,,,,,,,,,,,,,,,,0
+trajectory,Gemma4-E4B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,same_unit_rank_before_city,,,,ordinal,,1,,1,,,,,,,,,,,,,,,,0
+trajectory,Gemma4-E4B,rank_supported_episode,partial_unique,secondary_local_partial_unique,same_unit_rank_before_city,,,,ordinal,,2,,0,,,,,,,,,,,,,,,,0
+trajectory,Gemma4-E4B,structural_fallback,full_coverage_with_duplicates,occurrence_retrieval_only_duplicates,structural_invariant_bullet,,,,bullet,,10,,0,,,,,,,,,,,,,,,,0
+trajectory,Gemma4-E4B,structural_fallback,one_to_one,secondary_structural_marker_neutral,structural_invariant_bullet,,,,bullet,,8,,0,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,full_coverage_with_duplicates,occurrence_retrieval_only_duplicates,adjacent_rank_before_city,,,,indexed,,7,,0,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,adjacent_rank_before_city,,,,indexed,,46,,46,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,full_coverage_with_duplicates,occurrence_retrieval_only_duplicates,adjacent_rank_after_city,,,,inline_count,,2,,0,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,full_coverage_with_duplicates,occurrence_retrieval_only_duplicates,adjacent_rank_after_city + adjacent_rank_before_city,,,,inline_count,,1,,0,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,full_coverage_with_duplicates,occurrence_retrieval_only_duplicates,adjacent_rank_after_city + same_unit_rank_before_city,,,,inline_count,,3,,0,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,adjacent_rank_after_city,,,,inline_count,,139,,139,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,adjacent_rank_after_city + adjacent_rank_before_city,,,,inline_count,,4,,4,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,adjacent_rank_after_city + adjacent_rank_before_city + same_unit_rank_before_city,,,,inline_count,,1,,1,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,adjacent_rank_after_city + same_unit_rank_before_city,,,,inline_count,,8,,8,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,adjacent_rank_before_city + same_unit_rank_before_city,,,,inline_count,,6,,6,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,same_unit_rank_before_city,,,,inline_count,,33,,33,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,partial_unique,secondary_local_partial_unique,adjacent_rank_after_city,,,,inline_count,,4,,0,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,full_coverage_with_duplicates,occurrence_retrieval_only_duplicates,same_unit_rank_before_city,,,,ordinal,,1,,0,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,adjacent_rank_after_city + same_unit_rank_before_city,,,,ordinal,,1,,1,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,one_to_one,primary_rank_resolved_full_chain,same_unit_rank_before_city,,,,ordinal,,1,,1,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,rank_supported_episode,partial_unique,secondary_local_partial_unique,adjacent_rank_after_city + same_unit_rank_before_city,,,,ordinal,,1,,0,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,structural_extension,one_to_one,secondary_structural_recap,structural_unmarked,,,,audit_sentence,,2,,0,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,structural_extension,one_to_one,secondary_structural_recap,structural_invariant_bullet,,,,bullet,,3,,0,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,structural_extension,one_to_one,secondary_structural_recap,structural_unmarked,,,,completion_recap,,13,,0,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,structural_extension,partial_unique,secondary_structural_recap,structural_explicit_rank_before_city,,,,ordinal,,1,,0,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,structural_fallback,full_coverage_with_duplicates,occurrence_retrieval_only_duplicates,structural_unmarked,,,,audit_sentence,,3,,0,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,structural_fallback,one_to_one,secondary_structural_marker_neutral,structural_unmarked,,,,audit_sentence,,11,,0,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,structural_fallback,one_to_one,secondary_structural_marker_neutral,structural_unmarked,,,,completion_recap,,6,,0,,,,,,,,,,,,,,,,0
+trajectory,Qwen3-8B,synthetic_evidence_fallback,synthetic_unverified,secondary_evidence_sequence_exploratory,evidence_sequence_unranked,,,,evidence_sequence,,3,,0,,,,,,,,,,,,,,,,0
+event,Gemma4-E4B,,,occurrence_retrieval_only_duplicates,,structural_invariant_bullet,not_rank_supported,rank_before_city,,,20,1,,0,,0,,0,invariant_marker,,,,,,0,20,20,20,
+event,Gemma4-E4B,,,primary_rank_resolved_full_chain,,adjacent_rank_after_city,rank_after_city,rank_after_city,,,472,15,,446,,0,,472,explicit_ordinal_or_count,,,,,,472,472,442,472,
+event,Gemma4-E4B,,,primary_rank_resolved_full_chain,,adjacent_rank_before_city,rank_before_city,rank_before_city,,,7,0,,7,,0,,7,explicit_ordinal_or_count,,,,,,7,7,4,7,
+event,Gemma4-E4B,,,primary_rank_resolved_full_chain,,same_unit_rank_after_city,same_unit,rank_after_city,,,56,0,,23,,0,,56,explicit_ordinal_or_count,,,,,,56,56,14,56,
+event,Gemma4-E4B,,,primary_rank_resolved_full_chain,,same_unit_rank_before_city,same_unit,rank_before_city,,,508,222,,254,,0,,508,explicit_ordinal_or_count,,,,,,508,508,460,508,
+event,Gemma4-E4B,,,secondary_local_partial_unique,,adjacent_rank_after_city,rank_after_city,rank_after_city,,,270,5,,270,,0,,270,explicit_ordinal_or_count,,,,,,270,270,262,270,
+event,Gemma4-E4B,,,secondary_local_partial_unique,,same_unit_rank_after_city,same_unit,rank_after_city,,,8,0,,0,,0,,8,explicit_ordinal_or_count,,,,,,8,8,0,8,
+event,Gemma4-E4B,,,secondary_local_partial_unique,,same_unit_rank_before_city,same_unit,rank_before_city,,,213,104,,97,,0,,213,explicit_ordinal_or_count,,,,,,213,213,207,213,
+event,Gemma4-E4B,,,secondary_structural_marker_neutral,,structural_invariant_bullet,not_rank_supported,rank_before_city,,,10,2,,0,,10,,0,invariant_marker,,,,,,10,10,10,10,
+event,Qwen3-8B,,,occurrence_retrieval_only_duplicates,,adjacent_rank_after_city,rank_after_city,rank_after_city,,,10,0,,0,,0,,0,explicit_ordinal_or_count,,,,,,0,10,0,10,
+event,Qwen3-8B,,,occurrence_retrieval_only_duplicates,,adjacent_rank_before_city,rank_before_city,rank_before_city,,,44,0,,0,,0,,0,explicit_ordinal_or_count,,,,,,0,44,44,44,
+event,Qwen3-8B,,,occurrence_retrieval_only_duplicates,,same_unit_rank_before_city,same_unit,rank_before_city,,,11,0,,0,,0,,0,explicit_ordinal_or_count,,,,,,0,11,5,11,
+event,Qwen3-8B,,,occurrence_retrieval_only_duplicates,,structural_unmarked,not_rank_supported,no_explicit_rank_evidence,,,6,0,,0,,0,,0,no_explicit_marker,,,,,,0,0,0,6,
+event,Qwen3-8B,,,primary_rank_resolved_full_chain,,adjacent_rank_after_city,rank_after_city,rank_after_city,,,755,88,,750,,0,,755,explicit_ordinal_or_count,,,,,,755,755,2,755,
+event,Qwen3-8B,,,primary_rank_resolved_full_chain,,adjacent_rank_before_city,rank_before_city,rank_before_city,,,398,0,,398,,0,,398,explicit_ordinal_or_count,,,,,,398,398,398,398,
+event,Qwen3-8B,,,primary_rank_resolved_full_chain,,same_unit_rank_before_city,same_unit,rank_before_city,,,186,2,,84,,0,,186,explicit_ordinal_or_count,,,,,,186,186,2,186,
+event,Qwen3-8B,,,secondary_evidence_sequence_exploratory,,evidence_sequence_unranked,not_rank_supported,no_explicit_rank_evidence,,,17,0,,0,,0,,0,evidence_sequence_no_rank_marker,,,,,,17,0,0,17,
+event,Qwen3-8B,,,secondary_local_partial_unique,,adjacent_rank_after_city,rank_after_city,rank_after_city,,,28,7,,28,,0,,28,explicit_ordinal_or_count,,,,,,28,28,0,28,
+event,Qwen3-8B,,,secondary_local_partial_unique,,same_unit_rank_before_city,same_unit,rank_before_city,,,1,0,,1,,0,,1,explicit_ordinal_or_count,,,,,,1,1,1,1,
+event,Qwen3-8B,,,secondary_structural_marker_neutral,,structural_unmarked,not_rank_supported,no_explicit_rank_evidence,,,71,1,,0,,0,,0,no_explicit_marker,,,,,,71,0,0,71,
+event,Qwen3-8B,,,secondary_structural_recap,,structural_explicit_rank_before_city,not_rank_supported,rank_before_city,,,2,0,,1,,0,,2,explicit_structural_ordinal,,,,,,2,2,1,2,
+event,Qwen3-8B,,,secondary_structural_recap,,structural_invariant_bullet,not_rank_supported,rank_before_city,,,28,0,,0,,28,,0,invariant_marker,,,,,,28,28,28,28,
+event,Qwen3-8B,,,secondary_structural_recap,,structural_unmarked,not_rank_supported,no_explicit_rank_evidence,,,94,2,,0,,0,,0,no_explicit_marker,,,,,,94,0,0,94,
+transition,Gemma4-E4B,,,occurrence_retrieval_only_duplicates,,,,,,continue_to_next_city,10,,,,structural_invariant_bullet -> structural_invariant_bullet,,0,,,27,26,16.6,15.4,0,,,,,
+transition,Gemma4-E4B,,,occurrence_retrieval_only_duplicates,,,,,,stop_to_answer_query_v3,10,,,,,,0,,,209,206,105.2,102.2,0,,,,,
+transition,Gemma4-E4B,,,primary_rank_resolved_full_chain,,,,,,continue_to_next_city,382,,,,adjacent_rank_after_city -> adjacent_rank_after_city,,382,,,61,58,26.995,25.728,382,,,,,
+transition,Gemma4-E4B,,,primary_rank_resolved_full_chain,,,,,,continue_to_next_city,4,,,,adjacent_rank_after_city -> adjacent_rank_before_city,,4,,,23,22,20.0,19.0,4,,,,,
+transition,Gemma4-E4B,,,primary_rank_resolved_full_chain,,,,,,continue_to_next_city,2,,,,adjacent_rank_before_city -> adjacent_rank_before_city,,2,,,37,36,37.0,36.0,2,,,,,
+transition,Gemma4-E4B,,,primary_rank_resolved_full_chain,,,,,,continue_to_next_city,49,,,,same_unit_rank_after_city -> same_unit_rank_after_city,,49,,,45,43,36.347,35.143,49,,,,,
+transition,Gemma4-E4B,,,primary_rank_resolved_full_chain,,,,,,continue_to_next_city,2,,,,same_unit_rank_before_city -> adjacent_rank_after_city,,2,,,193,192,119.5,118.5,2,,,,,
+transition,Gemma4-E4B,,,primary_rank_resolved_full_chain,,,,,,continue_to_next_city,397,,,,same_unit_rank_before_city -> same_unit_rank_before_city,,397,,,79,75,46.826,45.305,397,,,,,
+transition,Gemma4-E4B,,,primary_rank_resolved_full_chain,,,,,,stop_to_answer_query_v3,207,,,,,,207,,,294,291,67.957,64.957,207,,,,,
+transition,Gemma4-E4B,,,secondary_local_partial_unique,,,,,,continue_to_next_city,232,,,,adjacent_rank_after_city -> adjacent_rank_after_city,,232,,,46,44,26.397,25.112,0,,,,,
+transition,Gemma4-E4B,,,secondary_local_partial_unique,,,,,,continue_to_next_city,7,,,,same_unit_rank_after_city -> same_unit_rank_after_city,,7,,,36,34,34.286,33.143,0,,,,,
+transition,Gemma4-E4B,,,secondary_local_partial_unique,,,,,,continue_to_next_city,177,,,,same_unit_rank_before_city -> same_unit_rank_before_city,,177,,,84,83,50.898,49.345,0,,,,,
+transition,Gemma4-E4B,,,secondary_local_partial_unique,,,,,,stop_to_answer_query_v3,75,,,,,,0,,,179,176,63.613,60.613,0,,,,,
+transition,Gemma4-E4B,,,secondary_structural_marker_neutral,,,,,,continue_to_next_city,2,,,,structural_invariant_bullet -> structural_invariant_bullet,,2,,,42,40,39.0,37.5,0,,,,,
+transition,Gemma4-E4B,,,secondary_structural_marker_neutral,,,,,,stop_to_answer_query_v3,8,,,,,,8,,,152,149,104.25,101.25,0,,,,,
+transition,Qwen3-8B,,,occurrence_retrieval_only_duplicates,,,,,,continue_to_next_city,4,,,,adjacent_rank_after_city -> adjacent_rank_after_city,,0,,,618,615,285.0,282.75,0,,,,,
+transition,Qwen3-8B,,,occurrence_retrieval_only_duplicates,,,,,,continue_to_next_city,1,,,,adjacent_rank_before_city -> adjacent_rank_after_city,,0,,,634,633,634.0,633.0,0,,,,,
+transition,Qwen3-8B,,,occurrence_retrieval_only_duplicates,,,,,,continue_to_next_city,36,,,,adjacent_rank_before_city -> adjacent_rank_before_city,,0,,,24,23,9.472,7.972,0,,,,,
+transition,Qwen3-8B,,,occurrence_retrieval_only_duplicates,,,,,,continue_to_next_city,3,,,,same_unit_rank_before_city -> adjacent_rank_after_city,,0,,,623,622,383.333,382.0,0,,,,,
+transition,Qwen3-8B,,,occurrence_retrieval_only_duplicates,,,,,,continue_to_next_city,7,,,,same_unit_rank_before_city -> same_unit_rank_before_city,,0,,,191,189,42.0,40.143,0,,,,,
+transition,Qwen3-8B,,,occurrence_retrieval_only_duplicates,,,,,,continue_to_next_city,3,,,,structural_unmarked -> structural_unmarked,,0,,,250,249,161.333,158.667,0,,,,,
+transition,Qwen3-8B,,,occurrence_retrieval_only_duplicates,,,,,,stop_to_answer_query_v3,17,,,,,,0,,,1600,1597,616.529,613.529,0,,,,,
+transition,Qwen3-8B,,,primary_rank_resolved_full_chain,,,,,,continue_to_next_city,602,,,,adjacent_rank_after_city -> adjacent_rank_after_city,,602,,,101,99,17.424,15.669,602,,,,,
+transition,Qwen3-8B,,,primary_rank_resolved_full_chain,,,,,,continue_to_next_city,2,,,,adjacent_rank_after_city -> same_unit_rank_before_city,,2,,,462,460,302.0,300.0,2,,,,,
+transition,Qwen3-8B,,,primary_rank_resolved_full_chain,,,,,,continue_to_next_city,5,,,,adjacent_rank_before_city -> adjacent_rank_after_city,,5,,,334,332,210.4,209.0,5,,,,,
+transition,Qwen3-8B,,,primary_rank_resolved_full_chain,,,,,,continue_to_next_city,341,,,,adjacent_rank_before_city -> adjacent_rank_before_city,,341,,,43,42,6.704,4.938,341,,,,,
+transition,Qwen3-8B,,,primary_rank_resolved_full_chain,,,,,,continue_to_next_city,7,,,,same_unit_rank_before_city -> adjacent_rank_after_city,,7,,,30,29,24.143,22.286,7,,,,,
+transition,Qwen3-8B,,,primary_rank_resolved_full_chain,,,,,,continue_to_next_city,7,,,,same_unit_rank_before_city -> adjacent_rank_before_city,,7,,,21,20,17.0,15.429,7,,,,,
+transition,Qwen3-8B,,,primary_rank_resolved_full_chain,,,,,,continue_to_next_city,136,,,,same_unit_rank_before_city -> same_unit_rank_before_city,,136,,,47,45,30.743,29.007,136,,,,,
+transition,Qwen3-8B,,,primary_rank_resolved_full_chain,,,,,,stop_to_answer_query_v3,239,,,,,,239,,,701,698,130.289,127.289,239,,,,,
+transition,Qwen3-8B,,,secondary_evidence_sequence_exploratory,,,,,,continue_to_next_city,14,,,,evidence_sequence_unranked -> evidence_sequence_unranked,,14,,,5,2,2.5,0.929,0,,,,,
+transition,Qwen3-8B,,,secondary_evidence_sequence_exploratory,,,,,,stop_to_answer_query_v3,3,,,,,,3,,,210,207,133.0,130.0,0,,,,,
+transition,Qwen3-8B,,,secondary_local_partial_unique,,,,,,continue_to_next_city,23,,,,adjacent_rank_after_city -> adjacent_rank_after_city,,23,,,26,24,13.957,11.826,0,,,,,
+transition,Qwen3-8B,,,secondary_local_partial_unique,,,,,,continue_to_next_city,1,,,,same_unit_rank_before_city -> adjacent_rank_after_city,,1,,,15,13,15.0,13.0,0,,,,,
+transition,Qwen3-8B,,,secondary_local_partial_unique,,,,,,stop_to_answer_query_v3,5,,,,,,0,,,186,183,135.8,132.8,0,,,,,
+transition,Qwen3-8B,,,secondary_structural_marker_neutral,,,,,,continue_to_next_city,54,,,,structural_unmarked -> structural_unmarked,,54,,,47,46,8.759,7.074,0,,,,,
+transition,Qwen3-8B,,,secondary_structural_marker_neutral,,,,,,stop_to_answer_query_v3,17,,,,,,17,,,260,257,122.0,119.0,0,,,,,
+transition,Qwen3-8B,,,secondary_structural_recap,,,,,,continue_to_next_city,1,,,,structural_explicit_rank_before_city -> structural_explicit_rank_before_city,,1,,,30,29,30.0,29.0,0,,,,,
+transition,Qwen3-8B,,,secondary_structural_recap,,,,,,continue_to_next_city,25,,,,structural_invariant_bullet -> structural_invariant_bullet,,25,,,6,2,3.88,2.0,0,,,,,
+transition,Qwen3-8B,,,secondary_structural_recap,,,,,,continue_to_next_city,79,,,,structural_unmarked -> structural_unmarked,,79,,,31,28,5.253,3.43,0,,,,,
+transition,Qwen3-8B,,,secondary_structural_recap,,,,,,stop_to_answer_query_v3,19,,,,,,19,,,196,193,83.895,80.895,0,,,,,

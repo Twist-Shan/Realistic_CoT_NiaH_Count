@@ -1,0 +1,14 @@
+{
+  "schema_version": "realistic_niah_v5_native_clean_grammar_geometry_v1",
+  "generated_at": "2026-08-19T21:19:37.685317+00:00",
+  "selection_rule": "grammar and layer selected only by grouped discovery OOF mean Logistic/NCC balanced accuracy; confirmation evaluated after freeze",
+  "eligibility": "both splits cover occurrences 1..10; confirmation minimum >=2 per occurrence (Gemma k=10 has n=2)",
+  "site": "causal-aligned item_end/p0_item_end",
+  "pca_dim": 16,
+  "outputs": {
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_clean_grammar_geometry\\grammar_layer_candidates.csv": "e729101e96b66b3bfa7e419e850ee8615863b75788dacbf9c09dce594d2dc5f6",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_clean_grammar_geometry\\grammar_support.csv": "185a4a0477b71a060de5d34b5026d6b9bf95721b9d9d5be3185565d3551256aa",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_clean_grammar_geometry\\selected_clean_grammar.csv": "273c63ee6ed832b0f1d15f430c5dd8e2da50f4cc4f89aede94e94114aab8abea",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_clean_grammar_geometry\\geometry_payload.json": "7c22e6be7b60a32185e34801431a9347c58a48dac8a5374ac410f900c2b7ad45"
+  }
+}

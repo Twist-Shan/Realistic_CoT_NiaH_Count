@@ -1,0 +1,141 @@
+{
+  "bank_size": 8,
+  "clean_failures": 6,
+  "clean_rows": 270,
+  "completed_utc": "2026-08-20T21:59:56.747784+00:00",
+  "grammars": [
+    {
+      "anchors": 115,
+      "by_split": {
+        "confirmation": {
+          "random": 90,
+          "random_condition": "layer_matched_random",
+          "random_failures": 9,
+          "selected": 30,
+          "selected_failures": 27
+        },
+        "discovery": {
+          "random": 255,
+          "random_condition": "layer_matched_random",
+          "random_failures": 16,
+          "selected": 85,
+          "selected_failures": 71
+        }
+      },
+      "grammar": "adjacent_rank_after_city",
+      "output": "/home/ubuntu/CoT-Native-thinking-v5/runs/v5_native_grammar_specific_p0_20260820/Gemma4-E4B/head_behavior_adjacent_rank_after_city_p0_k8_fullpanel_pergrammarregistry_v2_v1",
+      "random_condition": "layer_matched_random",
+      "random_failures": 25,
+      "selected_failures": 98
+    },
+    {
+      "anchors": 5,
+      "by_split": {
+        "confirmation": {
+          "random": 3,
+          "random_condition": "global_random",
+          "random_failures": 0,
+          "selected": 1,
+          "selected_failures": 1
+        },
+        "discovery": {
+          "random": 12,
+          "random_condition": "global_random",
+          "random_failures": 0,
+          "selected": 4,
+          "selected_failures": 3
+        }
+      },
+      "grammar": "adjacent_rank_before_city",
+      "output": "/home/ubuntu/CoT-Native-thinking-v5/runs/v5_native_grammar_specific_p0_20260820/Gemma4-E4B/head_behavior_adjacent_rank_before_city_p0_k8_fullpanel_pergrammarregistry_v2_v1",
+      "random_condition": "global_random",
+      "random_failures": 0,
+      "selected_failures": 4
+    },
+    {
+      "anchors": 8,
+      "by_split": {
+        "confirmation": {
+          "random": 0,
+          "random_condition": "global_random",
+          "random_failures": 0,
+          "selected": 0,
+          "selected_failures": 0
+        },
+        "discovery": {
+          "random": 24,
+          "random_condition": "global_random",
+          "random_failures": 2,
+          "selected": 8,
+          "selected_failures": 8
+        }
+      },
+      "grammar": "same_unit_rank_after_city",
+      "output": "/home/ubuntu/CoT-Native-thinking-v5/runs/v5_native_grammar_specific_p0_20260820/Gemma4-E4B/head_behavior_same_unit_rank_after_city_p0_k8_fullpanel_pergrammarregistry_v2_v1",
+      "random_condition": "global_random",
+      "random_failures": 2,
+      "selected_failures": 8
+    },
+    {
+      "anchors": 140,
+      "by_split": {
+        "confirmation": {
+          "random": 174,
+          "random_condition": "layer_matched_random",
+          "random_failures": 21,
+          "selected": 58,
+          "selected_failures": 38
+        },
+        "discovery": {
+          "random": 246,
+          "random_condition": "layer_matched_random",
+          "random_failures": 11,
+          "selected": 82,
+          "selected_failures": 51
+        }
+      },
+      "grammar": "same_unit_rank_before_city",
+      "output": "/home/ubuntu/CoT-Native-thinking-v5/runs/v5_native_grammar_specific_p0_20260820/Gemma4-E4B/head_behavior_same_unit_rank_before_city_p0_k8_fullpanel_pergrammarregistry_v2_v1",
+      "random_condition": "layer_matched_random",
+      "random_failures": 32,
+      "selected_failures": 89
+    },
+    {
+      "anchors": 2,
+      "by_split": {
+        "confirmation": {
+          "random": 3,
+          "random_condition": "layer_matched_random",
+          "random_failures": 0,
+          "selected": 1,
+          "selected_failures": 0
+        },
+        "discovery": {
+          "random": 3,
+          "random_condition": "layer_matched_random",
+          "random_failures": 0,
+          "selected": 1,
+          "selected_failures": 0
+        }
+      },
+      "grammar": "structural_invariant_bullet",
+      "output": "/home/ubuntu/CoT-Native-thinking-v5/runs/v5_native_grammar_specific_p0_20260820/Gemma4-E4B/head_behavior_structural_invariant_bullet_p0_k8_fullpanel_pergrammarregistry_v2_v1",
+      "random_condition": "layer_matched_random",
+      "random_failures": 0,
+      "selected_failures": 0
+    }
+  ],
+  "model_label": "Gemma4-E4B",
+  "persistent_ablation": true,
+  "random_control_matching": "prefer_exact_layer_matched_else_global_same_k",
+  "random_rows": 810,
+  "registry_rows": 270,
+  "registry_sha256": "021f1e5d3b95f232c0cf69c08236b592dbf2f54e8e04df6abaa27c097a0a96f8",
+  "schema_version": "realistic_niah_v5_gemma_grammar_specific_p0_full_v1",
+  "selected_rows": 270,
+  "selection_aggregation": "equal_seed_mean_of_within_seed_event_means",
+  "selection_anchor_role": "p0_item_end",
+  "selection_metric": "target_source_attention_mass",
+  "selection_scope": "within_target_grammar",
+  "status": "PASS"
+}

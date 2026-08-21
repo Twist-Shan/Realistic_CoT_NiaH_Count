@@ -1,0 +1,20 @@
+{
+  "schema_version": "realistic_niah_v5_grammar_filtered_cross_mode_geometry_v1",
+  "generated_at": "2026-08-20T15:21:46.337067+00:00",
+  "filter_selection": "native grammar and native layer frozen from grouped discovery OOF; non-thinking uses exactly paired event cells and independently selects its layer with grouped discovery OOF; confirmation evaluates only",
+  "pairing_key": [
+    "split",
+    "seed",
+    "gold_count",
+    "occurrence"
+  ],
+  "inputs": {
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_causal_site_review\\event_registry.csv": "ec2c8d3d8aaf11260af4e2ba55edc23ea47b8a361e3e707d189b8771306ad309",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_clean_grammar_geometry\\selected_clean_grammar.csv": "273c63ee6ed832b0f1d15f430c5dd8e2da50f4cc4f89aede94e94114aab8abea"
+  },
+  "outputs": {
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_grammar_filtered_cross_mode_geometry\\paired_metrics.csv": "840bdf0a06222f557d408aa935c1ec6bfe84438bdb07d79d53523411ec861ce4",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_grammar_filtered_cross_mode_geometry\\nonthinking_layer_candidates.csv": "809cdd6522767a72107b5d49df3f2c9db3b193ed3f52b22d0b88ea5ba532f4fb",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_grammar_filtered_cross_mode_geometry\\geometry_payload.json": "cd1899e9d22d5f9b77f1b8d0883cac0a2ebf5faab4e0ec3c2f3fdc5d5a1eb91e"
+  }
+}

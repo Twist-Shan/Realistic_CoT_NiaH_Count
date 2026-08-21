@@ -123,6 +123,33 @@ REGISTERED_TRACE_PATCH_CONDITIONS = (
     "norm_matched_orthogonal_patch",
 )
 
+REGISTERED_TRACE_FULL_STATE_CONDITIONS = (
+    "clean",
+    "self_patch",
+    "full_donor_patch",
+)
+
+REGISTERED_TRACE_PATCH_GEOMETRIES = (
+    "endpoint",
+    "suffix4",
+    "suffix8",
+    "full_span",
+)
+
+REGISTERED_TRACE_PATCH_LAYER_MODES = (
+    "one_shot",
+    "cumulative_clamp",
+)
+
+# Frozen development-only terminal-receiver panel requested after the first
+# endpoint patch experiment.  The count minima deliberately match the agreed
+# panel rather than merely using the first mathematically possible count.
+TERMINAL_LAST_COUNT_RANGES: dict[int, tuple[int, ...]] = {
+    -1: tuple(range(2, 11)),
+    -3: tuple(range(5, 11)),
+    -5: tuple(range(7, 11)),
+}
+
 REGISTERED_RESTORATION_CONDITIONS = (
     "clean",
     "trace_token_corrupt",
@@ -1652,10 +1679,23 @@ def run_answer_source_mask_trial(
     *,
     condition: str,
     answer_site_id: str = "answer_query_v3",
+    mask_application: str = "answer_query_and_answer_tokens",
     run_greedy: bool = True,
     max_new_tokens: int = 16,
 ) -> dict[str, Any]:
-    """Score count candidates under a persistent final-query source mask."""
+    """Mask source edges in every head at the final answer query.
+
+    ``answer_query_only`` is directly comparable to the top-K answer-query
+    head ablation: later numeric answer tokens regain their clean source edges.
+    The persistent option is retained as a stronger sensitivity analysis.
+    """
+
+    application = str(mask_application)
+    if application not in {
+        "answer_query_only",
+        "answer_query_and_answer_tokens",
+    }:
+        raise ValueError(f"Unknown answer source-mask application: {application}")
 
     encoding, registry = build_answer_source_registry(
         row, tokenizer, answer_site_id=answer_site_id
@@ -1673,14 +1713,16 @@ def run_answer_source_mask_trial(
         prefix_output=prefix,
         query_attention_mask=mask,
     )
-    masked_encoding = replace(
-        encoding,
-        attention_mask=tuple(int(value) for value in mask[0].tolist()),
-    )
+    scoring_encoding = encoding
+    if application == "answer_query_and_answer_tokens":
+        scoring_encoding = replace(
+            encoding,
+            attention_mask=tuple(int(value) for value in mask[0].tolist()),
+        )
     outcomes = _score_and_generate_prefill(
         model,
         tokenizer,
-        masked_encoding,
+        scoring_encoding,
         query_output,
         run_greedy=run_greedy,
         max_new_tokens=max_new_tokens,
@@ -1696,7 +1738,11 @@ def run_answer_source_mask_trial(
         "gold_count": encoding.count,
         "answer_site_id": answer_site_id,
         "registry_sha256": registry.to_dict()["registry_sha256"],
-        "mask_scope": "answer_query_and_all_numeric_answer_tokens",
+        "mask_scope": application,
+        "source_edge_mask_head_scope": "all_attention_heads",
+        "source_edge_mask_layer_scope": "all_decoder_layers",
+        "decoder_layer_count": int(adapter.num_layers),
+        "attention_head_instances_per_query": int(sum(adapter.num_heads)),
         **mask_audit,
         **outcomes,
     }
@@ -2129,6 +2175,141 @@ def build_sparse_trace_patch_sample_plan(
     return plan.sort_values(
         ["panel_kind", "gold_count", "donor_offset", "selection_rank"],
         kind="stable",
+    ).reset_index(drop=True)
+
+
+def build_terminal_last_trace_patch_sample_plan(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    model_label: str,
+    seeds_per_cell: int = 10,
+    sampling_seed: int = 20260820,
+) -> pd.DataFrame:
+    """Freeze the natural past-to-final receiver panel without outcomes.
+
+    Every receiver is the last observed count occurrence, immediately before
+    the answer query in the frozen teacher-forced trace.  Donors are earlier by
+    1, 3, or 5 occurrences.  The asymmetric count ranges are intentional:
+    ``-1`` uses counts 2..10, ``-3`` uses 5..10, and ``-5`` uses 7..10.
+    Selection depends only on registry identity and the sampling seed.
+    """
+
+    label = str(model_label)
+    per_cell = int(seeds_per_cell)
+    if not label:
+        raise ValueError("model_label cannot be empty")
+    if per_cell < 1:
+        raise ValueError("seeds_per_cell must be positive")
+
+    allowed_counts = {
+        count for values in TERMINAL_LAST_COUNT_RANGES.values() for count in values
+    }
+    registry: dict[tuple[int, int], dict[str, Any]] = {}
+    for raw in rows:
+        seed = int(raw["seed"])
+        count = int(
+            raw.get(
+                "gold_count",
+                len(raw.get("gold_records", raw.get("gold_pairs", ()))),
+            )
+        )
+        if count not in allowed_counts:
+            continue
+        row_model = raw.get("model_label")
+        if row_model not in {None, label}:
+            continue
+        key = (seed, count)
+        if key in registry:
+            raise ValueError(f"Terminal-last registry has duplicate seed/count {key}")
+        registry[key] = {
+            "request_id": str(raw["request_id"]),
+            "seed": seed,
+            "gold_count": count,
+        }
+    if not registry:
+        raise ValueError("No rows remain for the terminal-last trace-patch plan")
+
+    plan_rows: list[dict[str, Any]] = []
+    for offset in sorted(TERMINAL_LAST_COUNT_RANGES):
+        for count in TERMINAL_LAST_COUNT_RANGES[offset]:
+            candidates = [
+                dict(value)
+                for (_seed, observed_count), value in registry.items()
+                if observed_count == int(count)
+            ]
+            ranked: list[tuple[str, int, str, dict[str, Any]]] = []
+            for value in candidates:
+                priority_payload = {
+                    "sampling_seed": int(sampling_seed),
+                    "model_label": label,
+                    "panel_kind": "terminal_last",
+                    "gold_count": int(count),
+                    "donor_offset": int(offset),
+                    "seed": int(value["seed"]),
+                    "request_id": str(value["request_id"]),
+                }
+                ranked.append(
+                    (
+                        _sha256_json(priority_payload),
+                        int(value["seed"]),
+                        str(value["request_id"]),
+                        value,
+                    )
+                )
+            ranked.sort()
+            if len(ranked) < per_cell:
+                raise ValueError(
+                    f"Terminal-last cell count={count}, offset={offset} needs "
+                    f"{per_cell} eligible seeds but has {len(ranked)}"
+                )
+            cell_id = f"terminal_last:count={count}:offset={offset:+d}"
+            for selection_index, (digest, _seed, _request, value) in enumerate(
+                ranked[:per_cell]
+            ):
+                receiver = int(count)
+                donor = receiver + int(offset)
+                if not 1 <= donor < receiver:
+                    raise RuntimeError("Terminal-last donor is not a natural past state")
+                pair_identity = {
+                    "model_label": label,
+                    "panel_kind": "terminal_last",
+                    "request_id": str(value["request_id"]),
+                    "seed": int(value["seed"]),
+                    "gold_count": int(count),
+                    "receiver_occurrence": receiver,
+                    "donor_occurrence": donor,
+                    "donor_offset": int(offset),
+                }
+                plan_rows.append(
+                    {
+                        "schema_version": COUNT_STREAM_SCHEMA_VERSION,
+                        "experiment_id": "trace_terminal_last_pair_plan",
+                        "model_label": label,
+                        "panel_kind": "terminal_last",
+                        "selection_cell_id": cell_id,
+                        "selection_rank": selection_index + 1,
+                        "outcome_blind_priority_sha256": digest,
+                        "selection_input_fields": (
+                            "sampling_seed,model_label,panel_kind,gold_count,"
+                            "donor_offset,seed,request_id"
+                        ),
+                        "sampling_seed": int(sampling_seed),
+                        "seeds_per_cell": per_cell,
+                        **pair_identity,
+                        "donor_direction": "past_to_later_receiver",
+                        "receiver_is_terminal": True,
+                        "donor_is_terminal": False,
+                        "local_next_city_outcome_registered": False,
+                        "final_answer_outcome_registered": True,
+                        "pair_sha256": _sha256_json(pair_identity),
+                    }
+                )
+    plan = pd.DataFrame(plan_rows)
+    expected_cells = sum(len(values) for values in TERMINAL_LAST_COUNT_RANGES.values())
+    if len(plan) != expected_cells * per_cell:
+        raise RuntimeError("Terminal-last plan did not realize every frozen cell")
+    return plan.sort_values(
+        ["gold_count", "donor_offset", "selection_rank"], kind="stable"
     ).reset_index(drop=True)
 
 
@@ -2813,6 +2994,405 @@ def run_trace_terminal_patch_trials(
                 "condition_patch_delta_norm": patch_audit[
                     "condition_patch_delta_norms"
                 ][condition],
+                "readout_layers": ordered_layers,
+                "readout_positions": list(readout_positions),
+                **outcomes,
+            }
+        )
+    reference = states_by_condition["self_patch"]
+    for result in result_rows:
+        metrics = stream_state_retention_metrics(
+            reference,
+            states_by_condition[str(result["condition"])],
+            readout_layers=result["readout_layers"],
+            readout_positions=result["readout_positions"],
+            query_position=registry.query_position,
+            count_bases=readout_bases,
+        )
+        result.update(metrics)
+        result["downstream_progress_transport_magnitude"] = metrics[
+            "downstream_item_progress_subspace_displacement_rms"
+        ]
+    return result_rows
+
+
+def trace_patch_geometry_positions(
+    registry: AnswerSourceRegistry,
+    *,
+    receiver_occurrence: int,
+    donor_occurrence: int,
+    geometry: str,
+) -> tuple[tuple[int, ...], tuple[int, ...], dict[str, Any]]:
+    """Right-align one registered multi-token donor/receiver geometry."""
+
+    name = str(geometry)
+    if name not in REGISTERED_TRACE_PATCH_GEOMETRIES:
+        raise ValueError(f"Unknown trace patch geometry: {name}")
+    count = len(registry.trace_items)
+    receiver = int(receiver_occurrence)
+    donor = int(donor_occurrence)
+    if not 1 <= receiver <= count or not 1 <= donor <= count or donor == receiver:
+        raise ValueError("Trace geometry needs two distinct valid occurrences")
+    receiver_span = registry.trace_items[receiver - 1]
+    donor_span = registry.trace_items[donor - 1]
+    receiver_length = int(receiver_span[1]) - int(receiver_span[0])
+    donor_length = int(donor_span[1]) - int(donor_span[0])
+    if name == "endpoint":
+        width = 1
+    elif name.startswith("suffix"):
+        width = int(name.removeprefix("suffix"))
+        if min(receiver_length, donor_length) < width:
+            raise ValueError(
+                "not applicable: a trace item is shorter than the requested "
+                f"{name} geometry"
+            )
+    else:
+        if receiver_length != donor_length:
+            raise ValueError(
+                "not applicable: full_span requires exactly equal donor and "
+                "receiver token lengths"
+            )
+        width = receiver_length
+    receiver_positions = tuple(
+        range(int(receiver_span[1]) - width, int(receiver_span[1]))
+    )
+    donor_positions = tuple(range(int(donor_span[1]) - width, int(donor_span[1])))
+    if len(receiver_positions) != len(donor_positions) or not receiver_positions:
+        raise RuntimeError("Trace geometry changed donor/receiver token alignment")
+    audit = {
+        "patch_geometry": name,
+        "patch_position_alignment": "right_aligned_relative_token_index",
+        "patch_token_count": len(receiver_positions),
+        "receiver_span": list(receiver_span),
+        "donor_span": list(donor_span),
+        "receiver_span_token_count": receiver_length,
+        "donor_span_token_count": donor_length,
+        "donor_receiver_span_lengths_equal": bool(receiver_length == donor_length),
+        "receiver_patch_positions": list(receiver_positions),
+        "donor_patch_positions": list(donor_positions),
+        "receiver_patch_positions_sha256": _sha256_json(receiver_positions),
+        "donor_patch_positions_sha256": _sha256_json(donor_positions),
+    }
+    return receiver_positions, donor_positions, audit
+
+
+def _full_state_patch_layers(
+    *, source_layer: int, num_layers: int, layer_mode: str
+) -> tuple[int, ...]:
+    mode = str(layer_mode)
+    if mode not in REGISTERED_TRACE_PATCH_LAYER_MODES:
+        raise ValueError(f"Unknown trace patch layer mode: {mode}")
+    source = int(source_layer)
+    total = int(num_layers)
+    if not 0 <= source < total - 1:
+        raise ValueError("Full-state patching must leave a downstream decoder layer")
+    if mode == "one_shot":
+        return (source,)
+    return tuple(range(source, total))
+
+
+def _prefill_with_layerwise_state_replacements(
+    model: Any,
+    adapter: DecoderAdapter,
+    encoding: NativeTraceEncoding,
+    *,
+    positions: Sequence[int],
+    replacements: Mapping[int, torch.Tensor] | None,
+    readout_layers: Sequence[int],
+    readout_positions: Sequence[int],
+) -> tuple[Any, dict[int, torch.Tensor], dict[int, int], dict[int, float]]:
+    """Patch the same positions at one or many post-block layers."""
+
+    selected_positions = tuple(int(value) for value in positions)
+    if not selected_positions:
+        raise ValueError("A full-state patch needs at least one receiver position")
+    if len(set(selected_positions)) != len(selected_positions):
+        raise ValueError("Full-state patch positions must be unique")
+    replacement_map = {
+        int(layer): torch.as_tensor(states).detach().float().cpu()
+        for layer, states in (replacements or {}).items()
+    }
+    for layer, states in replacement_map.items():
+        if not 0 <= layer < int(adapter.num_layers):
+            raise ValueError(f"Full-state patch layer L{layer} is outside the decoder")
+        if states.ndim != 2 or states.shape[0] != len(selected_positions):
+            raise ValueError("Full-state replacement must have [positions, hidden]")
+    active_readouts = tuple(sorted({int(value) for value in readout_layers}))
+    if not active_readouts or any(
+        not 0 <= layer < int(adapter.num_layers) for layer in active_readouts
+    ):
+        raise ValueError("Full-state patch readout layers are invalid")
+    selected_readouts = tuple(int(value) for value in readout_positions)
+    if not selected_readouts:
+        raise ValueError("Full-state patch needs at least one downstream readout")
+
+    applications = {layer: 0 for layer in replacement_map}
+    realized_norms = {layer: 0.0 for layer in replacement_map}
+    captures: dict[int, torch.Tensor] = {}
+    handles = []
+    for layer, states in sorted(replacement_map.items()):
+
+        def patch_hook(
+            _module: Any,
+            _args: tuple[Any, ...],
+            output: Any,
+            *,
+            layer: int = layer,
+            states: torch.Tensor = states,
+        ) -> Any:
+            hidden = _tensor_from_output(output)
+            if hidden.ndim != 3 or hidden.shape[1] != encoding.sequence_length:
+                return output
+            before = hidden[:, list(selected_positions), :]
+            replacement = states.to(device=hidden.device, dtype=hidden.dtype).unsqueeze(0)
+            if replacement.shape != before.shape:
+                raise RuntimeError("Full-state replacement width disagrees with model")
+            patched = hidden.clone()
+            patched[:, list(selected_positions), :] = replacement
+            realized_norms[layer] = float(
+                torch.linalg.vector_norm(before.float() - replacement.float())
+                .detach()
+                .cpu()
+            )
+            applications[layer] += 1
+            return _replace_output_tensor(output, patched)
+
+        handles.append(adapter.layers[layer].register_forward_hook(patch_hook))
+    # Register captures after patches so a readout on a clamped layer observes
+    # the realized post-patch tensor rather than the pre-hook output.
+    for layer in active_readouts:
+
+        def readout_hook(
+            _module: Any,
+            _args: tuple[Any, ...],
+            output: Any,
+            *,
+            layer: int = layer,
+        ) -> None:
+            hidden = _tensor_from_output(output)
+            if hidden.ndim != 3 or hidden.shape[1] != encoding.sequence_length:
+                return
+            captures[layer] = (
+                hidden[0, list(selected_readouts)].detach().float().cpu()
+            )
+
+        handles.append(adapter.layers[layer].register_forward_hook(readout_hook))
+    try:
+        input_ids, attention_mask = _encoding_tensors(model, encoding)
+        prefill = _prefix_forward(model, adapter, input_ids, attention_mask)
+    finally:
+        for handle in handles:
+            handle.remove()
+    violations = sorted(layer for layer, count in applications.items() if count != 1)
+    if violations:
+        raise RuntimeError(
+            "Every full-state patch hook must apply exactly once; bad layers "
+            f"{violations}"
+        )
+    missing_readouts = sorted(set(active_readouts) - set(captures))
+    if missing_readouts:
+        raise RuntimeError(f"Full-state patch missed readout layers {missing_readouts}")
+    return prefill, captures, applications, realized_norms
+
+
+@torch.inference_mode()
+def run_trace_full_state_patch_trials(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    row: Mapping[str, Any],
+    *,
+    receiver_occurrence: int,
+    donor_occurrence: int,
+    layer: int,
+    geometry: str,
+    layer_mode: str,
+    readout_layers: Sequence[int],
+    readout_bases: Mapping[int, np.ndarray],
+    conditions: Sequence[str] = REGISTERED_TRACE_FULL_STATE_CONDITIONS,
+    answer_site_id: str = "answer_query_v3",
+    run_greedy: bool = True,
+    max_new_tokens: int = 16,
+) -> list[dict[str, Any]]:
+    """Patch a multi-token full hidden-state tensor within one clean trace.
+
+    This is a sufficiency assay.  Because donor and receiver items can contain
+    different surface tokens, it does not by itself identify a count-specific
+    subspace.  ``cumulative_clamp`` mirrors the referenced HTML by writing the
+    donor tensor at every post-block layer from ``layer`` through the last;
+    ``one_shot`` writes it only once and lets all later computation evolve.
+    """
+
+    requested = tuple(str(value) for value in conditions)
+    if len(set(requested)) != len(requested):
+        raise ValueError("Full-state trace patch conditions must be unique")
+    unknown = sorted(set(requested) - set(REGISTERED_TRACE_FULL_STATE_CONDITIONS))
+    if unknown:
+        raise ValueError(f"Unknown full-state trace patch conditions: {unknown}")
+    if not {"clean", "self_patch"} <= set(requested):
+        raise ValueError("Full-state patching requires clean and self_patch controls")
+
+    source_layer = int(layer)
+    patch_layers = _full_state_patch_layers(
+        source_layer=source_layer,
+        num_layers=int(adapter.num_layers),
+        layer_mode=layer_mode,
+    )
+    encoding, registry = build_answer_source_registry(
+        row, tokenizer, answer_site_id=answer_site_id
+    )
+    receiver = int(receiver_occurrence)
+    donor = int(donor_occurrence)
+    receiver_positions, donor_positions, geometry_audit = (
+        trace_patch_geometry_positions(
+            registry,
+            receiver_occurrence=receiver,
+            donor_occurrence=donor,
+            geometry=geometry,
+        )
+    )
+    capture_positions = receiver_positions + donor_positions
+    _last_logits, captured = capture_post_block_states(
+        model,
+        adapter,
+        encoding,
+        capture_positions,
+        layers=patch_layers,
+    )
+    width = len(receiver_positions)
+    receiver_states = {
+        patch_layer: captured[patch_layer][:width].clone()
+        for patch_layer in patch_layers
+    }
+    donor_states = {
+        patch_layer: captured[patch_layer][width:].clone()
+        for patch_layer in patch_layers
+    }
+    if any(
+        receiver_states[value].shape != donor_states[value].shape
+        for value in patch_layers
+    ):
+        raise RuntimeError("Captured donor and receiver tensors have different shapes")
+
+    active_readout_layers = tuple(sorted({int(value) for value in readout_layers}))
+    if not active_readout_layers:
+        active_readout_layers = (source_layer + 1,)
+    if any(value <= source_layer for value in active_readout_layers):
+        raise ValueError("Full-state readout layers must be after the source layer")
+    missing_bases = sorted(set(active_readout_layers) - set(readout_bases))
+    if missing_bases:
+        raise ValueError(f"Full-state readout bases are missing {missing_bases}")
+    endpoints = tuple(end - 1 for _start, end in registry.trace_items)
+    downstream_endpoints = tuple(
+        position for position in endpoints if position > max(receiver_positions)
+    )
+    readout_positions = downstream_endpoints + (registry.query_position,)
+    if any(position >= registry.query_position for position in receiver_positions):
+        raise RuntimeError("A full-state receiver is not before the answer query")
+
+    receiver_token_ids = tuple(int(encoding.input_ids[pos]) for pos in receiver_positions)
+    donor_token_ids = tuple(int(encoding.input_ids[pos]) for pos in donor_positions)
+    token_matches = sum(
+        left == right for left, right in zip(receiver_token_ids, donor_token_ids)
+    )
+    marker_positions = set(registry.positions("trace_markers"))
+    full_delta_norms = {
+        str(patch_layer): float(
+            torch.linalg.vector_norm(
+                donor_states[patch_layer] - receiver_states[patch_layer]
+            )
+        )
+        for patch_layer in patch_layers
+    }
+    common = {
+        "schema_version": COUNT_STREAM_SCHEMA_VERSION,
+        "experiment_id": "trace_full_state_geometry_patching",
+        "request_id": encoding.request_id,
+        "model_label": encoding.model_label,
+        "seed": encoding.seed,
+        "dataset_split": encoding.split,
+        "gold_count": encoding.count,
+        "answer_site_id": answer_site_id,
+        "layer": source_layer,
+        "patch_layer_mode": str(layer_mode),
+        "patch_layers": list(patch_layers),
+        "patch_layer_count": len(patch_layers),
+        "receiver_occurrence": receiver,
+        "donor_occurrence": donor,
+        "donor_offset": donor - receiver,
+        "donor_direction": (
+            "past_to_later_receiver"
+            if donor < receiver
+            else "future_to_earlier_receiver"
+        ),
+        "future_donor_is_counterfactual_not_natural_stream": bool(donor > receiver),
+        "receiver_is_terminal": bool(receiver == encoding.count),
+        "donor_is_terminal": bool(donor == encoding.count),
+        "downstream_trace_item_count": len(downstream_endpoints),
+        "later_trace_self_correction_possible": bool(downstream_endpoints),
+        "final_answer_outcome_registered": True,
+        "local_next_city_outcome_registered": False,
+        "receiver_patch_marker_overlap_count": len(
+            set(receiver_positions) & marker_positions
+        ),
+        "donor_patch_marker_overlap_count": len(set(donor_positions) & marker_positions),
+        "receiver_patch_token_ids": list(receiver_token_ids),
+        "donor_patch_token_ids": list(donor_token_ids),
+        "donor_receiver_token_id_match_count": token_matches,
+        "donor_receiver_token_id_match_fraction": token_matches / width,
+        "donor_receiver_surface_tokens_identical": bool(token_matches == width),
+        "causal_claim_scope": "full_state_sufficiency_not_count_specificity",
+        "full_donor_delta_norm_by_layer": full_delta_norms,
+        "registry_sha256": registry.to_dict()["registry_sha256"],
+        **geometry_audit,
+    }
+    condition_replacements: dict[str, Mapping[int, torch.Tensor] | None] = {
+        "clean": None,
+        "self_patch": receiver_states,
+        "full_donor_patch": donor_states,
+    }
+    result_rows: list[dict[str, Any]] = []
+    states_by_condition: dict[str, np.ndarray] = {}
+    for condition in requested:
+        prefill, captures, applications, realized_norms = (
+            _prefill_with_layerwise_state_replacements(
+                model,
+                adapter,
+                encoding,
+                positions=receiver_positions,
+                replacements=condition_replacements[condition],
+                readout_layers=active_readout_layers,
+                readout_positions=readout_positions,
+            )
+        )
+        outcomes = _score_and_generate_prefill(
+            model,
+            tokenizer,
+            encoding,
+            prefill,
+            run_greedy=run_greedy,
+            max_new_tokens=max_new_tokens,
+        )
+        ordered_layers = sorted(captures)
+        readout_states = np.stack(
+            [captures[value].numpy() for value in ordered_layers]
+        )
+        states_by_condition[condition] = readout_states
+        aggregate_realized_norm = float(
+            math.sqrt(sum(value * value for value in realized_norms.values()))
+        )
+        result_rows.append(
+            {
+                **common,
+                "condition": condition,
+                "status": "ok",
+                "patch_hook_applications": {
+                    str(key): value for key, value in sorted(applications.items())
+                },
+                "patch_realized_fro_norm_by_layer": {
+                    str(key): value for key, value in sorted(realized_norms.items())
+                },
+                "patch_realized_aggregate_fro_norm": aggregate_realized_norm,
                 "readout_layers": ordered_layers,
                 "readout_positions": list(readout_positions),
                 **outcomes,

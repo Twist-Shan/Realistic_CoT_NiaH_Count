@@ -1,0 +1,9 @@
+{
+  "schema_version": "span_state_deformation_persistence_audit_v1",
+  "status": "PASS",
+  "manifest_sha256": "77032e1e029305b6fbc15b53aa654fc368069876cac0d3b67223fbf8b1a3c240",
+  "files": 162,
+  "verified_files": 162,
+  "bytes": 10998707,
+  "destination": "/lambda/nfs/CoT-Non-thinking-v4/runs/nonthinking_v445_span_state_deformation_20260817"
+}

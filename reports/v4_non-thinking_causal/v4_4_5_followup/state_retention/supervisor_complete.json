@@ -1,0 +1,8 @@
+{
+  "schema_version": "realistic_niah_v4_4_5_state_retention_supervisor_v1",
+  "status": "PASS",
+  "models": ["Qwen3-8B", "Gemma4-E4B"],
+  "code_manifest_sha256": "35b0bd510ddce481e2de1b22311383063a6e85c0e2e91b55cbdff19aaa3ac673",
+  "stimulus_sha256": "da4dd86142eb8a07f9a7e53497efd3375184c8e68367d4db994370fcb331f090",
+  "completed_utc": "2026-08-17T22:38:02Z"
+}

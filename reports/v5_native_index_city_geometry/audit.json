@@ -1,0 +1,18 @@
+{
+  "schema_version": "realistic_niah_v5_native_index_city_geometry_v1",
+  "generated_at": "2026-08-20T04:51:51.949651+00:00",
+  "fixed_grammar": {
+    "Qwen3-8B": "adjacent_rank_before_city",
+    "Gemma4-E4B": "same_unit_rank_before_city"
+  },
+  "primary_site": "city_end",
+  "control_site": "item_end",
+  "selection_rule": "grammar and sites fixed a priori; each site's layer selected independently by grouped discovery OOF mean Logistic/NCC balanced accuracy; confirmation is frozen evaluation",
+  "pca_visualization": "PCA3 fitted on discovery states of the fixed grammar/site/layer",
+  "outputs": {
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_index_city_geometry\\site_layer_candidates.csv": "bf264019e989c505de206a10ff266a8b0e3bf7c26ec57c9d48e78e0a2078fc1e",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_index_city_geometry\\site_selected.csv": "755e8e30f620a0dfc50b0f4a56b070509ae244c593c4f9fd6b761d2424178fae",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_index_city_geometry\\site_support.csv": "18935643c3ad5dd75701d3e8355399ecb570223273853e92a17f43e6f96d1c56",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_index_city_geometry\\geometry_payload.json": "3453f5ede1f4f6dd7fe014963f6f1bc9a32c9f0f6fb5c2271e5ff343e5462a2d"
+  }
+}

@@ -1,0 +1,137 @@
+{
+  "analysis_status": "complete",
+  "bootstrap_samples": 10000,
+  "clean_reference_anchor_registry_sha256": "021f1e5d3b95f232c0cf69c08236b592dbf2f54e8e04df6abaa27c097a0a96f8",
+  "outputs": {
+    "anchor_level.csv": "c5103f17c8754d2776a201c6822d9f2293734c753145949355d61b73dbd42737",
+    "count_estimands.csv": "5b44a9f1ad6a0c9a32fb653813ade1473ca431d1d811734af7615dde8e537224",
+    "count_raw_arm_rates.csv": "b42a89135885532a9eaf65d87354a671c6fbeff8d587f5bec16ce7c8272a8fe9",
+    "estimands.csv": "03fecbf383ab5cf3ec6f4402372b4947ce976efb21af901c09bce1484c725db8",
+    "failure_modes.csv": "ac60dc1e6ca9903b096059efceb4586473778c43178a268c0f7278a11f7d08d1",
+    "raw_arm_rates.csv": "4a545f572a04c2bbca716ae79c62cb209eb0d8ecfdc8d5a75c8c153eecc47e68",
+    "sample_flow.csv": "3fa7114531fb8dc8cc2c9d296dc459e7ad9c81e281558c59556d8fe5d2e12123",
+    "seed_effects.csv": "ba73b37b5d2c6e0f0509c27b5fc3dbdea4fd4776832091059cde36d5284e60b6"
+  },
+  "population_order": [
+    "all_examples",
+    "clean_correct_only"
+  ],
+  "primary_contrast": "selected_failure_minus_mean_of_three_layer_matched_random_failures",
+  "primary_grammars": [
+    "adjacent_rank_after_city",
+    "adjacent_rank_before_city",
+    "same_unit_rank_before_city",
+    "structural_unmarked"
+  ],
+  "random_repeats": [
+    1,
+    2,
+    3
+  ],
+  "registered_confirmation_seeds": [
+    1254,
+    1255,
+    1256,
+    1257,
+    1258,
+    1259,
+    1260,
+    1261,
+    1262,
+    1263
+  ],
+  "runs": [
+    {
+      "anchor_registry_relation_to_clean_reference": "exact_match",
+      "anchor_registry_sha256": "021f1e5d3b95f232c0cf69c08236b592dbf2f54e8e04df6abaa27c097a0a96f8",
+      "complete_five_arm_anchor_units": 90,
+      "condition_rows": {
+        "layer_matched_random": 270,
+        "selected_bank": 90
+      },
+      "incomplete_anchor_units": 0,
+      "manifest_sha256": "3857988068d5f3f1efb4946390cbc4d07c04b86bc24727a17b973d2177ef410f",
+      "observed_anchor_units": 90,
+      "observed_trial_rows": 360,
+      "plan_sha256": "5ef2e7797e4b9547a9f0b59973eb0d5013deec909cf92ddaa38028fe34a5a81c",
+      "registered_bank_size": 1,
+      "run_dir": "/lambda/nfs/CoT-Native-thinking-v5/runs/v5_native_mechanism_reboot_20260818/Gemma4-E4B/head_behavior_shared_k1_confirmation_prompt_balanced_frozenregistry_v3"
+    },
+    {
+      "anchor_registry_relation_to_clean_reference": "exact_match",
+      "anchor_registry_sha256": "021f1e5d3b95f232c0cf69c08236b592dbf2f54e8e04df6abaa27c097a0a96f8",
+      "complete_five_arm_anchor_units": 90,
+      "condition_rows": {
+        "layer_matched_random": 270,
+        "selected_bank": 90
+      },
+      "incomplete_anchor_units": 0,
+      "manifest_sha256": "9971481d424bb451ad70862d8cfb63c561caca6313a6fcd92b8b62283f18984c",
+      "observed_anchor_units": 90,
+      "observed_trial_rows": 360,
+      "plan_sha256": "1e283ec0e0491139eb8f3b0bebd051be0eef275f587edb773eda8289dee9f046",
+      "registered_bank_size": 2,
+      "run_dir": "/lambda/nfs/CoT-Native-thinking-v5/runs/v5_native_mechanism_reboot_20260818/Gemma4-E4B/head_behavior_shared_k2_confirmation_prompt_balanced_frozenregistry_v3"
+    },
+    {
+      "anchor_registry_relation_to_clean_reference": "exact_match",
+      "anchor_registry_sha256": "021f1e5d3b95f232c0cf69c08236b592dbf2f54e8e04df6abaa27c097a0a96f8",
+      "complete_five_arm_anchor_units": 90,
+      "condition_rows": {
+        "layer_matched_random": 270,
+        "selected_bank": 90
+      },
+      "incomplete_anchor_units": 0,
+      "manifest_sha256": "c91c877c5e7176ed9c6c0de0062876732a5b43242005a175ae3f1efd1b3a5339",
+      "observed_anchor_units": 90,
+      "observed_trial_rows": 360,
+      "plan_sha256": "a34e2bc57bf829bc532b590a470ca3a29a9099a714ddb5f0e79867b9b8f3ce6e",
+      "registered_bank_size": 4,
+      "run_dir": "/lambda/nfs/CoT-Native-thinking-v5/runs/v5_native_mechanism_reboot_20260818/Gemma4-E4B/head_behavior_shared_k4_confirmation_prompt_balanced_frozenregistry_v3"
+    },
+    {
+      "anchor_registry_relation_to_clean_reference": "exact_match",
+      "anchor_registry_sha256": "021f1e5d3b95f232c0cf69c08236b592dbf2f54e8e04df6abaa27c097a0a96f8",
+      "complete_five_arm_anchor_units": 90,
+      "condition_rows": {
+        "layer_matched_random": 270,
+        "selected_bank": 90
+      },
+      "incomplete_anchor_units": 0,
+      "manifest_sha256": "67d52bc69b10fab2fa7cf2e75b3e33d10e08de8c801572fe1809eb5788a6300a",
+      "observed_anchor_units": 90,
+      "observed_trial_rows": 360,
+      "plan_sha256": "348b42d7ff89f9e185d694966b0adc8b7370987cbcea6561bd91a07d1fbee224",
+      "registered_bank_size": 6,
+      "run_dir": "/lambda/nfs/CoT-Native-thinking-v5/runs/v5_native_mechanism_reboot_20260818/Gemma4-E4B/head_behavior_shared_k6_confirmation_prompt_balanced_frozenregistry_v3"
+    },
+    {
+      "anchor_registry_relation_to_clean_reference": "exact_match",
+      "anchor_registry_sha256": "021f1e5d3b95f232c0cf69c08236b592dbf2f54e8e04df6abaa27c097a0a96f8",
+      "complete_five_arm_anchor_units": 270,
+      "condition_rows": {
+        "clean": 270,
+        "layer_matched_random": 810,
+        "selected_bank": 270
+      },
+      "incomplete_anchor_units": 0,
+      "manifest_sha256": "8a58c10524afe2b7e047696391f60f7edbd45a86cc15f29a899725fecf09220c",
+      "observed_anchor_units": 270,
+      "observed_trial_rows": 1350,
+      "plan_sha256": "275704a13ac3d2992e6e33208191413af715438342d253569a447b39d4d807ca",
+      "registered_bank_size": 8,
+      "run_dir": "/lambda/nfs/CoT-Native-thinking-v5/runs/v5_native_mechanism_reboot_20260818/Gemma4-E4B/head_behavior_shared_k8_full300_prompt_balanced_frozenregistry_v3"
+    }
+  ],
+  "schema_version": "realistic_niah_v5_targeted_retrieval_analysis_v1",
+  "scope_order": [
+    "confirmation",
+    "full_panel",
+    "discovery"
+  ],
+  "secondary_registry_policy": "Each confirmation-only dose registry must be an exact row-wise subset of the K125 clean-reference registry.",
+  "selection_config": "/lambda/nfs/CoT-Native-thinking-v5/code/Realistic_CoT_NiaH_Count_native_v5_20260818/configs/realistic_niah_v5_gemma_shared_k8_full300_selection.json",
+  "selection_config_sha256": "a9a697e03dd62cbef2d5823ebd96a632d627f6f087b353a52258f3416672bd89",
+  "selection_contract_validated": true,
+  "unit_of_inference": "seed_after_prompt_anchor_pairing"
+}

@@ -1,0 +1,60 @@
+{
+  "cross_model_supported_candidate_found": true,
+  "evaluated": [
+    {
+      "candidate": "span_end_correct_distance_specificity",
+      "model_pass": {
+        "Gemma4-E4B": true,
+        "Qwen3-8B": true
+      }
+    },
+    {
+      "candidate": "span_mean_correct_distance_specificity",
+      "model_pass": {
+        "Gemma4-E4B": true,
+        "Qwen3-8B": true
+      }
+    },
+    {
+      "candidate": "span_end_margin_damage_specificity",
+      "model_pass": {
+        "Gemma4-E4B": true,
+        "Qwen3-8B": true
+      }
+    },
+    {
+      "candidate": "span_mean_margin_damage_specificity",
+      "model_pass": {
+        "Gemma4-E4B": true,
+        "Qwen3-8B": true
+      }
+    },
+    {
+      "candidate": "span_end_accuracy_damage_specificity",
+      "model_pass": {
+        "Gemma4-E4B": true,
+        "Qwen3-8B": true
+      }
+    },
+    {
+      "candidate": "span_mean_accuracy_damage_specificity",
+      "model_pass": {
+        "Gemma4-E4B": true,
+        "Qwen3-8B": true
+      }
+    }
+  ],
+  "fallback_to_preregistered_primary": false,
+  "primary_metric": "span_end_correct_distance_specificity",
+  "priority": [
+    "span_end_correct_distance_specificity",
+    "span_mean_correct_distance_specificity",
+    "span_end_margin_damage_specificity",
+    "span_mean_margin_damage_specificity",
+    "span_end_accuracy_damage_specificity",
+    "span_mean_accuracy_damage_specificity"
+  ],
+  "schema_version": "realistic_niah_v4_4_5_state_retention_selection_v1",
+  "selected_candidate": "span_end_correct_distance_specificity",
+  "selection_rule": "choose_first_priority_candidate_with_positive_window_mean_and_holm_p_below_0_05_in_both_models_else_keep_primary_and_report_null"
+}

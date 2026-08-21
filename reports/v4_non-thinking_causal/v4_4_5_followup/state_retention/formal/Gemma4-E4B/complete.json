@@ -1,0 +1,23 @@
+{
+  "confirmation_unit_rows": 10,
+  "discovery_audit_status": "PASS",
+  "exact_confirmation_unit_coverage": true,
+  "exact_layer_key_coverage": true,
+  "exact_occurrence_key_coverage": true,
+  "expected_confirmation_unit_rows": 10,
+  "expected_layer_rows": 840,
+  "expected_occurrence_rows": 8400,
+  "experiment_config_sha256": "6a318d16cac88a1836da87a48af44285c0b796e3e4c82a3879c85ed608f0d6a9",
+  "finite_metrics": true,
+  "layer_rows": 840,
+  "model_label": "Gemma4-E4B",
+  "occurrence_rows": 8400,
+  "schema_version": "realistic_niah_v4_4_5_state_retention_run_audit_v1",
+  "sequence_and_query_preserved": true,
+  "status": "PASS",
+  "stimulus_sha256": "da4dd86142eb8a07f9a7e53497efd3375184c8e68367d4db994370fcb331f090",
+  "token_budget_matched": true,
+  "unique_confirmation_unit_keys": 10,
+  "unique_layer_keys": 840,
+  "unique_occurrence_keys": 8400
+}

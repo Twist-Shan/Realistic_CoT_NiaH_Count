@@ -1,0 +1,160 @@
+{
+  "schema_version": "realistic_niah_v5_causal_site_review_manifest_v1",
+  "audit_status": "pass",
+  "rules": {
+    "schema_version": "realistic_niah_v5_causal_site_plan_v2",
+    "token_alignment_version": "exact_reencode_with_monotone_covering_offset_spans_v1",
+    "grammar_policy_version": "transition_anchor_surface_grammar_v3",
+    "cohort_policy_version": "rank_structural_partial_and_evidence_secondary_v2",
+    "semantic_roles": {
+      "city_pre_d1": "output token immediately before the first token overlapping the parser-registered city span",
+      "p0_item_end": "the committed endpoint of item k, used as the earliest query for target city k+1",
+      "unit_pre_d1": "output token immediately before the target city-bearing semantic unit, including its marker or opening delimiter",
+      "post_open_delimiter": "last token overlapping a separable opening bracket or invariant bullet; fused delimiter/content tokens are explicit N/A",
+      "record_clause_pre_d1": "output token immediately before the literal clause 'In the 2024 city score audit' when it occurs inside the target event",
+      "block_pre_d1": "output token before the first compiled event; exploratory and not event-specific",
+      "city_target_span": "all output tokens overlapping the city characters",
+      "rank_evidence_core_span": "semantic ordinal/count content after edge whitespace and removable edge punctuation normalization",
+      "rank_evidence_surface_span": "whitespace-trimmed parser evidence surface retained for visible-surface controls",
+      "rank_visible_format_shell_tokens": "tokenized evidence surface minus its nested semantic core; an explicit syntax/delimiter control, possibly empty",
+      "pre_marker_state": "output token immediately before the first token overlapping rank_evidence_core_span",
+      "post_marker_state": "last output token overlapping rank_evidence_core_span",
+      "post_update_commit_state": "last output token overlapping the selected event semantic span",
+      "continue_to_next_city": "tokens after current commit through the end of the next city; next-city-only tokens are retained separately",
+      "stop_to_answer_query_v3": "tokens after the final observed commit through answer_query_v3",
+      "semantic_target_only": "next-city tokens for continue, or answer_query_v3 tokens for stop; interstitial tokens are retained separately",
+      "anchor_equivalence": "candidate roles resolving to one output token are executed once and retain all semantic aliases"
+    },
+    "surface_grammar_axis": "event association plus actual rank/city character order; trajectory marker_kind alone never selects a causal token",
+    "semantic_span_normalization": "strip leading/trailing Unicode whitespace from parser item, city-unit, and rank-evidence surface; strip edge punctuation from rank evidence only when an alphanumeric core remains; preserve parser/surface/core boundaries and trim counts; do not trim city or answer_query_v3",
+    "cohort_axis": {
+      "primary_rank_resolved_full_chain": "rank-supported, one-to-one observed trace",
+      "secondary_structural_marker_neutral": "one-to-one structural fallback without a rank-supported episode",
+      "secondary_structural_recap": "structural sequence that extends an earlier rank episode; recap sites are not pooled with the primary running trace",
+      "secondary_local_partial_unique": "observed local transitions only; no correct terminal-count claim",
+      "occurrence_retrieval_only_duplicates": "occurrence retrieval only; emitted rank is not unique-count state",
+      "secondary_evidence_sequence_exploratory": "exact score-supported first-mention sequence; retrieval, continue, and terminal stop are exploratory, with no rank-marker claim",
+      "secondary_evidence_sequence_partial_exploratory": "partial score-supported first-mention sequence; local retrieval and continue only, with no terminal-count or rank-marker claim"
+    },
+    "cohort_allowed_estimands": {
+      "primary_rank_resolved_full_chain": [
+        "source_to_city_retrieval",
+        "rank_core_and_format_controls",
+        "continue_to_next_city",
+        "terminal_stop",
+        "serial_mediation"
+      ],
+      "secondary_structural_marker_neutral": [
+        "structural_source_to_city_retrieval",
+        "invariant_or_structural_marker_controls",
+        "structural_continue",
+        "structural_terminal_stop"
+      ],
+      "secondary_structural_recap": [
+        "recap_source_to_city_retrieval",
+        "recap_marker_controls",
+        "recap_continue",
+        "recap_terminal_stop"
+      ],
+      "secondary_local_partial_unique": [
+        "local_source_to_city_retrieval",
+        "local_rank_core_and_format_controls",
+        "local_continue_to_next_observed_city"
+      ],
+      "occurrence_retrieval_only_duplicates": [
+        "occurrence_source_to_city_retrieval"
+      ],
+      "secondary_evidence_sequence_exploratory": [
+        "score_supported_source_to_city_retrieval",
+        "evidence_sequence_continue",
+        "evidence_sequence_terminal_stop"
+      ],
+      "secondary_evidence_sequence_partial_exploratory": [
+        "local_score_supported_source_to_city_retrieval",
+        "local_evidence_sequence_continue"
+      ],
+      "audit_only_unresolved": []
+    },
+    "non_use_guarantee": "gold N and final Total are not used to construct events, choose grammar, or place running causal sites"
+  },
+  "row_counts": {
+    "Qwen3-8B": 300,
+    "Gemma4-E4B": 300
+  },
+  "plan_count": 600,
+  "event_count": 3215,
+  "transition_count": 3215,
+  "anchor_candidate_count": 20920,
+  "provenance": {
+    "config": {
+      "path": "configs/realistic_niah_v5_causal_site_review.json",
+      "sha256": "08dabdb9433fac40306b74ea29dcdc6b80b71abcc6da9209e1c823108c7a8e66"
+    },
+    "causal_site_compiler": {
+      "path": "src/realistic_niah_v5/causal_sites.py",
+      "sha256": "83339010788286f354549e88273b9ce14e4ac9407c93abe0c2a3983a47abc2b5"
+    },
+    "trace_parser": {
+      "path": "src/realistic_niah_v5/hybrid_trace_parser.py",
+      "sha256": "60c607e5cd51b5eab8322e61d064f10df867be0419728d72859a795849208c05"
+    },
+    "parsing_adapter": {
+      "path": "src/realistic_niah_v5/parsing.py",
+      "sha256": "8658adba42d1cf7263e5931297aa1b5fe0866f105635cc274efd1bbf2748f12e"
+    },
+    "input:Qwen3-8B": {
+      "path": "work/v5_trace_parser_v2/Qwen3-8B_generations_reparsed.jsonl",
+      "sha256": "e16d5b88d7934d15cf88422ed4a3bba3ede1190b8f439a3cd4e19e212c2b4bb0"
+    },
+    "input:Gemma4-E4B": {
+      "path": "work/v5_trace_parser_v2/Gemma4-E4B_generations_reparsed.jsonl",
+      "sha256": "abe105d5bdb1fe1a16d4ef2b53b42ec3bf97b458f6881242fae65196ca0335d3"
+    },
+    "tokenizer:Qwen3-8B": {
+      "path": "work/hf_tokenizers/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218/tokenizer.json",
+      "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+    },
+    "tokenizer:Gemma4-E4B": {
+      "path": "work/hf_tokenizers/models--google--gemma-4-E4B-it/snapshots/ee0ef6023621cff504d758262d4e04895a5af4a2/tokenizer.json",
+      "sha256": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f"
+    }
+  },
+  "outputs": {
+    "trajectory_registry": {
+      "path": "reports/v5_native_causal_site_review/trajectory_registry.jsonl",
+      "sha256": "51ec210a27c6ed8c3db048a4726a2933cc520b5619959f5d7ac76fa5196a9c34"
+    },
+    "event_registry": {
+      "path": "reports/v5_native_causal_site_review/event_registry.csv",
+      "sha256": "ec2c8d3d8aaf11260af4e2ba55edc23ea47b8a361e3e707d189b8771306ad309"
+    },
+    "transition_registry": {
+      "path": "reports/v5_native_causal_site_review/transition_registry.csv",
+      "sha256": "f93250959a441012adfb7c9df9b8e186278a510a9b3964c63eaadaafb13579c1"
+    },
+    "anchor_registry": {
+      "path": "reports/v5_native_causal_site_review/anchor_registry.csv",
+      "sha256": "0453568f1e7e8941e462af51764d58edda0bf8dc9899f58e199655fd1de62cba"
+    },
+    "coverage": {
+      "path": "reports/v5_native_causal_site_review/coverage.csv",
+      "sha256": "0621ec9b7dd50038158d579e2d1c18d768b5572ee9449937c17198dbcb25bdad"
+    },
+    "exclusions": {
+      "path": "reports/v5_native_causal_site_review/exclusions.csv",
+      "sha256": "28ee3be0168ba9a34b9fe8ee9b65020850015c3667385ac16fc5d890f1fb58e6"
+    },
+    "compile_failures": {
+      "path": "reports/v5_native_causal_site_review/compile_failures.csv",
+      "sha256": "668166a1f3fcbc22bd92600b0fdb38dd76b809568b74d1648526bb4a8cd177ec"
+    },
+    "audit": {
+      "path": "reports/v5_native_causal_site_review/audit.json",
+      "sha256": "fa58c4ad00796d6d8c7213e60425005048f4438154a950ba3db74efbc2748c19"
+    },
+    "review": {
+      "path": "reports/v5_native_causal_site_review/causal_site_review.html",
+      "sha256": "0b3d97683423f0a6af491190418d7cdf827fe2c61bff2841542fd97c469206f8"
+    }
+  }
+}

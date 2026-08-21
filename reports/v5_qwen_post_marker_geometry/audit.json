@@ -1,0 +1,9 @@
+{
+  "scope": "paired replayed events",
+  "sites": [
+    "pre_marker",
+    "post_marker"
+  ],
+  "selection": "discovery-only grouped OOF, confirmation frozen",
+  "explicit_marker_warning": "post_marker follows a visible ordinal/rank phrase; decoding gain is marker-conditioned retrieval evidence, not an implicit-counter estimate"
+}

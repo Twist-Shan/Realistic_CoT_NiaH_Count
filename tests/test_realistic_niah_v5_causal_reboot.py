@@ -16,6 +16,7 @@ from scripts.run_realistic_niah_v5 import (
     _prompt_balanced_anchor_subset,
     _route_transition_anchors,
     _seed_first_anchor_subset,
+    _selection_intervention_site_decoupled,
     _validate_behavior_selection_window,
 )
 from realistic_niah_v5.causal import (
@@ -819,6 +820,18 @@ def test_multi_site_window_must_include_exact_head_selection_site(
         target_grammar_class="adjacent_rank_before_city",
         require_selection_anchor=False,
     ) == ["pre_marker_d1", "post_marker", "city_pre_d1"]
+
+
+def test_selection_and_intervention_sites_may_be_explicitly_decoupled() -> None:
+    assert _selection_intervention_site_decoupled(
+        "post_marker", ["p0_item_end"]
+    )
+    assert not _selection_intervention_site_decoupled(
+        "post_marker", ["p0_item_end", "post_marker"]
+    )
+    assert not _selection_intervention_site_decoupled(None, ["p0_item_end"])
+    with pytest.raises(ValueError, match="At least one intervention"):
+        _selection_intervention_site_decoupled("post_marker", [])
     assert _validate_behavior_selection_window(
         routing,
         selection_anchor_role="post_marker",

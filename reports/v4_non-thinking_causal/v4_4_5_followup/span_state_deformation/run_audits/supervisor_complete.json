@@ -1,0 +1,8 @@
+{
+  "schema_version": "realistic_niah_v4_4_5_span_state_deformation_supervisor_v1",
+  "status": "PASS",
+  "models": ["Qwen3-8B", "Gemma4-E4B"],
+  "code_manifest_sha256": "608ff4b677ba891e2cf20138ca61c04ab2e1cb4f0847a06ab4fe92ae1117f671",
+  "stimulus_sha256": "da4dd86142eb8a07f9a7e53497efd3375184c8e68367d4db994370fcb331f090",
+  "completed_utc": "2026-08-17T21:41:19Z"
+}

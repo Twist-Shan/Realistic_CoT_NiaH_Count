@@ -1,0 +1,17 @@
+{
+  "detail_key_coverage_exact": true,
+  "detail_rows": 4200,
+  "expected_detail_rows": 4200,
+  "expected_unit_rows": 100,
+  "finite_metrics": true,
+  "model_label": "Gemma4-E4B",
+  "schema_version": "realistic_niah_v4_4_5_span_state_deformation_run_audit_v1",
+  "sequence_and_query_preserved": true,
+  "status": "PASS",
+  "stimulus_sha256": "da4dd86142eb8a07f9a7e53497efd3375184c8e68367d4db994370fcb331f090",
+  "token_budget_matched": true,
+  "unique_detail_keys": 4200,
+  "unique_unit_keys": 100,
+  "unit_key_coverage_exact": true,
+  "unit_rows": 100
+}

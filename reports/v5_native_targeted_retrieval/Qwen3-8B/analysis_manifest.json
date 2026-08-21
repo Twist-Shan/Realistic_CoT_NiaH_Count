@@ -1,0 +1,153 @@
+{
+  "analysis_status": "complete",
+  "bootstrap_samples": 10000,
+  "clean_reference_anchor_registry_sha256": "ed75562232fed47312eecc2562c80c825f7b9c48022ee5b27b4e783fc0ccbf12",
+  "outputs": {
+    "anchor_level.csv": "4c0b1d2dd320415d6d811abe5491d0ce15b4cacaeed0dcfa0e5b2f73ab45aeed",
+    "count_estimands.csv": "7c9d8ec6d7eb3365e6961c3f2bc0e8fe929155aece273859658bc9c54251cebd",
+    "count_raw_arm_rates.csv": "af55c991cb25738e926004209271d59e679e1b274348320dee03152984147a2c",
+    "estimands.csv": "07ea8b8f9bff4bc954ad993209396bf6adc9f7d76ae0afb7a41c84aad7b8a731",
+    "failure_modes.csv": "856e86f5bd245337d9c17d941be49ed343511a1776cda90e70bf6213b1da7af1",
+    "raw_arm_rates.csv": "31126e14a27e600f8b316a2d138ca6db55b6704aa986f06dfa0709e8d7c51ecf",
+    "sample_flow.csv": "11e2db6c0b8242a98e3385f723af728e01ec0083fa0f579d8593cb60e592b0a8",
+    "seed_effects.csv": "cfecf53adb28c6df31fa0ccd99eb262c5d350598b53d20aebb5833ebbc547480"
+  },
+  "population_order": [
+    "all_examples",
+    "clean_correct_only"
+  ],
+  "primary_contrast": "selected_failure_minus_mean_of_three_layer_matched_random_failures",
+  "primary_grammars": [
+    "adjacent_rank_after_city",
+    "adjacent_rank_before_city",
+    "same_unit_rank_before_city",
+    "structural_unmarked"
+  ],
+  "random_repeats": [
+    1,
+    2,
+    3
+  ],
+  "registered_confirmation_seeds": [
+    1254,
+    1255,
+    1256,
+    1257,
+    1258,
+    1259,
+    1260,
+    1261,
+    1262,
+    1263
+  ],
+  "runs": [
+    {
+      "anchor_registry_relation_to_clean_reference": "exact_match",
+      "anchor_registry_sha256": "ed75562232fed47312eecc2562c80c825f7b9c48022ee5b27b4e783fc0ccbf12",
+      "complete_five_arm_anchor_units": 87,
+      "condition_rows": {
+        "layer_matched_random": 261,
+        "selected_bank": 87
+      },
+      "incomplete_anchor_units": 0,
+      "manifest_sha256": "eb5cba75d5afdb91741ab25f5dc7facc4261d935e9cb42d13ffed3e0f899f06a",
+      "observed_anchor_units": 87,
+      "observed_trial_rows": 348,
+      "plan_sha256": "6b22c13c468d73d3ee4a0dda450b4d29bea910d2fd44dde70eaea26b62c934ee",
+      "registered_bank_size": 32,
+      "run_dir": "/lambda/nfs/CoT-Native-thinking-v5/runs/v5_native_mechanism_reboot_20260818/Qwen3-8B/head_behavior_shared_k32_confirmation_prompt_balanced_frozenregistry_v2"
+    },
+    {
+      "anchor_registry_relation_to_clean_reference": "exact_match",
+      "anchor_registry_sha256": "ed75562232fed47312eecc2562c80c825f7b9c48022ee5b27b4e783fc0ccbf12",
+      "complete_five_arm_anchor_units": 87,
+      "condition_rows": {
+        "layer_matched_random": 261,
+        "selected_bank": 87
+      },
+      "incomplete_anchor_units": 0,
+      "manifest_sha256": "7662ec482fd869dcb031d086ce931e3b49779c84f16d12265c913e488827fab5",
+      "observed_anchor_units": 87,
+      "observed_trial_rows": 348,
+      "plan_sha256": "da2f96d2efe2254290ea89b0be8048992b76d3b0eb9b5376006f56671c5afcc4",
+      "registered_bank_size": 64,
+      "run_dir": "/lambda/nfs/CoT-Native-thinking-v5/runs/v5_native_mechanism_reboot_20260818/Qwen3-8B/head_behavior_shared_k64_confirmation_prompt_balanced_frozenregistry_v2"
+    },
+    {
+      "anchor_registry_relation_to_clean_reference": "exact_match",
+      "anchor_registry_sha256": "ed75562232fed47312eecc2562c80c825f7b9c48022ee5b27b4e783fc0ccbf12",
+      "complete_five_arm_anchor_units": 87,
+      "condition_rows": {
+        "layer_matched_random": 261,
+        "selected_bank": 87
+      },
+      "incomplete_anchor_units": 0,
+      "manifest_sha256": "94818919bc5c18f05e1fd2200861198425dd228eef7d15a88c465bb6ae614ade",
+      "observed_anchor_units": 87,
+      "observed_trial_rows": 348,
+      "plan_sha256": "4cd6a9efcf1cf50b477a640448b51c23fba1b24765c50ea74664b1b94a2a15b0",
+      "registered_bank_size": 80,
+      "run_dir": "/lambda/nfs/CoT-Native-thinking-v5/runs/v5_native_mechanism_reboot_20260818/Qwen3-8B/head_behavior_shared_k80_confirmation_prompt_balanced_frozenregistry_v2"
+    },
+    {
+      "anchor_registry_relation_to_clean_reference": "exact_match",
+      "anchor_registry_sha256": "ed75562232fed47312eecc2562c80c825f7b9c48022ee5b27b4e783fc0ccbf12",
+      "complete_five_arm_anchor_units": 87,
+      "condition_rows": {
+        "layer_matched_random": 261,
+        "selected_bank": 87
+      },
+      "incomplete_anchor_units": 0,
+      "manifest_sha256": "dcc7a07688f57ee6d5d69509461e4e8e516e033647dab012aac2bb93e9a0fbf9",
+      "observed_anchor_units": 87,
+      "observed_trial_rows": 348,
+      "plan_sha256": "099c9559fd7ab49c4b965c2750187c5569421a8081813d79c39f428f51dd2902",
+      "registered_bank_size": 96,
+      "run_dir": "/lambda/nfs/CoT-Native-thinking-v5/runs/v5_native_mechanism_reboot_20260818/Qwen3-8B/head_behavior_shared_k96_confirmation_prompt_balanced_frozenregistry_v2"
+    },
+    {
+      "anchor_registry_relation_to_clean_reference": "exact_match",
+      "anchor_registry_sha256": "ed75562232fed47312eecc2562c80c825f7b9c48022ee5b27b4e783fc0ccbf12",
+      "complete_five_arm_anchor_units": 87,
+      "condition_rows": {
+        "layer_matched_random": 261,
+        "selected_bank": 87
+      },
+      "incomplete_anchor_units": 0,
+      "manifest_sha256": "9f39459e53e62ec03de9e37eda2c609bd8f986a0cf63788aa17e16c2be8cfb2a",
+      "observed_anchor_units": 87,
+      "observed_trial_rows": 348,
+      "plan_sha256": "3133955b7a2d097dba463d32907d94586e27a2fe75a83157d0ed58e57c669856",
+      "registered_bank_size": 112,
+      "run_dir": "/lambda/nfs/CoT-Native-thinking-v5/runs/v5_native_mechanism_reboot_20260818/Qwen3-8B/head_behavior_shared_k112_confirmation_prompt_balanced_frozenregistry_v2"
+    },
+    {
+      "anchor_registry_relation_to_clean_reference": "exact_match",
+      "anchor_registry_sha256": "ed75562232fed47312eecc2562c80c825f7b9c48022ee5b27b4e783fc0ccbf12",
+      "complete_five_arm_anchor_units": 256,
+      "condition_rows": {
+        "clean": 256,
+        "layer_matched_random": 768,
+        "selected_bank": 256
+      },
+      "incomplete_anchor_units": 0,
+      "manifest_sha256": "a0c38ff1105fc1c98cf6cf3ae298f17e84c17536fd4aa29d6867c12d5245c2ce",
+      "observed_anchor_units": 256,
+      "observed_trial_rows": 1280,
+      "plan_sha256": "5b443f447018b760e6a2ce995121c5dfa027195dc01706c6c8b6323eb045e876",
+      "registered_bank_size": 125,
+      "run_dir": "/lambda/nfs/CoT-Native-thinking-v5/runs/v5_native_mechanism_reboot_20260818/Qwen3-8B/head_behavior_shared_k125_full300_prompt_balanced_discoverysplit_v2"
+    }
+  ],
+  "schema_version": "realistic_niah_v5_targeted_retrieval_analysis_v1",
+  "scope_order": [
+    "confirmation",
+    "full_panel",
+    "discovery"
+  ],
+  "secondary_registry_policy": "Each confirmation-only dose registry must be an exact row-wise subset of the K125 clean-reference registry.",
+  "selection_config": "/lambda/nfs/CoT-Native-thinking-v5/code/Realistic_CoT_NiaH_Count_native_v5_20260818/configs/realistic_niah_v5_qwen_shared_k125_full300_selection.json",
+  "selection_config_sha256": "786429838de0b17248e8de44d79d75ca31b81ea117bbc47f1180855ac8e849b2",
+  "selection_contract_validated": true,
+  "unit_of_inference": "seed_after_prompt_anchor_pairing"
+}

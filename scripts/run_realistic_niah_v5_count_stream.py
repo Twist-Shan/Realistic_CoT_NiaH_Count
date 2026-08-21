@@ -29,10 +29,14 @@ from realistic_niah_v5.count_stream import (  # noqa: E402
     REGISTERED_MASK_CONDITIONS,
     REGISTERED_RESTORATION_CONDITIONS,
     REGISTERED_STREAM_CONDITIONS,
+    REGISTERED_TRACE_FULL_STATE_CONDITIONS,
+    REGISTERED_TRACE_PATCH_GEOMETRIES,
+    REGISTERED_TRACE_PATCH_LAYER_MODES,
     REGISTERED_TRACE_PATCH_CONDITIONS,
     NativeCountMechanismSpec,
     build_answer_broad_head_plan,
     build_sparse_trace_patch_sample_plan,
+    build_terminal_last_trace_patch_sample_plan,
     capture_answer_source_attention,
     count_stream_cohort_mask,
     fit_count_stream_basis,
@@ -42,6 +46,7 @@ from realistic_niah_v5.count_stream import (  # noqa: E402
     run_answer_broad_head_trial,
     run_answer_source_mask_trial,
     run_stream_state_trial,
+    run_trace_full_state_patch_trials,
     run_trace_intermediate_patch_trials,
     run_trace_terminal_patch_trials,
     run_trace_restoration_trials,
@@ -506,6 +511,63 @@ def command_plan_trace_patch(args: argparse.Namespace) -> None:
     )
 
 
+def command_plan_terminal_last_patch(args: argparse.Namespace) -> None:
+    """Freeze the 19-cell natural donor-to-final receiver panel."""
+
+    started = time.perf_counter()
+    mechanism = _spec(args)
+    if args.seed_role != "development":
+        raise ValueError("Terminal-last sampling is development-only")
+    rows = _registered_rows(args, mechanism)
+    per_cell = (
+        int(args.seeds_per_cell)
+        if args.seeds_per_cell is not None
+        else int(mechanism.trace_patch_seeds_per_cell)
+    )
+    plan = build_terminal_last_trace_patch_sample_plan(
+        rows,
+        model_label=args.model,
+        seeds_per_cell=per_cell,
+        sampling_seed=mechanism.trace_patch_sampling_seed,
+    )
+    output = Path(args.output)
+    plan_path = output / "terminal_last_pair_plan.csv"
+    _atomic_csv(plan_path, plan)
+    cell_counts = (
+        plan.groupby(["gold_count", "donor_offset"], as_index=False)
+        .agg(
+            pair_count=("pair_sha256", "nunique"),
+            seed_count=("seed", "nunique"),
+        )
+        .sort_values(["gold_count", "donor_offset"])
+    )
+    _atomic_csv(output / "terminal_last_cell_counts.csv", cell_counts)
+    _atomic_json(
+        output / "manifest.json",
+        _runtime_manifest(
+            args,
+            mechanism=mechanism,
+            started=started,
+            completed_shards=0,
+            extra={
+                "selection_policy": "outcome_blind_registry_identity_hash",
+                "selection_input_fields": (
+                    "sampling_seed,model_label,panel_kind,gold_count,"
+                    "donor_offset,seed,request_id"
+                ),
+                "receiver_policy": "final_observed_count_before_answer_query",
+                "donor_direction": "past_to_later_receiver",
+                "count_ranges": {"-1": [2, 10], "-3": [5, 10], "-5": [7, 10]},
+                "seeds_per_cell": per_cell,
+                "pair_count": int(len(plan)),
+                "cell_count": int(len(cell_counts)),
+                "pair_plan": str(plan_path.resolve()),
+                "pair_plan_sha256": _sha256(plan_path),
+            },
+        ),
+    )
+
+
 def command_source_mask(args: argparse.Namespace) -> None:
     started = time.perf_counter()
     mechanism = _spec(args)
@@ -530,6 +592,7 @@ def command_source_mask(args: argparse.Namespace) -> None:
                     row,
                     condition=condition,
                     answer_site_id=mechanism.answer_site_id,
+                    mask_application=args.mask_application,
                     run_greedy=not args.skip_greedy,
                     max_new_tokens=args.max_new_tokens,
                 )
@@ -559,7 +622,13 @@ def command_source_mask(args: argparse.Namespace) -> None:
             mechanism=mechanism,
             started=started,
             completed_shards=len(list(shard_dir.glob("*.jsonl"))),
-            extra={"newly_completed": completed, "resume_skipped": skipped},
+            extra={
+                "newly_completed": completed,
+                "resume_skipped": skipped,
+                "mask_application": args.mask_application,
+                "head_scope": "all_attention_heads",
+                "layer_scope": "all_decoder_layers",
+            },
         ),
     )
 
@@ -970,6 +1039,97 @@ def _validated_trace_patch_plan(
     ).reset_index(drop=True)
 
 
+def _validated_terminal_last_plan(
+    path: Path,
+    *,
+    mechanism: NativeCountMechanismSpec,
+    rows: list[dict[str, Any]],
+    model_label: str,
+) -> pd.DataFrame:
+    """Reconstruct the frozen terminal-last plan before loading a model."""
+
+    plan = pd.read_csv(path)
+    needed = {
+        "schema_version",
+        "experiment_id",
+        "model_label",
+        "panel_kind",
+        "request_id",
+        "seed",
+        "gold_count",
+        "receiver_occurrence",
+        "donor_occurrence",
+        "donor_offset",
+        "donor_direction",
+        "selection_cell_id",
+        "selection_rank",
+        "sampling_seed",
+        "seeds_per_cell",
+        "pair_sha256",
+    }
+    missing = sorted(needed - set(plan.columns))
+    if missing:
+        raise ValueError(f"Terminal-last pair plan is missing {missing}")
+    plan = plan.loc[plan["model_label"].astype(str).eq(str(model_label))].copy()
+    if plan.empty:
+        raise ValueError(f"Terminal-last plan has no rows for {model_label}")
+    for column in (
+        "seed",
+        "gold_count",
+        "receiver_occurrence",
+        "donor_occurrence",
+        "donor_offset",
+        "selection_rank",
+        "sampling_seed",
+        "seeds_per_cell",
+    ):
+        plan[column] = pd.to_numeric(plan[column], errors="raise").astype(int)
+    if set(plan["schema_version"].astype(str)) != {COUNT_STREAM_SCHEMA_VERSION}:
+        raise ValueError("Terminal-last plan uses a different schema")
+    if set(plan["experiment_id"].astype(str)) != {"trace_terminal_last_pair_plan"}:
+        raise ValueError("Terminal-last plan has the wrong experiment id")
+    if set(plan["panel_kind"].astype(str)) != {"terminal_last"}:
+        raise ValueError("Terminal-last plan contains a different panel kind")
+    per_cells = set(plan["seeds_per_cell"].tolist())
+    sampling_seeds = set(plan["sampling_seed"].tolist())
+    if len(per_cells) != 1 or len(sampling_seeds) != 1:
+        raise ValueError("Terminal-last plan mixes sampling designs")
+    if sampling_seeds != {int(mechanism.trace_patch_sampling_seed)}:
+        raise ValueError("Terminal-last plan uses a different sampling seed")
+    expected = build_terminal_last_trace_patch_sample_plan(
+        rows,
+        model_label=model_label,
+        seeds_per_cell=int(next(iter(per_cells))),
+        sampling_seed=int(mechanism.trace_patch_sampling_seed),
+    )
+    identity_columns = [
+        "panel_kind",
+        "selection_cell_id",
+        "selection_rank",
+        "request_id",
+        "seed",
+        "gold_count",
+        "receiver_occurrence",
+        "donor_occurrence",
+        "donor_offset",
+        "donor_direction",
+        "sampling_seed",
+        "seeds_per_cell",
+        "pair_sha256",
+    ]
+    left = plan[identity_columns].sort_values("pair_sha256").reset_index(drop=True)
+    right = expected[identity_columns].sort_values("pair_sha256").reset_index(drop=True)
+    try:
+        pd.testing.assert_frame_equal(left, right, check_dtype=False)
+    except AssertionError as exc:
+        raise ValueError(
+            "Terminal-last plan does not match the outcome-blind reconstruction"
+        ) from exc
+    return plan.sort_values(
+        ["gold_count", "donor_offset", "selection_rank"]
+    ).reset_index(drop=True)
+
+
 def command_stream_state(args: argparse.Namespace) -> None:
     started = time.perf_counter()
     mechanism = _spec(args)
@@ -1230,6 +1390,204 @@ def command_trace_patch(args: argparse.Namespace) -> None:
                 "primary_temporal_direction": mechanism.trace_patch_primary_direction,
                 "primary_outcome": mechanism.trace_patch_primary_outcome,
                 "future_to_past_role": "counterfactual_representational_sensitivity",
+            },
+        ),
+    )
+
+
+def command_trace_full_state_patch(args: argparse.Namespace) -> None:
+    """Run multi-position one-shot or cumulative full-state transfers."""
+
+    started = time.perf_counter()
+    mechanism = _spec(args)
+    if getattr(args, "limit", None) is not None:
+        raise ValueError(
+            "trace-full-state-patch uses --max-selection-rank, not --limit, "
+            "so plan reconstruction remains complete"
+        )
+    rows = _registered_rows(args, mechanism)
+    if args.plan_kind == "sparse_local":
+        pair_plan = _validated_trace_patch_plan(
+            args.pair_plan,
+            mechanism=mechanism,
+            rows=rows,
+            model_label=args.model,
+        )
+        pair_plan = pair_plan.loc[
+            pair_plan["panel_kind"].astype(str).eq("local")
+            & pair_plan["donor_direction"].astype(str).eq(
+                "past_to_later_receiver"
+            )
+        ].copy()
+    elif args.plan_kind == "terminal_last":
+        pair_plan = _validated_terminal_last_plan(
+            args.pair_plan,
+            mechanism=mechanism,
+            rows=rows,
+            model_label=args.model,
+        )
+    else:  # argparse prevents this, but keep the runtime contract explicit.
+        raise ValueError(f"Unknown full-state plan kind: {args.plan_kind}")
+    if args.max_selection_rank is not None:
+        pair_plan = pair_plan.loc[
+            pair_plan["selection_rank"].le(int(args.max_selection_rank))
+        ].copy()
+    if args.selection_cell_ids:
+        requested_cells = {str(value) for value in args.selection_cell_ids}
+        available_cells = set(pair_plan["selection_cell_id"].astype(str))
+        missing_cells = sorted(requested_cells - available_cells)
+        if missing_cells:
+            raise ValueError(
+                f"Full-state plan does not contain requested cells {missing_cells}"
+            )
+        pair_plan = pair_plan.loc[
+            pair_plan["selection_cell_id"].astype(str).isin(requested_cells)
+        ].copy()
+    if pair_plan.empty:
+        raise ValueError("No pairs remain for the full-state patch run")
+
+    planned_request_ids = set(pair_plan["request_id"].astype(str))
+    row_by_request = {
+        str(row["request_id"]): row
+        for row in rows
+        if str(row["request_id"]) in planned_request_ids
+    }
+    missing_requests = sorted(planned_request_ids - set(row_by_request))
+    if missing_requests:
+        raise ValueError(
+            f"Full-state plan references {len(missing_requests)} absent rows"
+        )
+    basis_manifest_path, basis_manifest = _validate_trace_patch_basis_manifest(
+        args.basis
+    )
+    _center, _basis, _control = _load_basis(args.basis, args.layer)
+    active_readout_layers = tuple(
+        sorted({int(value) for value in args.readout_layers})
+    ) or (int(args.layer) + 1,)
+    readout_bases = _load_readout_bases(args.basis, active_readout_layers)
+    if len(set(args.conditions)) != len(args.conditions):
+        raise ValueError("Full-state patch conditions must be unique")
+    if not {"clean", "self_patch"} <= set(args.conditions):
+        raise ValueError("Full-state runs require clean and self_patch controls")
+
+    model, tokenizer, adapter = _model(args)
+    output = Path(args.output)
+    shard_dir = _prepare_shards(output, resume=args.resume, suffix="jsonl")
+    completed = skipped = not_applicable = 0
+    for pair_index, pair in enumerate(pair_plan.itertuples(index=False), start=1):
+        row = row_by_request[str(pair.request_id)]
+        receiver = int(pair.receiver_occurrence)
+        donor = int(pair.donor_occurrence)
+        for geometry in args.geometries:
+            for layer_mode in args.layer_modes:
+                stem = _safe_stem(
+                    row["request_id"],
+                    args.plan_kind,
+                    receiver,
+                    donor,
+                    args.layer,
+                    geometry,
+                    layer_mode,
+                )
+                shard = shard_dir / f"{stem}.jsonl"
+                if args.resume and shard.exists():
+                    skipped += 1
+                    continue
+                try:
+                    results = run_trace_full_state_patch_trials(
+                        model,
+                        tokenizer,
+                        adapter,
+                        row,
+                        receiver_occurrence=receiver,
+                        donor_occurrence=donor,
+                        layer=args.layer,
+                        geometry=geometry,
+                        layer_mode=layer_mode,
+                        readout_layers=active_readout_layers,
+                        readout_bases=readout_bases,
+                        conditions=args.conditions,
+                        answer_site_id=mechanism.answer_site_id,
+                        run_greedy=not args.skip_greedy,
+                        max_new_tokens=args.max_new_tokens,
+                    )
+                except ValueError as exc:
+                    if "not applicable" not in str(exc).lower():
+                        raise
+                    not_applicable += 1
+                    results = [
+                        {
+                            "schema_version": COUNT_STREAM_SCHEMA_VERSION,
+                            "experiment_id": "trace_full_state_geometry_patching",
+                            "condition": condition,
+                            "status": "not_applicable",
+                            "exclusion_reason": str(exc),
+                            "request_id": row["request_id"],
+                            "model_label": args.model,
+                            "seed": int(row["seed"]),
+                            "gold_count": int(pair.gold_count),
+                            "layer": int(args.layer),
+                            "patch_geometry": str(geometry),
+                            "patch_layer_mode": str(layer_mode),
+                            "receiver_occurrence": receiver,
+                            "donor_occurrence": donor,
+                            "donor_offset": donor - receiver,
+                        }
+                        for condition in args.conditions
+                    ]
+                for result in results:
+                    result.update(
+                        {
+                            "mechanism_split": args.seed_role,
+                            "panel_kind": str(pair.panel_kind),
+                            "plan_kind": args.plan_kind,
+                            "selection_cell_id": str(pair.selection_cell_id),
+                            "selection_rank": int(pair.selection_rank),
+                            "pair_sha256": str(pair.pair_sha256),
+                            "pair_plan": str(args.pair_plan.resolve()),
+                            "pair_plan_sha256": _sha256(args.pair_plan),
+                            "basis": str(args.basis.resolve()),
+                            "basis_sha256": _sha256(args.basis),
+                            "basis_manifest_sha256": _sha256(basis_manifest_path),
+                        }
+                    )
+                _atomic_jsonl(shard, results)
+                completed += 1
+        print(
+            f"[count-stream trace-full-state-patch] "
+            f"{pair_index}/{len(pair_plan)}",
+            flush=True,
+        )
+    _atomic_json(
+        output / "manifest.json",
+        _runtime_manifest(
+            args,
+            mechanism=mechanism,
+            started=started,
+            completed_shards=len(list(shard_dir.glob("*.jsonl"))),
+            extra={
+                "newly_completed": completed,
+                "resume_skipped": skipped,
+                "not_applicable_geometry_shards_this_run": not_applicable,
+                "planned_pair_count": int(len(pair_plan)),
+                "planned_shard_count": int(
+                    len(pair_plan) * len(args.geometries) * len(args.layer_modes)
+                ),
+                "plan_kind": args.plan_kind,
+                "pair_plan": str(args.pair_plan.resolve()),
+                "pair_plan_sha256": _sha256(args.pair_plan),
+                "max_selection_rank": args.max_selection_rank,
+                "selection_cell_ids": list(args.selection_cell_ids or ()),
+                "basis": str(args.basis.resolve()),
+                "basis_sha256": _sha256(args.basis),
+                "basis_manifest": str(basis_manifest_path.resolve()),
+                "basis_manifest_sha256": _sha256(basis_manifest_path),
+                "patch_layer": int(args.layer),
+                "readout_layers": list(active_readout_layers),
+                "geometries": list(args.geometries),
+                "layer_modes": list(args.layer_modes),
+                "conditions": list(args.conditions),
+                "claim_scope": "development_full_state_sufficiency",
             },
         ),
     )
@@ -1504,6 +1862,19 @@ def build_parser() -> argparse.ArgumentParser:
         seed_role="development",
     )
 
+    terminal_last_plan = subparsers.add_parser(
+        "plan-terminal-last-patch",
+        help="Freeze natural donors to the final trace-count receiver.",
+    )
+    _add_rows(terminal_last_plan)
+    terminal_last_plan.add_argument("--seeds-per-cell", type=int)
+    terminal_last_plan.add_argument("--output", type=Path, required=True)
+    terminal_last_plan.set_defaults(
+        func=command_plan_terminal_last_patch,
+        row_panel="trace_patch",
+        seed_role="development",
+    )
+
     select_k = subparsers.add_parser(
         "select-broad-k",
         help="Select and freeze one model/source K from development dose outcomes.",
@@ -1533,6 +1904,15 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         choices=list(REGISTERED_MASK_CONDITIONS),
         default=list(REGISTERED_MASK_CONDITIONS),
+    )
+    source_mask.add_argument(
+        "--mask-application",
+        choices=["answer_query_only", "answer_query_and_answer_tokens"],
+        default="answer_query_only",
+        help=(
+            "Query-only matches the top-K answer-query ablation; persistent "
+            "also prevents later numeric answer tokens from rereading sources."
+        ),
     )
     source_mask.set_defaults(func=command_source_mask)
 
@@ -1619,6 +1999,54 @@ def build_parser() -> argparse.ArgumentParser:
     trace_patch.set_defaults(
         func=command_trace_patch,
         max_new_tokens=48,
+        cohort="one_to_one",
+        row_panel="trace_patch",
+    )
+
+    full_state_patch = subparsers.add_parser(
+        "trace-full-state-patch",
+        help=(
+            "Patch endpoint, suffix, or whole-span hidden tensors once or "
+            "cumulatively within the native trace."
+        ),
+    )
+    _add_rows(full_state_patch)
+    _add_output_resume(full_state_patch)
+    _add_behavior(full_state_patch)
+    full_state_patch.add_argument("--pair-plan", type=Path, required=True)
+    full_state_patch.add_argument(
+        "--plan-kind",
+        choices=["sparse_local", "terminal_last"],
+        required=True,
+    )
+    full_state_patch.add_argument("--basis", type=Path, required=True)
+    full_state_patch.add_argument("--layer", type=int, required=True)
+    full_state_patch.add_argument(
+        "--readout-layers", type=int, nargs="+", default=[]
+    )
+    full_state_patch.add_argument(
+        "--geometries",
+        nargs="+",
+        choices=list(REGISTERED_TRACE_PATCH_GEOMETRIES),
+        default=list(REGISTERED_TRACE_PATCH_GEOMETRIES),
+    )
+    full_state_patch.add_argument(
+        "--layer-modes",
+        nargs="+",
+        choices=list(REGISTERED_TRACE_PATCH_LAYER_MODES),
+        default=list(REGISTERED_TRACE_PATCH_LAYER_MODES),
+    )
+    full_state_patch.add_argument(
+        "--conditions",
+        nargs="+",
+        choices=list(REGISTERED_TRACE_FULL_STATE_CONDITIONS),
+        default=list(REGISTERED_TRACE_FULL_STATE_CONDITIONS),
+    )
+    full_state_patch.add_argument("--max-selection-rank", type=int)
+    full_state_patch.add_argument("--selection-cell-ids", nargs="+")
+    full_state_patch.set_defaults(
+        func=command_trace_full_state_patch,
+        max_new_tokens=16,
         cohort="one_to_one",
         row_panel="trace_patch",
     )

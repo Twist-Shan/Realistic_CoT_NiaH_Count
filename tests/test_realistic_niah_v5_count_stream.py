@@ -16,10 +16,12 @@ from scripts.run_realistic_niah_v5_count_stream import (
 from realistic_niah_v5.count_stream import (
     AnswerSourceRegistry,
     NativeCountMechanismSpec,
+    _full_state_patch_layers,
     _registered_ordinary_corruption_banks,
     answer_source_mask,
     build_answer_broad_head_plan,
     build_sparse_trace_patch_sample_plan,
+    build_terminal_last_trace_patch_sample_plan,
     build_trace_patch_pair_plan,
     deterministic_control_basis,
     fit_count_stream_basis,
@@ -29,6 +31,7 @@ from realistic_niah_v5.count_stream import (
     source_attention_metrics,
     stream_state_retention_metrics,
     summarize_linear_contrasts,
+    trace_patch_geometry_positions,
     trace_patch_condition_states,
     valid_trace_patch_receivers,
 )
@@ -333,6 +336,96 @@ def test_sparse_trace_patch_plan_freezes_330_local_plus_20_terminal_pairs() -> N
     assert not terminal["local_next_city_outcome_registered"].any()
 
 
+def test_terminal_last_plan_freezes_19_natural_receiver_cells() -> None:
+    rows = [
+        {
+            "request_id": f"terminal-{seed}-{count}",
+            "model_label": "Qwen3-8B",
+            "seed": seed,
+            "gold_count": count,
+            "prediction": (seed * count) % 11,
+        }
+        for seed in range(100, 130)
+        for count in range(1, 11)
+    ]
+    plan = build_terminal_last_trace_patch_sample_plan(
+        rows,
+        model_label="Qwen3-8B",
+        seeds_per_cell=10,
+        sampling_seed=23,
+    )
+    repeated = build_terminal_last_trace_patch_sample_plan(
+        [{**row, "prediction": -999} for row in rows],
+        model_label="Qwen3-8B",
+        seeds_per_cell=10,
+        sampling_seed=23,
+    )
+    assert list(plan["pair_sha256"]) == list(repeated["pair_sha256"])
+    assert len(plan) == 190
+    assert plan.groupby(["gold_count", "donor_offset"]).size().eq(10).all()
+    assert plan.groupby(["gold_count", "donor_offset"])["seed"].nunique().eq(10).all()
+    expected = {
+        -1: list(range(2, 11)),
+        -3: list(range(5, 11)),
+        -5: list(range(7, 11)),
+    }
+    for offset, counts in expected.items():
+        observed = sorted(
+            plan.loc[plan["donor_offset"].eq(offset), "gold_count"].unique()
+        )
+        assert observed == counts
+    assert plan["receiver_occurrence"].eq(plan["gold_count"]).all()
+    assert (
+        plan["donor_occurrence"]
+        == plan["receiver_occurrence"] + plan["donor_offset"]
+    ).all()
+    assert set(plan["donor_direction"]) == {"past_to_later_receiver"}
+    assert plan["receiver_is_terminal"].all()
+    assert not plan["local_next_city_outcome_registered"].any()
+
+
+def test_full_state_patch_geometry_is_exact_and_never_interpolates() -> None:
+    registry = _registry()
+    receiver, donor, audit = trace_patch_geometry_positions(
+        registry,
+        receiver_occurrence=2,
+        donor_occurrence=1,
+        geometry="endpoint",
+    )
+    assert receiver == (34,)
+    assert donor == (29,)
+    assert audit["patch_token_count"] == 1
+    receiver, donor, audit = trace_patch_geometry_positions(
+        registry,
+        receiver_occurrence=2,
+        donor_occurrence=1,
+        geometry="full_span",
+    )
+    assert receiver == (31, 32, 33, 34)
+    assert donor == (26, 27, 28, 29)
+    assert audit["patch_position_alignment"] == "right_aligned_relative_token_index"
+    with pytest.raises(ValueError, match="not applicable"):
+        trace_patch_geometry_positions(
+            registry,
+            receiver_occurrence=2,
+            donor_occurrence=1,
+            geometry="suffix8",
+        )
+
+
+def test_full_state_patch_layer_modes_match_one_shot_and_html_clamp() -> None:
+    assert _full_state_patch_layers(
+        source_layer=3, num_layers=7, layer_mode="one_shot"
+    ) == (3,)
+    assert _full_state_patch_layers(
+        source_layer=3, num_layers=7, layer_mode="cumulative_clamp"
+    ) == (3, 4, 5, 6)
+    with pytest.raises(ValueError, match="leave a downstream"):
+        _full_state_patch_layers(
+            source_layer=6, num_layers=7, layer_mode="one_shot"
+        )
+
+
 def test_valid_trace_patch_receiver_ranges_are_signed() -> None:
     assert valid_trace_patch_receivers(3, -1) == (2,)
     assert valid_trace_patch_receivers(3, 1) == ()
@@ -567,6 +660,65 @@ def test_trace_patch_cli_registers_full_control_panel() -> None:
         "progress_projected_patch",
         "norm_matched_orthogonal_patch",
     ]
+
+
+def test_full_state_patch_cli_freezes_geometry_and_layer_modes() -> None:
+    args = build_parser().parse_args(
+        [
+            "trace-full-state-patch",
+            "--model",
+            "Qwen3-8B",
+            "--generations",
+            "generations.jsonl",
+            "--pair-plan",
+            "pair-plan.csv",
+            "--plan-kind",
+            "terminal_last",
+            "--basis",
+            "basis.npz",
+            "--layer",
+            "18",
+            "--output",
+            "full-state-output",
+        ]
+    )
+    assert args.command == "trace-full-state-patch"
+    assert args.max_new_tokens == 16
+    assert args.geometries == ["endpoint", "suffix4", "suffix8", "full_span"]
+    assert args.layer_modes == ["one_shot", "cumulative_clamp"]
+    assert args.conditions == ["clean", "self_patch", "full_donor_patch"]
+
+
+def test_terminal_last_plan_cli_defaults_to_development() -> None:
+    args = build_parser().parse_args(
+        [
+            "plan-terminal-last-patch",
+            "--model",
+            "Gemma4-E4B",
+            "--generations",
+            "generations.jsonl",
+            "--output",
+            "terminal-plan",
+        ]
+    )
+    assert args.seed_role == "development"
+    assert args.row_panel == "trace_patch"
+    assert args.seeds_per_cell is None
+
+
+def test_source_mask_cli_defaults_to_answer_query_only_all_head_assay() -> None:
+    args = build_parser().parse_args(
+        [
+            "source-mask",
+            "--model",
+            "Qwen3-8B",
+            "--generations",
+            "generations.jsonl",
+            "--output",
+            "source-mask-output",
+        ]
+    )
+    assert args.mask_application == "answer_query_only"
 
 
 def test_trace_patch_basis_manifest_freezes_site_and_label(tmp_path) -> None:

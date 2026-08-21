@@ -1,0 +1,110 @@
+{
+  "confirmation_seeds": [
+    1254,
+    1255,
+    1256,
+    1257,
+    1258,
+    1259,
+    1260,
+    1261,
+    1262,
+    1263
+  ],
+  "cuda_device": "NVIDIA A10",
+  "discovery_seeds": [
+    1234,
+    1235,
+    1236,
+    1237,
+    1238,
+    1239,
+    1240,
+    1241,
+    1242,
+    1243,
+    1244,
+    1245,
+    1246,
+    1247,
+    1248,
+    1249,
+    1250,
+    1251,
+    1252,
+    1253
+  ],
+  "experiment_config": "/home/ubuntu/runs/nonthinking_v445_state_retention_20260817/code/configs/realistic_niah_v4_4_5_state_retention.json",
+  "experiment_config_sha256": "6a318d16cac88a1836da87a48af44285c0b796e3e4c82a3879c85ed608f0d6a9",
+  "git_sha": "22f828bef736bfa4c91e292a5f4c31e838e3cc4b",
+  "gold_count": 10,
+  "layers": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35
+  ],
+  "model_id": "Qwen/Qwen3-8B",
+  "model_label": "Qwen3-8B",
+  "model_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+  "pooling_sites": [
+    "span_end",
+    "span_mean"
+  ],
+  "runner_path": "/home/ubuntu/runs/nonthinking_v445_state_retention_20260817/code/scripts/run_realistic_niah_v4_4_5_state_retention.py",
+  "runner_sha256": "2e7ea877826743dc07d1d2717452ad8edcbc0c0579e4476bce4b6b833fd6035c",
+  "runtime_files": {
+    "modeling": {
+      "path": "/usr/lib/python3/dist-packages/torch/utils/_contextlib.py",
+      "sha256": "cf7aa5b08f44974ba8c1d08cd71ef70ffd13d1c48a4931576eb235306bfa46b5"
+    },
+    "prompt_renderer": {
+      "path": "/home/ubuntu/runs/nonthinking_v445_state_retention_20260817/code/src/realistic_niah_v4/prompts.py",
+      "sha256": "784d5fa7ce12e8cd7a37ba56e967b11d5cfcccd53383bccf7d2e9c2c34a30ed7"
+    },
+    "restoration": {
+      "path": "/home/ubuntu/runs/nonthinking_v445_state_retention_20260817/code/src/realistic_niah_v4_4_5/restoration.py",
+      "sha256": "c6031ffbb174f716acce0932241937cb4e6a68419c396a51faf07b6727bd46cf"
+    },
+    "stimulus_loader": {
+      "path": "/home/ubuntu/runs/nonthinking_v445_state_retention_20260817/code/src/realistic_niah_v4/stimuli.py",
+      "sha256": "aca33e17f3e7ef57cb6e06dfb244ffb4691c5cddc003ebcbefa3e8562c8ae7e8"
+    }
+  },
+  "schema_version": "realistic_niah_v4_4_5_state_retention_run_v1",
+  "stimuli": "/lambda/nfs/CoT-Non-thinking-v4/runs/nonthinking_v445_8gpu_20260813/dataset/canonical_run_20260731_v4_numeric_presentation_v3_stimuli.jsonl",
+  "stimulus_sha256": "da4dd86142eb8a07f9a7e53497efd3375184c8e68367d4db994370fcb331f090",
+  "torch_version": "2.7.0"
+}

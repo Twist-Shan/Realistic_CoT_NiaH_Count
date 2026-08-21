@@ -1,0 +1,31 @@
+{
+  "bootstrap_draws": 50000,
+  "deformation_family_size_per_model": 4,
+  "exact_sign_flip_assignments_per_test": 1024,
+  "expected_layerwise_rows": 780,
+  "expected_window_rows": 20,
+  "layerwise_rows": 780,
+  "models": {
+    "Gemma4-E4B": {
+      "exact_key_coverage": true,
+      "expected_rows": 840,
+      "finite_signed_metrics": true,
+      "rows": 840,
+      "run_audit_status": "PASS",
+      "unique_keys": 840
+    },
+    "Qwen3-8B": {
+      "exact_key_coverage": true,
+      "expected_rows": 720,
+      "finite_signed_metrics": true,
+      "rows": 720,
+      "run_audit_status": "PASS",
+      "unique_keys": 720
+    }
+  },
+  "retention_family_size_per_model": 6,
+  "schema_version": "realistic_niah_v4_4_5_state_retention_analysis_audit_v1",
+  "selection_file_written": true,
+  "status": "PASS",
+  "window_rows": 20
+}

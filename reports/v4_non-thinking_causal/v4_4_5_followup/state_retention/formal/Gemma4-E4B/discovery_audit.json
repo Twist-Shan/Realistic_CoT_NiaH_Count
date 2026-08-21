@@ -1,0 +1,121 @@
+{
+  "centroid_bank_sha256": "23c13d9ecd37520566cb3a45a3b6a304a30986dddf5dde1f4b09f996e917bd3d",
+  "discovery_seed_count": 20,
+  "discovery_seeds": [
+    1234,
+    1235,
+    1236,
+    1237,
+    1238,
+    1239,
+    1240,
+    1241,
+    1242,
+    1243,
+    1244,
+    1245,
+    1246,
+    1247,
+    1248,
+    1249,
+    1250,
+    1251,
+    1252,
+    1253
+  ],
+  "experiment_config_sha256": "6a318d16cac88a1836da87a48af44285c0b796e3e4c82a3879c85ed608f0d6a9",
+  "gold_count": 10,
+  "layers": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41
+  ],
+  "pooling_sites": [
+    "span_end",
+    "span_mean"
+  ],
+  "running_indices": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "schema_version": "realistic_niah_v4_4_5_state_retention_discovery_audit_v1",
+  "sites": {
+    "span_end": {
+      "centroid_shape": [
+        42,
+        10,
+        2560
+      ],
+      "finite": true,
+      "radius_max": 44.04122758656433,
+      "radius_min": 1.6820446033269216,
+      "radius_shape": [
+        42,
+        10
+      ]
+    },
+    "span_mean": {
+      "centroid_shape": [
+        42,
+        10,
+        2560
+      ],
+      "finite": true,
+      "radius_max": 12.285264478865603,
+      "radius_min": 1.902232236174946,
+      "radius_shape": [
+        42,
+        10
+      ]
+    }
+  },
+  "status": "PASS",
+  "stimulus_sha256": "da4dd86142eb8a07f9a7e53497efd3375184c8e68367d4db994370fcb331f090"
+}

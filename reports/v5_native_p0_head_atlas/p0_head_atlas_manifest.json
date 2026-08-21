@@ -1,0 +1,35 @@
+{
+  "schema_version": "realistic_niah_v5_p0_head_atlas_report_v2",
+  "query_site": "p0_item_end",
+  "selection_split": "discovery",
+  "selection_metric": "seed_event_mean_target_source_attention_mass",
+  "exploratory_seed_threshold": 10,
+  "inputs": {
+    "Qwen3-8B": {
+      "atlas": {
+        "path": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_native_p0_head_atlas_20260820\\p0_head_atlas_qwen.json",
+        "sha256": "6673cbf1f2e7de772fcd75a1c569737fea030a016b9d62cf34f875f4a9e9b984"
+      },
+      "ordinal": {
+        "path": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_native_p0_head_atlas_20260820\\p0_head_ordinal_qwen.json",
+        "sha256": "e66cc5099c56336ed181d1c3aa3dd346a012f70c81665c6d4bea6e7669a8ce07"
+      }
+    },
+    "Gemma4-E4B": {
+      "atlas": {
+        "path": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_native_p0_head_atlas_20260820\\p0_head_atlas_gemma.json",
+        "sha256": "a8122d184e1eafdc5744f24e4d5d5e7da383eff1f34333429e1a8eb4941d6c09"
+      },
+      "ordinal": {
+        "path": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_native_p0_head_atlas_20260820\\p0_head_ordinal_gemma.json",
+        "sha256": "ab2bc6d21f353a34631b8bf57fdc3df11028118c0bb25f488fcc8c15d3c4a376"
+      }
+    }
+  },
+  "outputs": {
+    "html": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\NiaH_Native-Thinking_P0_Targeted_Retrieval_Atlas.html",
+    "head_scores_csv": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_p0_head_atlas\\p0_targeted_retrieval_head_scores.csv",
+    "needle_ordinal_by_head_csv": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_p0_head_atlas\\p0_needle_ordinal_by_head.csv",
+    "attention_masses_csv": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_p0_head_atlas\\p0_significant_head_attention_masses.csv"
+  }
+}

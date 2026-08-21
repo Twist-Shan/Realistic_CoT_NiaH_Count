@@ -1,0 +1,277 @@
+{
+  "confirmation_seeds": [
+    1254,
+    1255,
+    1256,
+    1257,
+    1258,
+    1259,
+    1260,
+    1261,
+    1262,
+    1263
+  ],
+  "discovery_seeds": [
+    1234,
+    1235,
+    1236,
+    1237,
+    1238,
+    1239,
+    1240,
+    1241,
+    1242,
+    1243,
+    1244,
+    1245,
+    1246,
+    1247,
+    1248,
+    1249,
+    1250,
+    1251,
+    1252,
+    1253
+  ],
+  "gold_count": 10,
+  "models": {
+    "Gemma4-E4B": {
+      "candidates": {
+        "span_end_accuracy_damage_specificity": {
+          "ci95_high": 0.13823529771145654,
+          "ci95_low": 0.0988235325936009,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.01171875,
+          "mean": 0.11764706215437722,
+          "positive_and_holm_0_05": true
+        },
+        "span_end_correct_distance_specificity": {
+          "ci95_high": 3.925936097607893,
+          "ci95_low": 3.6471161387422506,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.01171875,
+          "mean": 3.8162903996074897,
+          "positive_and_holm_0_05": true
+        },
+        "span_end_cosine_specificity": {
+          "ci95_high": 0.1856900537361593,
+          "ci95_low": 0.1773344664206722,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.0078125,
+          "mean": 0.18156955614567152,
+          "positive_and_holm_0_05": true
+        },
+        "span_end_margin_damage_specificity": {
+          "ci95_high": 0.7305099509424047,
+          "ci95_low": 0.6478049895583237,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.01171875,
+          "mean": 0.6980510744200301,
+          "positive_and_holm_0_05": true
+        },
+        "span_end_relative_rms_specificity": {
+          "ci95_high": 0.5834438323979788,
+          "ci95_low": 0.5601646999683468,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.0078125,
+          "mean": 0.5730108382370365,
+          "positive_and_holm_0_05": true
+        },
+        "span_mean_accuracy_damage_specificity": {
+          "ci95_high": 0.23058824109680512,
+          "ci95_low": 0.15823529792182583,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.01171875,
+          "mean": 0.19470588748945908,
+          "positive_and_holm_0_05": true
+        },
+        "span_mean_correct_distance_specificity": {
+          "ci95_high": 2.447674043722013,
+          "ci95_low": 2.284646344079691,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.01171875,
+          "mean": 2.377036212121739,
+          "positive_and_holm_0_05": true
+        },
+        "span_mean_cosine_specificity": {
+          "ci95_high": 0.028993659158173805,
+          "ci95_low": 0.027626080936996634,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.0078125,
+          "mean": 0.02829972261839302,
+          "positive_and_holm_0_05": true
+        },
+        "span_mean_margin_damage_specificity": {
+          "ci95_high": 0.34140294343575506,
+          "ci95_low": 0.30857862505779315,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.01171875,
+          "mean": 0.3268615702047314,
+          "positive_and_holm_0_05": true
+        },
+        "span_mean_relative_rms_specificity": {
+          "ci95_high": 0.23022810960698628,
+          "ci95_low": 0.22286325115278646,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.0078125,
+          "mean": 0.22666175299495722,
+          "positive_and_holm_0_05": true
+        }
+      },
+      "window": [
+        0,
+        16
+      ]
+    },
+    "Qwen3-8B": {
+      "candidates": {
+        "span_end_accuracy_damage_specificity": {
+          "ci95_high": 0.3738095287410986,
+          "ci95_low": 0.2604761946405329,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.01171875,
+          "mean": 0.32095238548659144,
+          "positive_and_holm_0_05": true
+        },
+        "span_end_correct_distance_specificity": {
+          "ci95_high": 7.135004909265609,
+          "ci95_low": 6.806517495222035,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.01171875,
+          "mean": 6.960651615971609,
+          "positive_and_holm_0_05": true
+        },
+        "span_end_cosine_specificity": {
+          "ci95_high": 0.5466079204751579,
+          "ci95_low": 0.5212296333006071,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.0078125,
+          "mean": 0.533772565073791,
+          "positive_and_holm_0_05": true
+        },
+        "span_end_margin_damage_specificity": {
+          "ci95_high": 1.341936832143415,
+          "ci95_low": 1.2534772070929676,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.01171875,
+          "mean": 1.29683448854346,
+          "positive_and_holm_0_05": true
+        },
+        "span_end_relative_rms_specificity": {
+          "ci95_high": 1.0501348952125267,
+          "ci95_low": 1.0130799463001592,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.0078125,
+          "mean": 1.030549110015411,
+          "positive_and_holm_0_05": true
+        },
+        "span_mean_accuracy_damage_specificity": {
+          "ci95_high": 0.28047619458465345,
+          "ci95_low": 0.21095238611811684,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.01171875,
+          "mean": 0.24523809924721718,
+          "positive_and_holm_0_05": true
+        },
+        "span_mean_correct_distance_specificity": {
+          "ci95_high": 2.98670203941209,
+          "ci95_low": 2.55287304610014,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.01171875,
+          "mean": 2.765330677940732,
+          "positive_and_holm_0_05": true
+        },
+        "span_mean_cosine_specificity": {
+          "ci95_high": 0.1534613844302406,
+          "ci95_low": 0.1408560564766869,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.0078125,
+          "mean": 0.14721972809661807,
+          "positive_and_holm_0_05": true
+        },
+        "span_mean_margin_damage_specificity": {
+          "ci95_high": 0.7849430947283847,
+          "ci95_low": 0.41555600437361484,
+          "exact_sign_flip_p": 0.00390625,
+          "holm_p_within_model_family": 0.01171875,
+          "mean": 0.5959099683510778,
+          "positive_and_holm_0_05": true
+        },
+        "span_mean_relative_rms_specificity": {
+          "ci95_high": 0.618227165730648,
+          "ci95_low": 0.4301005711956393,
+          "exact_sign_flip_p": 0.001953125,
+          "holm_p_within_model_family": 0.0078125,
+          "mean": 0.5281431436333583,
+          "positive_and_holm_0_05": true
+        }
+      },
+      "window": [
+        0,
+        20
+      ]
+    }
+  },
+  "schema_version": "realistic_niah_v4_4_5_state_retention_analysis_v1",
+  "selection": {
+    "cross_model_supported_candidate_found": true,
+    "evaluated": [
+      {
+        "candidate": "span_end_correct_distance_specificity",
+        "model_pass": {
+          "Gemma4-E4B": true,
+          "Qwen3-8B": true
+        }
+      },
+      {
+        "candidate": "span_mean_correct_distance_specificity",
+        "model_pass": {
+          "Gemma4-E4B": true,
+          "Qwen3-8B": true
+        }
+      },
+      {
+        "candidate": "span_end_margin_damage_specificity",
+        "model_pass": {
+          "Gemma4-E4B": true,
+          "Qwen3-8B": true
+        }
+      },
+      {
+        "candidate": "span_mean_margin_damage_specificity",
+        "model_pass": {
+          "Gemma4-E4B": true,
+          "Qwen3-8B": true
+        }
+      },
+      {
+        "candidate": "span_end_accuracy_damage_specificity",
+        "model_pass": {
+          "Gemma4-E4B": true,
+          "Qwen3-8B": true
+        }
+      },
+      {
+        "candidate": "span_mean_accuracy_damage_specificity",
+        "model_pass": {
+          "Gemma4-E4B": true,
+          "Qwen3-8B": true
+        }
+      }
+    ],
+    "fallback_to_preregistered_primary": false,
+    "primary_metric": "span_end_correct_distance_specificity",
+    "priority": [
+      "span_end_correct_distance_specificity",
+      "span_mean_correct_distance_specificity",
+      "span_end_margin_damage_specificity",
+      "span_mean_margin_damage_specificity",
+      "span_end_accuracy_damage_specificity",
+      "span_mean_accuracy_damage_specificity"
+    ],
+    "schema_version": "realistic_niah_v4_4_5_state_retention_selection_v1",
+    "selected_candidate": "span_end_correct_distance_specificity",
+    "selection_rule": "choose_first_priority_candidate_with_positive_window_mean_and_holm_p_below_0_05_in_both_models_else_keep_primary_and_report_null"
+  },
+  "stimulus_sha256": "da4dd86142eb8a07f9a7e53497efd3375184c8e68367d4db994370fcb331f090"
+}

@@ -1,0 +1,1928 @@
+{
+  "causal_event_filter": {
+    "primary_full_chain_event": true,
+    "progress_commit_eligible": true,
+    "progress_commit_site_resolved": true
+  },
+  "classes": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "discovery_cv_folds": 5,
+  "generated_at": "2026-08-19T19:03:58.211462+00:00",
+  "inputs": {
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_causal_site_review\\event_registry.csv": "ec2c8d3d8aaf11260af4e2ba55edc23ea47b8a361e3e707d189b8771306ad309",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_geometry_full_panel\\running\\Gemma4-E4B\\capture_index.jsonl": "36a1a176ac5c396e58dfd17c251a66c206aedfd04ab6a93c3af3c9de20f50e0c",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_geometry_full_panel\\running\\Qwen3-8B\\capture_index.jsonl": "24776bf91fcad97abd378bc5cd0746c6a2bcd83b4e2d14d0db98670c6df3ba4a"
+  },
+  "interpretation_boundary": "item_end reuses an archived state only after exact equality with the causal commit token. Changes versus the legacy panel combine compiler event/cohort alignment with geometry; they are not a new forward pass. post_marker was not archived and is not inferred.",
+  "loader_audits": {
+    "Gemma4-E4B/city_end": {
+      "causal_event_filter": {
+        "primary_full_chain_event": true,
+        "progress_commit_eligible": true,
+        "progress_commit_site_resolved": true
+      },
+      "causal_registry_event_count": 1043,
+      "exclusions": {
+        "commit_token_mismatch": 2,
+        "registry_events_without_exact_archived_match": 2
+      },
+      "layers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41
+      ],
+      "matched_state_count": 1041,
+      "matched_trajectory_count": 206,
+      "metadata_key_sha256": "f23fb33f90b874a1d451e42737017571171665ef584fe6653416b131bb656753",
+      "model_label": "Gemma4-E4B",
+      "schema_version": "realistic_niah_v5_causal_aligned_capture_v1",
+      "site_kind": "city_end",
+      "support": [
+        {
+          "count": 62,
+          "occurrence": 1,
+          "split": "confirmation"
+        },
+        {
+          "count": 59,
+          "occurrence": 2,
+          "split": "confirmation"
+        },
+        {
+          "count": 50,
+          "occurrence": 3,
+          "split": "confirmation"
+        },
+        {
+          "count": 40,
+          "occurrence": 4,
+          "split": "confirmation"
+        },
+        {
+          "count": 32,
+          "occurrence": 5,
+          "split": "confirmation"
+        },
+        {
+          "count": 25,
+          "occurrence": 6,
+          "split": "confirmation"
+        },
+        {
+          "count": 20,
+          "occurrence": 7,
+          "split": "confirmation"
+        },
+        {
+          "count": 13,
+          "occurrence": 8,
+          "split": "confirmation"
+        },
+        {
+          "count": 8,
+          "occurrence": 9,
+          "split": "confirmation"
+        },
+        {
+          "count": 4,
+          "occurrence": 10,
+          "split": "confirmation"
+        },
+        {
+          "count": 144,
+          "occurrence": 1,
+          "split": "discovery"
+        },
+        {
+          "count": 134,
+          "occurrence": 2,
+          "split": "discovery"
+        },
+        {
+          "count": 115,
+          "occurrence": 3,
+          "split": "discovery"
+        },
+        {
+          "count": 95,
+          "occurrence": 4,
+          "split": "discovery"
+        },
+        {
+          "count": 78,
+          "occurrence": 5,
+          "split": "discovery"
+        },
+        {
+          "count": 61,
+          "occurrence": 6,
+          "split": "discovery"
+        },
+        {
+          "count": 45,
+          "occurrence": 7,
+          "split": "discovery"
+        },
+        {
+          "count": 29,
+          "occurrence": 8,
+          "split": "discovery"
+        },
+        {
+          "count": 18,
+          "occurrence": 9,
+          "split": "discovery"
+        },
+        {
+          "count": 9,
+          "occurrence": 10,
+          "split": "discovery"
+        }
+      ],
+      "token_equivalence": "archived item_end endpoint_token equals causal commit_output_token for every retained row"
+    },
+    "Gemma4-E4B/city_unit_end": {
+      "causal_event_filter": {
+        "primary_full_chain_event": true,
+        "progress_commit_eligible": true,
+        "progress_commit_site_resolved": true
+      },
+      "causal_registry_event_count": 1043,
+      "exclusions": {
+        "commit_token_mismatch": 2,
+        "registry_events_without_exact_archived_match": 2
+      },
+      "layers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41
+      ],
+      "matched_state_count": 1041,
+      "matched_trajectory_count": 206,
+      "metadata_key_sha256": "f23fb33f90b874a1d451e42737017571171665ef584fe6653416b131bb656753",
+      "model_label": "Gemma4-E4B",
+      "schema_version": "realistic_niah_v5_causal_aligned_capture_v1",
+      "site_kind": "city_unit_end",
+      "support": [
+        {
+          "count": 62,
+          "occurrence": 1,
+          "split": "confirmation"
+        },
+        {
+          "count": 59,
+          "occurrence": 2,
+          "split": "confirmation"
+        },
+        {
+          "count": 50,
+          "occurrence": 3,
+          "split": "confirmation"
+        },
+        {
+          "count": 40,
+          "occurrence": 4,
+          "split": "confirmation"
+        },
+        {
+          "count": 32,
+          "occurrence": 5,
+          "split": "confirmation"
+        },
+        {
+          "count": 25,
+          "occurrence": 6,
+          "split": "confirmation"
+        },
+        {
+          "count": 20,
+          "occurrence": 7,
+          "split": "confirmation"
+        },
+        {
+          "count": 13,
+          "occurrence": 8,
+          "split": "confirmation"
+        },
+        {
+          "count": 8,
+          "occurrence": 9,
+          "split": "confirmation"
+        },
+        {
+          "count": 4,
+          "occurrence": 10,
+          "split": "confirmation"
+        },
+        {
+          "count": 144,
+          "occurrence": 1,
+          "split": "discovery"
+        },
+        {
+          "count": 134,
+          "occurrence": 2,
+          "split": "discovery"
+        },
+        {
+          "count": 115,
+          "occurrence": 3,
+          "split": "discovery"
+        },
+        {
+          "count": 95,
+          "occurrence": 4,
+          "split": "discovery"
+        },
+        {
+          "count": 78,
+          "occurrence": 5,
+          "split": "discovery"
+        },
+        {
+          "count": 61,
+          "occurrence": 6,
+          "split": "discovery"
+        },
+        {
+          "count": 45,
+          "occurrence": 7,
+          "split": "discovery"
+        },
+        {
+          "count": 29,
+          "occurrence": 8,
+          "split": "discovery"
+        },
+        {
+          "count": 18,
+          "occurrence": 9,
+          "split": "discovery"
+        },
+        {
+          "count": 9,
+          "occurrence": 10,
+          "split": "discovery"
+        }
+      ],
+      "token_equivalence": "archived item_end endpoint_token equals causal commit_output_token for every retained row"
+    },
+    "Gemma4-E4B/item_end": {
+      "causal_event_filter": {
+        "primary_full_chain_event": true,
+        "progress_commit_eligible": true,
+        "progress_commit_site_resolved": true
+      },
+      "causal_registry_event_count": 1043,
+      "exclusions": {
+        "commit_token_mismatch": 2,
+        "registry_events_without_exact_archived_match": 2
+      },
+      "layers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41
+      ],
+      "matched_state_count": 1041,
+      "matched_trajectory_count": 206,
+      "metadata_key_sha256": "f23fb33f90b874a1d451e42737017571171665ef584fe6653416b131bb656753",
+      "model_label": "Gemma4-E4B",
+      "schema_version": "realistic_niah_v5_causal_aligned_capture_v1",
+      "site_kind": "item_end",
+      "support": [
+        {
+          "count": 62,
+          "occurrence": 1,
+          "split": "confirmation"
+        },
+        {
+          "count": 59,
+          "occurrence": 2,
+          "split": "confirmation"
+        },
+        {
+          "count": 50,
+          "occurrence": 3,
+          "split": "confirmation"
+        },
+        {
+          "count": 40,
+          "occurrence": 4,
+          "split": "confirmation"
+        },
+        {
+          "count": 32,
+          "occurrence": 5,
+          "split": "confirmation"
+        },
+        {
+          "count": 25,
+          "occurrence": 6,
+          "split": "confirmation"
+        },
+        {
+          "count": 20,
+          "occurrence": 7,
+          "split": "confirmation"
+        },
+        {
+          "count": 13,
+          "occurrence": 8,
+          "split": "confirmation"
+        },
+        {
+          "count": 8,
+          "occurrence": 9,
+          "split": "confirmation"
+        },
+        {
+          "count": 4,
+          "occurrence": 10,
+          "split": "confirmation"
+        },
+        {
+          "count": 144,
+          "occurrence": 1,
+          "split": "discovery"
+        },
+        {
+          "count": 134,
+          "occurrence": 2,
+          "split": "discovery"
+        },
+        {
+          "count": 115,
+          "occurrence": 3,
+          "split": "discovery"
+        },
+        {
+          "count": 95,
+          "occurrence": 4,
+          "split": "discovery"
+        },
+        {
+          "count": 78,
+          "occurrence": 5,
+          "split": "discovery"
+        },
+        {
+          "count": 61,
+          "occurrence": 6,
+          "split": "discovery"
+        },
+        {
+          "count": 45,
+          "occurrence": 7,
+          "split": "discovery"
+        },
+        {
+          "count": 29,
+          "occurrence": 8,
+          "split": "discovery"
+        },
+        {
+          "count": 18,
+          "occurrence": 9,
+          "split": "discovery"
+        },
+        {
+          "count": 9,
+          "occurrence": 10,
+          "split": "discovery"
+        }
+      ],
+      "token_equivalence": "archived item_end endpoint_token equals causal commit_output_token for every retained row"
+    },
+    "Gemma4-E4B/post_boundary": {
+      "causal_event_filter": {
+        "primary_full_chain_event": true,
+        "progress_commit_eligible": true,
+        "progress_commit_site_resolved": true
+      },
+      "causal_registry_event_count": 1043,
+      "exclusions": {
+        "commit_token_mismatch": 2,
+        "registry_events_without_exact_archived_match": 2
+      },
+      "layers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41
+      ],
+      "matched_state_count": 1041,
+      "matched_trajectory_count": 206,
+      "metadata_key_sha256": "f23fb33f90b874a1d451e42737017571171665ef584fe6653416b131bb656753",
+      "model_label": "Gemma4-E4B",
+      "schema_version": "realistic_niah_v5_causal_aligned_capture_v1",
+      "site_kind": "post_boundary",
+      "support": [
+        {
+          "count": 62,
+          "occurrence": 1,
+          "split": "confirmation"
+        },
+        {
+          "count": 59,
+          "occurrence": 2,
+          "split": "confirmation"
+        },
+        {
+          "count": 50,
+          "occurrence": 3,
+          "split": "confirmation"
+        },
+        {
+          "count": 40,
+          "occurrence": 4,
+          "split": "confirmation"
+        },
+        {
+          "count": 32,
+          "occurrence": 5,
+          "split": "confirmation"
+        },
+        {
+          "count": 25,
+          "occurrence": 6,
+          "split": "confirmation"
+        },
+        {
+          "count": 20,
+          "occurrence": 7,
+          "split": "confirmation"
+        },
+        {
+          "count": 13,
+          "occurrence": 8,
+          "split": "confirmation"
+        },
+        {
+          "count": 8,
+          "occurrence": 9,
+          "split": "confirmation"
+        },
+        {
+          "count": 4,
+          "occurrence": 10,
+          "split": "confirmation"
+        },
+        {
+          "count": 144,
+          "occurrence": 1,
+          "split": "discovery"
+        },
+        {
+          "count": 134,
+          "occurrence": 2,
+          "split": "discovery"
+        },
+        {
+          "count": 115,
+          "occurrence": 3,
+          "split": "discovery"
+        },
+        {
+          "count": 95,
+          "occurrence": 4,
+          "split": "discovery"
+        },
+        {
+          "count": 78,
+          "occurrence": 5,
+          "split": "discovery"
+        },
+        {
+          "count": 61,
+          "occurrence": 6,
+          "split": "discovery"
+        },
+        {
+          "count": 45,
+          "occurrence": 7,
+          "split": "discovery"
+        },
+        {
+          "count": 29,
+          "occurrence": 8,
+          "split": "discovery"
+        },
+        {
+          "count": 18,
+          "occurrence": 9,
+          "split": "discovery"
+        },
+        {
+          "count": 9,
+          "occurrence": 10,
+          "split": "discovery"
+        }
+      ],
+      "token_equivalence": "archived item_end endpoint_token equals causal commit_output_token for every retained row"
+    },
+    "Gemma4-E4B/pre_city": {
+      "causal_event_filter": {
+        "primary_full_chain_event": true,
+        "progress_commit_eligible": true,
+        "progress_commit_site_resolved": true
+      },
+      "causal_registry_event_count": 1043,
+      "exclusions": {
+        "commit_token_mismatch": 2,
+        "registry_events_without_exact_archived_match": 2
+      },
+      "layers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41
+      ],
+      "matched_state_count": 1041,
+      "matched_trajectory_count": 206,
+      "metadata_key_sha256": "f23fb33f90b874a1d451e42737017571171665ef584fe6653416b131bb656753",
+      "model_label": "Gemma4-E4B",
+      "schema_version": "realistic_niah_v5_causal_aligned_capture_v1",
+      "site_kind": "pre_city",
+      "support": [
+        {
+          "count": 62,
+          "occurrence": 1,
+          "split": "confirmation"
+        },
+        {
+          "count": 59,
+          "occurrence": 2,
+          "split": "confirmation"
+        },
+        {
+          "count": 50,
+          "occurrence": 3,
+          "split": "confirmation"
+        },
+        {
+          "count": 40,
+          "occurrence": 4,
+          "split": "confirmation"
+        },
+        {
+          "count": 32,
+          "occurrence": 5,
+          "split": "confirmation"
+        },
+        {
+          "count": 25,
+          "occurrence": 6,
+          "split": "confirmation"
+        },
+        {
+          "count": 20,
+          "occurrence": 7,
+          "split": "confirmation"
+        },
+        {
+          "count": 13,
+          "occurrence": 8,
+          "split": "confirmation"
+        },
+        {
+          "count": 8,
+          "occurrence": 9,
+          "split": "confirmation"
+        },
+        {
+          "count": 4,
+          "occurrence": 10,
+          "split": "confirmation"
+        },
+        {
+          "count": 144,
+          "occurrence": 1,
+          "split": "discovery"
+        },
+        {
+          "count": 134,
+          "occurrence": 2,
+          "split": "discovery"
+        },
+        {
+          "count": 115,
+          "occurrence": 3,
+          "split": "discovery"
+        },
+        {
+          "count": 95,
+          "occurrence": 4,
+          "split": "discovery"
+        },
+        {
+          "count": 78,
+          "occurrence": 5,
+          "split": "discovery"
+        },
+        {
+          "count": 61,
+          "occurrence": 6,
+          "split": "discovery"
+        },
+        {
+          "count": 45,
+          "occurrence": 7,
+          "split": "discovery"
+        },
+        {
+          "count": 29,
+          "occurrence": 8,
+          "split": "discovery"
+        },
+        {
+          "count": 18,
+          "occurrence": 9,
+          "split": "discovery"
+        },
+        {
+          "count": 9,
+          "occurrence": 10,
+          "split": "discovery"
+        }
+      ],
+      "token_equivalence": "archived item_end endpoint_token equals causal commit_output_token for every retained row"
+    },
+    "Qwen3-8B/city_end": {
+      "causal_event_filter": {
+        "primary_full_chain_event": true,
+        "progress_commit_eligible": true,
+        "progress_commit_site_resolved": true
+      },
+      "causal_registry_event_count": 1339,
+      "exclusions": {
+        "commit_token_mismatch": 5,
+        "registry_events_without_exact_archived_match": 5
+      },
+      "layers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35
+      ],
+      "matched_state_count": 1334,
+      "matched_trajectory_count": 239,
+      "metadata_key_sha256": "52bc8a1bb726c540be7025b5a96aacd4a0b03dff5320337a34c1c81468c41920",
+      "model_label": "Qwen3-8B",
+      "schema_version": "realistic_niah_v5_causal_aligned_capture_v1",
+      "site_kind": "city_end",
+      "support": [
+        {
+          "count": 85,
+          "occurrence": 1,
+          "split": "confirmation"
+        },
+        {
+          "count": 77,
+          "occurrence": 2,
+          "split": "confirmation"
+        },
+        {
+          "count": 70,
+          "occurrence": 3,
+          "split": "confirmation"
+        },
+        {
+          "count": 61,
+          "occurrence": 4,
+          "split": "confirmation"
+        },
+        {
+          "count": 51,
+          "occurrence": 5,
+          "split": "confirmation"
+        },
+        {
+          "count": 42,
+          "occurrence": 6,
+          "split": "confirmation"
+        },
+        {
+          "count": 34,
+          "occurrence": 7,
+          "split": "confirmation"
+        },
+        {
+          "count": 23,
+          "occurrence": 8,
+          "split": "confirmation"
+        },
+        {
+          "count": 14,
+          "occurrence": 9,
+          "split": "confirmation"
+        },
+        {
+          "count": 8,
+          "occurrence": 10,
+          "split": "confirmation"
+        },
+        {
+          "count": 154,
+          "occurrence": 1,
+          "split": "discovery"
+        },
+        {
+          "count": 141,
+          "occurrence": 2,
+          "split": "discovery"
+        },
+        {
+          "count": 124,
+          "occurrence": 3,
+          "split": "discovery"
+        },
+        {
+          "count": 113,
+          "occurrence": 4,
+          "split": "discovery"
+        },
+        {
+          "count": 96,
+          "occurrence": 5,
+          "split": "discovery"
+        },
+        {
+          "count": 79,
+          "occurrence": 6,
+          "split": "discovery"
+        },
+        {
+          "count": 64,
+          "occurrence": 7,
+          "split": "discovery"
+        },
+        {
+          "count": 49,
+          "occurrence": 8,
+          "split": "discovery"
+        },
+        {
+          "count": 33,
+          "occurrence": 9,
+          "split": "discovery"
+        },
+        {
+          "count": 16,
+          "occurrence": 10,
+          "split": "discovery"
+        }
+      ],
+      "token_equivalence": "archived item_end endpoint_token equals causal commit_output_token for every retained row"
+    },
+    "Qwen3-8B/city_unit_end": {
+      "causal_event_filter": {
+        "primary_full_chain_event": true,
+        "progress_commit_eligible": true,
+        "progress_commit_site_resolved": true
+      },
+      "causal_registry_event_count": 1339,
+      "exclusions": {
+        "commit_token_mismatch": 5,
+        "registry_events_without_exact_archived_match": 5
+      },
+      "layers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35
+      ],
+      "matched_state_count": 1334,
+      "matched_trajectory_count": 239,
+      "metadata_key_sha256": "52bc8a1bb726c540be7025b5a96aacd4a0b03dff5320337a34c1c81468c41920",
+      "model_label": "Qwen3-8B",
+      "schema_version": "realistic_niah_v5_causal_aligned_capture_v1",
+      "site_kind": "city_unit_end",
+      "support": [
+        {
+          "count": 85,
+          "occurrence": 1,
+          "split": "confirmation"
+        },
+        {
+          "count": 77,
+          "occurrence": 2,
+          "split": "confirmation"
+        },
+        {
+          "count": 70,
+          "occurrence": 3,
+          "split": "confirmation"
+        },
+        {
+          "count": 61,
+          "occurrence": 4,
+          "split": "confirmation"
+        },
+        {
+          "count": 51,
+          "occurrence": 5,
+          "split": "confirmation"
+        },
+        {
+          "count": 42,
+          "occurrence": 6,
+          "split": "confirmation"
+        },
+        {
+          "count": 34,
+          "occurrence": 7,
+          "split": "confirmation"
+        },
+        {
+          "count": 23,
+          "occurrence": 8,
+          "split": "confirmation"
+        },
+        {
+          "count": 14,
+          "occurrence": 9,
+          "split": "confirmation"
+        },
+        {
+          "count": 8,
+          "occurrence": 10,
+          "split": "confirmation"
+        },
+        {
+          "count": 154,
+          "occurrence": 1,
+          "split": "discovery"
+        },
+        {
+          "count": 141,
+          "occurrence": 2,
+          "split": "discovery"
+        },
+        {
+          "count": 124,
+          "occurrence": 3,
+          "split": "discovery"
+        },
+        {
+          "count": 113,
+          "occurrence": 4,
+          "split": "discovery"
+        },
+        {
+          "count": 96,
+          "occurrence": 5,
+          "split": "discovery"
+        },
+        {
+          "count": 79,
+          "occurrence": 6,
+          "split": "discovery"
+        },
+        {
+          "count": 64,
+          "occurrence": 7,
+          "split": "discovery"
+        },
+        {
+          "count": 49,
+          "occurrence": 8,
+          "split": "discovery"
+        },
+        {
+          "count": 33,
+          "occurrence": 9,
+          "split": "discovery"
+        },
+        {
+          "count": 16,
+          "occurrence": 10,
+          "split": "discovery"
+        }
+      ],
+      "token_equivalence": "archived item_end endpoint_token equals causal commit_output_token for every retained row"
+    },
+    "Qwen3-8B/item_end": {
+      "causal_event_filter": {
+        "primary_full_chain_event": true,
+        "progress_commit_eligible": true,
+        "progress_commit_site_resolved": true
+      },
+      "causal_registry_event_count": 1339,
+      "exclusions": {
+        "commit_token_mismatch": 5,
+        "registry_events_without_exact_archived_match": 5
+      },
+      "layers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35
+      ],
+      "matched_state_count": 1334,
+      "matched_trajectory_count": 239,
+      "metadata_key_sha256": "52bc8a1bb726c540be7025b5a96aacd4a0b03dff5320337a34c1c81468c41920",
+      "model_label": "Qwen3-8B",
+      "schema_version": "realistic_niah_v5_causal_aligned_capture_v1",
+      "site_kind": "item_end",
+      "support": [
+        {
+          "count": 85,
+          "occurrence": 1,
+          "split": "confirmation"
+        },
+        {
+          "count": 77,
+          "occurrence": 2,
+          "split": "confirmation"
+        },
+        {
+          "count": 70,
+          "occurrence": 3,
+          "split": "confirmation"
+        },
+        {
+          "count": 61,
+          "occurrence": 4,
+          "split": "confirmation"
+        },
+        {
+          "count": 51,
+          "occurrence": 5,
+          "split": "confirmation"
+        },
+        {
+          "count": 42,
+          "occurrence": 6,
+          "split": "confirmation"
+        },
+        {
+          "count": 34,
+          "occurrence": 7,
+          "split": "confirmation"
+        },
+        {
+          "count": 23,
+          "occurrence": 8,
+          "split": "confirmation"
+        },
+        {
+          "count": 14,
+          "occurrence": 9,
+          "split": "confirmation"
+        },
+        {
+          "count": 8,
+          "occurrence": 10,
+          "split": "confirmation"
+        },
+        {
+          "count": 154,
+          "occurrence": 1,
+          "split": "discovery"
+        },
+        {
+          "count": 141,
+          "occurrence": 2,
+          "split": "discovery"
+        },
+        {
+          "count": 124,
+          "occurrence": 3,
+          "split": "discovery"
+        },
+        {
+          "count": 113,
+          "occurrence": 4,
+          "split": "discovery"
+        },
+        {
+          "count": 96,
+          "occurrence": 5,
+          "split": "discovery"
+        },
+        {
+          "count": 79,
+          "occurrence": 6,
+          "split": "discovery"
+        },
+        {
+          "count": 64,
+          "occurrence": 7,
+          "split": "discovery"
+        },
+        {
+          "count": 49,
+          "occurrence": 8,
+          "split": "discovery"
+        },
+        {
+          "count": 33,
+          "occurrence": 9,
+          "split": "discovery"
+        },
+        {
+          "count": 16,
+          "occurrence": 10,
+          "split": "discovery"
+        }
+      ],
+      "token_equivalence": "archived item_end endpoint_token equals causal commit_output_token for every retained row"
+    },
+    "Qwen3-8B/post_boundary": {
+      "causal_event_filter": {
+        "primary_full_chain_event": true,
+        "progress_commit_eligible": true,
+        "progress_commit_site_resolved": true
+      },
+      "causal_registry_event_count": 1339,
+      "exclusions": {
+        "commit_token_mismatch": 5,
+        "registry_events_without_exact_archived_match": 5
+      },
+      "layers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35
+      ],
+      "matched_state_count": 1334,
+      "matched_trajectory_count": 239,
+      "metadata_key_sha256": "52bc8a1bb726c540be7025b5a96aacd4a0b03dff5320337a34c1c81468c41920",
+      "model_label": "Qwen3-8B",
+      "schema_version": "realistic_niah_v5_causal_aligned_capture_v1",
+      "site_kind": "post_boundary",
+      "support": [
+        {
+          "count": 85,
+          "occurrence": 1,
+          "split": "confirmation"
+        },
+        {
+          "count": 77,
+          "occurrence": 2,
+          "split": "confirmation"
+        },
+        {
+          "count": 70,
+          "occurrence": 3,
+          "split": "confirmation"
+        },
+        {
+          "count": 61,
+          "occurrence": 4,
+          "split": "confirmation"
+        },
+        {
+          "count": 51,
+          "occurrence": 5,
+          "split": "confirmation"
+        },
+        {
+          "count": 42,
+          "occurrence": 6,
+          "split": "confirmation"
+        },
+        {
+          "count": 34,
+          "occurrence": 7,
+          "split": "confirmation"
+        },
+        {
+          "count": 23,
+          "occurrence": 8,
+          "split": "confirmation"
+        },
+        {
+          "count": 14,
+          "occurrence": 9,
+          "split": "confirmation"
+        },
+        {
+          "count": 8,
+          "occurrence": 10,
+          "split": "confirmation"
+        },
+        {
+          "count": 154,
+          "occurrence": 1,
+          "split": "discovery"
+        },
+        {
+          "count": 141,
+          "occurrence": 2,
+          "split": "discovery"
+        },
+        {
+          "count": 124,
+          "occurrence": 3,
+          "split": "discovery"
+        },
+        {
+          "count": 113,
+          "occurrence": 4,
+          "split": "discovery"
+        },
+        {
+          "count": 96,
+          "occurrence": 5,
+          "split": "discovery"
+        },
+        {
+          "count": 79,
+          "occurrence": 6,
+          "split": "discovery"
+        },
+        {
+          "count": 64,
+          "occurrence": 7,
+          "split": "discovery"
+        },
+        {
+          "count": 49,
+          "occurrence": 8,
+          "split": "discovery"
+        },
+        {
+          "count": 33,
+          "occurrence": 9,
+          "split": "discovery"
+        },
+        {
+          "count": 16,
+          "occurrence": 10,
+          "split": "discovery"
+        }
+      ],
+      "token_equivalence": "archived item_end endpoint_token equals causal commit_output_token for every retained row"
+    },
+    "Qwen3-8B/pre_city": {
+      "causal_event_filter": {
+        "primary_full_chain_event": true,
+        "progress_commit_eligible": true,
+        "progress_commit_site_resolved": true
+      },
+      "causal_registry_event_count": 1339,
+      "exclusions": {
+        "commit_token_mismatch": 5,
+        "registry_events_without_exact_archived_match": 5
+      },
+      "layers": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35
+      ],
+      "matched_state_count": 1334,
+      "matched_trajectory_count": 239,
+      "metadata_key_sha256": "52bc8a1bb726c540be7025b5a96aacd4a0b03dff5320337a34c1c81468c41920",
+      "model_label": "Qwen3-8B",
+      "schema_version": "realistic_niah_v5_causal_aligned_capture_v1",
+      "site_kind": "pre_city",
+      "support": [
+        {
+          "count": 85,
+          "occurrence": 1,
+          "split": "confirmation"
+        },
+        {
+          "count": 77,
+          "occurrence": 2,
+          "split": "confirmation"
+        },
+        {
+          "count": 70,
+          "occurrence": 3,
+          "split": "confirmation"
+        },
+        {
+          "count": 61,
+          "occurrence": 4,
+          "split": "confirmation"
+        },
+        {
+          "count": 51,
+          "occurrence": 5,
+          "split": "confirmation"
+        },
+        {
+          "count": 42,
+          "occurrence": 6,
+          "split": "confirmation"
+        },
+        {
+          "count": 34,
+          "occurrence": 7,
+          "split": "confirmation"
+        },
+        {
+          "count": 23,
+          "occurrence": 8,
+          "split": "confirmation"
+        },
+        {
+          "count": 14,
+          "occurrence": 9,
+          "split": "confirmation"
+        },
+        {
+          "count": 8,
+          "occurrence": 10,
+          "split": "confirmation"
+        },
+        {
+          "count": 154,
+          "occurrence": 1,
+          "split": "discovery"
+        },
+        {
+          "count": 141,
+          "occurrence": 2,
+          "split": "discovery"
+        },
+        {
+          "count": 124,
+          "occurrence": 3,
+          "split": "discovery"
+        },
+        {
+          "count": 113,
+          "occurrence": 4,
+          "split": "discovery"
+        },
+        {
+          "count": 96,
+          "occurrence": 5,
+          "split": "discovery"
+        },
+        {
+          "count": 79,
+          "occurrence": 6,
+          "split": "discovery"
+        },
+        {
+          "count": 64,
+          "occurrence": 7,
+          "split": "discovery"
+        },
+        {
+          "count": 49,
+          "occurrence": 8,
+          "split": "discovery"
+        },
+        {
+          "count": 33,
+          "occurrence": 9,
+          "split": "discovery"
+        },
+        {
+          "count": 16,
+          "occurrence": 10,
+          "split": "discovery"
+        }
+      ],
+      "token_equivalence": "archived item_end endpoint_token equals causal commit_output_token for every retained row"
+    }
+  },
+  "models": [
+    "Qwen3-8B",
+    "Gemma4-E4B"
+  ],
+  "outputs": {
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_causal_aligned_geometry\\legacy_vs_causal_item_end.csv": "677ca40a758139dbfe7b47e370a6c0bf396a5f41c622e7603ab5ddd924443c90",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_causal_aligned_geometry\\model_site_winners.csv": "082ce65547ff4f2d6c00f19e0d7997d695cf5c993e771f4b1569c85cf03d4bb8",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_causal_aligned_geometry\\site_layer_candidates.csv": "d67c43a37158e85913ff1901b51efd722885dbb1e5a7988541a2835417108e4d",
+    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_causal_aligned_geometry\\site_selected.csv": "b64e1842d5536faccca643db93ae45e6c66ae46d6caf8336f997405a1ec312dd"
+  },
+  "paired_site_metadata_sha256": {
+    "Gemma4-E4B": "f23fb33f90b874a1d451e42737017571171665ef584fe6653416b131bb656753",
+    "Qwen3-8B": "52bc8a1bb726c540be7025b5a96aacd4a0b03dff5320337a34c1c81468c41920"
+  },
+  "pca_dim": 16,
+  "pca_whiten": true,
+  "primary_counter_role": "causal p0_item_end / archived item_end exact token",
+  "primary_counter_site": "item_end",
+  "registered_split": {
+    "confirmation": [
+      1254,
+      1255,
+      1256,
+      1257,
+      1258,
+      1259,
+      1260,
+      1261,
+      1262,
+      1263
+    ],
+    "discovery": [
+      1234,
+      1235,
+      1236,
+      1237,
+      1238,
+      1239,
+      1240,
+      1241,
+      1242,
+      1243,
+      1244,
+      1245,
+      1246,
+      1247,
+      1248,
+      1249,
+      1250,
+      1251,
+      1252,
+      1253
+    ]
+  },
+  "schema_version": "realistic_niah_v5_native_causal_aligned_geometry_v1",
+  "selection_rule": "for every archived token site, choose decoder layer by the mean of seed-grouped discovery OOF Logistic and NCC balanced accuracy; choose the exploratory site winner by the same discovery-only score; never rank sites or layers on confirmation",
+  "sites": [
+    "pre_city",
+    "city_end",
+    "city_unit_end",
+    "item_end",
+    "post_boundary"
+  ],
+  "support": {
+    "Gemma4-E4B": {
+      "confirmation_min_per_counter": 4,
+      "rows": 1041,
+      "support": [
+        {
+          "count": 62,
+          "occurrence": 1,
+          "split": "confirmation"
+        },
+        {
+          "count": 59,
+          "occurrence": 2,
+          "split": "confirmation"
+        },
+        {
+          "count": 50,
+          "occurrence": 3,
+          "split": "confirmation"
+        },
+        {
+          "count": 40,
+          "occurrence": 4,
+          "split": "confirmation"
+        },
+        {
+          "count": 32,
+          "occurrence": 5,
+          "split": "confirmation"
+        },
+        {
+          "count": 25,
+          "occurrence": 6,
+          "split": "confirmation"
+        },
+        {
+          "count": 20,
+          "occurrence": 7,
+          "split": "confirmation"
+        },
+        {
+          "count": 13,
+          "occurrence": 8,
+          "split": "confirmation"
+        },
+        {
+          "count": 8,
+          "occurrence": 9,
+          "split": "confirmation"
+        },
+        {
+          "count": 4,
+          "occurrence": 10,
+          "split": "confirmation"
+        },
+        {
+          "count": 144,
+          "occurrence": 1,
+          "split": "discovery"
+        },
+        {
+          "count": 134,
+          "occurrence": 2,
+          "split": "discovery"
+        },
+        {
+          "count": 115,
+          "occurrence": 3,
+          "split": "discovery"
+        },
+        {
+          "count": 95,
+          "occurrence": 4,
+          "split": "discovery"
+        },
+        {
+          "count": 78,
+          "occurrence": 5,
+          "split": "discovery"
+        },
+        {
+          "count": 61,
+          "occurrence": 6,
+          "split": "discovery"
+        },
+        {
+          "count": 45,
+          "occurrence": 7,
+          "split": "discovery"
+        },
+        {
+          "count": 29,
+          "occurrence": 8,
+          "split": "discovery"
+        },
+        {
+          "count": 18,
+          "occurrence": 9,
+          "split": "discovery"
+        },
+        {
+          "count": 9,
+          "occurrence": 10,
+          "split": "discovery"
+        }
+      ],
+      "trajectories": 206
+    },
+    "Qwen3-8B": {
+      "confirmation_min_per_counter": 8,
+      "rows": 1334,
+      "support": [
+        {
+          "count": 85,
+          "occurrence": 1,
+          "split": "confirmation"
+        },
+        {
+          "count": 77,
+          "occurrence": 2,
+          "split": "confirmation"
+        },
+        {
+          "count": 70,
+          "occurrence": 3,
+          "split": "confirmation"
+        },
+        {
+          "count": 61,
+          "occurrence": 4,
+          "split": "confirmation"
+        },
+        {
+          "count": 51,
+          "occurrence": 5,
+          "split": "confirmation"
+        },
+        {
+          "count": 42,
+          "occurrence": 6,
+          "split": "confirmation"
+        },
+        {
+          "count": 34,
+          "occurrence": 7,
+          "split": "confirmation"
+        },
+        {
+          "count": 23,
+          "occurrence": 8,
+          "split": "confirmation"
+        },
+        {
+          "count": 14,
+          "occurrence": 9,
+          "split": "confirmation"
+        },
+        {
+          "count": 8,
+          "occurrence": 10,
+          "split": "confirmation"
+        },
+        {
+          "count": 154,
+          "occurrence": 1,
+          "split": "discovery"
+        },
+        {
+          "count": 141,
+          "occurrence": 2,
+          "split": "discovery"
+        },
+        {
+          "count": 124,
+          "occurrence": 3,
+          "split": "discovery"
+        },
+        {
+          "count": 113,
+          "occurrence": 4,
+          "split": "discovery"
+        },
+        {
+          "count": 96,
+          "occurrence": 5,
+          "split": "discovery"
+        },
+        {
+          "count": 79,
+          "occurrence": 6,
+          "split": "discovery"
+        },
+        {
+          "count": 64,
+          "occurrence": 7,
+          "split": "discovery"
+        },
+        {
+          "count": 49,
+          "occurrence": 8,
+          "split": "discovery"
+        },
+        {
+          "count": 33,
+          "occurrence": 9,
+          "split": "discovery"
+        },
+        {
+          "count": 16,
+          "occurrence": 10,
+          "split": "discovery"
+        }
+      ],
+      "trajectories": 239
+    }
+  }
+}

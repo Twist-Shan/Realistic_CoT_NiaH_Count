@@ -1,0 +1,24 @@
+{
+  "expected_layerwise_rows": 78,
+  "layerwise_rows": 78,
+  "models": {
+    "Gemma4-E4B": {
+      "exact_key_coverage": true,
+      "expected_rows": 4200,
+      "finite_metrics": true,
+      "rows": 4200,
+      "run_audit_status": "PASS",
+      "unique_keys": 4200
+    },
+    "Qwen3-8B": {
+      "exact_key_coverage": true,
+      "expected_rows": 3600,
+      "finite_metrics": true,
+      "rows": 3600,
+      "run_audit_status": "PASS",
+      "unique_keys": 3600
+    }
+  },
+  "schema_version": "realistic_niah_v4_4_5_span_state_deformation_analysis_audit_v1",
+  "status": "PASS"
+}

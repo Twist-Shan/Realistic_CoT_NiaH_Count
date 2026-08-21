@@ -1,0 +1,168 @@
+{
+  "bank_size": 128,
+  "clean_failures": 9,
+  "clean_rows": 256,
+  "completed_utc": "2026-08-20T21:34:44.581041+00:00",
+  "global_random_rows": 768,
+  "grammars": [
+    {
+      "anchors": 131,
+      "by_split": {
+        "confirmation": {
+          "global_random": 135,
+          "global_random_failures": 5,
+          "selected": 45,
+          "selected_failures": 9
+        },
+        "discovery": {
+          "global_random": 258,
+          "global_random_failures": 4,
+          "selected": 86,
+          "selected_failures": 21
+        }
+      },
+      "global_random_failures": 9,
+      "grammar": "adjacent_rank_after_city",
+      "output": "/home/ubuntu/CoT-Native-thinking-v5/runs/v5_native_grammar_specific_p0_20260820/Qwen3-8B/head_behavior_adjacent_rank_after_city_p0_k128_fullpanel_pergrammarregistry_v2_v1",
+      "selected_failures": 30
+    },
+    {
+      "anchors": 57,
+      "by_split": {
+        "confirmation": {
+          "global_random": 57,
+          "global_random_failures": 9,
+          "selected": 19,
+          "selected_failures": 11
+        },
+        "discovery": {
+          "global_random": 114,
+          "global_random_failures": 12,
+          "selected": 38,
+          "selected_failures": 16
+        }
+      },
+      "global_random_failures": 21,
+      "grammar": "adjacent_rank_before_city",
+      "output": "/home/ubuntu/CoT-Native-thinking-v5/runs/v5_native_grammar_specific_p0_20260820/Qwen3-8B/head_behavior_adjacent_rank_before_city_p0_k128_fullpanel_pergrammarregistry_v2_v1",
+      "selected_failures": 27
+    },
+    {
+      "anchors": 35,
+      "by_split": {
+        "confirmation": {
+          "global_random": 45,
+          "global_random_failures": 0,
+          "selected": 15,
+          "selected_failures": 2
+        },
+        "discovery": {
+          "global_random": 60,
+          "global_random_failures": 0,
+          "selected": 20,
+          "selected_failures": 3
+        }
+      },
+      "global_random_failures": 0,
+      "grammar": "same_unit_rank_before_city",
+      "output": "/home/ubuntu/CoT-Native-thinking-v5/runs/v5_native_grammar_specific_p0_20260820/Qwen3-8B/head_behavior_same_unit_rank_before_city_p0_k128_fullpanel_pergrammarregistry_v2_v1",
+      "selected_failures": 5
+    },
+    {
+      "anchors": 27,
+      "by_split": {
+        "confirmation": {
+          "global_random": 18,
+          "global_random_failures": 0,
+          "selected": 6,
+          "selected_failures": 6
+        },
+        "discovery": {
+          "global_random": 63,
+          "global_random_failures": 6,
+          "selected": 21,
+          "selected_failures": 13
+        }
+      },
+      "global_random_failures": 6,
+      "grammar": "structural_unmarked",
+      "output": "/home/ubuntu/CoT-Native-thinking-v5/runs/v5_native_grammar_specific_p0_20260820/Qwen3-8B/head_behavior_structural_unmarked_p0_k128_fullpanel_pergrammarregistry_v2_v1",
+      "selected_failures": 19
+    },
+    {
+      "anchors": 3,
+      "by_split": {
+        "confirmation": {
+          "global_random": 3,
+          "global_random_failures": 0,
+          "selected": 1,
+          "selected_failures": 1
+        },
+        "discovery": {
+          "global_random": 6,
+          "global_random_failures": 0,
+          "selected": 2,
+          "selected_failures": 1
+        }
+      },
+      "global_random_failures": 0,
+      "grammar": "structural_invariant_bullet",
+      "output": "/home/ubuntu/CoT-Native-thinking-v5/runs/v5_native_grammar_specific_p0_20260820/Qwen3-8B/head_behavior_structural_invariant_bullet_p0_k128_fullpanel_pergrammarregistry_v2_v1",
+      "selected_failures": 2
+    },
+    {
+      "anchors": 2,
+      "by_split": {
+        "confirmation": {
+          "global_random": 3,
+          "global_random_failures": 0,
+          "selected": 1,
+          "selected_failures": 1
+        },
+        "discovery": {
+          "global_random": 3,
+          "global_random_failures": 0,
+          "selected": 1,
+          "selected_failures": 1
+        }
+      },
+      "global_random_failures": 0,
+      "grammar": "evidence_sequence_unranked",
+      "output": "/home/ubuntu/CoT-Native-thinking-v5/runs/v5_native_grammar_specific_p0_20260820/Qwen3-8B/head_behavior_evidence_sequence_unranked_p0_k128_fullpanel_pergrammarregistry_v2_v1",
+      "selected_failures": 2
+    },
+    {
+      "anchors": 1,
+      "by_split": {
+        "confirmation": {
+          "global_random": 0,
+          "global_random_failures": 0,
+          "selected": 0,
+          "selected_failures": 0
+        },
+        "discovery": {
+          "global_random": 3,
+          "global_random_failures": 0,
+          "selected": 1,
+          "selected_failures": 0
+        }
+      },
+      "global_random_failures": 0,
+      "grammar": "structural_explicit_rank_before_city",
+      "output": "/home/ubuntu/CoT-Native-thinking-v5/runs/v5_native_grammar_specific_p0_20260820/Qwen3-8B/head_behavior_structural_explicit_rank_before_city_p0_k128_fullpanel_pergrammarregistry_v2_v1",
+      "selected_failures": 0
+    }
+  ],
+  "model_label": "Qwen3-8B",
+  "persistent_ablation": true,
+  "random_control_matching": "global_same_k_without_selected_overlap",
+  "registry_rows": 256,
+  "registry_sha256": "23134cfaf617d988fdbec7bbc4f1a7033fd17a5e7c360cdfc2c71c7ec5542c22",
+  "schema_version": "realistic_niah_v5_qwen_grammar_specific_p0_full_v1",
+  "selected_rows": 256,
+  "selection_aggregation": "equal_seed_mean_of_within_seed_event_means",
+  "selection_anchor_role": "p0_item_end",
+  "selection_metric": "target_source_attention_mass",
+  "selection_scope": "within_target_grammar",
+  "status": "PASS"
+}

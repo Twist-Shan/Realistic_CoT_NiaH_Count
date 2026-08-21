@@ -18,6 +18,7 @@ from realistic_niah_v5.causal import (
     query_context_mask,
     rank_mechanism_heads,
     rank_pooled_source_specific_heads,
+    ranked_bank_with_layer_profile,
     rank_retrieval_heads,
     sign_flip_pvalue,
     strict_ranked_bank,
@@ -510,6 +511,33 @@ def test_strict_ranked_bank_is_not_rewritten_for_controls() -> None:
             repeats=1,
             seed_text="treatment-is-frozen",
         )
+
+
+def test_ranked_bank_can_match_a_reference_layer_profile() -> None:
+    ranking = pd.DataFrame(
+        [
+            {
+                "layer": layer,
+                "head": head,
+                "discovery_rank": rank,
+            }
+            for rank, (layer, head) in enumerate(
+                [(0, 3), (1, 2), (0, 1), (2, 0), (1, 0), (2, 1)],
+                start=1,
+            )
+        ]
+    )
+    selected = ranked_bank_with_layer_profile(
+        ranking, layer_profile={0: 1, 1: 2, 2: 1}
+    )
+    assert selected == [(0, 3), (1, 2), (2, 0), (1, 0)]
+    assert pd.Series([layer for layer, _head in selected]).value_counts().to_dict() == {
+        0: 1,
+        1: 2,
+        2: 1,
+    }
+    with pytest.raises(ValueError, match="for quota"):
+        ranked_bank_with_layer_profile(ranking, layer_profile={2: 3})
 
 
 def test_ranked_bank_preserves_three_distinct_exact_controls() -> None:

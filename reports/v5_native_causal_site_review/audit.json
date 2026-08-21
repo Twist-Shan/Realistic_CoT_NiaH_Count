@@ -1,0 +1,104 @@
+{
+  "schema_version": "realistic_niah_v5_causal_site_audit_v1",
+  "status": "pass",
+  "trajectory_count": 600,
+  "primary_trajectory_count": 446,
+  "compile_failure_count": 0,
+  "gates": [
+    {
+      "gate": "expected_input_rows",
+      "passed": true,
+      "detail": {
+        "expected": {
+          "Qwen3-8B": 300,
+          "Gemma4-E4B": 300
+        },
+        "seen": {
+          "Qwen3-8B": 300,
+          "Gemma4-E4B": 300
+        }
+      }
+    },
+    {
+      "gate": "all_rows_compiled",
+      "passed": true,
+      "detail": {
+        "compiled": {
+          "Qwen3-8B": 300,
+          "Gemma4-E4B": 300
+        },
+        "failure_count": 0
+      }
+    },
+    {
+      "gate": "exact_output_retokenization",
+      "passed": true,
+      "detail": {
+        "checked": 600
+      }
+    },
+    {
+      "gate": "prompt_source_city_registry_exact",
+      "passed": true,
+      "detail": {
+        "checked": 600
+      }
+    },
+    {
+      "gate": "primary_cohort_nonempty_per_model",
+      "passed": true,
+      "detail": {
+        "Qwen3-8B": 239,
+        "Gemma4-E4B": 207
+      }
+    },
+    {
+      "gate": "all_primary_plans_site_complete",
+      "passed": true,
+      "detail": {
+        "primary_count": 446,
+        "incomplete": []
+      }
+    },
+    {
+      "gate": "all_retrieval_queries_precede_city",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "gate": "all_rank_evidence_cores_have_zero_right_spill",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "gate": "all_continue_targets_follow_commit",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "gate": "all_local_transitions_have_deduplicated_p0_and_city_anchors",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "gate": "all_stop_targets_follow_final_commit",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "gate": "cohort_estimand_scope_enforced",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "gate": "all_primary_have_answer_query_v3",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "gate": "no_unresolved_cohort",
+      "passed": true,
+      "detail": []
+    }
+  ]
+}

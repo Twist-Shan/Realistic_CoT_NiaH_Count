@@ -1,30 +1,61 @@
 {
-  "schema_version": "realistic_niah_v5_native_thinking_mechanism_report_v3_fixed_seed_geometry",
-  "generated_at": "2026-08-16T21:53:03.196545+00:00",
-  "reference_design": "NiaH_Non-thinking_report.html",
-  "inputs": {
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_thinking_mechanism_20260813\\inputs\\v3\\combined_statistics_cross_model_holm.csv": "00ef8a7ae749a730f8862bd84a45dc180a16b7ef5b3f09f584d6176461e8e77a",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_thinking_mechanism_20260813\\inputs\\v3\\final_audit.json": "1ef2110c298e43eb99e4d705bb3d473a2ea6b0f863cf052da854b5ad09b1924d",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_thinking_mechanism_20260813\\inputs\\paired\\Qwen3-8B\\broad\\paired_request_effects.csv": "2531b9e910c3d2401b61b92073794e1632a52203bd9e734eca373b3293ab5c3a",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_thinking_mechanism_20260813\\inputs\\paired\\Qwen3-8B\\target\\paired_occurrence_effects.csv": "8758a41cd0dbcac90c6d3b557fb470cc4eafefe8e41dc21aa018881ecc75a814",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_thinking_mechanism_20260813\\inputs\\paired\\Gemma4-E4B\\broad\\paired_request_effects.csv": "d8c0ce71724c6054e8a85b870e3a4bd87d92dfc7f5ed3be4bba9d1b6d270c27a",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_native_thinking_mechanism_20260813\\inputs\\paired\\Gemma4-E4B\\target\\paired_occurrence_effects.csv": "7bae3c822d790f16d196fca838913dcea3b7027a7c29d99d66b1d8be50b6264d",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_position_geometry\\Qwen3-8B\\pca16\\cross_mode_geometry_audit.json": "9ccdc30d0e27cba58b294eaec258184a56859223ccec766b21aa192cdc7e8c29",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_position_geometry\\Qwen3-8B\\pca16\\global_covariance_geometry.csv": "64a63422651ab02b68decfb86e096010efae56e7bdb88c53fb81c913511a933d",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_position_geometry\\Qwen3-8B\\pca32\\cross_mode_geometry_audit.json": "78fe8f21d6e26ed9a6b2285cb262a1865f1fd308df48d7251fdcccb8d8cb706d",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_position_geometry\\Qwen3-8B\\pca32\\global_covariance_geometry.csv": "7b0c80da2118820dce6ea25b3b2f65c7bb7d4db1c55daf1306a13839c99237a9",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_position_geometry\\Qwen3-8B\\pca64\\cross_mode_geometry_audit.json": "4805e24c26992ab097cafc07dd796728c0746c8b4908374dd247bb6d25d46a28",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_position_geometry\\Qwen3-8B\\pca64\\global_covariance_geometry.csv": "eee27cbc9d72d49e6691ee809b420db91d86bc788e7b0740fce1da61fb5b1775",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_position_geometry\\Gemma4-E4B\\pca16\\cross_mode_geometry_audit.json": "5b3e56eb04e6b13cd6c67bbb0d89dfb539d4879df5b4d2f9ccf85d66cbe74b61",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_position_geometry\\Gemma4-E4B\\pca16\\global_covariance_geometry.csv": "32a44cd4f5f60b17c5b58ca62db7d53c3b8d5235780262ef024d29e680a5a282",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_position_geometry\\Gemma4-E4B\\pca32\\cross_mode_geometry_audit.json": "ef80240d1242104251f3bc3f72abffa71bec4ff1ba3ac1f4922ff4c502620154",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_position_geometry\\Gemma4-E4B\\pca32\\global_covariance_geometry.csv": "22b579598b7260119135687c99d7b60bd6342d4be98a2940c15e5844f971a5f8",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_position_geometry\\Gemma4-E4B\\pca64\\cross_mode_geometry_audit.json": "dc7fba37a6939aa09e341975fadb4d83818f208c99c8f989d6d976cc5040c497",
-    "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\v5_position_geometry\\Gemma4-E4B\\pca64\\global_covariance_geometry.csv": "51e5ff8a58627e4010916e41c38cb6ade38e799f3fb71af5c0217559f4729174"
+  "schema_version": "realistic_niah_v5_native_thinking_synthesis_v3",
+  "status": "complete",
+  "generated_at": "2026-08-20T22:56:29.824518+00:00",
+  "scope": [
+    "representation",
+    "targeted_retrieval_ablation"
+  ],
+  "excluded_from_report": "experiments without frozen confirmatory evidence",
+  "models": [
+    "Qwen3-8B",
+    "Gemma4-E4B"
+  ],
+  "registered_confirmation_seeds": [
+    1254,
+    1255,
+    1256,
+    1257,
+    1258,
+    1259,
+    1260,
+    1261,
+    1262,
+    1263
+  ],
+  "eligibility_audit": {
+    "qwen_duplicate_traces_total": 17,
+    "qwen_duplicate_traces_n1": 3,
+    "qwen_extra_duplicate_exclusions_n_ge_2": 14,
+    "qwen_duplicate_final_wrong": 11,
+    "qwen_duplicate_final_correct": 3,
+    "gemma_duplicate_traces_total": 10,
+    "gemma_duplicates_all_n1": true,
+    "gemma_extra_duplicate_exclusions_n_ge_2": 0
   },
-  "audit_status": "passed",
-  "primary_targeted_retrieval": "parser-defined pre_reference_d1 position-consensus bank",
-  "behavioral_endpoint_policy": "parsed actual greedy generation only; no candidate-logit argmax",
+  "input_sha256": {
+    "reports\\v5_native_causal_aligned_geometry\\audit.json": "b692255d12726751c4d62d84ea0a3cf49d3ccfd95d468dcd064da1b99cb778f2",
+    "reports\\v5_native_causal_aligned_geometry\\site_selected.csv": "b64e1842d5536faccca643db93ae45e6c66ae46d6caf8336f997405a1ec312dd",
+    "reports\\v5_native_causal_aligned_geometry\\legacy_vs_causal_item_end.csv": "677ca40a758139dbfe7b47e370a6c0bf396a5f41c622e7603ab5ddd924443c90",
+    "reports\\v5_dual_endpoint_geometry_full300\\Qwen3-8B\\pca16_whiten\\final_count_selected.csv": "c5cfc0b1b5b7dc9716559a11a8420bb1d6898b87e22ec2bde5d1f8fcf7e12f0b",
+    "reports\\v5_dual_endpoint_geometry_full300\\Gemma4-E4B\\pca16_whiten\\final_count_selected.csv": "ef1f93e6bec86722c6f7f18c6398b9b82591f68f0ef4819e126f70e7afba2988",
+    "reports\\v5_native_targeted_retrieval\\Qwen3-8B\\analysis_manifest.json": "4cb21b9e911d84b729eec910696c7f85c20f71fbf655b7364fa23bd58fe8fa9a",
+    "reports\\v5_native_targeted_retrieval\\Qwen3-8B\\estimands.csv": "07ea8b8f9bff4bc954ad993209396bf6adc9f7d76ae0afb7a41c84aad7b8a731",
+    "reports\\v5_native_targeted_retrieval\\Qwen3-8B\\raw_arm_rates.csv": "31126e14a27e600f8b316a2d138ca6db55b6704aa986f06dfa0709e8d7c51ecf",
+    "reports\\v5_native_targeted_retrieval\\Qwen3-8B\\count_estimands.csv": "7c9d8ec6d7eb3365e6961c3f2bc0e8fe929155aece273859658bc9c54251cebd",
+    "reports\\v5_native_targeted_retrieval\\Gemma4-E4B\\analysis_manifest.json": "d1ec5d92cce7948e9fd03f87783fd7bf0e1c48934b4d099c383c955a035fcbb5",
+    "reports\\v5_native_targeted_retrieval\\Gemma4-E4B\\estimands.csv": "03fecbf383ab5cf3ec6f4402372b4947ce976efb21af901c09bce1484c725db8",
+    "reports\\v5_native_targeted_retrieval\\Gemma4-E4B\\raw_arm_rates.csv": "4a545f572a04c2bbca716ae79c62cb209eb0d8ecfdc8d5a75c8c153eecc47e68",
+    "reports\\v5_native_targeted_retrieval\\Gemma4-E4B\\count_estimands.csv": "5b44a9f1ad6a0c9a32fb653813ade1473ca431d1d811734af7615dde8e537224",
+    "configs\\realistic_niah_v5_qwen_shared_k125_full300_selection.json": "786429838de0b17248e8de44d79d75ca31b81ea117bbc47f1180855ac8e849b2",
+    "configs\\realistic_niah_v5_gemma_shared_k8_full300_selection.json": "a9a697e03dd62cbef2d5823ebd96a632d627f6f087b353a52258f3416672bd89",
+    "reports\\NiaH_Native-Thinking_Parser_and_Token_Sites.html": "cb3348567a12a73f0168b1b39af14aaf891c4df997407e2890bf80d5a4d514ad",
+    "reports\\NiaH_Geometry_Comparison.html": "9ef8279e1c6d9d4d1c9abfd29d1799734473875a3c6ecfba136c4140e0542eb8",
+    "reports\\NiaH_Native-Thinking_Causal_Ablation_report.html": "7e14ba545aba1868d478fd838574ff4baa7a67898670b8055cf70629781128aa",
+    "reports\\NiaH_Native-Thinking_P0_Targeted_Retrieval_Atlas.html": "4a35b4d2391677b9ea541fff5b135cc096af6f1bd6ca54befc4601eb177d076a",
+    "reports\\v5_native_causal_site_review\\trajectory_registry.jsonl": "51ec210a27c6ed8c3db048a4726a2933cc520b5619959f5d7ac76fa5196a9c34",
+    "work\\remote_native_traces_68_209_74_38\\Qwen3-8B\\generations.jsonl": "b2414fb44e9b07f42e4ee224aada6567b99cabf388d374e36ac1f671cab8c0bd"
+  },
   "output": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\NiaH_Native-Thinking_report.html",
-  "output_sha256": "d20f1c07ab0652c4410c39dfae128695608550e532d88f88ea4ebf08778d0306"
+  "output_sha256": "ede422cb3924756962450c55234ab9fe3cd04b32bd52f03a710b31c2b370b3f6"
 }
