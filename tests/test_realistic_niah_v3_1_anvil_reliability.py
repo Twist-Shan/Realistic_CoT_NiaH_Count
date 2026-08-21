@@ -9,6 +9,7 @@ import pytest
 from realistic_niah_v3_1 import integrity
 from realistic_niah_v3_1.shard_state import audit_shard_state
 from realistic_niah_v3_1.spec import PROTOCOL_VERSION
+from scripts import prepare_realistic_niah_v3_1
 
 
 def _sha256(payload: bytes) -> str:
@@ -201,3 +202,7 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     assert 'export PATH="${env_bin}:${PATH}"' in slurm
     assert "command -v ninja" in slurm
     assert "export VLLM_USE_FLASHINFER_SAMPLER=0" in slurm
+
+
+def test_prepare_script_exports_the_frozen_protocol_version() -> None:
+    assert prepare_realistic_niah_v3_1.PROTOCOL_VERSION == PROTOCOL_VERSION

@@ -10,7 +10,7 @@ from typing import Any
 
 from realistic_niah_v3_1.integrity import validate_frozen_dataset
 from realistic_niah_v3_1.sharding import formal_bundle_plan, formal_shard_plan
-from realistic_niah_v3_1.spec import EXPECTED_STIMULI
+from realistic_niah_v3_1.spec import EXPECTED_STIMULI, PROTOCOL_VERSION
 
 
 def _sha256(path: Path) -> str:
