@@ -17,7 +17,7 @@ python_bin="${REALISTIC_NIAH_PYTHON:?Set REALISTIC_NIAH_PYTHON}"
 hf_cache="${REALISTIC_NIAH_HF_CACHE:?Set REALISTIC_NIAH_HF_CACHE}"
 expected_commit="${REALISTIC_NIAH_EXPECTED_COMMIT:?Set REALISTIC_NIAH_EXPECTED_COMMIT}"
 tasks_per_node="${REALISTIC_NIAH_TASKS_PER_NODE:-4}"
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+task_script="${repo}/infra/anvil/realistic_niah_v3_1/run_slurm_task.sh"
 
 case "${run_root}" in
   */runs/realistic_niah_v3_1/*) ;;
@@ -25,6 +25,8 @@ case "${run_root}" in
 esac
 [[ -x "${python_bin}" ]] || { echo "Python is not executable: ${python_bin}" >&2; exit 2; }
 [[ -d "${hf_cache}" ]] || { echo "HF cache does not exist: ${hf_cache}" >&2; exit 2; }
+[[ -r "${task_script}" ]] \
+  || { echo "Shared worker launcher is not readable: ${task_script}" >&2; exit 2; }
 [[ -z "$(git -C "${repo}" status --short)" ]] \
   || { echo "Formal V3.1 execution requires a clean Git worktree" >&2; exit 2; }
 actual_commit="$(git -C "${repo}" rev-parse HEAD)"
@@ -85,7 +87,7 @@ srun \
   --cpu-bind=cores \
   --kill-on-bad-exit=1 \
   --label \
-  bash "${script_dir}/run_slurm_task.sh" "${run_root}"
+  bash "${task_script}" "${run_root}"
 
 bash scripts/finalize_realistic_niah_v3_1.sh "${run_root}"
 printf 'completed_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \

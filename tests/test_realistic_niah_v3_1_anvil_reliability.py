@@ -202,6 +202,12 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     assert 'export PATH="${env_bin}:${PATH}"' in slurm
     assert "command -v ninja" in slurm
     assert "export VLLM_USE_FLASHINFER_SAMPLER=0" in slurm
+    assert (
+        'task_script="${repo}/infra/anvil/realistic_niah_v3_1/run_slurm_task.sh"'
+        in slurm
+    )
+    assert 'bash "${task_script}" "${run_root}"' in slurm
+    assert 'dirname -- "${BASH_SOURCE[0]}"' not in slurm
 
 
 def test_prepare_script_exports_the_frozen_protocol_version() -> None:
