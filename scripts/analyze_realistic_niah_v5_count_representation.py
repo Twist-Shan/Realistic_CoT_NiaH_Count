@@ -404,7 +404,10 @@ def analyze_site(
                 },
             }
         )
-        layer_cv: dict[int, dict[str, float]] = {}
+        layer_cv: dict[str, dict[int, dict[str, float]]] = {
+            "hidden_raw": {},
+            "hidden_position_residualized": {},
+        }
         for layer_axis, layer_value in enumerate(capture.layers):
             discovery_states = capture.states[discovery_mask, layer_axis]
             confirmation_states = capture.states[confirmation_mask, layer_axis]
@@ -432,6 +435,16 @@ def analyze_site(
                 confirmation_states,
                 confirmation_meta,
             )
+            residual_cv_prediction = _cross_validated_hidden_predictions(
+                residual_discovery,
+                discovery_meta,
+                rank=rank,
+                alpha=alpha,
+                folds=folds,
+            )
+            residual_cv_metrics = _metric_row(
+                discovery_y, residual_cv_prediction
+            )
             residual_prediction, _residual_center, _residual_basis = _fit_hidden_probe(
                 residual_discovery,
                 discovery_y,
@@ -441,7 +454,8 @@ def analyze_site(
             )
             residual_metrics = _metric_row(confirmation_y, residual_prediction)
             layer = int(layer_value)
-            layer_cv[layer] = cv_metrics
+            layer_cv["hidden_raw"][layer] = cv_metrics
+            layer_cv["hidden_position_residualized"][layer] = residual_cv_metrics
             common = {
                 "site_kind": site_kind,
                 "cohort": cohort_name,
@@ -466,7 +480,10 @@ def analyze_site(
                 {
                     **common,
                     "variant": "hidden_position_residualized",
-                    "discovery_cv_r2": math.nan,
+                    **{
+                        f"discovery_cv_{key}": value
+                        for key, value in residual_cv_metrics.items()
+                    },
                     **{
                         f"confirmation_{key}": value
                         for key, value in residual_metrics.items()
@@ -480,26 +497,6 @@ def analyze_site(
                 basis,
                 seed=int(random_seed) + layer,
             )
-        selected_layer = max(
-            layer_cv,
-            key=lambda value: (layer_cv[value]["r2"], -int(value)),
-        )
-        selected_raw = next(
-            row
-            for row in metric_rows
-            if row["site_kind"] == site_kind
-            and row["cohort"] == cohort_name
-            and row["variant"] == "hidden_raw"
-            and int(row["layer"]) == selected_layer
-        )
-        selected_residual = next(
-            row
-            for row in metric_rows
-            if row["site_kind"] == site_kind
-            and row["cohort"] == cohort_name
-            and row["variant"] == "hidden_position_residualized"
-            and int(row["layer"]) == selected_layer
-        )
         position_row = next(
             row
             for row in metric_rows
@@ -507,28 +504,41 @@ def analyze_site(
             and row["cohort"] == cohort_name
             and row["variant"] == "position_only"
         )
-        selection_rows.append(
-            {
-                "site_kind": site_kind,
-                "cohort": cohort_name,
-                "selection_rule": "max_grouped_discovery_seed_cv_r2_tie_smallest_layer",
-                "selected_layer": selected_layer,
-                "discovery_cv_r2": selected_raw["discovery_cv_r2"],
-                "confirmation_raw_r2": selected_raw["confirmation_r2"],
-                "confirmation_raw_mae": selected_raw["confirmation_mae"],
-                "confirmation_raw_rounded_exact": selected_raw[
-                    "confirmation_rounded_exact"
-                ],
-                "confirmation_position_residualized_r2": selected_residual[
-                    "confirmation_r2"
-                ],
-                "confirmation_position_only_r2": position_row["confirmation_r2"],
-                "confirmation_observations": selected_raw[
-                    "confirmation_observations"
-                ],
-                "confirmation_seed_count": selected_raw["confirmation_seed_count"],
-            }
-        )
+        for variant in ("hidden_raw", "hidden_position_residualized"):
+            selected_layer = max(
+                layer_cv[variant],
+                key=lambda value: (layer_cv[variant][value]["r2"], -int(value)),
+            )
+            selected = next(
+                row
+                for row in metric_rows
+                if row["site_kind"] == site_kind
+                and row["cohort"] == cohort_name
+                and row["variant"] == variant
+                and int(row["layer"]) == selected_layer
+            )
+            selection_rows.append(
+                {
+                    "site_kind": site_kind,
+                    "cohort": cohort_name,
+                    "selection_variant": variant,
+                    "selection_rule": "max_grouped_discovery_seed_cv_r2_tie_smallest_layer",
+                    "selected_layer": selected_layer,
+                    "discovery_cv_r2": selected["discovery_cv_r2"],
+                    "confirmation_r2": selected["confirmation_r2"],
+                    "confirmation_mae": selected["confirmation_mae"],
+                    "confirmation_rounded_exact": selected[
+                        "confirmation_rounded_exact"
+                    ],
+                    "confirmation_position_only_r2": position_row[
+                        "confirmation_r2"
+                    ],
+                    "confirmation_observations": selected[
+                        "confirmation_observations"
+                    ],
+                    "confirmation_seed_count": selected["confirmation_seed_count"],
+                }
+            )
     return pd.DataFrame(metric_rows), pd.DataFrame(selection_rows), basis_arrays
 
 
@@ -623,6 +633,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         "layer_selection_uses_confirmation": False,
         "basis_fit_uses_confirmation": False,
         "confirmation_is_read_once_after_layer_freeze": True,
+        "position_residualization_fit": (
+            "all discovery observations only; grouped seed CV is applied to "
+            "the residualized discovery states without confirmation access"
+        ),
         "position_features": [
             "endpoint_token",
             "endpoint_token_squared",

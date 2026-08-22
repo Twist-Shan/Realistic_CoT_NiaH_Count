@@ -1,0 +1,148 @@
+{
+  "all_estimands": [
+    {
+      "ci_high": 0.20387363442099268,
+      "ci_low": 0.15632940336806636,
+      "estimand": "selected_carrier_deformation",
+      "higher_is_supportive": true,
+      "mean_effect": 0.17965895963737408,
+      "n_seeds": 20,
+      "p_value": 2.8610202207372468e-06
+    },
+    {
+      "ci_high": 0.06622500115781403,
+      "ci_low": 0.037529268155193356,
+      "estimand": "selected_carrier_deformation_specificity",
+      "higher_is_supportive": true,
+      "mean_effect": 0.05179794929751892,
+      "n_seeds": 20,
+      "p_value": 2.8610202207372468e-06
+    },
+    {
+      "ci_high": 0.6656524415686726,
+      "ci_low": 0.5102455488964915,
+      "estimand": "selected_boundary_deformation",
+      "higher_is_supportive": true,
+      "mean_effect": 0.5871119633316993,
+      "n_seeds": 20,
+      "p_value": 2.8610202207372468e-06
+    },
+    {
+      "ci_high": 0.25605560631801677,
+      "ci_low": 0.11055034851034483,
+      "estimand": "selected_boundary_deformation_specificity",
+      "higher_is_supportive": true,
+      "mean_effect": 0.1854620506366094,
+      "n_seeds": 20,
+      "p_value": 0.00020694712929999418
+    },
+    {
+      "ci_high": 0.3953303508646786,
+      "ci_low": 0.15853975303005427,
+      "estimand": "clean_carrier_restoration",
+      "higher_is_supportive": true,
+      "mean_effect": 0.27596418354660274,
+      "n_seeds": 20,
+      "p_value": 6.580346507695668e-05
+    },
+    {
+      "ci_high": 11.446074680336752,
+      "ci_low": 7.570872878939845,
+      "estimand": "restoration_position_specificity",
+      "higher_is_supportive": true,
+      "mean_effect": 9.514975004829466,
+      "n_seeds": 20,
+      "p_value": 2.8610202207372468e-06
+    }
+  ],
+  "allowed_claim_if_confirmation_passes": "With trace tokens fixed, the frozen targeted retrieval bank changes the grammar-specific marker/tail carrier, and restoring that clean carrier normalizes the later commit state more than an equal-token near-depth state control.",
+  "grammar_timing_counts": {
+    "rank_after_city": 10,
+    "rank_before_city": 10
+  },
+  "outcome_blind": true,
+  "phase": "discovery",
+  "primary_estimand_ids": [
+    "selected_carrier_deformation",
+    "clean_carrier_restoration",
+    "restoration_position_specificity"
+  ],
+  "primary_estimands": [
+    {
+      "ci_high": 0.20387363442099268,
+      "ci_low": 0.15632940336806636,
+      "estimand": "selected_carrier_deformation",
+      "higher_is_supportive": true,
+      "mean_effect": 0.17965895963737408,
+      "n_seeds": 20,
+      "p_value": 2.8610202207372468e-06
+    },
+    {
+      "ci_high": 0.3953303508646786,
+      "ci_low": 0.15853975303005427,
+      "estimand": "clean_carrier_restoration",
+      "higher_is_supportive": true,
+      "mean_effect": 0.27596418354660274,
+      "n_seeds": 20,
+      "p_value": 6.580346507695668e-05
+    },
+    {
+      "ci_high": 11.446074680336752,
+      "ci_low": 7.570872878939845,
+      "estimand": "restoration_position_specificity",
+      "higher_is_supportive": true,
+      "mean_effect": 9.514975004829466,
+      "n_seeds": 20,
+      "p_value": 2.8610202207372468e-06
+    }
+  ],
+  "registered_seeds": [
+    1234,
+    1235,
+    1236,
+    1237,
+    1238,
+    1239,
+    1240,
+    1241,
+    1242,
+    1243,
+    1244,
+    1245,
+    1246,
+    1247,
+    1248,
+    1249,
+    1250,
+    1251,
+    1252,
+    1253
+  ],
+  "restriction": "Random-bank specificity is reported separately; the primary mediation claim does not assert that no other attention heads can perturb state.",
+  "schema_version": "realistic_niah_v5_targeted_counter_write_analysis_v1",
+  "seed_count": 20,
+  "selection_rank_used": false,
+  "targeted_counter_write_directional_pass": true,
+  "targeted_counter_write_strong_gate_pass": true,
+  "targeted_specificity_diagnostics": [
+    {
+      "ci_high": 0.06622500115781403,
+      "ci_low": 0.037529268155193356,
+      "estimand": "selected_carrier_deformation_specificity",
+      "higher_is_supportive": true,
+      "mean_effect": 0.05179794929751892,
+      "n_seeds": 20,
+      "p_value": 2.8610202207372468e-06
+    },
+    {
+      "ci_high": 0.25605560631801677,
+      "ci_low": 0.11055034851034483,
+      "estimand": "selected_boundary_deformation_specificity",
+      "higher_is_supportive": true,
+      "mean_effect": 0.1854620506366094,
+      "n_seeds": 20,
+      "p_value": 0.00020694712929999418
+    }
+  ],
+  "teacher_forced_trace_tokens": true
+}

@@ -1,0 +1,504 @@
+{
+  "analysis_status": "POSTHOC_SEALED_DISCOVERY",
+  "claim_if_confirmed": "A full commit hidden state causally changes how the frozen targeted retrieval bank routes attention at the next query.",
+  "confirmation_eligible": true,
+  "direct_mechanistic_endpoint": "donor_minus_receiver_successor_attention_mass",
+  "directional_signal_pass": true,
+  "estimands": [
+    {
+      "ci_high": 7.787681196222922,
+      "ci_low": 3.701304085660627,
+      "control": "self_patch",
+      "estimand": "full_commit_targeted_attention_vs_self_distance_1",
+      "mean_effect": 5.704078025651154,
+      "n_seeds": 20,
+      "offsets": [
+        -1,
+        1
+      ],
+      "outcome": "donor_minus_receiver_successor_attention_mass",
+      "p_value": 2.384183517281039e-05,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 7.834930943731424,
+      "ci_low": 3.7066387454836667,
+      "control": "norm_matched_orthogonal_patch",
+      "estimand": "full_commit_targeted_attention_vs_orthogonal_distance_1",
+      "mean_effect": 5.726435456967903,
+      "n_seeds": 20,
+      "offsets": [
+        -1,
+        1
+      ],
+      "outcome": "donor_minus_receiver_successor_attention_mass",
+      "p_value": 2.193448835898556e-05,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 6.851819726861346,
+      "ci_low": 2.759778212605531,
+      "control": "count_subspace_transplant",
+      "estimand": "full_commit_targeted_attention_vs_count_subspace_distance_1",
+      "mean_effect": 4.716793910552491,
+      "n_seeds": 20,
+      "offsets": [
+        -1,
+        1
+      ],
+      "outcome": "donor_minus_receiver_successor_attention_mass",
+      "p_value": 2.574918198663522e-05,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 11.947433015947679,
+      "ci_low": 4.423080866475373,
+      "control": "self_patch",
+      "estimand": "full_commit_city_log_odds_vs_self_distance_1",
+      "mean_effect": 8.079353485418858,
+      "n_seeds": 20,
+      "offsets": [
+        -1,
+        1
+      ],
+      "outcome": "donor_vs_receiver_city_log_odds",
+      "p_value": 3.1471222428109714e-05,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 12.093479551662895,
+      "ci_low": 4.518833036817362,
+      "control": "norm_matched_orthogonal_patch",
+      "estimand": "full_commit_city_log_odds_vs_orthogonal_distance_1",
+      "mean_effect": 8.038914344418101,
+      "n_seeds": 20,
+      "offsets": [
+        -1,
+        1
+      ],
+      "outcome": "donor_vs_receiver_city_log_odds",
+      "p_value": 3.1471222428109714e-05,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 11.75905282979969,
+      "ci_low": 4.357780326913064,
+      "control": "count_subspace_transplant",
+      "estimand": "full_commit_city_log_odds_vs_count_subspace_distance_1",
+      "mean_effect": 7.941148999134906,
+      "n_seeds": 20,
+      "offsets": [
+        -1,
+        1
+      ],
+      "outcome": "donor_vs_receiver_city_log_odds",
+      "p_value": 4.768367034562078e-06,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 0.075,
+      "ci_low": 0.0,
+      "control": "self_patch",
+      "estimand": "full_commit_greedy_city_adoption_vs_self_distance_1",
+      "mean_effect": 0.025,
+      "n_seeds": 20,
+      "offsets": [
+        -1,
+        1
+      ],
+      "outcome": "donor_city_adoption",
+      "p_value": 1.0,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 0.075,
+      "ci_low": 0.0,
+      "control": "norm_matched_orthogonal_patch",
+      "estimand": "full_commit_greedy_city_adoption_vs_orthogonal_distance_1",
+      "mean_effect": 0.025,
+      "n_seeds": 20,
+      "offsets": [
+        -1,
+        1
+      ],
+      "outcome": "donor_city_adoption",
+      "p_value": 1.0,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 0.075,
+      "ci_low": 0.0,
+      "control": "count_subspace_transplant",
+      "estimand": "full_commit_greedy_city_adoption_vs_count_subspace_distance_1",
+      "mean_effect": 0.025,
+      "n_seeds": 20,
+      "offsets": [
+        -1,
+        1
+      ],
+      "outcome": "donor_city_adoption",
+      "p_value": 1.0,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 8.75705617432716,
+      "ci_low": 4.398719100363019,
+      "control": "self_patch",
+      "estimand": "full_commit_targeted_attention_vs_self_distance_2",
+      "mean_effect": 6.489727699621065,
+      "n_seeds": 20,
+      "offsets": [
+        -2,
+        2
+      ],
+      "outcome": "donor_minus_receiver_successor_attention_mass",
+      "p_value": 4.768367034562078e-06,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 8.65016556658824,
+      "ci_low": 4.502058312174059,
+      "control": "norm_matched_orthogonal_patch",
+      "estimand": "full_commit_targeted_attention_vs_orthogonal_distance_2",
+      "mean_effect": 6.49951982581739,
+      "n_seeds": 20,
+      "offsets": [
+        -2,
+        2
+      ],
+      "outcome": "donor_minus_receiver_successor_attention_mass",
+      "p_value": 4.768367034562078e-06,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 5.8132320904286425,
+      "ci_low": 2.4070579432477763,
+      "control": "count_subspace_transplant",
+      "estimand": "full_commit_targeted_attention_vs_count_subspace_distance_2",
+      "mean_effect": 3.936303485065051,
+      "n_seeds": 20,
+      "offsets": [
+        -2,
+        2
+      ],
+      "outcome": "donor_minus_receiver_successor_attention_mass",
+      "p_value": 8.58306066221174e-06,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 4.9575697061838975,
+      "ci_low": 1.605440567514211,
+      "control": "self_patch",
+      "estimand": "full_commit_city_log_odds_vs_self_distance_2",
+      "mean_effect": 3.0976674690367245,
+      "n_seeds": 20,
+      "offsets": [
+        -2,
+        2
+      ],
+      "outcome": "donor_vs_receiver_city_log_odds",
+      "p_value": 8.58306066221174e-06,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 4.995804341471042,
+      "ci_low": 1.6278934437187178,
+      "control": "norm_matched_orthogonal_patch",
+      "estimand": "full_commit_city_log_odds_vs_orthogonal_distance_2",
+      "mean_effect": 3.10762267937431,
+      "n_seeds": 20,
+      "offsets": [
+        -2,
+        2
+      ],
+      "outcome": "donor_vs_receiver_city_log_odds",
+      "p_value": 4.768367034562078e-06,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 4.8998075853791825,
+      "ci_low": 1.4171576351334805,
+      "control": "count_subspace_transplant",
+      "estimand": "full_commit_city_log_odds_vs_count_subspace_distance_2",
+      "mean_effect": 2.9871203890790636,
+      "n_seeds": 20,
+      "offsets": [
+        -2,
+        2
+      ],
+      "outcome": "donor_vs_receiver_city_log_odds",
+      "p_value": 6.675713848386909e-06,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 0.0,
+      "ci_low": 0.0,
+      "control": "self_patch",
+      "estimand": "full_commit_greedy_city_adoption_vs_self_distance_2",
+      "mean_effect": 0.0,
+      "n_seeds": 20,
+      "offsets": [
+        -2,
+        2
+      ],
+      "outcome": "donor_city_adoption",
+      "p_value": 1.0,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 0.0,
+      "ci_low": 0.0,
+      "control": "norm_matched_orthogonal_patch",
+      "estimand": "full_commit_greedy_city_adoption_vs_orthogonal_distance_2",
+      "mean_effect": 0.0,
+      "n_seeds": 20,
+      "offsets": [
+        -2,
+        2
+      ],
+      "outcome": "donor_city_adoption",
+      "p_value": 1.0,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 0.0,
+      "ci_low": 0.0,
+      "control": "count_subspace_transplant",
+      "estimand": "full_commit_greedy_city_adoption_vs_count_subspace_distance_2",
+      "mean_effect": 0.0,
+      "n_seeds": 20,
+      "offsets": [
+        -2,
+        2
+      ],
+      "outcome": "donor_city_adoption",
+      "p_value": 1.0,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 10.352124521035277,
+      "ci_low": 5.108516871434359,
+      "control": "self_patch",
+      "estimand": "full_commit_targeted_attention_vs_self_distance_3",
+      "mean_effect": 7.6413069796669575,
+      "n_seeds": 20,
+      "offsets": [
+        -3,
+        3
+      ],
+      "outcome": "donor_minus_receiver_successor_attention_mass",
+      "p_value": 2.8610202207372468e-06,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 10.222773662106816,
+      "ci_low": 4.8713181113737685,
+      "control": "norm_matched_orthogonal_patch",
+      "estimand": "full_commit_targeted_attention_vs_orthogonal_distance_3",
+      "mean_effect": 7.392058630993167,
+      "n_seeds": 20,
+      "offsets": [
+        -3,
+        3
+      ],
+      "outcome": "donor_minus_receiver_successor_attention_mass",
+      "p_value": 2.8610202207372468e-06,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 6.104546533737065,
+      "ci_low": 1.9987224241610637,
+      "control": "count_subspace_transplant",
+      "estimand": "full_commit_targeted_attention_vs_count_subspace_distance_3",
+      "mean_effect": 3.9168033131434528,
+      "n_seeds": 20,
+      "offsets": [
+        -3,
+        3
+      ],
+      "outcome": "donor_minus_receiver_successor_attention_mass",
+      "p_value": 4.768367034562078e-06,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 9.14026878150335,
+      "ci_low": 2.7974023562735613,
+      "control": "self_patch",
+      "estimand": "full_commit_city_log_odds_vs_self_distance_3",
+      "mean_effect": 5.7279166412569165,
+      "n_seeds": 20,
+      "offsets": [
+        -3,
+        3
+      ],
+      "outcome": "donor_vs_receiver_city_log_odds",
+      "p_value": 2.8610202207372468e-06,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 9.12137023709487,
+      "ci_low": 2.634598549040918,
+      "control": "norm_matched_orthogonal_patch",
+      "estimand": "full_commit_city_log_odds_vs_orthogonal_distance_3",
+      "mean_effect": 5.634635999755147,
+      "n_seeds": 20,
+      "offsets": [
+        -3,
+        3
+      ],
+      "outcome": "donor_vs_receiver_city_log_odds",
+      "p_value": 6.675713848386909e-06,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 8.900332886878704,
+      "ci_low": 2.59296260242533,
+      "control": "count_subspace_transplant",
+      "estimand": "full_commit_city_log_odds_vs_count_subspace_distance_3",
+      "mean_effect": 5.5274585090607005,
+      "n_seeds": 20,
+      "offsets": [
+        -3,
+        3
+      ],
+      "outcome": "donor_vs_receiver_city_log_odds",
+      "p_value": 1.8119794731335896e-05,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 0.0,
+      "ci_low": 0.0,
+      "control": "self_patch",
+      "estimand": "full_commit_greedy_city_adoption_vs_self_distance_3",
+      "mean_effect": 0.0,
+      "n_seeds": 20,
+      "offsets": [
+        -3,
+        3
+      ],
+      "outcome": "donor_city_adoption",
+      "p_value": 1.0,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 0.0,
+      "ci_low": 0.0,
+      "control": "norm_matched_orthogonal_patch",
+      "estimand": "full_commit_greedy_city_adoption_vs_orthogonal_distance_3",
+      "mean_effect": 0.0,
+      "n_seeds": 20,
+      "offsets": [
+        -3,
+        3
+      ],
+      "outcome": "donor_city_adoption",
+      "p_value": 1.0,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 0.0,
+      "ci_low": 0.0,
+      "control": "count_subspace_transplant",
+      "estimand": "full_commit_greedy_city_adoption_vs_count_subspace_distance_3",
+      "mean_effect": 0.0,
+      "n_seeds": 20,
+      "offsets": [
+        -3,
+        3
+      ],
+      "outcome": "donor_city_adoption",
+      "p_value": 1.0,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    }
+  ],
+  "outcome_blind": true,
+  "phase": "discovery",
+  "primary_estimands": [
+    {
+      "ci_high": 7.787681196222922,
+      "ci_low": 3.701304085660627,
+      "control": "self_patch",
+      "estimand": "full_commit_targeted_attention_vs_self_distance_1",
+      "mean_effect": 5.704078025651154,
+      "n_seeds": 20,
+      "offsets": [
+        -1,
+        1
+      ],
+      "outcome": "donor_minus_receiver_successor_attention_mass",
+      "p_value": 2.384183517281039e-05,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    },
+    {
+      "ci_high": 7.834930943731424,
+      "ci_low": 3.7066387454836667,
+      "control": "norm_matched_orthogonal_patch",
+      "estimand": "full_commit_targeted_attention_vs_orthogonal_distance_1",
+      "mean_effect": 5.726435456967903,
+      "n_seeds": 20,
+      "offsets": [
+        -1,
+        1
+      ],
+      "outcome": "donor_minus_receiver_successor_attention_mass",
+      "p_value": 2.193448835898556e-05,
+      "pair_count": 40,
+      "treatment": "full_donor_patch"
+    }
+  ],
+  "registered_seeds": [
+    1234,
+    1235,
+    1236,
+    1237,
+    1238,
+    1239,
+    1240,
+    1241,
+    1242,
+    1243,
+    1244,
+    1245,
+    1246,
+    1247,
+    1248,
+    1249,
+    1250,
+    1251,
+    1252,
+    1253
+  ],
+  "restriction": "City logits and greedy city adoption are downstream diagnostics, not required for the direct commit-state-to-query-attention edge.",
+  "schema_version": "realistic_niah_v5_full_commit_to_targeted_query_v1",
+  "seed_count": 20,
+  "selection_rank_used": false,
+  "strong_direct_gate_pass": true
+}

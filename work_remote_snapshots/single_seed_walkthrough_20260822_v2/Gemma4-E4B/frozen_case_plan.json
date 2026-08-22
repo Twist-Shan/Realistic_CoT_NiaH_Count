@@ -1,0 +1,20 @@
+{
+  "answer_query_patched": false,
+  "case_selected_by_outcome": false,
+  "case_study_not_inferential": true,
+  "conditions": [
+    "clean",
+    "uninformative",
+    "full_item_restore",
+    "counter_carrier_restore",
+    "counter_carrier_matched_control"
+  ],
+  "gold_count": 10,
+  "model_label": "Gemma4-E4B",
+  "request_id": "Gemma4-E4B/native_thinking/v5/V4_4_T10000_N10_seed1258",
+  "schema_version": "realistic_niah_v5_single_seed_walkthrough_plan_v1",
+  "seed": 1258,
+  "selection_rule": "metadata-only confirmation case with a complete ten-item trace; never used for formal estimation or head/site selection",
+  "source_layer": 16,
+  "status": "FROZEN_CASE_STUDY"
+}

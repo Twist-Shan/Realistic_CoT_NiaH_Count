@@ -1,0 +1,239 @@
+{
+  "confirmation": {
+    "quota_per_count": 5,
+    "seed_count": 10,
+    "seeds": [
+      1254,
+      1255,
+      1256,
+      1257,
+      1258,
+      1259,
+      1260,
+      1261,
+      1262,
+      1263
+    ]
+  },
+  "counts": [
+    9,
+    10
+  ],
+  "discovery": {
+    "quota_per_count": 10,
+    "seed_count": 20,
+    "seeds": [
+      1234,
+      1235,
+      1236,
+      1237,
+      1238,
+      1239,
+      1240,
+      1241,
+      1242,
+      1243,
+      1244,
+      1245,
+      1246,
+      1247,
+      1248,
+      1249,
+      1250,
+      1251,
+      1252,
+      1253
+    ]
+  },
+  "outcome_blind": true,
+  "panel_id": "count9_10_balanced",
+  "plan_sha256": "92268eb39c24588fd6185fdb6c8fe1c37a8be0c87d292d842b2dc1362fa2a352",
+  "schema_version": "realistic_niah_v5_balanced_count_anchor_plan_v1",
+  "selected_rows": [
+    {
+      "gold_count": 9,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1234",
+      "seed": 1234,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 10,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1235",
+      "seed": 1235,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 9,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1236",
+      "seed": 1236,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 10,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1237",
+      "seed": 1237,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 9,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1238",
+      "seed": 1238,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 10,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1239",
+      "seed": 1239,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 9,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1240",
+      "seed": 1240,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 10,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1241",
+      "seed": 1241,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 10,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1242",
+      "seed": 1242,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 10,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1243",
+      "seed": 1243,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 9,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1244",
+      "seed": 1244,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 10,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1245",
+      "seed": 1245,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 9,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1246",
+      "seed": 1246,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 10,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1247",
+      "seed": 1247,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 9,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1248",
+      "seed": 1248,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 9,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1249",
+      "seed": 1249,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 9,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1250",
+      "seed": 1250,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 10,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1251",
+      "seed": 1251,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 9,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1252",
+      "seed": 1252,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 10,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1253",
+      "seed": 1253,
+      "selection_phase": "discovery"
+    },
+    {
+      "gold_count": 9,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1254",
+      "seed": 1254,
+      "selection_phase": "confirmation"
+    },
+    {
+      "gold_count": 10,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1255",
+      "seed": 1255,
+      "selection_phase": "confirmation"
+    },
+    {
+      "gold_count": 9,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1256",
+      "seed": 1256,
+      "selection_phase": "confirmation"
+    },
+    {
+      "gold_count": 10,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1257",
+      "seed": 1257,
+      "selection_phase": "confirmation"
+    },
+    {
+      "gold_count": 9,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1258",
+      "seed": 1258,
+      "selection_phase": "confirmation"
+    },
+    {
+      "gold_count": 10,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1259",
+      "seed": 1259,
+      "selection_phase": "confirmation"
+    },
+    {
+      "gold_count": 9,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1260",
+      "seed": 1260,
+      "selection_phase": "confirmation"
+    },
+    {
+      "gold_count": 10,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1261",
+      "seed": 1261,
+      "selection_phase": "confirmation"
+    },
+    {
+      "gold_count": 9,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N9_seed1262",
+      "seed": 1262,
+      "selection_phase": "confirmation"
+    },
+    {
+      "gold_count": 10,
+      "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1263",
+      "seed": 1263,
+      "selection_phase": "confirmation"
+    }
+  ],
+  "selected_rows_sha256": "93916b2998e16dac957d0b1db6ebdf739509ecaa78a3b21115d6a2e7c806e85c",
+  "selection_rank_used": false,
+  "selection_rule": "deterministic_exact_count_quota_matching_using_anchor_metadata_only",
+  "source_registry_name": "qwen_targeted_final_transition_registry.jsonl",
+  "source_registry_sha256": "f26a1f3204cf4f45f28e65808ceab701147fedd41facac469c8eae1eef85f570"
+}

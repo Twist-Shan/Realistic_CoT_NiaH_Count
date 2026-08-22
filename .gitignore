@@ -44,7 +44,8 @@ reports/*_diagnostic/
 # Generated Realistic NiaH analysis releases contain request-level tables,
 # rendered reports, figures, and copied build scripts. Keep the complete
 # release local/Drive rather than committing any part of the report tree.
-reports/v*_realistic_niah_analysis_*/
+reports/
+report/
 
 # Machine-local scratch, downloaded snapshots, resumable GPU captures, and
 # temporary audits. Durable code belongs in src/, scripts/, tests/, or infra/;

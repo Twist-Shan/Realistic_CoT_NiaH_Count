@@ -20,11 +20,11 @@ esac
 CODE_ROOT="${CODE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 PYTHON="${PYTHON:-$CODE_ROOT/.venv/bin/python}"
 CACHE_DIR="${CACHE_DIR:-$CODE_ROOT/work/hf_cache}"
-RUN_ROOT="${RUN_ROOT:-$CODE_ROOT/work/v5_native_count_stream/followup_20260820/$MODEL}"
-STAGE1_ROOT="$CODE_ROOT/work/v5_native_count_stream/stage1_20260820/$MODEL"
+RUN_ROOT="${RUN_ROOT:-$CODE_ROOT/work/v5_native_count_stream/followup_20d10c_20260820/$MODEL}"
+STAGE1_ROOT="$CODE_ROOT/work/v5_native_count_stream/stage1_20d10c_20260820/$MODEL"
 RUNNER="$CODE_ROOT/scripts/run_realistic_niah_v5_count_stream.py"
 MECHANISM="$CODE_ROOT/configs/realistic_niah_v5_native_count_stream_dev.json"
-V5_CONFIG="$CODE_ROOT/configs/realistic_niah_v5_native_count_stream_registry_v1.json"
+V5_CONFIG="$CODE_ROOT/configs/realistic_niah_v5.json"
 GENERATIONS="$CODE_ROOT/work/v5_trace_parser_v2/${MODEL}_generations_reparsed.jsonl"
 SPARSE_PLAN="$STAGE1_ROOT/trace_pair_plan/trace_patch_pair_plan.csv"
 TERMINAL_PLAN_DIR="$RUN_ROOT/terminal_last_plan"
@@ -154,7 +154,7 @@ def read_shards(name: str, expected_shards: int, expected_rows_per_shard: int):
 
 middle = read_shards("middle_full_state_clamp_rank5", 360, 3)
 terminal = read_shards("terminal_last_full_state_clamp_rank10", 760, 3)
-source = read_shards("source_mask_query_only_all_heads", 100, 5)
+source = read_shards("source_mask_query_only_all_heads", 50, 5)
 
 for panel, rows in (("middle", middle), ("terminal", terminal)):
     statuses = {row["status"] for row in rows}
@@ -219,7 +219,7 @@ summary = {
     "terminal_not_applicable_rows": sum(
         row["status"] == "not_applicable" for row in terminal
     ),
-    "source_mask_request_count": 100,
+    "source_mask_request_count": 50,
     "source_mask_condition_rows": len(source),
     "terminal_plan": str(terminal_plan.resolve()),
 }

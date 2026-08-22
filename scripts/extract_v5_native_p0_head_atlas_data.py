@@ -53,6 +53,19 @@ def _parse_head(value: str) -> tuple[str, int, int]:
     return grammar, int(layer), int(head)
 
 
+def _parse_bank(value: str) -> tuple[str, int]:
+    parts = value.split(":")
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError(
+            "Bank examples must be GRAMMAR:K"
+        )
+    grammar, size = parts
+    bank_size = int(size)
+    if bank_size < 1:
+        raise argparse.ArgumentTypeError("Bank size must be positive")
+    return grammar, bank_size
+
+
 def _grammar_from_pair(value: Any) -> str:
     return str(value).rsplit(" -> ", 1)[-1]
 
@@ -278,23 +291,179 @@ def _capture_examples(
     return output
 
 
+def _ranked_bank_heads(
+    rankings: dict[str, Any], grammar: str, bank_size: int
+) -> list[tuple[int, int]]:
+    if grammar not in rankings:
+        raise KeyError(f"No frozen ranking for grammar {grammar!r}")
+    ordered = sorted(
+        rankings[grammar]["rows"],
+        key=lambda row: (int(row["rank"]), int(row["layer"]), int(row["head"])),
+    )
+    if len(ordered) < bank_size:
+        raise ValueError(
+            f"Grammar {grammar!r} has only {len(ordered)} ranked heads, "
+            f"cannot build Top-{bank_size}"
+        )
+    selected = ordered[:bank_size]
+    observed_ranks = [int(row["rank"]) for row in selected]
+    if observed_ranks != list(range(1, bank_size + 1)):
+        raise ValueError(
+            f"Grammar {grammar!r} does not contain a contiguous Top-{bank_size}"
+        )
+    return [(int(row["layer"]), int(row["head"])) for row in selected]
+
+
+def _capture_bank_examples(
+    model: Any,
+    tokenizer: Any,
+    adapter: Any,
+    *,
+    tasks_by_grammar: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]],
+    rankings: dict[str, Any],
+    banks: list[tuple[str, int]],
+    max_queries: int,
+) -> list[dict[str, Any]]:
+    """Sum exact-P0 prompt-region attention over each frozen Top-K bank.
+
+    The output deliberately preserves the same event-by-record layout as a
+    single-head example.  The only semantic change is that every ``mass`` and
+    ``attention_total_mass`` is a sum over the selected layer-head identities.
+    Consequently each event's total mass is K (up to floating-point error), not
+    one.  This is the artifact needed for a city-labelled bank-summed heatmap;
+    ordinal aggregates cannot recover the off-target cells.
+    """
+
+    output: list[dict[str, Any]] = []
+    for grammar, bank_size in banks:
+        selected = _representative_request(tasks_by_grammar.get(grammar, []))
+        if len(selected) > max_queries:
+            indices = (
+                [
+                    round(index * (len(selected) - 1) / (max_queries - 1))
+                    for index in range(max_queries)
+                ]
+                if max_queries > 1
+                else [0]
+            )
+            selected = [selected[index] for index in dict.fromkeys(indices)]
+        row = selected[0][0]
+        heads = _ranked_bank_heads(rankings, grammar, bank_size)
+        panel: dict[str, Any] = {
+            "grammar": grammar,
+            "bank_size": int(bank_size),
+            "bank_heads": [
+                {"layer": int(layer), "head": int(head)}
+                for layer, head in heads
+            ],
+            "request_id": str(row.get("request_id", row.get("stimulus_id"))),
+            "seed": int(row["seed"]),
+            "gold_count": int(
+                row.get("gold_count", len(row.get("gold_records", [])))
+            ),
+            "query_site": "p0_item_end",
+            "aggregation": "sum_over_frozen_bank_heads",
+            "events": [],
+        }
+        for task_index, (_row, specification) in enumerate(selected, start=1):
+            encoding = build_native_causal_encoding(
+                _row,
+                tokenizer,
+                query_output_token_index=int(specification["query_output_token_index"]),
+                sequence_output_token_end=int(specification["target_output_token_end"]),
+                selected_site=specification,
+            )
+            attention_rows, key_starts, _logits = position_attention_outputs(
+                model,
+                adapter,
+                encoding,
+                int(encoding.query_position),
+            )
+            summed_records: list[dict[str, Any]] | None = None
+            context_mass = 0.0
+            total_mass = 0.0
+            for layer, head in heads:
+                attention = attention_rows[layer][head]
+                record_rows, head_context_mass = _record_masses(
+                    attention,
+                    key_start=int(key_starts[layer]),
+                    prompt_record_spans=encoding.prompt_record_spans,
+                )
+                if summed_records is None:
+                    summed_records = [
+                        {**record, "mass": 0.0}
+                        for record in record_rows
+                    ]
+                if len(summed_records) != len(record_rows):
+                    raise RuntimeError("Prompt-record span count changed across layers")
+                for accumulator, record in zip(summed_records, record_rows):
+                    if (
+                        int(accumulator["source_index"]) != int(record["source_index"])
+                        or str(accumulator["city"]) != str(record["city"])
+                    ):
+                        raise RuntimeError("Prompt-record ordering changed across layers")
+                    accumulator["mass"] += float(record["mass"])
+                context_mass += float(head_context_mass)
+                total_mass += float(attention.sum().item())
+            if summed_records is None:
+                raise RuntimeError("Frozen bank unexpectedly contained no heads")
+            target_city = str(specification["target_city"])
+            for record in summed_records:
+                record["is_target"] = (
+                    str(record["city"]).casefold() == target_city.casefold()
+                )
+            # Attention rows are materialized from bfloat16 model outputs.  A
+            # per-head normalization error of a few 1e-4 can accumulate over a
+            # wide bank, so validate to 0.1% relative error rather than using a
+            # float32-scale absolute tolerance.
+            if abs(total_mass - float(bank_size)) > max(1e-3, bank_size * 1e-3):
+                raise RuntimeError(
+                    f"Bank-summed attention total {total_mass:.6f} does not equal "
+                    f"K={bank_size}"
+                )
+            panel["events"].append(
+                {
+                    "event_index": int(task_index),
+                    "from_occurrence": int(specification["from_occurrence"]),
+                    "to_occurrence": int(specification["to_occurrence"]),
+                    "query_output_token_index": int(
+                        specification["query_output_token_index"]
+                    ),
+                    "query_full_sequence_token": int(encoding.query_position),
+                    "query_token_text": str(specification.get("token_text", "")),
+                    "target_city": target_city,
+                    "records": summed_records,
+                    "non_needle_context_mass": float(context_mass),
+                    "attention_total_mass": float(total_mass),
+                }
+            )
+        output.append(panel)
+    return output
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--generations", type=Path, required=True)
-    parser.add_argument("--plan-root", type=Path, required=True)
-    parser.add_argument("--plan-k", type=int, required=True)
+    parser.add_argument("--plan-root", type=Path)
+    parser.add_argument("--plan-k", type=int)
+    parser.add_argument(
+        "--atlas-template",
+        type=Path,
+        help="Reuse frozen rankings (and existing single-head examples) from an atlas JSON",
+    )
     parser.add_argument("--model", required=True, choices=["Qwen3-8B", "Gemma4-E4B"])
     parser.add_argument("--cache-dir", type=Path)
     parser.add_argument("--device-map", default="auto")
     parser.add_argument("--torch-dtype", default="bfloat16")
     parser.add_argument("--attention-backend", default="sdpa")
     parser.add_argument("--head-example", action="append", type=_parse_head, default=[])
+    parser.add_argument("--bank-example", action="append", type=_parse_bank, default=[])
     parser.add_argument("--max-queries", type=int, default=8)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    if not args.head_example:
-        raise ValueError("At least one --head-example is required")
+    if not args.head_example and not args.bank_example:
+        raise ValueError("At least one --head-example or --bank-example is required")
     if args.max_queries < 1:
         raise ValueError("--max-queries must be positive")
 
@@ -316,23 +485,48 @@ def main() -> None:
         if int(row["seed"]) in development
     ]
     tasks_by_grammar = _eligible_tasks(generation_rows, tokenizer)
+    if args.atlas_template is not None:
+        template = json.loads(args.atlas_template.read_text(encoding="utf-8"))
+        if str(template.get("model_label")) != args.model:
+            raise ValueError("Atlas template model does not match --model")
+        rankings = template["rankings"]
+        existing_examples = list(template.get("examples", []))
+    else:
+        if args.plan_root is None or args.plan_k is None:
+            raise ValueError("--plan-root and --plan-k are required without --atlas-template")
+        rankings = _ranking_bundle(args.plan_root, args.plan_k)
+        existing_examples = []
+
     bundle = {
-        "schema_version": "realistic_niah_v5_p0_head_atlas_v1",
+        "schema_version": "realistic_niah_v5_p0_head_atlas_v2",
         "model_label": args.model,
         "query_site": "p0_item_end",
         "selection_split": "discovery",
         "selection_aggregation": "seed_event_mean",
         "selection_metric": "target_source_attention_mass",
         "development_seeds": sorted(development),
-        "rankings": _ranking_bundle(args.plan_root, args.plan_k),
-        "examples": _capture_examples(
+        "rankings": rankings,
+        "examples": existing_examples + (
+            _capture_examples(
+                model,
+                tokenizer,
+                adapter,
+                tasks_by_grammar=tasks_by_grammar,
+                examples=args.head_example,
+                max_queries=int(args.max_queries),
+            )
+            if args.head_example
+            else []
+        ),
+        "bank_examples": _capture_bank_examples(
             model,
             tokenizer,
             adapter,
             tasks_by_grammar=tasks_by_grammar,
-            examples=args.head_example,
+            rankings=rankings,
+            banks=args.bank_example,
             max_queries=int(args.max_queries),
-        ),
+        ) if args.bank_example else [],
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(

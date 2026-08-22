@@ -1,0 +1,175 @@
+{
+  "answer_query_patched": false,
+  "baselines": {
+    "clean": {
+      "candidate_prediction": 10,
+      "expected_count": 9.999999999999917,
+      "gold_count_margin": 30.125045776367188,
+      "gold_count_probability": 0.9999999999999172,
+      "greedy_prediction": 10
+    },
+    "uninformative": {
+      "candidate_prediction": 9,
+      "expected_count": 5.0827969527050545,
+      "gold_count_margin": -5.791755676269531,
+      "gold_count_probability": 0.0015386391619903027,
+      "greedy_prediction": null
+    }
+  },
+  "case_selected_by_outcome": false,
+  "case_study_not_inferential": true,
+  "conditions": {
+    "counter_carrier_matched_control": {
+      "candidate_exact_path_count": 2,
+      "candidate_exact_path_fraction": 0.2,
+      "candidate_mean_absolute_error_to_restored_occurrence": 2.9,
+      "candidate_path": [
+        1,
+        9,
+        9,
+        9,
+        9,
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "candidate_prediction_correlation_with_occurrence": 0.5222329678670935,
+      "expected_count_correlation_with_occurrence": 0.14595293048511002,
+      "expected_count_path": [
+        4.650228910387118,
+        5.775371198779494,
+        5.600906054963659,
+        7.00861270029146,
+        6.824371460787421,
+        7.310443409081261,
+        6.280680858151651,
+        6.3773484789661525,
+        5.476997815145278,
+        5.37788359629149
+      ],
+      "greedy_exact_path_count": 0,
+      "greedy_exact_path_fraction": 0.0,
+      "greedy_path": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "mean_restored_target_margin": -5.637354679999999,
+      "mean_restored_target_probability": 0.11087536369454001,
+      "occurrence_count": 10
+    },
+    "counter_carrier_restore": {
+      "candidate_exact_path_count": 2,
+      "candidate_exact_path_fraction": 0.2,
+      "candidate_mean_absolute_error_to_restored_occurrence": 2.9,
+      "candidate_path": [
+        1,
+        9,
+        9,
+        9,
+        9,
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "candidate_prediction_correlation_with_occurrence": 0.5222329678670935,
+      "expected_count_correlation_with_occurrence": 0.5460437741798742,
+      "expected_count_path": [
+        3.578906758472854,
+        6.583822993583619,
+        5.033334918298632,
+        5.6610856906382585,
+        5.299607615271624,
+        7.311222585060939,
+        6.051046737168947,
+        6.748105785819871,
+        7.4471595457449,
+        5.471571244357688
+      ],
+      "greedy_exact_path_count": 0,
+      "greedy_exact_path_fraction": 0.0,
+      "greedy_path": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "mean_restored_target_margin": -5.145176320000001,
+      "mean_restored_target_probability": 0.15137168320617,
+      "occurrence_count": 10
+    },
+    "full_item_restore": {
+      "candidate_exact_path_count": 1,
+      "candidate_exact_path_fraction": 0.1,
+      "candidate_mean_absolute_error_to_restored_occurrence": 3.7,
+      "candidate_path": [
+        9,
+        9,
+        9,
+        9,
+        9,
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "candidate_prediction_correlation_with_occurrence": 0.0,
+      "expected_count_correlation_with_occurrence": -0.38564336965174334,
+      "expected_count_path": [
+        8.664369827159993,
+        8.567928646851461,
+        7.569752697616065,
+        7.247751214671631,
+        7.306091020493551,
+        8.03419812212804,
+        6.5924888657036975,
+        8.448079741316517,
+        8.618766325615725,
+        6.214848770270093
+      ],
+      "greedy_exact_path_count": 0,
+      "greedy_exact_path_fraction": 0.0,
+      "greedy_path": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        1000000000000000
+      ],
+      "mean_restored_target_margin": -5.448341559999999,
+      "mean_restored_target_probability": 0.10070290081012001,
+      "occurrence_count": 10
+    }
+  },
+  "gold_count": 10,
+  "interpretation_rule": "Use the paths as an illustrative sufficiency check.  Do not attach confidence intervals, p-values, discovery selection, or population claims.",
+  "model_label": "Qwen3-8B",
+  "request_id": "Qwen3-8B/native_thinking/v5/V4_4_T10000_N10_seed1254",
+  "schema_version": "realistic_niah_v5_single_seed_walkthrough_complete_v1",
+  "seed": 1254,
+  "source_layer": 19,
+  "status": "PASS"
+}

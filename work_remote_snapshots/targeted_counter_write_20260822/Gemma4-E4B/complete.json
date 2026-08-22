@@ -1,0 +1,301 @@
+{
+  "complete_directional_pass": true,
+  "complete_strong_gate_pass": true,
+  "completed_utc": "2026-08-22T05:27:57.932158+00:00",
+  "confirmation": {
+    "all_estimands": [
+      {
+        "ci_high": 0.06099587504668202,
+        "ci_low": 0.04109872177611102,
+        "estimand": "selected_carrier_deformation",
+        "higher_is_supportive": true,
+        "mean_effect": 0.051330020162061174,
+        "n_seeds": 10,
+        "p_value": 0.002926829268292683
+      },
+      {
+        "ci_high": 0.023126491498980016,
+        "ci_low": -0.007696877097618203,
+        "estimand": "selected_carrier_deformation_specificity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.009420348375169668,
+        "n_seeds": 10,
+        "p_value": 0.2917073170731707
+      },
+      {
+        "ci_high": 0.07607787068132378,
+        "ci_low": 0.04034717113166997,
+        "estimand": "selected_boundary_deformation",
+        "higher_is_supportive": true,
+        "mean_effect": 0.058618222022427426,
+        "n_seeds": 10,
+        "p_value": 0.002926829268292683
+      },
+      {
+        "ci_high": 0.036619340931551406,
+        "ci_low": -0.0036020899479665817,
+        "estimand": "selected_boundary_deformation_specificity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.017414112817548132,
+        "n_seeds": 10,
+        "p_value": 0.14926829268292682
+      },
+      {
+        "ci_high": 0.05257177234001351,
+        "ci_low": 0.010065627539343973,
+        "estimand": "clean_carrier_restoration",
+        "higher_is_supportive": true,
+        "mean_effect": 0.030087203725619478,
+        "n_seeds": 10,
+        "p_value": 0.016585365853658537
+      },
+      {
+        "ci_high": 1.0636482981683704,
+        "ci_low": 0.8477228722070468,
+        "estimand": "restoration_position_specificity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.9589486767254535,
+        "n_seeds": 10,
+        "p_value": 0.002926829268292683
+      }
+    ],
+    "allowed_claim_if_confirmation_passes": "With trace tokens fixed, the frozen targeted retrieval bank changes the grammar-specific marker/tail carrier, and restoring that clean carrier normalizes the later commit state more than an equal-token near-depth state control.",
+    "grammar_timing_counts": {
+      "rank_after_city": 5,
+      "rank_before_city": 5
+    },
+    "outcome_blind": true,
+    "phase": "confirmation",
+    "primary_estimand_ids": [
+      "selected_carrier_deformation",
+      "clean_carrier_restoration",
+      "restoration_position_specificity"
+    ],
+    "primary_estimands": [
+      {
+        "ci_high": 0.06099587504668202,
+        "ci_low": 0.04109872177611102,
+        "estimand": "selected_carrier_deformation",
+        "higher_is_supportive": true,
+        "mean_effect": 0.051330020162061174,
+        "n_seeds": 10,
+        "p_value": 0.002926829268292683
+      },
+      {
+        "ci_high": 0.05257177234001351,
+        "ci_low": 0.010065627539343973,
+        "estimand": "clean_carrier_restoration",
+        "higher_is_supportive": true,
+        "mean_effect": 0.030087203725619478,
+        "n_seeds": 10,
+        "p_value": 0.016585365853658537
+      },
+      {
+        "ci_high": 1.0636482981683704,
+        "ci_low": 0.8477228722070468,
+        "estimand": "restoration_position_specificity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.9589486767254535,
+        "n_seeds": 10,
+        "p_value": 0.002926829268292683
+      }
+    ],
+    "registered_seeds": [
+      1254,
+      1255,
+      1256,
+      1257,
+      1258,
+      1259,
+      1260,
+      1261,
+      1262,
+      1263
+    ],
+    "restriction": "Random-bank specificity is reported separately; the primary mediation claim does not assert that no other attention heads can perturb state.",
+    "schema_version": "realistic_niah_v5_targeted_counter_write_analysis_v1",
+    "seed_count": 10,
+    "selection_rank_used": false,
+    "targeted_counter_write_directional_pass": true,
+    "targeted_counter_write_strong_gate_pass": true,
+    "targeted_specificity_diagnostics": [
+      {
+        "ci_high": 0.023126491498980016,
+        "ci_low": -0.007696877097618203,
+        "estimand": "selected_carrier_deformation_specificity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.009420348375169668,
+        "n_seeds": 10,
+        "p_value": 0.2917073170731707
+      },
+      {
+        "ci_high": 0.036619340931551406,
+        "ci_low": -0.0036020899479665817,
+        "estimand": "selected_boundary_deformation_specificity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.017414112817548132,
+        "n_seeds": 10,
+        "p_value": 0.14926829268292682
+      }
+    ],
+    "teacher_forced_trace_tokens": true
+  },
+  "confirmation_seed_count": 10,
+  "discovery": {
+    "all_estimands": [
+      {
+        "ci_high": 0.062031242414171225,
+        "ci_low": 0.045651745239696874,
+        "estimand": "selected_carrier_deformation",
+        "higher_is_supportive": true,
+        "mean_effect": 0.053192917351638544,
+        "n_seeds": 20,
+        "p_value": 2.8610202207372468e-06
+      },
+      {
+        "ci_high": 0.022165250039672086,
+        "ci_low": 0.01079535077001684,
+        "estimand": "selected_carrier_deformation_specificity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.016330675983499306,
+        "n_seeds": 20,
+        "p_value": 1.4305101103686234e-05
+      },
+      {
+        "ci_high": 0.08734028557261428,
+        "ci_low": 0.05456074013738968,
+        "estimand": "selected_boundary_deformation",
+        "higher_is_supportive": true,
+        "mean_effect": 0.06987739905689598,
+        "n_seeds": 20,
+        "p_value": 2.8610202207372468e-06
+      },
+      {
+        "ci_high": 0.049164479317255705,
+        "ci_low": 0.019229549624805043,
+        "estimand": "selected_boundary_deformation_specificity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.03288011462550104,
+        "n_seeds": 20,
+        "p_value": 2.0027141545160727e-05
+      },
+      {
+        "ci_high": 0.04597440475642651,
+        "ci_low": 0.016661958676879314,
+        "estimand": "clean_carrier_restoration",
+        "higher_is_supportive": true,
+        "mean_effect": 0.03030708977902417,
+        "n_seeds": 20,
+        "p_value": 8.869162684285465e-05
+      },
+      {
+        "ci_high": 1.0010013885662603,
+        "ci_low": 0.8344413655177874,
+        "estimand": "restoration_position_specificity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.9152919549074996,
+        "n_seeds": 20,
+        "p_value": 2.8610202207372468e-06
+      }
+    ],
+    "allowed_claim_if_confirmation_passes": "With trace tokens fixed, the frozen targeted retrieval bank changes the grammar-specific marker/tail carrier, and restoring that clean carrier normalizes the later commit state more than an equal-token near-depth state control.",
+    "grammar_timing_counts": {
+      "rank_after_city": 10,
+      "rank_before_city": 10
+    },
+    "outcome_blind": true,
+    "phase": "discovery",
+    "primary_estimand_ids": [
+      "selected_carrier_deformation",
+      "clean_carrier_restoration",
+      "restoration_position_specificity"
+    ],
+    "primary_estimands": [
+      {
+        "ci_high": 0.062031242414171225,
+        "ci_low": 0.045651745239696874,
+        "estimand": "selected_carrier_deformation",
+        "higher_is_supportive": true,
+        "mean_effect": 0.053192917351638544,
+        "n_seeds": 20,
+        "p_value": 2.8610202207372468e-06
+      },
+      {
+        "ci_high": 0.04597440475642651,
+        "ci_low": 0.016661958676879314,
+        "estimand": "clean_carrier_restoration",
+        "higher_is_supportive": true,
+        "mean_effect": 0.03030708977902417,
+        "n_seeds": 20,
+        "p_value": 8.869162684285465e-05
+      },
+      {
+        "ci_high": 1.0010013885662603,
+        "ci_low": 0.8344413655177874,
+        "estimand": "restoration_position_specificity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.9152919549074996,
+        "n_seeds": 20,
+        "p_value": 2.8610202207372468e-06
+      }
+    ],
+    "registered_seeds": [
+      1234,
+      1235,
+      1236,
+      1237,
+      1238,
+      1239,
+      1240,
+      1241,
+      1242,
+      1243,
+      1244,
+      1245,
+      1246,
+      1247,
+      1248,
+      1249,
+      1250,
+      1251,
+      1252,
+      1253
+    ],
+    "restriction": "Random-bank specificity is reported separately; the primary mediation claim does not assert that no other attention heads can perturb state.",
+    "schema_version": "realistic_niah_v5_targeted_counter_write_analysis_v1",
+    "seed_count": 20,
+    "selection_rank_used": false,
+    "targeted_counter_write_directional_pass": true,
+    "targeted_counter_write_strong_gate_pass": true,
+    "targeted_specificity_diagnostics": [
+      {
+        "ci_high": 0.022165250039672086,
+        "ci_low": 0.01079535077001684,
+        "estimand": "selected_carrier_deformation_specificity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.016330675983499306,
+        "n_seeds": 20,
+        "p_value": 1.4305101103686234e-05
+      },
+      {
+        "ci_high": 0.049164479317255705,
+        "ci_low": 0.019229549624805043,
+        "estimand": "selected_boundary_deformation_specificity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.03288011462550104,
+        "n_seeds": 20,
+        "p_value": 2.0027141545160727e-05
+      }
+    ],
+    "teacher_forced_trace_tokens": true
+  },
+  "discovery_seed_count": 20,
+  "model_label": "Gemma4-E4B",
+  "outcome_blind": true,
+  "schema_version": "realistic_niah_v5_targeted_counter_write_complete_v1",
+  "selection_rank_used": false,
+  "status": "PASS",
+  "targeted_bank_sha256": "2a7652c68454a5333f19324ec5517fe8c22b03ef4955088a283229c8576211b1",
+  "targeted_bank_size": 6,
+  "teacher_forced_trace_tokens": true
+}

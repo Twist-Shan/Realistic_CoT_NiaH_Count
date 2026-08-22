@@ -709,4 +709,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # The concise Non-thinking-ordered builder supersedes this historical
+    # synthesis while this module remains importable for helper/test
+    # compatibility.
+    from build_v5_native_thinking_report_restructured import main as final_main
+
+    raise SystemExit(final_main())

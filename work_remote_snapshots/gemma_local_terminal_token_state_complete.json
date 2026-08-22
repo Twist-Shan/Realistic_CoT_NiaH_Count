@@ -1,0 +1,799 @@
+{
+  "claim_scope": "local_terminal_item_token_to_fullspan_state_to_answer",
+  "complete_local_terminal_token_state_pass": true,
+  "completed_utc": "2026-08-21T22:45:56.120433+00:00",
+  "confirmation": {
+    "all_estimands": [
+      {
+        "ci_high": 0.6929002724658829,
+        "ci_low": 0.12814916537725632,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_token_necessity",
+        "mean_effect": 0.4053410013832731,
+        "n_seeds": 10,
+        "outcome": "expected_count_utility",
+        "p_value": 0.004878048780487805,
+        "positive_95pct_ci": true,
+        "primary": true
+      },
+      {
+        "ci_high": 0.6894740827495442,
+        "ci_low": 0.1265039760792869,
+        "coefficients": {
+          "ablated_terminal_state_restore": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "clean_state_restores_ablated_terminal",
+        "mean_effect": 0.4053398125573291,
+        "n_seeds": 10,
+        "outcome": "expected_count_utility",
+        "p_value": 0.002926829268292683,
+        "positive_95pct_ci": true,
+        "primary": true
+      },
+      {
+        "ci_high": 0.7065930632551157,
+        "ci_low": 0.11873260717857682,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_terminal_state_occluded": -1.0
+        },
+        "estimand": "ablated_state_occludes_clean_terminal",
+        "mean_effect": 0.41247631485305564,
+        "n_seeds": 10,
+        "outcome": "expected_count_utility",
+        "p_value": 0.006829268292682927,
+        "positive_95pct_ci": true,
+        "primary": true
+      },
+      {
+        "ci_high": 0.006971456879195781,
+        "ci_low": 9.143034169767361e-08,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_marker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_marker_necessity",
+        "mean_effect": 0.002458751796394143,
+        "n_seeds": 10,
+        "outcome": "expected_count_utility",
+        "p_value": 0.12585365853658537,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.6770748932026245,
+        "ci_low": 0.10127195279905729,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_nonmarker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_nonmarker_necessity",
+        "mean_effect": 0.38125253639929824,
+        "n_seeds": 10,
+        "outcome": "expected_count_utility",
+        "p_value": 0.004878048780487805,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.6864070295130358,
+        "ci_low": 0.12735443044250092,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_token_necessity",
+        "mean_effect": 0.40530535787840904,
+        "n_seeds": 10,
+        "outcome": "correct_count_probability",
+        "p_value": 0.004878048780487805,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.6857350120141311,
+        "ci_low": 0.12570717847878768,
+        "coefficients": {
+          "ablated_terminal_state_restore": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "clean_state_restores_ablated_terminal",
+        "mean_effect": 0.4053055662641161,
+        "n_seeds": 10,
+        "outcome": "correct_count_probability",
+        "p_value": 0.002926829268292683,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.7073976548584667,
+        "ci_low": 0.118892607170309,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_terminal_state_occluded": -1.0
+        },
+        "estimand": "ablated_state_occludes_clean_terminal",
+        "mean_effect": 0.4124124341698795,
+        "n_seeds": 10,
+        "outcome": "correct_count_probability",
+        "p_value": 0.002926829268292683,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.00694578839655885,
+        "ci_low": 4.954110657262589e-08,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_marker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_marker_necessity",
+        "mean_effect": 0.0024715866347226447,
+        "n_seeds": 10,
+        "outcome": "correct_count_probability",
+        "p_value": 0.12585365853658537,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.6761359501525301,
+        "ci_low": 0.10124854992148442,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_nonmarker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_nonmarker_necessity",
+        "mean_effect": 0.3811824453742152,
+        "n_seeds": 10,
+        "outcome": "correct_count_probability",
+        "p_value": 0.004878048780487805,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 14.595891529321667,
+        "ci_low": 5.936063097715378,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_token_necessity",
+        "mean_effect": 10.327129077911376,
+        "n_seeds": 10,
+        "outcome": "correct_count_margin",
+        "p_value": 0.00878048780487805,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 14.721835243701934,
+        "ci_low": 6.268424241542816,
+        "coefficients": {
+          "ablated_terminal_state_restore": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "clean_state_restores_ablated_terminal",
+        "mean_effect": 10.597537326812745,
+        "n_seeds": 10,
+        "outcome": "correct_count_margin",
+        "p_value": 0.004878048780487805,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 14.256861023306847,
+        "ci_low": 7.023741716742515,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_terminal_state_occluded": -1.0
+        },
+        "estimand": "ablated_state_occludes_clean_terminal",
+        "mean_effect": 10.795230555534364,
+        "n_seeds": 10,
+        "outcome": "correct_count_margin",
+        "p_value": 0.002926829268292683,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 3.2409515380859375,
+        "ci_low": 0.30066213607788084,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_marker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_marker_necessity",
+        "mean_effect": 1.6815650939941407,
+        "n_seeds": 10,
+        "outcome": "correct_count_margin",
+        "p_value": 0.12585365853658537,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 13.9632640838623,
+        "ci_low": 4.969144825935364,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_nonmarker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_nonmarker_necessity",
+        "mean_effect": 9.444593524932861,
+        "n_seeds": 10,
+        "outcome": "correct_count_margin",
+        "p_value": 0.00878048780487805,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.5,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_token_necessity",
+        "mean_effect": 0.2,
+        "n_seeds": 10,
+        "outcome": "exact_count",
+        "p_value": 0.5004878048780488,
+        "positive_95pct_ci": false,
+        "primary": false
+      },
+      {
+        "ci_high": 0.5,
+        "ci_low": 0.0,
+        "coefficients": {
+          "ablated_terminal_state_restore": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "clean_state_restores_ablated_terminal",
+        "mean_effect": 0.2,
+        "n_seeds": 10,
+        "outcome": "exact_count",
+        "p_value": 0.5004878048780488,
+        "positive_95pct_ci": false,
+        "primary": false
+      },
+      {
+        "ci_high": 0.3,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_terminal_state_occluded": -1.0
+        },
+        "estimand": "ablated_state_occludes_clean_terminal",
+        "mean_effect": 0.1,
+        "n_seeds": 10,
+        "outcome": "exact_count",
+        "p_value": 1.0,
+        "positive_95pct_ci": false,
+        "primary": false
+      },
+      {
+        "ci_high": 0.0,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_marker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_marker_necessity",
+        "mean_effect": 0.0,
+        "n_seeds": 10,
+        "outcome": "exact_count",
+        "p_value": 1.0,
+        "positive_95pct_ci": false,
+        "primary": false
+      },
+      {
+        "ci_high": 0.5,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_nonmarker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_nonmarker_necessity",
+        "mean_effect": 0.2,
+        "n_seeds": 10,
+        "outcome": "exact_count",
+        "p_value": 0.5004878048780488,
+        "positive_95pct_ci": false,
+        "primary": false
+      }
+    ],
+    "diagnostic_estimands": [
+      {
+        "ci_high": 0.006971456879195781,
+        "ci_low": 9.143034169767361e-08,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_marker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_marker_necessity",
+        "mean_effect": 0.002458751796394143,
+        "n_seeds": 10,
+        "outcome": "expected_count_utility",
+        "p_value": 0.12585365853658537,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.6770748932026245,
+        "ci_low": 0.10127195279905729,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_nonmarker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_nonmarker_necessity",
+        "mean_effect": 0.38125253639929824,
+        "n_seeds": 10,
+        "outcome": "expected_count_utility",
+        "p_value": 0.004878048780487805,
+        "positive_95pct_ci": true,
+        "primary": false
+      }
+    ],
+    "local_terminal_token_state_mediation_pass": true,
+    "model_label": "Gemma4-E4B",
+    "outcome_blind": true,
+    "phase": "confirmation",
+    "primary_estimands": [
+      {
+        "ci_high": 0.6929002724658829,
+        "ci_low": 0.12814916537725632,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_token_necessity",
+        "mean_effect": 0.4053410013832731,
+        "n_seeds": 10,
+        "outcome": "expected_count_utility",
+        "p_value": 0.004878048780487805,
+        "positive_95pct_ci": true,
+        "primary": true
+      },
+      {
+        "ci_high": 0.6894740827495442,
+        "ci_low": 0.1265039760792869,
+        "coefficients": {
+          "ablated_terminal_state_restore": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "clean_state_restores_ablated_terminal",
+        "mean_effect": 0.4053398125573291,
+        "n_seeds": 10,
+        "outcome": "expected_count_utility",
+        "p_value": 0.002926829268292683,
+        "positive_95pct_ci": true,
+        "primary": true
+      },
+      {
+        "ci_high": 0.7065930632551157,
+        "ci_low": 0.11873260717857682,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_terminal_state_occluded": -1.0
+        },
+        "estimand": "ablated_state_occludes_clean_terminal",
+        "mean_effect": 0.41247631485305564,
+        "n_seeds": 10,
+        "outcome": "expected_count_utility",
+        "p_value": 0.006829268292682927,
+        "positive_95pct_ci": true,
+        "primary": true
+      }
+    ],
+    "primary_outcome": "expected_count_utility",
+    "schema_version": "realistic_niah_v5_local_terminal_token_state_analysis_v1",
+    "seed_count": 10,
+    "selection_rank_used": false
+  },
+  "confirmation_ran_unconditionally": true,
+  "confirmation_seed_count": 10,
+  "discovery": {
+    "all_estimands": [
+      {
+        "ci_high": 0.4565409322409717,
+        "ci_low": 0.11822167087089823,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_token_necessity",
+        "mean_effect": 0.27715040004580555,
+        "n_seeds": 20,
+        "outcome": "expected_count_utility",
+        "p_value": 1.6212447917511065e-05,
+        "positive_95pct_ci": true,
+        "primary": true
+      },
+      {
+        "ci_high": 0.4510720305580651,
+        "ci_low": 0.1182072054362616,
+        "coefficients": {
+          "ablated_terminal_state_restore": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "clean_state_restores_ablated_terminal",
+        "mean_effect": 0.27714805546641325,
+        "n_seeds": 20,
+        "outcome": "expected_count_utility",
+        "p_value": 1.6212447917511065e-05,
+        "positive_95pct_ci": true,
+        "primary": true
+      },
+      {
+        "ci_high": 0.4112529133058422,
+        "ci_low": 0.09350425948064854,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_terminal_state_occluded": -1.0
+        },
+        "estimand": "ablated_state_occludes_clean_terminal",
+        "mean_effect": 0.23924113355047955,
+        "n_seeds": 20,
+        "outcome": "expected_count_utility",
+        "p_value": 2.8610202207372468e-06,
+        "positive_95pct_ci": true,
+        "primary": true
+      },
+      {
+        "ci_high": 0.01086542700702004,
+        "ci_low": 3.2017950557516883e-07,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_marker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_marker_necessity",
+        "mean_effect": 0.0036251245657487273,
+        "n_seeds": 20,
+        "outcome": "expected_count_utility",
+        "p_value": 0.00781344622283342,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.3853224746067902,
+        "ci_low": 0.09104232843937196,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_nonmarker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_nonmarker_necessity",
+        "mean_effect": 0.23212475820460549,
+        "n_seeds": 20,
+        "outcome": "expected_count_utility",
+        "p_value": 1.6212447917511065e-05,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.4538175796538328,
+        "ci_low": 0.11984368186019802,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_token_necessity",
+        "mean_effect": 0.2766110876945672,
+        "n_seeds": 20,
+        "outcome": "correct_count_probability",
+        "p_value": 8.58306066221174e-06,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.4567557606300812,
+        "ci_low": 0.11768478715878493,
+        "coefficients": {
+          "ablated_terminal_state_restore": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "clean_state_restores_ablated_terminal",
+        "mean_effect": 0.2766084973965969,
+        "n_seeds": 20,
+        "outcome": "correct_count_probability",
+        "p_value": 8.58306066221174e-06,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.40296228788135374,
+        "ci_low": 0.09126748923580133,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_terminal_state_occluded": -1.0
+        },
+        "estimand": "ablated_state_occludes_clean_terminal",
+        "mean_effect": 0.23922624338933846,
+        "n_seeds": 20,
+        "outcome": "correct_count_probability",
+        "p_value": 2.8610202207372468e-06,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.011016583059180983,
+        "ci_low": 3.1172503864557167e-07,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_marker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_marker_necessity",
+        "mean_effect": 0.0036751697747073155,
+        "n_seeds": 20,
+        "outcome": "correct_count_probability",
+        "p_value": 0.00781344622283342,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.3866965601785326,
+        "ci_low": 0.09340023083437765,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_nonmarker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_nonmarker_necessity",
+        "mean_effect": 0.23153942826085908,
+        "n_seeds": 20,
+        "outcome": "correct_count_probability",
+        "p_value": 8.58306066221174e-06,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 12.398342421650886,
+        "ci_low": 7.010209558606148,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_token_necessity",
+        "mean_effect": 9.702528548240661,
+        "n_seeds": 20,
+        "outcome": "correct_count_margin",
+        "p_value": 8.58306066221174e-06,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 12.646459535360336,
+        "ci_low": 7.106911999583245,
+        "coefficients": {
+          "ablated_terminal_state_restore": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "clean_state_restores_ablated_terminal",
+        "mean_effect": 9.875138187408448,
+        "n_seeds": 20,
+        "outcome": "correct_count_margin",
+        "p_value": 1.0490407476036571e-05,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 11.556278808116911,
+        "ci_low": 7.243083657622337,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_terminal_state_occluded": -1.0
+        },
+        "estimand": "ablated_state_occludes_clean_terminal",
+        "mean_effect": 9.410934710502625,
+        "n_seeds": 20,
+        "outcome": "correct_count_margin",
+        "p_value": 2.8610202207372468e-06,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 2.0631756103038787,
+        "ci_low": 0.3667268943786621,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_marker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_marker_necessity",
+        "mean_effect": 1.1137314319610596,
+        "n_seeds": 20,
+        "outcome": "correct_count_margin",
+        "p_value": 0.00781344622283342,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 11.115648753643036,
+        "ci_low": 6.3334629422426225,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_nonmarker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_nonmarker_necessity",
+        "mean_effect": 8.725094485282899,
+        "n_seeds": 20,
+        "outcome": "correct_count_margin",
+        "p_value": 8.58306066221174e-06,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.25,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_token_necessity",
+        "mean_effect": 0.1,
+        "n_seeds": 20,
+        "outcome": "exact_count",
+        "p_value": 0.5000004768367035,
+        "positive_95pct_ci": false,
+        "primary": false
+      },
+      {
+        "ci_high": 0.25,
+        "ci_low": 0.0,
+        "coefficients": {
+          "ablated_terminal_state_restore": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "clean_state_restores_ablated_terminal",
+        "mean_effect": 0.1,
+        "n_seeds": 20,
+        "outcome": "exact_count",
+        "p_value": 0.5000004768367035,
+        "positive_95pct_ci": false,
+        "primary": false
+      },
+      {
+        "ci_high": 0.15,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_terminal_state_occluded": -1.0
+        },
+        "estimand": "ablated_state_occludes_clean_terminal",
+        "mean_effect": 0.05,
+        "n_seeds": 20,
+        "outcome": "exact_count",
+        "p_value": 1.0,
+        "positive_95pct_ci": false,
+        "primary": false
+      },
+      {
+        "ci_high": 0.0,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_marker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_marker_necessity",
+        "mean_effect": 0.0,
+        "n_seeds": 20,
+        "outcome": "exact_count",
+        "p_value": 1.0,
+        "positive_95pct_ci": false,
+        "primary": false
+      },
+      {
+        "ci_high": 0.0,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_nonmarker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_nonmarker_necessity",
+        "mean_effect": 0.0,
+        "n_seeds": 20,
+        "outcome": "exact_count",
+        "p_value": 1.0,
+        "positive_95pct_ci": false,
+        "primary": false
+      }
+    ],
+    "diagnostic_estimands": [
+      {
+        "ci_high": 0.01086542700702004,
+        "ci_low": 3.2017950557516883e-07,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_marker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_marker_necessity",
+        "mean_effect": 0.0036251245657487273,
+        "n_seeds": 20,
+        "outcome": "expected_count_utility",
+        "p_value": 0.00781344622283342,
+        "positive_95pct_ci": true,
+        "primary": false
+      },
+      {
+        "ci_high": 0.3853224746067902,
+        "ci_low": 0.09104232843937196,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_nonmarker_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_nonmarker_necessity",
+        "mean_effect": 0.23212475820460549,
+        "n_seeds": 20,
+        "outcome": "expected_count_utility",
+        "p_value": 1.6212447917511065e-05,
+        "positive_95pct_ci": true,
+        "primary": false
+      }
+    ],
+    "local_terminal_token_state_mediation_pass": true,
+    "model_label": "Gemma4-E4B",
+    "outcome_blind": true,
+    "phase": "discovery",
+    "primary_estimands": [
+      {
+        "ci_high": 0.4565409322409717,
+        "ci_low": 0.11822167087089823,
+        "coefficients": {
+          "clean": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "local_terminal_token_necessity",
+        "mean_effect": 0.27715040004580555,
+        "n_seeds": 20,
+        "outcome": "expected_count_utility",
+        "p_value": 1.6212447917511065e-05,
+        "positive_95pct_ci": true,
+        "primary": true
+      },
+      {
+        "ci_high": 0.4510720305580651,
+        "ci_low": 0.1182072054362616,
+        "coefficients": {
+          "ablated_terminal_state_restore": 1.0,
+          "terminal_token_ablation": -1.0
+        },
+        "estimand": "clean_state_restores_ablated_terminal",
+        "mean_effect": 0.27714805546641325,
+        "n_seeds": 20,
+        "outcome": "expected_count_utility",
+        "p_value": 1.6212447917511065e-05,
+        "positive_95pct_ci": true,
+        "primary": true
+      },
+      {
+        "ci_high": 0.4112529133058422,
+        "ci_low": 0.09350425948064854,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_terminal_state_occluded": -1.0
+        },
+        "estimand": "ablated_state_occludes_clean_terminal",
+        "mean_effect": 0.23924113355047955,
+        "n_seeds": 20,
+        "outcome": "expected_count_utility",
+        "p_value": 2.8610202207372468e-06,
+        "positive_95pct_ci": true,
+        "primary": true
+      }
+    ],
+    "primary_outcome": "expected_count_utility",
+    "schema_version": "realistic_niah_v5_local_terminal_token_state_analysis_v1",
+    "seed_count": 20,
+    "selection_rank_used": false
+  },
+  "discovery_seed_count": 20,
+  "earlier_trace_tokens_remain_clean": true,
+  "geometry": "terminal_full_item_span_same_position",
+  "model_label": "Gemma4-E4B",
+  "outcome_blind": true,
+  "schema_version": "realistic_niah_v5_local_terminal_token_state_complete_v1",
+  "selection_rank_used": false,
+  "source_layer": 16,
+  "status": "PASS",
+  "targeted_retrieval_linkage": "modular: pair with frozen Gemma Top-6 city/item retrieval endpoint"
+}

@@ -1,0 +1,619 @@
+{
+  "complete_html_aligned_terminal_span_pass": true,
+  "completed_utc": "2026-08-21T20:40:55.887500+00:00",
+  "confirmation": {
+    "all_estimands": [
+      {
+        "ci_high": 9.192838798282477e-05,
+        "ci_low": 9.325041770757991e-08,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_target_ablation": -1.0
+        },
+        "estimand": "terminal_span_necessity",
+        "higher_is_supportive": true,
+        "mean_effect": 3.226437018835071e-05,
+        "n_seeds": 10,
+        "outcome": "expected_count_utility",
+        "p_value": 0.002926829268292683,
+        "pair_count": 10,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 0.00016648031467462852,
+        "ci_low": 2.5158466865349285e-10,
+        "coefficients": {
+          "uninformative": -1.0,
+          "uninformative_target_restore": 1.0
+        },
+        "estimand": "terminal_span_sufficiency",
+        "higher_is_supportive": true,
+        "mean_effect": 5.5629922287891985e-05,
+        "n_seeds": 10,
+        "outcome": "expected_count_utility",
+        "p_value": 0.14341463414634145,
+        "pair_count": 10,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 0.00016648946391908392,
+        "ci_low": 2.4337974124932773e-09,
+        "coefficients": {
+          "clean": 1.0,
+          "uninformative": -1.0
+        },
+        "estimand": "clean_uninformative_gap",
+        "higher_is_supportive": true,
+        "mean_effect": 5.563138081914332e-05,
+        "n_seeds": 10,
+        "outcome": "expected_count_utility",
+        "p_value": 0.002926829268292683,
+        "pair_count": 10,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 9.190706135673576e-05,
+        "ci_low": 9.220857472957978e-08,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_target_ablation": -1.0
+        },
+        "estimand": "terminal_span_necessity",
+        "higher_is_supportive": true,
+        "mean_effect": 3.2256206228886694e-05,
+        "n_seeds": 10,
+        "outcome": "correct_count_probability",
+        "p_value": 0.002926829268292683,
+        "pair_count": 10,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 0.00016617486516471046,
+        "ci_low": 2.4671619081040326e-10,
+        "coefficients": {
+          "uninformative": -1.0,
+          "uninformative_target_restore": 1.0
+        },
+        "estimand": "terminal_span_sufficiency",
+        "higher_is_supportive": true,
+        "mean_effect": 5.5472548655199906e-05,
+        "n_seeds": 10,
+        "outcome": "correct_count_probability",
+        "p_value": 0.14341463414634145,
+        "pair_count": 10,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 0.00016618395692056308,
+        "ci_low": 2.423667053164103e-09,
+        "coefficients": {
+          "clean": 1.0,
+          "uninformative": -1.0
+        },
+        "estimand": "clean_uninformative_gap",
+        "higher_is_supportive": true,
+        "mean_effect": 5.547399881556947e-05,
+        "n_seeds": 10,
+        "outcome": "correct_count_probability",
+        "p_value": 0.002926829268292683,
+        "pair_count": 10,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 14.525019326210021,
+        "ci_low": 5.825024666786194,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_target_ablation": -1.0
+        },
+        "estimand": "terminal_span_necessity",
+        "higher_is_supportive": true,
+        "mean_effect": 10.137523460388184,
+        "n_seeds": 10,
+        "outcome": "correct_count_margin",
+        "p_value": 0.004878048780487805,
+        "pair_count": 10,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 6.9125002169609076,
+        "ci_low": 1.7250036239624023,
+        "coefficients": {
+          "uninformative": -1.0,
+          "uninformative_target_restore": 1.0
+        },
+        "estimand": "terminal_span_sufficiency",
+        "higher_is_supportive": true,
+        "mean_effect": 4.137505722045899,
+        "n_seeds": 10,
+        "outcome": "correct_count_margin",
+        "p_value": 0.00878048780487805,
+        "pair_count": 10,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 13.725044496059416,
+        "ci_low": 8.487558608055116,
+        "coefficients": {
+          "clean": 1.0,
+          "uninformative": -1.0
+        },
+        "estimand": "clean_uninformative_gap",
+        "higher_is_supportive": true,
+        "mean_effect": 10.912539672851562,
+        "n_seeds": 10,
+        "outcome": "correct_count_margin",
+        "p_value": 0.002926829268292683,
+        "pair_count": 10,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 0.0,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_target_ablation": -1.0
+        },
+        "estimand": "terminal_span_necessity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.0,
+        "n_seeds": 10,
+        "outcome": "exact_count",
+        "p_value": 1.0,
+        "pair_count": 10,
+        "positive_95pct_ci": false
+      },
+      {
+        "ci_high": 0.0,
+        "ci_low": 0.0,
+        "coefficients": {
+          "uninformative": -1.0,
+          "uninformative_target_restore": 1.0
+        },
+        "estimand": "terminal_span_sufficiency",
+        "higher_is_supportive": true,
+        "mean_effect": 0.0,
+        "n_seeds": 10,
+        "outcome": "exact_count",
+        "p_value": 1.0,
+        "pair_count": 10,
+        "positive_95pct_ci": false
+      },
+      {
+        "ci_high": 0.0,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "uninformative": -1.0
+        },
+        "estimand": "clean_uninformative_gap",
+        "higher_is_supportive": true,
+        "mean_effect": 0.0,
+        "n_seeds": 10,
+        "outcome": "exact_count",
+        "p_value": 1.0,
+        "pair_count": 10,
+        "positive_95pct_ci": false
+      },
+      {
+        "ci_high": 0.0,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_target_ablation": -1.0
+        },
+        "estimand": "terminal_span_necessity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.0,
+        "n_seeds": 10,
+        "outcome": "strict_count_utility",
+        "p_value": 1.0,
+        "pair_count": 10,
+        "positive_95pct_ci": false
+      },
+      {
+        "ci_high": 0.0,
+        "ci_low": 0.0,
+        "coefficients": {
+          "uninformative": -1.0,
+          "uninformative_target_restore": 1.0
+        },
+        "estimand": "terminal_span_sufficiency",
+        "higher_is_supportive": true,
+        "mean_effect": 0.0,
+        "n_seeds": 10,
+        "outcome": "strict_count_utility",
+        "p_value": 1.0,
+        "pair_count": 10,
+        "positive_95pct_ci": false
+      },
+      {
+        "ci_high": 0.0,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "uninformative": -1.0
+        },
+        "estimand": "clean_uninformative_gap",
+        "higher_is_supportive": true,
+        "mean_effect": 0.0,
+        "n_seeds": 10,
+        "outcome": "strict_count_utility",
+        "p_value": 1.0,
+        "pair_count": 10,
+        "positive_95pct_ci": false
+      }
+    ],
+    "effect_size_interpretation": "Expected-count utility is negative absolute count error; positive necessity/sufficiency effects are improvements measured in count units.",
+    "html_aligned_terminal_span_pass": true,
+    "model_label": "Qwen3-8B",
+    "outcome_blind": true,
+    "phase": "confirmation",
+    "primary_estimands": [
+      {
+        "ci_high": 9.192838798282477e-05,
+        "ci_low": 9.325041770757991e-08,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_target_ablation": -1.0
+        },
+        "estimand": "terminal_span_necessity",
+        "higher_is_supportive": true,
+        "mean_effect": 3.226437018835071e-05,
+        "n_seeds": 10,
+        "outcome": "expected_count_utility",
+        "p_value": 0.002926829268292683,
+        "pair_count": 10,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 0.00016648031467462852,
+        "ci_low": 2.5158466865349285e-10,
+        "coefficients": {
+          "uninformative": -1.0,
+          "uninformative_target_restore": 1.0
+        },
+        "estimand": "terminal_span_sufficiency",
+        "higher_is_supportive": true,
+        "mean_effect": 5.5629922287891985e-05,
+        "n_seeds": 10,
+        "outcome": "expected_count_utility",
+        "p_value": 0.14341463414634145,
+        "pair_count": 10,
+        "positive_95pct_ci": true
+      }
+    ],
+    "primary_outcome": "expected_count_utility",
+    "row_plan_sha256": "2f8306f059594ddb6e0f13f036e3eaf8b19494211852fcf63ad0ed4682a2ae87",
+    "row_selection_rule": "highest_parser_one_to_one_count_per_seed",
+    "schema_version": "realistic_niah_v5_html_aligned_terminal_analysis_v1",
+    "seed_count": 10,
+    "selected_count_by_seed": {
+      "1254": 10,
+      "1255": 10,
+      "1256": 10,
+      "1257": 10,
+      "1258": 10,
+      "1259": 10,
+      "1260": 10,
+      "1261": 10,
+      "1262": 10,
+      "1263": 10
+    },
+    "selection_rank_used": false
+  },
+  "discovery": {
+    "all_estimands": [
+      {
+        "ci_high": 0.0004655499378501804,
+        "ci_low": 6.659653555872946e-05,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_target_ablation": -1.0
+        },
+        "estimand": "terminal_span_necessity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.00024988112995885106,
+        "n_seeds": 20,
+        "outcome": "expected_count_utility",
+        "p_value": 6.675713848386909e-06,
+        "pair_count": 20,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 4.631101174824792e-05,
+        "ci_low": 1.9764231361296682e-07,
+        "coefficients": {
+          "uninformative": -1.0,
+          "uninformative_target_restore": 1.0
+        },
+        "estimand": "terminal_span_sufficiency",
+        "higher_is_supportive": true,
+        "mean_effect": 1.6579812952866034e-05,
+        "n_seeds": 20,
+        "outcome": "expected_count_utility",
+        "p_value": 0.0009794225888990508,
+        "pair_count": 20,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 4.647823313021826e-05,
+        "ci_low": 2.800121891377572e-07,
+        "coefficients": {
+          "clean": 1.0,
+          "uninformative": -1.0
+        },
+        "estimand": "clean_uninformative_gap",
+        "higher_is_supportive": true,
+        "mean_effect": 1.663610355562284e-05,
+        "n_seeds": 20,
+        "outcome": "expected_count_utility",
+        "p_value": 2.8610202207372468e-06,
+        "pair_count": 20,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 0.0004653999197989486,
+        "ci_low": 6.65647799324684e-05,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_target_ablation": -1.0
+        },
+        "estimand": "terminal_span_necessity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.00024980562959279193,
+        "n_seeds": 20,
+        "outcome": "correct_count_probability",
+        "p_value": 6.675713848386909e-06,
+        "pair_count": 20,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 2.4359506221237056e-05,
+        "ci_low": 1.4115184840041153e-07,
+        "coefficients": {
+          "uninformative": -1.0,
+          "uninformative_target_restore": 1.0
+        },
+        "estimand": "terminal_span_sufficiency",
+        "higher_is_supportive": true,
+        "mean_effect": 8.934264960275274e-06,
+        "n_seeds": 20,
+        "outcome": "correct_count_probability",
+        "p_value": 0.0012235629810686292,
+        "pair_count": 20,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 2.463142090117748e-05,
+        "ci_low": 2.189452881877496e-07,
+        "coefficients": {
+          "clean": 1.0,
+          "uninformative": -1.0
+        },
+        "estimand": "clean_uninformative_gap",
+        "higher_is_supportive": true,
+        "mean_effect": 8.989946226312107e-06,
+        "n_seeds": 20,
+        "outcome": "correct_count_probability",
+        "p_value": 2.8610202207372468e-06,
+        "pair_count": 20,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 13.30628091454506,
+        "ci_low": 7.106112378835678,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_target_ablation": -1.0
+        },
+        "estimand": "terminal_span_necessity",
+        "higher_is_supportive": true,
+        "mean_effect": 10.206272172927857,
+        "n_seeds": 20,
+        "outcome": "correct_count_margin",
+        "p_value": 4.768367034562078e-06,
+        "pair_count": 20,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 6.737508727312088,
+        "ci_low": 3.331255053281784,
+        "coefficients": {
+          "uninformative": -1.0,
+          "uninformative_target_restore": 1.0
+        },
+        "estimand": "terminal_span_sufficiency",
+        "higher_is_supportive": true,
+        "mean_effect": 4.95000581741333,
+        "n_seeds": 20,
+        "outcome": "correct_count_margin",
+        "p_value": 4.768367034562078e-06,
+        "pair_count": 20,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 12.42505616903305,
+        "ci_low": 9.22502478003502,
+        "coefficients": {
+          "clean": 1.0,
+          "uninformative": -1.0
+        },
+        "estimand": "clean_uninformative_gap",
+        "higher_is_supportive": true,
+        "mean_effect": 10.81254243850708,
+        "n_seeds": 20,
+        "outcome": "correct_count_margin",
+        "p_value": 2.8610202207372468e-06,
+        "pair_count": 20,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 0.0,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_target_ablation": -1.0
+        },
+        "estimand": "terminal_span_necessity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.0,
+        "n_seeds": 20,
+        "outcome": "exact_count",
+        "p_value": 1.0,
+        "pair_count": 20,
+        "positive_95pct_ci": false
+      },
+      {
+        "ci_high": 0.0,
+        "ci_low": 0.0,
+        "coefficients": {
+          "uninformative": -1.0,
+          "uninformative_target_restore": 1.0
+        },
+        "estimand": "terminal_span_sufficiency",
+        "higher_is_supportive": true,
+        "mean_effect": 0.0,
+        "n_seeds": 20,
+        "outcome": "exact_count",
+        "p_value": 1.0,
+        "pair_count": 20,
+        "positive_95pct_ci": false
+      },
+      {
+        "ci_high": 0.0,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "uninformative": -1.0
+        },
+        "estimand": "clean_uninformative_gap",
+        "higher_is_supportive": true,
+        "mean_effect": 0.0,
+        "n_seeds": 20,
+        "outcome": "exact_count",
+        "p_value": 1.0,
+        "pair_count": 20,
+        "positive_95pct_ci": false
+      },
+      {
+        "ci_high": 0.0,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_target_ablation": -1.0
+        },
+        "estimand": "terminal_span_necessity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.0,
+        "n_seeds": 20,
+        "outcome": "strict_count_utility",
+        "p_value": 1.0,
+        "pair_count": 20,
+        "positive_95pct_ci": false
+      },
+      {
+        "ci_high": 0.0,
+        "ci_low": 0.0,
+        "coefficients": {
+          "uninformative": -1.0,
+          "uninformative_target_restore": 1.0
+        },
+        "estimand": "terminal_span_sufficiency",
+        "higher_is_supportive": true,
+        "mean_effect": 0.0,
+        "n_seeds": 20,
+        "outcome": "strict_count_utility",
+        "p_value": 1.0,
+        "pair_count": 20,
+        "positive_95pct_ci": false
+      },
+      {
+        "ci_high": 0.0,
+        "ci_low": 0.0,
+        "coefficients": {
+          "clean": 1.0,
+          "uninformative": -1.0
+        },
+        "estimand": "clean_uninformative_gap",
+        "higher_is_supportive": true,
+        "mean_effect": 0.0,
+        "n_seeds": 20,
+        "outcome": "strict_count_utility",
+        "p_value": 1.0,
+        "pair_count": 20,
+        "positive_95pct_ci": false
+      }
+    ],
+    "effect_size_interpretation": "Expected-count utility is negative absolute count error; positive necessity/sufficiency effects are improvements measured in count units.",
+    "html_aligned_terminal_span_pass": true,
+    "model_label": "Qwen3-8B",
+    "outcome_blind": true,
+    "phase": "discovery",
+    "primary_estimands": [
+      {
+        "ci_high": 0.0004655499378501804,
+        "ci_low": 6.659653555872946e-05,
+        "coefficients": {
+          "clean": 1.0,
+          "clean_target_ablation": -1.0
+        },
+        "estimand": "terminal_span_necessity",
+        "higher_is_supportive": true,
+        "mean_effect": 0.00024988112995885106,
+        "n_seeds": 20,
+        "outcome": "expected_count_utility",
+        "p_value": 6.675713848386909e-06,
+        "pair_count": 20,
+        "positive_95pct_ci": true
+      },
+      {
+        "ci_high": 4.631101174824792e-05,
+        "ci_low": 1.9764231361296682e-07,
+        "coefficients": {
+          "uninformative": -1.0,
+          "uninformative_target_restore": 1.0
+        },
+        "estimand": "terminal_span_sufficiency",
+        "higher_is_supportive": true,
+        "mean_effect": 1.6579812952866034e-05,
+        "n_seeds": 20,
+        "outcome": "expected_count_utility",
+        "p_value": 0.0009794225888990508,
+        "pair_count": 20,
+        "positive_95pct_ci": true
+      }
+    ],
+    "primary_outcome": "expected_count_utility",
+    "row_plan_sha256": "aa045d40fff467c68bf09320796ee15f469fd2f5d7620f3150da66644f32c66a",
+    "row_selection_rule": "highest_parser_one_to_one_count_per_seed",
+    "schema_version": "realistic_niah_v5_html_aligned_terminal_analysis_v1",
+    "seed_count": 20,
+    "selected_count_by_seed": {
+      "1234": 10,
+      "1235": 10,
+      "1236": 10,
+      "1237": 10,
+      "1238": 10,
+      "1239": 10,
+      "1240": 10,
+      "1241": 10,
+      "1242": 10,
+      "1243": 10,
+      "1244": 10,
+      "1245": 10,
+      "1246": 10,
+      "1247": 10,
+      "1248": 10,
+      "1249": 9,
+      "1250": 10,
+      "1251": 10,
+      "1252": 10,
+      "1253": 10
+    },
+    "selection_rank_used": false
+  },
+  "model_label": "Qwen3-8B",
+  "schema_version": "realistic_niah_v5_html_aligned_terminal_complete_v1",
+  "status": "PASS"
+}

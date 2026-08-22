@@ -301,11 +301,18 @@ def test_v5_config_freezes_sites_and_disjoint_seed_splits() -> None:
     assert config.primary_trace_site == "item_end"
     assert config.causal_head_mechanisms == ("retrieval_anchor_localization",)
     assert config.causal_head_selection_metric.startswith("seed_first")
-    assert set(config.all_seeds).issubset(config.causal_development_seeds)
-    assert not config.causal_confirmation_seeds
+    assert config.discovery_seeds == tuple(range(1234, 1254))
+    assert config.confirmation_seeds == tuple(range(1254, 1264))
+    assert config.causal_development_seeds == config.discovery_seeds
+    assert config.causal_confirmation_seeds == config.confirmation_seeds
     assert set(config.discovery_seeds).isdisjoint(config.confirmation_seeds)
     with pytest.raises(ValueError, match="primary site"):
         V5Config(primary_trace_site="city_end").validate()
+    with pytest.raises(ValueError, match="causal development"):
+        V5Config(
+            causal_development_seeds=tuple(range(1234, 1264)),
+            causal_confirmation_seeds=(),
+        ).validate()
 
 
 def test_geometry_metrics_recover_a_low_dimensional_ordered_curve() -> None:
@@ -698,10 +705,6 @@ def test_causal_plan_crossfits_source_specific_anchor_pooled_banks(
     assert global_audit["random_control_matching"] == "global"
 
     confirmation_config = V5Config(
-        discovery_seeds=tuple(range(1234, 1264)),
-        confirmation_seeds=(1336, 1337),
-        causal_development_seeds=tuple(range(1234, 1264)),
-        causal_confirmation_seeds=(1336, 1337),
         causal_primary_bank_size=2,
         causal_crossfit_folds=2,
         causal_random_controls=1,
@@ -722,7 +725,7 @@ def test_causal_plan_crossfits_source_specific_anchor_pooled_banks(
     assert {
         tuple(json.loads(value))
         for value in confirmation_plan["validation_seeds"]
-    } == {(1336, 1337)}
+    } == {tuple(range(1254, 1264))}
     assert confirmation_audit["confirmation_plan"] is True
     assert confirmation_audit["formal_inference_eligible"] is True
 
@@ -742,7 +745,7 @@ def test_causal_plan_crossfits_source_specific_anchor_pooled_banks(
     assert {
         tuple(json.loads(value))
         for value in full_panel_plan["validation_seeds"]
-    } == {tuple(range(1234, 1264)) + (1336, 1337)}
+    } == {tuple(range(1234, 1264))}
     assert full_panel_audit["full_panel_plan"] is True
     assert full_panel_audit["formal_inference_eligible"] is False
     assert full_panel_audit["registered_confirmation_subcohort_eligible"] is True

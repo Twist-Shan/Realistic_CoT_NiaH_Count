@@ -1,0 +1,746 @@
+- generic [ref=e2]:
+  - navigation [ref=e3]:
+    - strong [ref=e4]: Native-thinking V5
+    - link "结论摘要" [ref=e5] [cursor=pointer]:
+      - /url: "#summary"
+    - link "1 · 样本与 token routing" [ref=e6] [cursor=pointer]:
+      - /url: "#scope"
+    - link "2 · 三层证据与定义" [ref=e7] [cursor=pointer]:
+      - /url: "#definitions"
+    - link "A · Representation" [ref=e8] [cursor=pointer]:
+      - /url: "#representation"
+    - link "B · Attention atlas" [ref=e9] [cursor=pointer]:
+      - /url: "#atlas"
+    - link "C · Causal ablation" [ref=e10] [cursor=pointer]:
+      - /url: "#causal"
+    - link "C2 · Grammar 分解" [ref=e11] [cursor=pointer]:
+      - /url: "#grammar"
+    - link "机制综合" [ref=e12] [cursor=pointer]:
+      - /url: "#synthesis"
+    - link "复现账本" [ref=e13] [cursor=pointer]:
+      - /url: "#audit"
+  - generic [ref=e14]:
+    - banner [ref=e15]:
+      - generic [ref=e16]:
+        - generic [ref=e17]:
+          - generic [ref=e18]: REALISTIC NIAH · NATIVE-THINKING V5 · CONSOLIDATED REPORT
+          - heading "进度状态、检索定位与因果必要性" [level=1] [ref=e19]
+          - paragraph [ref=e20]: 一个页面区分三种问题：hidden state 中是否存在计数相关信息；attention head 在哪个 query 位点指向正确 needle；关闭这些 heads 是否真的破坏下一次检索。最终因果设定采用 grammar-routed hybrid ranking，但所有干预统一从 P0 开始并持续至 decode 结束。
+          - generic [ref=e21]: FINAL HYBRID · REPRESENTATION + ATLAS + ABLATION
+        - complementary [ref=e22]:
+          - strong [ref=e23]: 核心口径
+          - text: P0 是 item k 的提交点与统一干预起点。若下一项 marker 先于 city 出现，head bank 在 marker 已生成的 P2 query 上排序；这说明 marker-conditioned query 更容易局部化 retrieval heads，不等于已证明“P2 写入”。
+    - main [ref=e24]:
+      - generic [ref=e25]:
+        - generic [ref=e26]: Executive synthesis
+        - heading "结论摘要：三段证据互补，但不应互相替代" [level=2] [ref=e27]
+        - generic [ref=e28]:
+          - generic [ref=e29]:
+            - generic [ref=e30]:
+              - generic [ref=e31]:
+                - strong [ref=e32]: 1 · Representation
+                - text: P0 可解码 running index；answer query 可解码 final count。
+              - generic [ref=e33]: →
+              - generic [ref=e34]:
+                - strong [ref=e35]: 2 · Localization
+                - text: 高分 heads 从 query 指向下一条正确 prompt record。
+              - generic [ref=e36]: →
+              - generic [ref=e37]:
+                - strong [ref=e38]: 3 · Necessity
+                - text: selected bank 持续关闭比同规模 random 更易使首次 city 出错。
+            - paragraph [ref=e39]: Representation 证明“状态中有什么”，atlas 证明“attention 在看哪里”，ablation 证明“一个有序 head 集合是否必要”。当前最稳健的机制表述是：模型在完成 item 后维护可解码进度，并通过依赖 surface grammar 的查询位点调用 targeted-retrieval head bank；但还没有 restoration/mediation 将 progress representation 与 bank activity 连成唯一因果路径。
+          - generic [ref=e40]:
+            - generic [ref=e41]:
+              - strong [ref=e42]: 69.8%
+              - generic [ref=e43]: Qwen running-index Logistic BA
+            - generic [ref=e44]:
+              - strong [ref=e45]: 80.8%
+              - generic [ref=e46]: Gemma running-index Logistic BA
+            - generic [ref=e47]:
+              - strong [ref=e48]: 40.6%
+              - generic [ref=e49]: Qwen K128 hybrid selected−random
+            - generic [ref=e50]:
+              - strong [ref=e51]: 53.3%
+              - generic [ref=e52]: Gemma K8 hybrid selected−random
+        - generic [ref=e53]:
+          - generic [ref=e54]: 目前能得到的结论
+          - text: 两模型都存在可解码的计数相关状态和具有 selection specificity 的 targeted-retrieval bank。Gemma 的有效 bank 更窄；Qwen 需要更宽的 bank，并且最终效应主要由 rank-before-city 的 marker-conditioned P2 ranking 贡献。
+      - generic [ref=e55]:
+        - generic [ref=e56]: Frozen cohort and routing
+        - heading "1 · 样本、parser 与最终 token-site 规则" [level=2] [ref=e57]
+        - generic [ref=e58]:
+          - generic [ref=e59]: 本节目的
+          - text: 先固定什么是一个 transition、head 在哪里排序、ablation 从哪里开始，避免把 trace 表面顺序和因果干预位置混为同一概念。
+        - paragraph [ref=e60]: Mother panel 为 N=1…10、每个 N 30 个 seeds，共 300 prompts。Discovery seeds 1234–1253 只用于选层与排 head；registered confirmation seeds 1254–1263 只用于评估。N=1 没有 k→k+1 transition，因此不进入 targeted retrieval；Qwen 另有 14 条 N≥2 trace 因模型自身重复列举同一 city 而无法唯一配对，最终 causal registry 为 256。Gemma 的 10 条 duplicate 全部位于 N=1，因此 N=2…10 的 270 条全部保留。
+        - table [ref=e62]:
+          - rowgroup [ref=e63]:
+            - row [ref=e64]:
+              - columnheader "Model" [ref=e65]
+              - columnheader "Mother panel" [ref=e66]
+              - columnheader "N=1 not applicable" [ref=e67]
+              - columnheader "N≥2 duplicate exclusion" [ref=e68]
+              - columnheader "Final causal registry" [ref=e69]
+              - columnheader "Registry SHA" [ref=e70]
+          - rowgroup [ref=e71]:
+            - row [ref=e72]:
+              - cell "Qwen" [ref=e73]
+              - cell "300" [ref=e74]
+              - cell "30" [ref=e75]
+              - cell "14" [ref=e76]
+              - cell "256" [ref=e77]
+              - cell [ref=e78]:
+                - code [ref=e79]: 23134cfaf617…
+            - row [ref=e80]:
+              - cell "Gemma" [ref=e81]
+              - cell "300" [ref=e82]
+              - cell "30" [ref=e83]
+              - cell "0" [ref=e84]
+              - cell "270" [ref=e85]
+              - cell [ref=e86]:
+                - code [ref=e87]: 021f1e5d3b95…
+        - heading "最终 hybrid routing" [level=3] [ref=e88]
+        - generic [ref=e89]:
+          - generic [ref=e90]:
+            - heading "P0：统一 commit / intervention 起点" [level=3] [ref=e91]
+            - paragraph [ref=e92]:
+              - code [ref=e93]: p0_item_end
+              - text: 是完整 item k 的最后一个真实 output token。无论 head bank 在 P0 还是 P2 排名，selected pre-O head slices 都从这个 P0 token 起持续置零到 decode 结束（
+              - code [ref=e94]: decode_head_ablation_steps=-1
+              - text: ）。
+          - generic [ref=e95]:
+            - heading "P2：marker-conditioned ranking query" [level=3] [ref=e96]
+            - paragraph [ref=e97]:
+              - text: 当 rank/marker 先于 city 出现时，head 的 attention score在 marker semantic core 的最后一个 token（
+              - code [ref=e98]: post_marker
+              - text: ）计算；此时 marker 已进入 residual stream，而 city k+1 尚未输出。其他 grammar 仍在 exact P0 排名。
+        - table [ref=e100]:
+          - rowgroup [ref=e101]:
+            - row [ref=e102]:
+              - columnheader "Model" [ref=e103]
+              - columnheader "Grammar family" [ref=e104]
+              - columnheader "Head ranking query" [ref=e105]
+              - columnheader "Ablation start" [ref=e106]
+              - columnheader "Persistence" [ref=e107]
+          - rowgroup [ref=e108]:
+            - row [ref=e109]:
+              - cell "Qwen" [ref=e110]
+              - cell "rank-before-city" [ref=e111]
+              - cell [ref=e112]:
+                - code [ref=e113]: post_marker
+                - text: (P2)
+              - cell [ref=e114]:
+                - code [ref=e115]: p0_item_end
+              - cell "to decode end" [ref=e116]
+            - row [ref=e117]:
+              - cell "Qwen" [ref=e118]
+              - cell "rank-after / unmarked / invariant / evidence" [ref=e119]
+              - cell [ref=e120]:
+                - code [ref=e121]: p0_item_end
+              - cell [ref=e122]:
+                - code [ref=e123]: p0_item_end
+              - cell "to decode end" [ref=e124]
+            - row [ref=e125]:
+              - cell "Gemma" [ref=e126]
+              - cell "rank-before-city" [ref=e127]
+              - cell [ref=e128]:
+                - code [ref=e129]: post_marker
+                - text: (P2)
+              - cell [ref=e130]:
+                - code [ref=e131]: p0_item_end
+              - cell "to decode end" [ref=e132]
+            - row [ref=e133]:
+              - cell "Gemma" [ref=e134]
+              - cell "rank-after / invariant" [ref=e135]
+              - cell [ref=e136]:
+                - code [ref=e137]: p0_item_end
+              - cell [ref=e138]:
+                - code [ref=e139]: p0_item_end
+              - cell "to decode end" [ref=e140]
+        - generic [ref=e141]:
+          - generic [ref=e142]: 简单例子
+          - text: 在
+          - code [ref=e143]: "(Record 2: Riga, 60)"
+          - text: 中，P0 是 item 1 的结束 token；等模型输出
+          - code [ref=e144]: Record 2
+          - text: 后，P2 是 rank marker “2”的最后一个 token。最终实验用 P2 attention 给 heads 排名，却从更早的 P0 起持续关闭这些 heads，因此检验的是“这组 marker-conditioned retrieval heads 是否属于从 transition 开始就不可用的必要通路”。
+        - generic [ref=e145]:
+          - generic [ref=e146]: 本节结论
+          - text: P0 与 P2 承担不同实验角色：P0 统一定义 transition 与 intervention；P2 只在 marker-first grammar 中提供更干净的 head-localization query。数据不要求把它们解释为严格的“读取/写入”两相时钟。
+      - generic [ref=e147]:
+        - generic [ref=e148]: Estimands
+        - heading "2 · 三层证据分别如何计算" [level=2] [ref=e149]
+        - heading "2.1 Representation" [level=3] [ref=e150]
+        - paragraph [ref=e151]: Discovery 内拟合 StandardScaler 与 whitened PCA-16，再以 seed-grouped out-of-fold Logistic/NCC 选层；confirmation 只在冻结层上评估。Balanced accuracy 对十个 count/index 类等权：
+        - generic [ref=e152]: BA = (1 / C) · Σ_c TP_c / (TP_c + FN_c) SNR_dB = 10 · log10(signal power / within-class noise power)
+        - paragraph [ref=e153]: BA 高说明类别可解码；SNR 为负只说明 within-class variation 仍大于 centroid 间能量，不能解释为“没有 counter”。
+        - heading "2.2 Targeted-retrieval attention score" [level=3] [ref=e154]
+        - paragraph [ref=e155]: 对 grammar g，在每个 discovery seed 内先平均所有 eligible transition events，再对 seeds 等权。event 基础量是 head 从 query 指向 next needle 完整 prompt-record span 的 raw attention mass：
+        - generic [ref=e156]: "S_g(ℓ,h) = (1 / |D_g|) Σ_{s∈D_g} (1 / |E_{s,g}|) Σ_{e∈E_{s,g}} Σ_{t∈R(target(e))} A_{ℓ,h}(q_e,t)"
+        - paragraph [ref=e157]:
+          - text: 这样 event 更多的 seed 不会获得更高权重。
+          - code [ref=e158]: all
+          - text: atlas 同样先在 seed 内平均全部 eligible events，再对 discovery seeds 等权；它是描述性共同排序，不替代 grammar-specific bank。
+        - heading "2.3 Causal endpoint 与对照" [level=3] [ref=e159]
+        - paragraph [ref=e160]: 对每个 registered anchor 自由生成，读取 ablation 后出现的第一个 semantic city。若它不等于 registry 中 next needle city，则计一次 failure。主描述量为：
+        - generic [ref=e161]: Δ_failure(K) = selected-bank failure(K) − pooled random-control failure(K)
+        - paragraph [ref=e162]: Qwen K32–112 使用三个 layer-matched random banks，K128 因容量限制使用三个 global same-K banks；Gemma K1/2/4/6/8 均使用三个 layer-matched random banks。Confirmation 少于 10 anchors 的 grammar 标为 exploratory。
+        - generic [ref=e163]:
+          - generic [ref=e164]: 本节结论
+          - text: 高 attention score 只提供定位；只有 selected failure 显著高于同规模 random damage，才支持 selection-specific causal necessity。本页的最终 hybrid 合并目前报告注册的 failure rates，未把旧 P0 bootstrap CI 冒充为新 hybrid 的置信区间。
+      - generic [ref=e165]:
+        - generic [ref=e166]: Experiment A
+        - heading "A · Representation：状态里是否携带进度与最终答案" [level=2] [ref=e167]
+        - generic [ref=e168]:
+          - generic [ref=e169]: 实验目的
+          - text: 分别在 item commit 与最终数字生成前，检验 hidden state 是否包含可跨 seed 解码的 running index k 和 final count N。
+        - figure [ref=e170]:
+          - img "Native-thinking representation confirmation balanced accuracy Two panels compare Logistic and nearest-centroid balanced accuracy for running-index and final-count representations in Qwen and Gemma." [ref=e171]:
+            - generic [ref=e173]: Running index · exact P0
+            - generic [ref=e174]: Qwen
+            - generic [ref=e175]: Logistic
+            - generic [ref=e178]: 69.8%
+            - generic [ref=e179]: NCC
+            - generic [ref=e182]: 60.1%
+            - generic [ref=e183]: Gemma
+            - generic [ref=e184]: Logistic
+            - generic [ref=e187]: 80.8%
+            - generic [ref=e188]: NCC
+            - generic [ref=e191]: 72.6%
+            - generic [ref=e192]: 0%
+            - generic [ref=e193]: 100% balanced accuracy
+            - generic [ref=e195]: Final count · answer query
+            - generic [ref=e196]: Qwen
+            - generic [ref=e197]: Logistic
+            - generic [ref=e200]: 100.0%
+            - generic [ref=e201]: NCC
+            - generic [ref=e204]: 99.0%
+            - generic [ref=e205]: Gemma
+            - generic [ref=e206]: Logistic
+            - generic [ref=e209]: 71.0%
+            - generic [ref=e210]: NCC
+            - generic [ref=e213]: 70.0%
+            - generic [ref=e214]: 0%
+            - generic [ref=e215]: 100% balanced accuracy
+          - generic [ref=e216]:
+            - text: 图 1 · Confirmation balanced accuracy。左 panel 的横条表示 exact
+            - code [ref=e217]: p0_item_end
+            - text: 上 running index 的 Logistic/NCC BA；右 panel 表示
+            - code [ref=e218]: answer_query_v3
+            - text: 上 final count 的 BA。横轴均为 0–100%，十类 chance 为 10%。颜色区分 Logistic（绿色）与 NCC（灰色），不表示因果方向。
+        - table [ref=e220]:
+          - rowgroup [ref=e221]:
+            - row [ref=e222]:
+              - columnheader "Model" [ref=e223]
+              - columnheader "Endpoint" [ref=e224]
+              - columnheader "Token site" [ref=e225]
+              - columnheader "Layer" [ref=e226]
+              - columnheader "Logistic BA" [ref=e227]
+              - columnheader "NCC BA" [ref=e228]
+              - columnheader "SNR" [ref=e229]
+              - columnheader "Rows" [ref=e230]
+          - rowgroup [ref=e231]:
+            - row [ref=e232]:
+              - cell "Qwen" [ref=e233]
+              - cell "Running index" [ref=e234]
+              - cell [ref=e235]:
+                - code [ref=e236]: p0_item_end
+              - cell "L18" [ref=e237]
+              - cell "69.8%" [ref=e238]
+              - cell "60.1%" [ref=e239]
+              - cell "-5.34 dB" [ref=e240]
+              - cell "465" [ref=e241]
+            - row [ref=e242]:
+              - cell "Qwen" [ref=e243]
+              - cell "Final count" [ref=e244]
+              - cell [ref=e245]:
+                - code [ref=e246]: answer_query_v3
+              - cell "L26" [ref=e247]
+              - cell "100.0%" [ref=e248]
+              - cell "99.0%" [ref=e249]
+              - cell "+2.72 dB" [ref=e250]
+              - cell "100" [ref=e251]
+            - row [ref=e252]:
+              - cell "Gemma" [ref=e253]
+              - cell "Running index" [ref=e254]
+              - cell [ref=e255]:
+                - code [ref=e256]: p0_item_end
+              - cell "L16" [ref=e257]
+              - cell "80.8%" [ref=e258]
+              - cell "72.6%" [ref=e259]
+              - cell "-3.91 dB" [ref=e260]
+              - cell "313" [ref=e261]
+            - row [ref=e262]:
+              - cell "Gemma" [ref=e263]
+              - cell "Final count" [ref=e264]
+              - cell [ref=e265]:
+                - code [ref=e266]: answer_query_v3
+              - cell "L34" [ref=e267]
+              - cell "71.0%" [ref=e268]
+              - cell "70.0%" [ref=e269]
+              - cell "-1.19 dB" [ref=e270]
+              - cell "100" [ref=e271]
+        - paragraph [ref=e272]: Qwen 的 running state 为 69.8%/60.1%，Gemma 为 80.8%/72.6%。Final-count state 则呈不同分工：Qwen 在 answer query 达到 100.0%/99.0%，Gemma 为 71.0%/70.0%。
+        - generic [ref=e273]:
+          - generic [ref=e274]: 简单例子
+          - text: 对未参与选层的 seed1258，在第 4 个 item 结束处取 hidden vector；如果 discovery-frozen Logistic 与最近 centroid 都预测 running index=4，记为 held-out decoding 正确。它不要求模型下一步一定生成正确 city，因此不能单独作为 retrieval 的因果证据。
+        - heading "A2 · causal-site 对齐是否让 counter 更紧致" [level=3] [ref=e275]
+        - figure "图 2 · 从所有 parser-observed item ends 收窄到 exact causal P0 commits。横向位置表示 cohort 定义，纵向位置表示 confirmation BA；每条线连接同一分类器。图下表同时报告 SNR 变化。" [ref=e276]:
+          - img "Legacy item-end versus exact causal P0 representation Slope chart of Logistic and nearest-centroid balanced accuracy before and after exact causal-site restriction." [ref=e277]:
+            - generic [ref=e279]: Qwen
+            - generic [ref=e283]: Logistic 68.1%
+            - generic [ref=e284]: 69.8%
+            - generic [ref=e288]: NCC 58.9%
+            - generic [ref=e289]: 60.1%
+            - generic [ref=e290]: all item ends
+            - generic [ref=e291]: exact P0 commits
+            - generic [ref=e293]: Gemma
+            - generic [ref=e297]: Logistic 78.4%
+            - generic [ref=e298]: 80.8%
+            - generic [ref=e302]: NCC 69.3%
+            - generic [ref=e303]: 72.6%
+            - generic [ref=e304]: all item ends
+            - generic [ref=e305]: exact P0 commits
+        - table [ref=e308]:
+          - rowgroup [ref=e309]:
+            - row [ref=e310]:
+              - columnheader "Model" [ref=e311]
+              - columnheader "Logistic BA" [ref=e312]
+              - columnheader "NCC BA" [ref=e313]
+              - columnheader "SNR" [ref=e314]
+          - rowgroup [ref=e315]:
+            - row [ref=e316]:
+              - cell "Qwen" [ref=e317]
+              - cell "68.1% → 69.8%" [ref=e318]
+              - cell "58.9% → 60.1%" [ref=e319]
+              - cell "-5.25 dB → -5.34 dB" [ref=e320]
+            - row [ref=e321]:
+              - cell "Gemma" [ref=e322]
+              - cell "78.4% → 80.8%" [ref=e323]
+              - cell "69.3% → 72.6%" [ref=e324]
+              - cell "-3.19 dB → -3.91 dB" [ref=e325]
+        - paragraph [ref=e326]: Qwen Logistic/NCC 仅增加约 1.7/1.2 个百分点；Gemma 增加约 2.4/3.4 个百分点。两模型 SNR 都没有随更精确的 site 变得更高。
+        - generic [ref=e327]:
+          - generic [ref=e328]: Experiment A 结论
+          - text: item commit 上确实存在可解码 running progress，answer query 上存在 final-count state；更精确的 causal site 让分类略有改善，但没有把 progress representation 压成低噪声、单轴、grammar-invariant 的标量计数器。
+      - generic [ref=e329]:
+        - generic [ref=e330]: Experiment B · descriptive localization
+        - heading "B · P0 targeted-retrieval atlas：哪些 heads 指向正确 needle" [level=2] [ref=e331]
+        - generic [ref=e332]:
+          - generic [ref=e333]: 实验目的
+          - text: 在因果干预之前，直接展示 discovery attention ranking 的空间分布、随 needle ordinal 的变化，以及显著单头究竟把 attention 放到 prompt 的哪个 record。
+        - generic [ref=e334]:
+          - generic [ref=e335]: 适用边界
+          - text: 下面 atlas 严格来自 exact P0 discovery queries。它解释最终 P0-ranked grammar bank 与跨 grammar 共同结构；rank-before-city 的最终因果 bank 已改在 P2 排名，因此不能把这里的 P0 rank 次序当成最终 P2 bank。
+        - heading "B1 · 全类别 head map" [level=3] [ref=e336]
+        - generic [ref=e337]:
+          - figure "图 3a · Qwen 全类别 P0 head map。横轴=head index，纵轴=decoder layer；颜色为 seed-equal targeted-retrieval score。白框是描述性 global Top-128，不是最终 hybrid intervention bank。" [ref=e338]:
+            - img "Qwen all-grammar P0 targeted retrieval head map" [ref=e339]
+          - figure "图 3b · Gemma 全类别 P0 head map。坐标与 Qwen 相同；白框是描述性 global Top-8。模型间色标不同，因此跨模型比较层分布与 rank，不直接比较颜色绝对值。" [ref=e341]:
+            - img "Gemma all-grammar P0 targeted retrieval head map" [ref=e342]
+        - table [ref=e345]:
+          - rowgroup [ref=e346]:
+            - row [ref=e347]:
+              - columnheader "Model" [ref=e348]
+              - columnheader "All-scope Top-5 heads (P0 score)" [ref=e349]
+              - columnheader "Coverage" [ref=e350]
+          - rowgroup [ref=e351]:
+            - row [ref=e352]:
+              - cell "Qwen" [ref=e353]
+              - cell "L20H30 (0.503), L24H29 (0.391), L21H11 (0.390), L23H10 (0.387), L23H30 (0.356)" [ref=e354]
+              - cell "20 discovery seeds" [ref=e355]
+            - row [ref=e356]:
+              - cell "Gemma" [ref=e357]
+              - cell "L29H4 (0.315), L29H2 (0.236), L17H2 (0.211), L17H1 (0.192), L29H0 (0.151)" [ref=e358]
+              - cell "20 discovery seeds" [ref=e359]
+        - paragraph [ref=e360]: Qwen 的 P0 高分 heads 集中在 L20–L24；Gemma 主要集中在 L17 与 L29。grammar 切换会改变次序与强度，但这些核心层反复出现，说明 retrieval routing 同时具有共享骨架与 grammar-specific reweighting。
+        - heading "B2 · Needle ordinal × ranked head" [level=3] [ref=e361]
+        - 'figure "图 4a · Qwen。横轴每列是完整 layer–head identity，按 all-scope P0 score 从高到低排列；纵轴是正在检索的 target needle #2–#10；颜色是正确 record span 的 raw attention mass，灰色表示没有 eligible event。" [ref=e362]':
+          - img "Qwen needle ordinal by ranked head"
+        - figure "图 4b · Gemma。横轴只展示 Top-8；纵轴和色义与 Qwen 相同。同一列跨 ordinal 保持明亮表示 head 被稳定复用，局部亮带则提示按 retrieval step 的分工。" [ref=e364]:
+          - img "Gemma needle ordinal by ranked head" [ref=e365]
+        - heading "B3 · 单头逐 record attention" [level=3] [ref=e367]
+        - generic [ref=e368]:
+          - figure "图 5a · Qwen L20H30。横轴是连续 P0 transition queries，纵轴是 prompt 中各 needle record 与非-needle context；红框为每列正确 target。Mean target mass=0.674，target/all-needle=89.9%，target top-1=100.0%。" [ref=e369]:
+            - img "Qwen L20H30 single-head attention distribution" [ref=e370]
+          - figure "图 5b · Gemma L29H4。坐标与 Qwen 相同。Mean target mass=0.358，target/all-needle=54.1%，target top-1=75.0%。" [ref=e372]:
+            - img "Gemma L29H4 single-head attention distribution" [ref=e373]
+        - generic [ref=e375]:
+          - generic [ref=e376]: 简单例子
+          - text: 当当前 transition 是 4→5 时，红框落在 prompt 的第 5 条 needle record。若某 head 在这一列把大部分 needle attention 放到第 5 条而不是其他九条，它具有 targeted localization；但只有后续 ablation 能判断模型是否依赖它。
+        - generic [ref=e377]:
+          - generic [ref=e378]: Experiment B 结论
+          - text: P0 attention 不是均匀铺在所有 heads 上，而是在少数层形成可解释的 next-record routing；这些 heads 能跨多个 ordinal 复用。Atlas 证明 localization，不证明单头或 bank 的因果必要性。
+      - generic [ref=e379]:
+        - generic [ref=e380]: Experiment C · final hybrid intervention
+        - heading "C · Causal ablation：关闭被定位的 heads 是否破坏下一次检索" [level=2] [ref=e381]
+        - generic [ref=e382]:
+          - generic [ref=e383]: 实验目的
+          - text: 在 confirmation 上比较 grammar-specific selected bank 与同规模 random bank，检验 targeted-retrieval ranking 是否提供超出 generic model damage 的因果预测。
+        - paragraph [ref=e384]: 干预清零 selected heads 的 pre-O output slice，而不是删除整个 attention layer。清零从 exact P0 query 开始，并持续作用于后续自由生成的每个 token；这防止模型在第一步失败后通过额外 token 逃出短暂 ablation 窗口。Discovery 与 confirmation 从不混合排 head。
+        - figure "图 6 · 最终 hybrid confirmation dose response。每个 panel 横轴是 grammar-specific 排序的嵌套 Top-K，纵轴是首次 semantic city 的 failure rate。绿色=selected bank，灰色=三个 random controls pooled failure，虚线=selected−random。Qwen 与 Gemma 的 K 不是同一容量单位，不做横向数值等同。" [ref=e385]:
+          - img "Hybrid targeted-retrieval confirmation dose response Two panels show selected-bank failure, random-control failure, and their difference across nested K for Qwen and Gemma." [ref=e386]:
+            - generic [ref=e388]: Qwen · confirmation
+            - generic [ref=e389]: 0%
+            - generic [ref=e390]: 25%
+            - generic [ref=e391]: 50%
+            - generic [ref=e392]: 75%
+            - generic [ref=e393]: 100%
+            - generic [ref=e415]: K32
+            - generic [ref=e416]: K64
+            - generic [ref=e417]: K80
+            - generic [ref=e418]: K96
+            - generic [ref=e419]: K112
+            - generic [ref=e420]: K128
+            - generic [ref=e421]: selected
+            - generic [ref=e422]: random
+            - generic [ref=e423]: difference
+            - generic [ref=e425]: Gemma · confirmation
+            - generic [ref=e426]: 0%
+            - generic [ref=e427]: 25%
+            - generic [ref=e428]: 50%
+            - generic [ref=e429]: 75%
+            - generic [ref=e430]: 100%
+            - generic [ref=e449]: K1
+            - generic [ref=e450]: K2
+            - generic [ref=e451]: K4
+            - generic [ref=e452]: K6
+            - generic [ref=e453]: K8
+            - generic [ref=e454]: selected
+            - generic [ref=e455]: random
+            - generic [ref=e456]: difference
+        - table [ref=e459]:
+          - rowgroup [ref=e460]:
+            - row [ref=e461]:
+              - columnheader "Model" [ref=e462]
+              - columnheader "K" [ref=e463]
+              - columnheader "Confirmation anchors" [ref=e464]
+              - columnheader "Selected failure" [ref=e465]
+              - columnheader "Random failure" [ref=e466]
+              - columnheader "Selected−random" [ref=e467]
+          - rowgroup [ref=e468]:
+            - row [ref=e469]:
+              - cell "Qwen" [ref=e470]
+              - cell "K32" [ref=e471]
+              - cell "87" [ref=e472]
+              - cell "8.0%" [ref=e473]
+              - cell "4.2%" [ref=e474]
+              - cell "3.8%" [ref=e475]
+            - row [ref=e476]:
+              - cell "Qwen" [ref=e477]
+              - cell "K64" [ref=e478]
+              - cell "87" [ref=e479]
+              - cell "14.9%" [ref=e480]
+              - cell "5.7%" [ref=e481]
+              - cell "9.2%" [ref=e482]
+            - row [ref=e483]:
+              - cell "Qwen" [ref=e484]
+              - cell "K80" [ref=e485]
+              - cell "87" [ref=e486]
+              - cell "16.1%" [ref=e487]
+              - cell "5.7%" [ref=e488]
+              - cell "10.3%" [ref=e489]
+            - row [ref=e490]:
+              - cell "Qwen" [ref=e491]
+              - cell "K96" [ref=e492]
+              - cell "87" [ref=e493]
+              - cell "23.0%" [ref=e494]
+              - cell "7.3%" [ref=e495]
+              - cell "15.7%" [ref=e496]
+            - row [ref=e497]:
+              - cell "Qwen" [ref=e498]
+              - cell "K112" [ref=e499]
+              - cell "87" [ref=e500]
+              - cell "39.1%" [ref=e501]
+              - cell "6.1%" [ref=e502]
+              - cell "33.0%" [ref=e503]
+            - row [ref=e504]:
+              - cell "Qwen" [ref=e505]
+              - cell "K128" [ref=e506]
+              - cell "87" [ref=e507]
+              - cell "46.0%" [ref=e508]
+              - cell "5.4%" [ref=e509]
+              - cell "40.6%" [ref=e510]
+            - row [ref=e511]:
+              - cell "Gemma" [ref=e512]
+              - cell "K1" [ref=e513]
+              - cell "90" [ref=e514]
+              - cell "30.0%" [ref=e515]
+              - cell "4.1%" [ref=e516]
+              - cell "25.9%" [ref=e517]
+            - row [ref=e518]:
+              - cell "Gemma" [ref=e519]
+              - cell "K2" [ref=e520]
+              - cell "90" [ref=e521]
+              - cell "57.8%" [ref=e522]
+              - cell "7.0%" [ref=e523]
+              - cell "50.7%" [ref=e524]
+            - row [ref=e525]:
+              - cell "Gemma" [ref=e526]
+              - cell "K4" [ref=e527]
+              - cell "90" [ref=e528]
+              - cell "77.8%" [ref=e529]
+              - cell "11.5%" [ref=e530]
+              - cell "66.3%" [ref=e531]
+            - row [ref=e532]:
+              - cell "Gemma" [ref=e533]
+              - cell "K6" [ref=e534]
+              - cell "90" [ref=e535]
+              - cell "83.3%" [ref=e536]
+              - cell "11.5%" [ref=e537]
+              - cell "71.9%" [ref=e538]
+            - row [ref=e539]:
+              - cell "Gemma" [ref=e540]
+              - cell "K8" [ref=e541]
+              - cell "90" [ref=e542]
+              - cell "74.4%" [ref=e543]
+              - cell "21.1%" [ref=e544]
+              - cell "53.3%" [ref=e545]
+        - heading "C1 · 冻结 primary K" [level=3] [ref=e546]
+        - table [ref=e548]:
+          - rowgroup [ref=e549]:
+            - row [ref=e550]:
+              - columnheader "Model" [ref=e551]
+              - columnheader "Primary K" [ref=e552]
+              - columnheader "Confirmation anchors" [ref=e553]
+              - columnheader "Selected failure" [ref=e554]
+              - columnheader "Random failure" [ref=e555]
+              - columnheader "Selected−random" [ref=e556]
+          - rowgroup [ref=e557]:
+            - row [ref=e558]:
+              - cell "Qwen" [ref=e559]
+              - cell "K128" [ref=e560]
+              - cell "87" [ref=e561]
+              - cell "46.0%" [ref=e562]
+              - cell "5.4%" [ref=e563]
+              - cell "40.6%" [ref=e564]
+            - row [ref=e565]:
+              - cell "Gemma" [ref=e566]
+              - cell "K8" [ref=e567]
+              - cell "90" [ref=e568]
+              - cell "74.4%" [ref=e569]
+              - cell "21.1%" [ref=e570]
+              - cell "53.3%" [ref=e571]
+        - paragraph [ref=e572]: Qwen 的效应随 bank 变宽，在 K112 后明显上升；K128 为 selected 46.0%、random 5.4%，差值 40.6%。Gemma K1 已出现 25.9% 差值，K6 达到曲线最大 71.9%；冻结 K8 时仍有 53.3%，但 random failure 上升，因此曲线不应解释为每新增一个 head 都单调贡献正效应。
+        - generic [ref=e573]:
+          - generic [ref=e574]: 简单例子
+          - text: K64 包含某 grammar 排名前 64 个 heads，K96 完整保留它们并加入 rank 65–96。若 selected failure 随 K 上升、而三个同规模 random banks 仍较低，最合理的集合级解释是存在旁路或分布式冗余；它不证明第 96 个 head 单独必要。
+        - generic [ref=e575]:
+          - generic [ref=e576]: Experiment C1 结论
+          - text: 最终 hybrid 设定仍显示强 selection specificity：Qwen 需要宽 bank 才出现高破坏，Gemma 用极少 heads 即产生明显效应。与旧统一位点结果相比，效应量改变说明 head ranking 对 query site 与 grammar routing 高度敏感。
+      - generic [ref=e577]:
+        - generic [ref=e578]: Experiment C2 · heterogeneity
+        - heading "C2 · Grammar 分解：整体曲线由哪些 trace 类型组成" [level=2] [ref=e579]
+        - generic [ref=e580]:
+          - generic [ref=e581]: 实验目的
+          - text: 检查 overall effect 是否由单一高频 grammar 驱动，并区分具有足够 confirmation anchors 的结果与低样本 exploratory 观察。
+        - heading "Qwen · K128" [level=3] [ref=e582]
+        - table [ref=e584]:
+          - rowgroup [ref=e585]:
+            - row [ref=e586]:
+              - columnheader "Grammar" [ref=e587]
+              - columnheader "Ranking query" [ref=e588]
+              - columnheader "Anchors" [ref=e589]
+              - columnheader "Selected" [ref=e590]
+              - columnheader "Random" [ref=e591]
+              - columnheader "Difference" [ref=e592]
+              - columnheader "Status" [ref=e593]
+          - rowgroup [ref=e594]:
+            - row [ref=e595]:
+              - cell [ref=e596]:
+                - code [ref=e597]: adjacent_rank_after_city
+                - text: adjacent · city → rank
+              - cell "p0_item_end" [ref=e598]
+              - cell "45" [ref=e599]
+              - cell "20.0%" [ref=e600]
+              - cell "3.7%" [ref=e601]
+              - cell "16.3%" [ref=e602]
+              - cell "confirmatory" [ref=e603]
+            - row [ref=e605]:
+              - cell [ref=e606]:
+                - code [ref=e607]: adjacent_rank_before_city
+                - text: adjacent · rank → city
+              - cell "post_marker" [ref=e608]
+              - cell "19" [ref=e609]
+              - cell "100.0%" [ref=e610]
+              - cell "15.8%" [ref=e611]
+              - cell "84.2%" [ref=e612]
+              - cell "confirmatory" [ref=e613]
+            - row [ref=e615]:
+              - cell [ref=e616]:
+                - code [ref=e617]: same_unit_rank_before_city
+                - text: same unit · rank → city
+              - cell "post_marker" [ref=e618]
+              - cell "15" [ref=e619]
+              - cell "26.7%" [ref=e620]
+              - cell "0.0%" [ref=e621]
+              - cell "26.7%" [ref=e622]
+              - cell "confirmatory" [ref=e623]
+            - row [ref=e625]:
+              - cell [ref=e626]:
+                - code [ref=e627]: structural_unmarked
+                - text: structural unmarked
+              - cell "p0_item_end" [ref=e628]
+              - cell "6" [ref=e629]
+              - cell "100.0%" [ref=e630]
+              - cell "0.0%" [ref=e631]
+              - cell "100.0%" [ref=e632]
+              - cell "exploratory" [ref=e633]
+            - row [ref=e635]:
+              - cell [ref=e636]:
+                - code [ref=e637]: evidence_sequence_unranked
+                - text: unranked evidence sequence
+              - cell "p0_item_end" [ref=e638]
+              - cell "1" [ref=e639]
+              - cell "100.0%" [ref=e640]
+              - cell "0.0%" [ref=e641]
+              - cell "100.0%" [ref=e642]
+              - cell "exploratory" [ref=e643]
+            - row [ref=e645]:
+              - cell [ref=e646]:
+                - code [ref=e647]: structural_invariant_bullet
+                - text: invariant bullet
+              - cell "p0_item_end" [ref=e648]
+              - cell "1" [ref=e649]
+              - cell "100.0%" [ref=e650]
+              - cell "0.0%" [ref=e651]
+              - cell "100.0%" [ref=e652]
+              - cell "exploratory" [ref=e653]
+            - row [ref=e655]:
+              - cell [ref=e656]:
+                - code [ref=e657]: structural_explicit_rank_before_city
+                - text: structural explicit rank
+              - cell "post_marker" [ref=e658]
+              - cell "0" [ref=e659]
+              - cell "—" [ref=e660]
+              - cell "—" [ref=e661]
+              - cell "—" [ref=e662]
+              - cell "no confirmation anchor" [ref=e663]
+        - heading "Gemma · K8" [level=3] [ref=e665]
+        - table [ref=e667]:
+          - rowgroup [ref=e668]:
+            - row [ref=e669]:
+              - columnheader "Grammar" [ref=e670]
+              - columnheader "Ranking query" [ref=e671]
+              - columnheader "Anchors" [ref=e672]
+              - columnheader "Selected" [ref=e673]
+              - columnheader "Random" [ref=e674]
+              - columnheader "Difference" [ref=e675]
+              - columnheader "Status" [ref=e676]
+          - rowgroup [ref=e677]:
+            - row [ref=e678]:
+              - cell [ref=e679]:
+                - code [ref=e680]: same_unit_rank_before_city
+                - text: same unit · rank → city
+              - cell "post_marker" [ref=e681]
+              - cell "58" [ref=e682]
+              - cell "67.2%" [ref=e683]
+              - cell "27.6%" [ref=e684]
+              - cell "39.7%" [ref=e685]
+              - cell "confirmatory" [ref=e686]
+            - row [ref=e688]:
+              - cell [ref=e689]:
+                - code [ref=e690]: adjacent_rank_after_city
+                - text: adjacent · city → rank
+              - cell "p0_item_end" [ref=e691]
+              - cell "30" [ref=e692]
+              - cell "90.0%" [ref=e693]
+              - cell "10.0%" [ref=e694]
+              - cell "80.0%" [ref=e695]
+              - cell "confirmatory" [ref=e696]
+            - row [ref=e698]:
+              - cell [ref=e699]:
+                - code [ref=e700]: adjacent_rank_before_city
+                - text: adjacent · rank → city
+              - cell "post_marker" [ref=e701]
+              - cell "1" [ref=e702]
+              - cell "100.0%" [ref=e703]
+              - cell "0.0%" [ref=e704]
+              - cell "100.0%" [ref=e705]
+              - cell "exploratory" [ref=e706]
+            - row [ref=e708]:
+              - cell [ref=e709]:
+                - code [ref=e710]: structural_invariant_bullet
+                - text: invariant bullet
+              - cell "p0_item_end" [ref=e711]
+              - cell "1" [ref=e712]
+              - cell "0.0%" [ref=e713]
+              - cell "0.0%" [ref=e714]
+              - cell "0.0%" [ref=e715]
+              - cell "exploratory" [ref=e716]
+            - row [ref=e718]:
+              - cell [ref=e719]:
+                - code [ref=e720]: same_unit_rank_after_city
+                - text: same unit · city → rank
+              - cell "p0_item_end" [ref=e721]
+              - cell "0" [ref=e722]
+              - cell "—" [ref=e723]
+              - cell "—" [ref=e724]
+              - cell "—" [ref=e725]
+              - cell "no confirmation anchor" [ref=e726]
+        - paragraph [ref=e728]:
+          - text: Qwen 的
+          - code [ref=e729]: adjacent_rank_before_city
+          - text: 在 19 个 confirmation anchors 上达到 100% selected failure，而 random 为 15.8%，是最终整体效应的主要来源；
+          - code [ref=e730]: same_unit_rank_before_city
+          - text: 的效应较弱。Gemma 则同时在
+          - code [ref=e731]: adjacent_rank_after_city
+          - text: 与高样本
+          - code [ref=e732]: same_unit_rank_before_city
+          - text: 上显示效应，但后者 K8 random damage 也更高。
+        - generic [ref=e733]:
+          - generic [ref=e734]: 低样本边界
+          - text: Qwen structural/evidence grammars 与 Gemma adjacent-rank-before/invariant grammars 的 confirmation anchors 少于 10，只能描述，不能据此声称该 grammar 的稳定总体效应。表中的 0% 或 100% 在 n=1 时尤其不能泛化。
+        - generic [ref=e735]:
+          - generic [ref=e736]: Experiment C2 结论
+          - text: “targeted retrieval”不是一个对所有 surface grammar 完全同质的统一 bank。更准确的表述是共享候选层上的 grammar-routed banks：P0-ranked 与 marker-conditioned P2-ranked 子回路共同组成 overall effect，且两模型的主导 grammar 不同。
+      - generic [ref=e737]:
+        - generic [ref=e738]: Mechanistic synthesis
+        - heading "机制综合：当前最窄、可证伪的模型" [level=2] [ref=e739]
+        - generic [ref=e740]:
+          - generic [ref=e741]:
+            - strong [ref=e742]: 1 · Commit progress at P0
+            - text: item k 完成；hidden state 携带可解码 running index。
+          - generic [ref=e743]: →
+          - generic [ref=e744]:
+            - strong [ref=e745]: 2 · Form a grammar-conditioned query
+            - text: city-first grammar 可在 P0 局部化；marker-first grammar 在 P2 更易局部化。
+          - generic [ref=e746]: →
+          - generic [ref=e747]:
+            - strong [ref=e748]: 3 · Retrieve and answer
+            - text: selected bank 从 prompt record 取回 next city；最终形成 count-specific answer state。
+        - paragraph [ref=e749]: 数据支持“P0 commit + grammar-conditioned retrieval query + bank-level necessity”的功能分解。P2 的作用目前只能称为更干净的 marker-conditioned localization site：因为 ablation 从 P0 已开始，我们知道这组 heads 从 transition 开始不可用会造成损害；但没有分离式 QK/OV patching 来证明 P0 专门读取、P2 专门写入。
+        - generic [ref=e750]:
+          - generic [ref=e751]: 尚未证明
+          - text: 没有证明 selected bank 是唯一通路、每个 head 单独必要、progress state 必须经由这些 heads 传递，也没有用 restoration 把被破坏的 needle retrieval 救回。Representation、attention localization 与 causal necessity 已在同一报告对齐，但仍是三种不同 estimand。
+        - generic [ref=e752]:
+          - generic [ref=e753]: 当前总论
+          - text: Native-thinking 模型在 item commits 与 answer query 上形成可解码的计数相关状态，并调用依赖 surface grammar 与 query stage 的 targeted-retrieval head banks。Gemma 回路窄、早期即显效；Qwen 回路宽，且 marker-first grammar 的 P2 ranking 是获得强因果效应的关键。
+      - generic [ref=e754]:
+        - generic [ref=e755]: Reproducibility
+        - heading "复现账本与底层数据" [level=2] [ref=e756]
+        - generic [ref=e757]:
+          - link "Representation geometry" [ref=e758] [cursor=pointer]:
+            - /url: NiaH_Geometry_Comparison.html
+          - link "Parser / token sites" [ref=e759] [cursor=pointer]:
+            - /url: NiaH_Native-Thinking_Parser_and_Token_Sites.html
+          - link "P0 head scores" [ref=e760] [cursor=pointer]:
+            - /url: v5_native_p0_head_atlas/p0_targeted_retrieval_head_scores.csv
+          - link "Ordinal × head data" [ref=e761] [cursor=pointer]:
+            - /url: v5_native_p0_head_atlas/p0_needle_ordinal_by_head.csv
+          - link "Hybrid completion" [ref=e762] [cursor=pointer]:
+            - /url: v5_native_hybrid_supplement/native_hybrid_supplement_8gpu_complete.json
+          - link "Prior component page" [ref=e763] [cursor=pointer]:
+            - /url: NiaH_Native-Thinking_Causal_Ablation_report.html
+          - link "Full P0 atlas" [ref=e764] [cursor=pointer]:
+            - /url: NiaH_Native-Thinking_P0_Targeted_Retrieval_Atlas.html
+        - paragraph [ref=e765]:
+          - text: 本页已吸收 causal component page 的冻结设计、dose/grammar 结果解释，以及 P0 atlas 的 score 定义、全类别 head map、ordinal decomposition 与单头 attention examples。旧页面保留为详细 provenance；主结论以
+          - code [ref=e766]: v5_native_hybrid_supplement
+          - text: 的 PASS manifests 为准。
+        - group [ref=e767]:
+          - generic "输入文件 SHA256" [ref=e768] [cursor=pointer]
+        - generic [ref=e769]:
+          - generic [ref=e770]: 审计结论
+          - text: Hybrid completion、两模型 dose/full-panel manifests、P0 atlas manifest 与 representation selected rows 均在生成时验证存在；两个 hybrid manifests 均要求
+          - code [ref=e771]: status=PASS
+          - text: 、统一 P0 intervention start 与 persistent ablation，否则 builder 拒绝输出。

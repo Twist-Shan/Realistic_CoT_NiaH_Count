@@ -1,0 +1,45 @@
+{
+  "any_complete_bridge_pass": false,
+  "geometries": {
+    "generated_suffix_span": {
+      "complete_bridge_pass": false,
+      "confirmation_bridge_pass": false,
+      "confirmation_seed_count": 10,
+      "discovery_bridge_pass": false,
+      "discovery_seed_count": 20,
+      "model_label": "Qwen3-8B",
+      "panel_id": "count2_6_balanced",
+      "schema_version": "realistic_niah_v5_qwen_generated_suffix_geometry_complete_v1",
+      "state_patch_geometry": "generated_suffix_span",
+      "status": "PASS"
+    },
+    "terminal_prefix_span": {
+      "complete_bridge_pass": false,
+      "confirmation_bridge_pass": false,
+      "confirmation_seed_count": 10,
+      "discovery_bridge_pass": false,
+      "discovery_seed_count": 20,
+      "model_label": "Qwen3-8B",
+      "panel_id": "count2_6_balanced",
+      "schema_version": "realistic_niah_v5_qwen_generated_suffix_geometry_complete_v1",
+      "state_patch_geometry": "terminal_prefix_span",
+      "status": "PASS"
+    },
+    "terminal_span": {
+      "complete_bridge_pass": false,
+      "confirmation_bridge_pass": false,
+      "confirmation_seed_count": 10,
+      "discovery_bridge_pass": false,
+      "discovery_seed_count": 20,
+      "model_label": "Qwen3-8B",
+      "panel_id": "count2_6_balanced",
+      "schema_version": "realistic_niah_v5_qwen_generated_suffix_geometry_complete_v1",
+      "state_patch_geometry": "terminal_span",
+      "status": "PASS"
+    }
+  },
+  "model_label": "Qwen3-8B",
+  "panel_id": "count2_6_balanced",
+  "schema_version": "realistic_niah_v5_qwen_generated_suffix_panel_complete_v1",
+  "status": "PASS"
+}

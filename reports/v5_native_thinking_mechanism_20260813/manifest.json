@@ -1,61 +1,39 @@
 {
-  "schema_version": "realistic_niah_v5_native_thinking_synthesis_v3",
+  "schema_version": "realistic_niah_v5_native_thinking_consolidated_v4",
   "status": "complete",
-  "generated_at": "2026-08-20T22:56:29.824518+00:00",
+  "generated_at": "2026-08-21T05:38:35.125388+00:00",
   "scope": [
     "representation",
-    "targeted_retrieval_ablation"
+    "p0_attention_atlas",
+    "legacy_shared_bank_comparator",
+    "hybrid_targeted_retrieval_ablation"
   ],
-  "excluded_from_report": "experiments without frozen confirmatory evidence",
-  "models": [
-    "Qwen3-8B",
-    "Gemma4-E4B"
-  ],
-  "registered_confirmation_seeds": [
-    1254,
-    1255,
-    1256,
-    1257,
-    1258,
-    1259,
-    1260,
-    1261,
-    1262,
-    1263
-  ],
-  "eligibility_audit": {
-    "qwen_duplicate_traces_total": 17,
-    "qwen_duplicate_traces_n1": 3,
-    "qwen_extra_duplicate_exclusions_n_ge_2": 14,
-    "qwen_duplicate_final_wrong": 11,
-    "qwen_duplicate_final_correct": 3,
-    "gemma_duplicate_traces_total": 10,
-    "gemma_duplicates_all_n1": true,
-    "gemma_extra_duplicate_exclusions_n_ge_2": 0
+  "causal_contract": {
+    "ranking": "grammar-specific P0 except rank-before-city uses post_marker P2",
+    "intervention_start": "p0_item_end",
+    "persistent_to_decode_end": true,
+    "primary_split": "confirmation"
   },
   "input_sha256": {
-    "reports\\v5_native_causal_aligned_geometry\\audit.json": "b692255d12726751c4d62d84ea0a3cf49d3ccfd95d468dcd064da1b99cb778f2",
     "reports\\v5_native_causal_aligned_geometry\\site_selected.csv": "b64e1842d5536faccca643db93ae45e6c66ae46d6caf8336f997405a1ec312dd",
     "reports\\v5_native_causal_aligned_geometry\\legacy_vs_causal_item_end.csv": "677ca40a758139dbfe7b47e370a6c0bf396a5f41c622e7603ab5ddd924443c90",
     "reports\\v5_dual_endpoint_geometry_full300\\Qwen3-8B\\pca16_whiten\\final_count_selected.csv": "c5cfc0b1b5b7dc9716559a11a8420bb1d6898b87e22ec2bde5d1f8fcf7e12f0b",
     "reports\\v5_dual_endpoint_geometry_full300\\Gemma4-E4B\\pca16_whiten\\final_count_selected.csv": "ef1f93e6bec86722c6f7f18c6398b9b82591f68f0ef4819e126f70e7afba2988",
+    "reports\\v5_native_hybrid_supplement\\Qwen3-8B\\analysis_hybrid_supplement_registered_v1\\hybrid_dose_grid_complete.json": "066797ff7ecff1a6ce696a4a11d7a702ecb619e2db3bbf46dfd904fb05e38b9d",
+    "reports\\v5_native_hybrid_supplement\\Qwen3-8B\\analysis_hybrid_supplement_registered_v1\\hybrid_full_panel_complete.json": "64e473c31da6afbe55e9a29e7edc2cacd1a376e9746e75ee0a1c88cb3a582830",
+    "reports\\v5_native_hybrid_supplement\\Gemma4-E4B\\analysis_hybrid_supplement_registered_v1\\hybrid_dose_grid_complete.json": "d6a724f1c43a908e0a76ed29d42d84851bbb6385ca1b2a7469c876600890efa5",
+    "reports\\v5_native_hybrid_supplement\\Gemma4-E4B\\analysis_hybrid_supplement_registered_v1\\hybrid_full_panel_complete.json": "ee2a23a8d42b2315815abfe7582c8a0d484602470f1de6ac8cb81a27fcaac645",
+    "reports\\v5_native_hybrid_supplement\\native_hybrid_supplement_8gpu_complete.json": "92f960db83d3445239ba6187f43f637f780afba6d2ad8090fd431b0e21384c75",
     "reports\\v5_native_targeted_retrieval\\Qwen3-8B\\analysis_manifest.json": "4cb21b9e911d84b729eec910696c7f85c20f71fbf655b7364fa23bd58fe8fa9a",
-    "reports\\v5_native_targeted_retrieval\\Qwen3-8B\\estimands.csv": "07ea8b8f9bff4bc954ad993209396bf6adc9f7d76ae0afb7a41c84aad7b8a731",
     "reports\\v5_native_targeted_retrieval\\Qwen3-8B\\raw_arm_rates.csv": "31126e14a27e600f8b316a2d138ca6db55b6704aa986f06dfa0709e8d7c51ecf",
-    "reports\\v5_native_targeted_retrieval\\Qwen3-8B\\count_estimands.csv": "7c9d8ec6d7eb3365e6961c3f2bc0e8fe929155aece273859658bc9c54251cebd",
-    "reports\\v5_native_targeted_retrieval\\Gemma4-E4B\\analysis_manifest.json": "d1ec5d92cce7948e9fd03f87783fd7bf0e1c48934b4d099c383c955a035fcbb5",
-    "reports\\v5_native_targeted_retrieval\\Gemma4-E4B\\estimands.csv": "03fecbf383ab5cf3ec6f4402372b4947ce976efb21af901c09bce1484c725db8",
-    "reports\\v5_native_targeted_retrieval\\Gemma4-E4B\\raw_arm_rates.csv": "4a545f572a04c2bbca716ae79c62cb209eb0d8ecfdc8d5a75c8c153eecc47e68",
-    "reports\\v5_native_targeted_retrieval\\Gemma4-E4B\\count_estimands.csv": "5b44a9f1ad6a0c9a32fb653813ade1473ca431d1d811734af7615dde8e537224",
+    "reports\\v5_native_targeted_retrieval\\Qwen3-8B\\estimands.csv": "07ea8b8f9bff4bc954ad993209396bf6adc9f7d76ae0afb7a41c84aad7b8a731",
     "configs\\realistic_niah_v5_qwen_shared_k125_full300_selection.json": "786429838de0b17248e8de44d79d75ca31b81ea117bbc47f1180855ac8e849b2",
-    "configs\\realistic_niah_v5_gemma_shared_k8_full300_selection.json": "a9a697e03dd62cbef2d5823ebd96a632d627f6f087b353a52258f3416672bd89",
-    "reports\\NiaH_Native-Thinking_Parser_and_Token_Sites.html": "cb3348567a12a73f0168b1b39af14aaf891c4df997407e2890bf80d5a4d514ad",
-    "reports\\NiaH_Geometry_Comparison.html": "9ef8279e1c6d9d4d1c9abfd29d1799734473875a3c6ecfba136c4140e0542eb8",
-    "reports\\NiaH_Native-Thinking_Causal_Ablation_report.html": "7e14ba545aba1868d478fd838574ff4baa7a67898670b8055cf70629781128aa",
-    "reports\\NiaH_Native-Thinking_P0_Targeted_Retrieval_Atlas.html": "4a35b4d2391677b9ea541fff5b135cc096af6f1bd6ca54befc4601eb177d076a",
-    "reports\\v5_native_causal_site_review\\trajectory_registry.jsonl": "51ec210a27c6ed8c3db048a4726a2933cc520b5619959f5d7ac76fa5196a9c34",
-    "work\\remote_native_traces_68_209_74_38\\Qwen3-8B\\generations.jsonl": "b2414fb44e9b07f42e4ee224aada6567b99cabf388d374e36ac1f671cab8c0bd"
+    "reports\\v5_native_p0_head_atlas\\p0_head_atlas_manifest.json": "0422086eca9eb10f9611d51c250486646b312476de979bd9430ff6c508007065",
+    "reports\\v5_native_p0_head_atlas\\p0_targeted_retrieval_head_scores.csv": "b677e3f869907b7624dd93d140e9e10eb37d10d93620324a6f5c5f9a842ef396",
+    "reports\\v5_native_p0_head_atlas\\p0_needle_ordinal_by_head.csv": "08296f1287031d0deae00831711aac00531962d0a296f2514059d7dfdfc3d298",
+    "reports\\v5_native_p0_head_atlas\\p0_significant_head_attention_masses.csv": "abadda05997fecfe3ad06907dc03754e45d30d290a0564af923dcc62038d4f40",
+    "reports\\v5_native_causal_site_review\\trajectory_registry.jsonl": "51ec210a27c6ed8c3db048a4726a2933cc520b5619959f5d7ac76fa5196a9c34"
   },
   "output": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\reports\\NiaH_Native-Thinking_report.html",
-  "output_sha256": "ede422cb3924756962450c55234ab9fe3cd04b32bd52f03a710b31c2b370b3f6"
+  "output_sha256": "6a6f192223ac335014ac937c24312d0b62019a525b666d1f8cf8cd93cfe8f228"
 }

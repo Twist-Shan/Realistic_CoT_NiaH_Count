@@ -14,6 +14,7 @@ from scripts.run_realistic_niah_v5 import (
     _filter_rows_by_count,
     _load_behavior_anchor_routing,
     _prompt_balanced_anchor_subset,
+    _prompt_final_transition_anchor_subset,
     _route_transition_anchors,
     _seed_first_anchor_subset,
     _selection_intervention_site_decoupled,
@@ -57,6 +58,33 @@ def test_formal_count_filter_is_explicit_and_validated() -> None:
         _evaluation_counts(config, [1, 1])
     with pytest.raises(ValueError, match="outside the registered config"):
         _evaluation_counts(config, [11])
+
+
+def test_prompt_final_transition_anchor_subset_is_outcome_blind() -> None:
+    tasks = []
+    for seed, count in ((1234, 3), (1235, 4)):
+        row = {
+            "request_id": f"request-{seed}-{count}",
+            "seed": seed,
+            "gold_count": count,
+        }
+        for occurrence in range(1, count):
+            tasks.append(
+                (
+                    row,
+                    {
+                        "from_occurrence": occurrence,
+                        "to_occurrence": occurrence + 1,
+                        "query_output_token_index": occurrence * 10,
+                    },
+                )
+            )
+    selected = _prompt_final_transition_anchor_subset(tasks, limit=10)
+    assert len(selected) == 2
+    assert {
+        (int(row["gold_count"]), int(spec["from_occurrence"]), int(spec["to_occurrence"]))
+        for row, spec in selected
+    } == {(3, 2, 3), (4, 3, 4)}
 
 
 def test_source_specific_ov_decomposition_supports_grouped_query_attention() -> None:
@@ -820,6 +848,12 @@ def test_multi_site_window_must_include_exact_head_selection_site(
         target_grammar_class="adjacent_rank_before_city",
         require_selection_anchor=False,
     ) == ["pre_marker_d1", "post_marker", "city_pre_d1"]
+    assert _validate_behavior_selection_window(
+        routing,
+        selection_anchor_role="post_marker",
+        target_grammar_class=None,
+        require_selection_anchor=False,
+    ) == ["pre_marker_d1", "post_marker", "city_pre_d1"]
 
 
 def test_selection_and_intervention_sites_may_be_explicitly_decoupled() -> None:
@@ -832,12 +866,6 @@ def test_selection_and_intervention_sites_may_be_explicitly_decoupled() -> None:
     assert not _selection_intervention_site_decoupled(None, ["p0_item_end"])
     with pytest.raises(ValueError, match="At least one intervention"):
         _selection_intervention_site_decoupled("post_marker", [])
-    assert _validate_behavior_selection_window(
-        routing,
-        selection_anchor_role="post_marker",
-        target_grammar_class=None,
-        require_selection_anchor=False,
-    ) == ["pre_marker_d1", "post_marker", "city_pre_d1"]
 
 
 def test_causal_result_rows_reads_atomic_output_directory(tmp_path) -> None:

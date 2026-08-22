@@ -344,9 +344,37 @@ def _attention_svg(example: dict[str, Any]) -> str:
     plot_height = rows_n * cell_height
     width = left + plot_width + right
     height = top + plot_height + bottom
+    is_bank = "bank_size" in example
+    bank_size = int(example.get("bank_size", 1))
+    identity = (
+        f"Top-{bank_size} bank-summed"
+        if is_bank
+        else f"L{example['layer']}H{example['head']}"
+    )
+    # The aggregate non-needle row often holds most of the K units of total
+    # mass.  Scaling a bank map to 0..K would therefore collapse every
+    # individual city cell into the darkest colors.  Keep the encoded quantity
+    # as the raw sum, but cap the color scale at the largest observed *needle*
+    # cell; context values above that cap are intentionally saturated.
+    legend_maximum = (
+        max(
+            float(record["mass"])
+            for event in events
+            for record in event["records"]
+        )
+        if is_bank
+        else 1.0
+    )
+    legend_maximum = max(legend_maximum, 1e-12)
+    legend_label = (
+        f"Σ attention mass over Top-{bank_size} heads (needle max)"
+        if is_bank
+        else "raw attention mass"
+    )
     parts = [
         f'<svg class="attention-map" viewBox="0 0 {width} {height}" role="img" '
-        f'aria-label="{_escape(example["model_label"])} L{example["layer"]}H{example["head"]} P0 per-needle attention distribution">',
+        f'aria-label="{_escape(example["model_label"])} {_escape(identity)} P0 per-needle attention distribution">',
+        f'<title>{_escape(example["model_label"])} · {_escape(identity)} · exact-P0 city attention map</title>',
         '<rect width="100%" height="100%" rx="14" fill="#101927"/>',
     ]
     for column, event in enumerate(events):
@@ -367,7 +395,7 @@ def _attention_svg(example: dict[str, Any]) -> str:
             )
             parts.append(
                 f'<rect x="{x}" y="{y}" width="{cell_width}" height="{cell_height}" '
-                f'fill="{_color(mass, 1.0)}" stroke="{"#ff6b57" if is_target else "#243348"}" '
+                f'fill="{_color(mass, legend_maximum)}" stroke="{"#ff6b57" if is_target else "#243348"}" '
                 f'stroke-width="{3 if is_target else 0.7}"><title>{_escape(title)}</title></rect>'
             )
             if is_target:
@@ -405,16 +433,16 @@ def _attention_svg(example: dict[str, Any]) -> str:
         y = legend_y + (1 - fraction) * legend_height
         parts.append(
             f'<rect x="{legend_x}" y="{y:.2f}" width="14" height="{legend_height / 60 + 0.8:.2f}" '
-            f'fill="{_color(fraction, 1.0)}"/>'
+            f'fill="{_color(fraction * legend_maximum, legend_maximum)}"/>'
         )
     for fraction in (0.0, 0.5, 1.0):
         y = legend_y + (1 - fraction) * legend_height + 4
         parts.append(
-            f'<text x="{legend_x + 20}" y="{y:.2f}" font-size="9" fill="#b7c5d6">{fraction:.1f}</text>'
+            f'<text x="{legend_x + 20}" y="{y:.2f}" font-size="9" fill="#b7c5d6">{fraction * legend_maximum:.1f}</text>'
         )
     parts.append(
         f'<text transform="translate({legend_x + 53} {legend_y + legend_height / 2}) rotate(-90)" '
-        'text-anchor="middle" font-size="10" fill="#d8e2ee">raw attention mass</text>'
+        f'text-anchor="middle" font-size="10" fill="#d8e2ee">{_escape(legend_label)}</text>'
     )
     parts.append("</svg>")
     return "".join(parts)
@@ -701,7 +729,33 @@ def _example_cards(bundles: dict[str, dict[str, Any]], assets: Path) -> str:
                     <span>target top-1 <strong>{metrics['target_top1_rate']:.1%}</strong></span>
                   </div>
                 </article>
-                """
+                """.strip()
+            )
+        for example in bundles[model].get("bank_examples", []):
+            svg = _attention_svg({"model_label": model, **example})
+            name = (
+                f"{model}_{example['grammar']}_Top{example['bank_size']}"
+                "_p0_attention_sum.svg"
+            )
+            (assets / name).write_text(svg, encoding="utf-8")
+            metrics = _attention_metrics(example)
+            cards.append(
+                f"""
+                <article class="attention-card">
+                  <div class="attention-title">
+                    <div><span class="model-pill">{_escape(model)}</span>
+                    <h3>Top-{example['bank_size']} · bank-summed city map</h3></div>
+                    <div class="score-chip">Frozen bank <strong>K={example['bank_size']}</strong></div>
+                  </div>
+                  <p class="mono-line"><code>{_escape(example['grammar'])}</code> · seed {example['seed']} · N={example['gold_count']} · {len(example['events'])} exact-P0 queries</p>
+                  {svg}
+                  <div class="metric-row">
+                    <span>mean Σ target mass <strong>{metrics['mean_target_mass']:.3f}</strong></span>
+                    <span>target / all-needle <strong>{metrics['mean_target_share']:.1%}</strong></span>
+                    <span>target top-1 <strong>{metrics['target_top1_rate']:.1%}</strong></span>
+                  </div>
+                </article>
+                """.strip()
             )
     return "".join(cards)
 

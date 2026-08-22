@@ -8,6 +8,8 @@ from typing import Any, Mapping
 
 SCHEMA_VERSION = "realistic_niah_v5_config_v2"
 PRIMARY_TRACE_SITE = "item_end"
+DISCOVERY_SEEDS = tuple(range(1234, 1254))
+CONFIRMATION_SEEDS = tuple(range(1254, 1264))
 REGISTERED_TRACE_SITES = (
     "pre_marker",
     "marker_end",
@@ -64,8 +66,8 @@ class V5Config:
     prompt_mode: str = "native_thinking"
     model_labels: tuple[str, ...] = ("Qwen3-8B", "Gemma4-E4B")
     counts: tuple[int, ...] = tuple(range(1, 11))
-    discovery_seeds: tuple[int, ...] = tuple(range(1234, 1254))
-    confirmation_seeds: tuple[int, ...] = tuple(range(1254, 1264))
+    discovery_seeds: tuple[int, ...] = DISCOVERY_SEEDS
+    confirmation_seeds: tuple[int, ...] = CONFIRMATION_SEEDS
     primary_trace_site: str = PRIMARY_TRACE_SITE
     sensitivity_trace_sites: tuple[str, ...] = (
         "pre_marker",
@@ -83,11 +85,8 @@ class V5Config:
     hidden_save_dtype: str = "float16"
     ridge_alphas: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0, 100.0)
     bootstrap_samples: int = 10000
-    # Every existing 1234--1263 trajectory has already informed design
-    # decisions, so all are development data for the rebooted causal chain.
-    causal_development_seeds: tuple[int, ...] = tuple(range(1234, 1264))
-    # Frozen only after the smoke fixes anchors, layers, K and endpoints.
-    causal_confirmation_seeds: tuple[int, ...] = ()
+    causal_development_seeds: tuple[int, ...] = DISCOVERY_SEEDS
+    causal_confirmation_seeds: tuple[int, ...] = CONFIRMATION_SEEDS
     causal_head_mechanisms: tuple[str, ...] = REGISTERED_CAUSAL_HEAD_MECHANISMS
     causal_head_selection_metric: str = (
         "seed_first_equal_anchor_mean_target_source_attention_mass"
@@ -121,6 +120,10 @@ class V5Config:
             raise ValueError("Both discovery and confirmation seeds are required")
         if set(self.discovery_seeds) & set(self.confirmation_seeds):
             raise ValueError("Discovery and confirmation seeds must be disjoint")
+        if self.discovery_seeds != DISCOVERY_SEEDS:
+            raise ValueError("V5 discovery seeds are frozen to 1234..1253")
+        if self.confirmation_seeds != CONFIRMATION_SEEDS:
+            raise ValueError("V5 confirmation seeds are frozen to 1254..1263")
         if self.primary_trace_site != PRIMARY_TRACE_SITE:
             raise ValueError(
                 "The registered primary site is item_end; change requires a new schema"
@@ -154,6 +157,14 @@ class V5Config:
         ):
             raise ValueError(
                 "Causal development and confirmation seeds must be disjoint"
+            )
+        if self.causal_development_seeds != DISCOVERY_SEEDS:
+            raise ValueError(
+                "V5 causal development seeds must equal the 20 discovery seeds"
+            )
+        if self.causal_confirmation_seeds != CONFIRMATION_SEEDS:
+            raise ValueError(
+                "V5 causal confirmation seeds must equal the 10 confirmation seeds"
             )
         causal_seed_roles = set(self.causal_development_seeds) | set(
             self.causal_confirmation_seeds
