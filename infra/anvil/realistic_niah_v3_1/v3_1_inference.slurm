@@ -41,9 +41,16 @@ module load conda
 # environment.  vLLM launches tools such as ninja by executable name, so make
 # the frozen environment's executables discoverable before runtime preflight.
 env_bin="$(dirname -- "${python_bin}")"
-export PATH="${env_bin}:${PATH}"
+cuda_home="${REALISTIC_NIAH_CUDA_HOME:-/apps/anvilgpu/external/apps/cuda-toolkit/12.8.0}"
+[[ -x "${cuda_home}/bin/nvcc" ]] \
+  || { echo "CUDA compiler is unavailable: ${cuda_home}/bin/nvcc" >&2; exit 2; }
+export CUDA_HOME="${cuda_home}"
+export CUDA_PATH="${cuda_home}"
+export PATH="${env_bin}:${CUDA_HOME}/bin:${PATH}"
 command -v ninja >/dev/null 2>&1 \
   || { echo "ninja is unavailable from the frozen environment: ${env_bin}" >&2; exit 2; }
+"${CUDA_HOME}/bin/nvcc" --list-gpu-arch | grep -qx 'compute_90a' \
+  || { echo "CUDA compiler does not support H100 compute_90a: ${CUDA_HOME}" >&2; exit 2; }
 
 # vLLM 0.25.1 enables FlashInfer sampling by default.  On Anvil this can
 # trigger a JIT build for compute_90a with the site nvcc, even though the
@@ -69,6 +76,8 @@ provenance_file="${slurm_dir}/job-${SLURM_JOB_ID}-provenance.txt"
     "${repo}" "$(git -C "${repo}" rev-parse HEAD)" "${python_bin}" "${hf_cache}"
   scontrol show job "${SLURM_JOB_ID}"
   module list
+  printf 'cuda_home=%s\nnvcc=%s\n' "${CUDA_HOME}" "$(command -v nvcc)"
+  nvcc --version
   "${python_bin}" -c \
     'import platform, torch, transformers, vllm; print({"python": platform.python_version(), "torch": torch.__version__, "transformers": transformers.__version__, "vllm": vllm.__version__, "cuda": torch.version.cuda})'
   nvidia-smi --query-gpu=name,uuid,memory.total,driver_version --format=csv

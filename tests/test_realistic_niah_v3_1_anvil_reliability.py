@@ -199,7 +199,14 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     assert "--expected-commit" in submit
     assert "source /etc/profile.d/modules.sh" in slurm
     assert slurm.index("source /etc/profile.d/modules.sh") < slurm.index("set -u")
-    assert 'export PATH="${env_bin}:${PATH}"' in slurm
+    assert (
+        'cuda_home="${REALISTIC_NIAH_CUDA_HOME:-/apps/anvilgpu/external/apps/cuda-toolkit/12.8.0}"'
+        in slurm
+    )
+    assert 'export CUDA_HOME="${cuda_home}"' in slurm
+    assert 'export CUDA_PATH="${cuda_home}"' in slurm
+    assert 'export PATH="${env_bin}:${CUDA_HOME}/bin:${PATH}"' in slurm
+    assert "nvcc\" --list-gpu-arch | grep -qx 'compute_90a'" in slurm
     assert "command -v ninja" in slurm
     assert "export VLLM_USE_FLASHINFER_SAMPLER=0" in slurm
     assert (
