@@ -206,7 +206,7 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     assert 'export CUDA_HOME="${cuda_home}"' in slurm
     assert 'export CUDA_PATH="${cuda_home}"' in slurm
     assert 'export PATH="${env_bin}:${CUDA_HOME}/bin:${PATH}"' in slurm
-    assert "nvcc\" --list-gpu-arch | grep -qx 'compute_90a'" in slurm
+    assert "-gencode=arch=compute_90a,code=sm_90a -c -o /dev/null -" in slurm
     assert "command -v ninja" in slurm
     assert "export VLLM_USE_FLASHINFER_SAMPLER=0" in slurm
     assert (

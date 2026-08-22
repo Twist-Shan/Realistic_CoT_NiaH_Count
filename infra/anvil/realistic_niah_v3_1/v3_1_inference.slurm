@@ -49,7 +49,9 @@ export CUDA_PATH="${cuda_home}"
 export PATH="${env_bin}:${CUDA_HOME}/bin:${PATH}"
 command -v ninja >/dev/null 2>&1 \
   || { echo "ninja is unavailable from the frozen environment: ${env_bin}" >&2; exit 2; }
-"${CUDA_HOME}/bin/nvcc" --list-gpu-arch | grep -qx 'compute_90a' \
+printf '__global__ void realistic_niah_h100_preflight(){}\n' \
+  | "${CUDA_HOME}/bin/nvcc" -x cu \
+      -gencode=arch=compute_90a,code=sm_90a -c -o /dev/null - \
   || { echo "CUDA compiler does not support H100 compute_90a: ${CUDA_HOME}" >&2; exit 2; }
 
 # vLLM 0.25.1 enables FlashInfer sampling by default.  On Anvil this can
