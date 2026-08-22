@@ -47,6 +47,9 @@ cuda_home="${REALISTIC_NIAH_CUDA_HOME:-/apps/anvilgpu/external/apps/cuda-toolkit
 export CUDA_HOME="${cuda_home}"
 export CUDA_PATH="${cuda_home}"
 export PATH="${env_bin}:${CUDA_HOME}/bin:${PATH}"
+[[ -e "${CUDA_HOME}/lib64/libcudart.so.12" ]] \
+  || { echo "CUDA runtime is unavailable: ${CUDA_HOME}/lib64/libcudart.so.12" >&2; exit 2; }
+export LD_LIBRARY_PATH="${CUDA_HOME}/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 command -v ninja >/dev/null 2>&1 \
   || { echo "ninja is unavailable from the frozen environment: ${env_bin}" >&2; exit 2; }
 printf '__global__ void realistic_niah_h100_preflight(){}\n' \
@@ -78,7 +81,8 @@ provenance_file="${slurm_dir}/job-${SLURM_JOB_ID}-provenance.txt"
     "${repo}" "$(git -C "${repo}" rev-parse HEAD)" "${python_bin}" "${hf_cache}"
   scontrol show job "${SLURM_JOB_ID}"
   module list
-  printf 'cuda_home=%s\nnvcc=%s\n' "${CUDA_HOME}" "$(command -v nvcc)"
+  printf 'cuda_home=%s\nnvcc=%s\nld_library_path=%s\n' \
+    "${CUDA_HOME}" "$(command -v nvcc)" "${LD_LIBRARY_PATH}"
   nvcc --version
   "${python_bin}" -c \
     'import platform, torch, transformers, vllm; print({"python": platform.python_version(), "torch": torch.__version__, "transformers": transformers.__version__, "vllm": vllm.__version__, "cuda": torch.version.cuda})'
