@@ -192,6 +192,9 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     slurm = (
         root / "infra" / "anvil" / "realistic_niah_v3_1" / "v3_1_inference.slurm"
     ).read_text()
+    task_launcher = (
+        root / "infra" / "anvil" / "realistic_niah_v3_1" / "run_slurm_task.sh"
+    ).read_text()
     assert "while true" not in finalizer
     assert "audit_realistic_niah_v3_1_shard_state.py" in finalizer
     assert "write_two_row_marker" in worker
@@ -219,6 +222,10 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
         in slurm
     )
     assert 'bash "${task_script}" "${run_root}"' in slurm
+    assert "--export=HOME,USER,PATH,SHELL" in slurm
+    assert "CUDA_HOME,CUDA_PATH,LD_LIBRARY_PATH,VLLM_USE_FLASHINFER_SAMPLER" in slurm
+    assert "CUDA runtime environment did not reach task" in task_launcher
+    assert 'ctypes.CDLL("libcudart.so.12")' in task_launcher
     assert 'dirname -- "${BASH_SOURCE[0]}"' not in slurm
 
 

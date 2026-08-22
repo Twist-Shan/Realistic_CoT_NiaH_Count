@@ -101,6 +101,7 @@ srun \
   --gpu-bind=single:1 \
   --cpu-bind=cores \
   --kill-on-bad-exit=1 \
+  --export=HOME,USER,PATH,SHELL,REALISTIC_NIAH_REPO_ROOT,REALISTIC_NIAH_PYTHON,REALISTIC_NIAH_HF_CACHE,REALISTIC_NIAH_TASKS_PER_NODE,REALISTIC_NIAH_EXPECTED_COMMIT,CUDA_HOME,CUDA_PATH,LD_LIBRARY_PATH,VLLM_USE_FLASHINFER_SAMPLER \
   --label \
   bash "${task_script}" "${run_root}"
 
