@@ -1,3 +1,0 @@
-model_label,rows,exact,remapped,unsupported,max_normalized_position_error,policy
-Qwen3-8B,540,540,0,0,0.0,monotonic_endpoint_preserving_nearest_neighbor_v1
-Gemma4-E4B,540,178,362,0,0.017241379310344862,monotonic_endpoint_preserving_nearest_neighbor_v1

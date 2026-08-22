@@ -1092,6 +1092,51 @@ def strict_ranked_bank(
     ]
 
 
+def ranked_bank_with_layer_profile(
+    head_ranking: pd.DataFrame,
+    *,
+    layer_profile: dict[int, int],
+) -> list[tuple[int, int]]:
+    """Select the best ranked heads subject to an exact per-layer quota.
+
+    This is a diagnostic treatment rather than a random control: scores come
+    from the supplied ranking, while the layer histogram is frozen from a
+    reference bank selected at another query site.
+    """
+
+    needed = {"layer", "head", "discovery_rank"}
+    missing = sorted(needed - set(head_ranking.columns))
+    if missing:
+        raise ValueError(f"Head ranking is missing {missing}")
+    normalized = {
+        int(layer): int(count) for layer, count in layer_profile.items()
+    }
+    if not normalized or any(count < 0 for count in normalized.values()):
+        raise ValueError("layer_profile must contain non-negative quotas")
+    if sum(normalized.values()) < 1:
+        raise ValueError("layer_profile must select at least one head")
+    ordered = head_ranking.sort_values(
+        ["discovery_rank", "layer", "head"]
+    ).drop_duplicates(["layer", "head"])
+    chosen: list[tuple[int, int]] = []
+    for layer in sorted(normalized):
+        quota = normalized[layer]
+        available = ordered.loc[ordered["layer"].astype(int).eq(layer)]
+        if len(available) < quota:
+            raise ValueError(
+                f"Layer {layer} has {len(available)} ranked heads for quota {quota}"
+            )
+        chosen.extend(
+            (int(row.layer), int(row.head))
+            for row in available.head(quota).itertuples(index=False)
+        )
+    rank_lookup = {
+        (int(row.layer), int(row.head)): int(row.discovery_rank)
+        for row in ordered.itertuples(index=False)
+    }
+    return sorted(chosen, key=lambda head: (rank_lookup[head], *head))
+
+
 def _build_legacy_causal_plan(
     attention_csv: str | Path,
     output_dir: str | Path,

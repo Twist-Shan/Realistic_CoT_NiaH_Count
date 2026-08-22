@@ -1,9 +1,0 @@
-model_label,population,endpoint,seeds,mean_slope_per_unit_depth,bootstrap_95ci_low,bootstrap_95ci_high,exact_seed_signflip_p_two_sided
-Gemma4-E4B,all,absolute_error_specificity,10,-0.0073891880313471684,-0.017594746910707816,0.002816370848013473,0.28125
-Gemma4-E4B,all,accuracy_damage_specificity,10,0.00019684312378588504,-0.011674311418378425,0.01226484078973608,1.0
-Gemma4-E4B,clean_correct,absolute_error_specificity,10,0.012264840789736083,0.0,0.03679452236920825,1.0
-Gemma4-E4B,clean_correct,accuracy_damage_specificity,10,0.012264840789736083,0.0,0.03679452236920825,1.0
-Qwen3-8B,all,absolute_error_specificity,10,0.014073728175992933,-0.00481230705372663,0.03398881019707541,0.25
-Qwen3-8B,all,accuracy_damage_specificity,10,0.008413970823496856,0.0,0.02039933933466504,0.5
-Qwen3-8B,clean_correct,absolute_error_specificity,10,0.005393415830025683,0.0,0.01618024749007705,1.0
-Qwen3-8B,clean_correct,accuracy_damage_specificity,10,0.005393415830025683,0.0,0.01618024749007705,1.0

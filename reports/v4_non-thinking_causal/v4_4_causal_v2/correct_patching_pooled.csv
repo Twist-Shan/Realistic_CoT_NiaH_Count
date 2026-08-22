@@ -1,5 +1,0 @@
-model_label,family,groups,pair_instances,seed_clusters_per_group_min,seed_clusters_per_group_max,patching_acc_successes,patching_acc_denominator,pooled_average_patching_acc,group_min_average_patching_acc,group_max_average_patching_acc,pooled_post_patch_receiver_acc,pooled_valid_rate
-Qwen3-8B,prompt_patching,6,1424,5,5,1161,1424,0.8153089887640449,0.6521739130434783,0.9907407407407407,0.0976123595505618,1.0
-Qwen3-8B,answer_patching,6,1686,5,5,1628,1686,0.9655990510083037,0.9411764705882353,1.0,0.0166073546856465,0.9988137603795967
-Gemma4-E4B,prompt_patching,6,1088,5,5,1000,1088,0.9191176470588235,0.6529411764705882,0.9901960784313726,0.017463235294117647,1.0
-Gemma4-E4B,answer_patching,6,1884,5,5,1809,1884,0.9601910828025477,0.8933333333333333,0.9941520467836257,0.01167728237791932,1.0

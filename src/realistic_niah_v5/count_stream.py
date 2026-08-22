@@ -81,6 +81,15 @@ from .parsing import (
 
 COUNT_STREAM_SCHEMA_VERSION = "realistic_niah_v5_count_stream_v1"
 
+# Every native-thinking/count-stream experiment uses one canonical seed
+# contract.  Discovery-only subphases may partition the first 20 seeds, but
+# they may never borrow from the 10 confirmation seeds or introduce a second
+# confirmation registry.
+COUNT_STREAM_DISCOVERY_SEEDS = tuple(range(1234, 1254))
+COUNT_STREAM_CONFIRMATION_SEEDS = tuple(range(1254, 1264))
+COUNT_STREAM_BROAD_RANKING_SEEDS = tuple(range(1234, 1244))
+COUNT_STREAM_BROAD_K_SELECTION_SEEDS = tuple(range(1244, 1254))
+
 REGISTERED_SOURCE_GROUPS = (
     "prompt_records",
     "trace_context",
@@ -122,6 +131,70 @@ REGISTERED_TRACE_PATCH_CONDITIONS = (
     "progress_projected_patch",
     "norm_matched_orthogonal_patch",
 )
+
+REGISTERED_TRACE_FULL_STATE_CONDITIONS = (
+    "clean",
+    "self_patch",
+    "full_donor_patch",
+)
+
+REGISTERED_TRACE_PATCH_GEOMETRIES = (
+    "endpoint",
+    "suffix4",
+    "suffix8",
+    "full_span",
+)
+
+# Capped suffixes are opt-in geometries for the prospective query-mediation
+# panel.  They must not expand the defaults of older full-state protocols.
+SUPPORTED_TRACE_PATCH_GEOMETRIES = REGISTERED_TRACE_PATCH_GEOMETRIES + (
+    "suffix_cap4",
+    "suffix_cap8",
+)
+
+REGISTERED_TRACE_PATCH_LAYER_MODES = (
+    "one_shot",
+    "cumulative_clamp",
+)
+
+REGISTERED_HTML_ALIGNED_SPAN_CONDITIONS = (
+    "clean",
+    "uninformative",
+    "clean_target_ablation",
+    "uninformative_target_restore",
+)
+
+REGISTERED_RELAY_RESET_CONDITIONS = (
+    "natural_relay",
+    "answer_query_clean_reset",
+    "post_terminal_suffix_clean_reset",
+)
+
+REGISTERED_COMPLEMENTARY_RELAY_CONDITIONS = (
+    "natural_relay",
+    "post_terminal_suffix_clean_reset",
+)
+
+REGISTERED_COMPLEMENTARY_SOURCE_CONDITIONS = (
+    "clean",
+    "block_trace_items",
+    "block_trace_items_matched_control",
+)
+
+REGISTERED_HEAD_READOUT_CONDITIONS = (
+    "clean",
+    "selected_bank",
+    "layer_matched_random",
+)
+
+# Frozen development-only terminal-receiver panel requested after the first
+# endpoint patch experiment.  The count minima deliberately match the agreed
+# panel rather than merely using the first mathematically possible count.
+TERMINAL_LAST_COUNT_RANGES: dict[int, tuple[int, ...]] = {
+    -1: tuple(range(2, 11)),
+    -3: tuple(range(5, 11)),
+    -5: tuple(range(7, 11)),
+}
 
 REGISTERED_RESTORATION_CONDITIONS = (
     "clean",
@@ -202,10 +275,12 @@ class NativeCountMechanismSpec:
     status: str = "development_only"
     answer_site_id: str = "answer_query_v3"
     running_site_kind: str = "item_end"
-    development_seeds: tuple[int, ...] = tuple(range(1234, 1264))
-    broad_ranking_seeds: tuple[int, ...] = tuple(range(1234, 1244))
-    broad_k_selection_seeds: tuple[int, ...] = tuple(range(1244, 1264))
-    confirmation_seeds: tuple[int, ...] = ()
+    development_seeds: tuple[int, ...] = COUNT_STREAM_DISCOVERY_SEEDS
+    broad_ranking_seeds: tuple[int, ...] = COUNT_STREAM_BROAD_RANKING_SEEDS
+    broad_k_selection_seeds: tuple[int, ...] = (
+        COUNT_STREAM_BROAD_K_SELECTION_SEEDS
+    )
+    confirmation_seeds: tuple[int, ...] = COUNT_STREAM_CONFIRMATION_SEEDS
     candidate_counts: tuple[int, ...] = tuple(range(1, 11))
     broad_selection_metric: str = "trace_items_broad_score"
     development_bank_sizes: tuple[int, ...] = (1, 2, 4, 8, 16, 32)
@@ -249,6 +324,16 @@ class NativeCountMechanismSpec:
             raise ValueError("confirmation_seeds must be unique")
         if set(self.development_seeds) & set(self.confirmation_seeds):
             raise ValueError("Development and confirmation seeds must be disjoint")
+        if tuple(self.development_seeds) != COUNT_STREAM_DISCOVERY_SEEDS:
+            raise ValueError(
+                "Native count-stream discovery_seeds are frozen to 1234..1253 "
+                "(20 seeds)"
+            )
+        if tuple(self.confirmation_seeds) != COUNT_STREAM_CONFIRMATION_SEEDS:
+            raise ValueError(
+                "Native count-stream confirmation_seeds are frozen to "
+                "1254..1263 (10 seeds)"
+            )
         ranking = set(int(value) for value in self.broad_ranking_seeds)
         k_selection = set(int(value) for value in self.broad_k_selection_seeds)
         development = set(int(value) for value in self.development_seeds)
@@ -256,8 +341,17 @@ class NativeCountMechanismSpec:
             raise ValueError("Broad ranking and K-selection seeds cannot be empty")
         if ranking & k_selection:
             raise ValueError("Broad ranking and K-selection seeds must be disjoint")
-        if not (ranking | k_selection) <= development:
-            raise ValueError("Broad discovery seeds must belong to development_seeds")
+        if tuple(self.broad_ranking_seeds) != COUNT_STREAM_BROAD_RANKING_SEEDS:
+            raise ValueError("Broad-head ranking seeds are frozen to 1234..1243")
+        if (
+            tuple(self.broad_k_selection_seeds)
+            != COUNT_STREAM_BROAD_K_SELECTION_SEEDS
+        ):
+            raise ValueError("Broad-head K-selection seeds are frozen to 1244..1253")
+        if ranking | k_selection != development:
+            raise ValueError(
+                "Broad ranking and K-selection must partition all 20 discovery seeds"
+            )
         if self.status == "frozen_confirmation" and not self.confirmation_seeds:
             raise ValueError("A frozen confirmation design needs fresh seeds")
         if self.candidate_counts != tuple(range(1, 11)):
@@ -362,8 +456,8 @@ class NativeCountMechanismSpec:
         if int(self.broad_panel_counts_per_seed) != 5:
             raise ValueError("odd_even_balanced currently requires five counts/seed")
         # Alternate parity by sorted seed so count parity is not confounded
-        # with an early/late contiguous seed block.  With 20 seeds, every
-        # count is represented by exactly 10 seeds.
+        # with an early/late contiguous seed block.  With 10 K-selection or
+        # confirmation seeds, every count is represented by exactly 5 seeds.
         parity = 1 if seeds.index(value) % 2 == 0 else 0
         return tuple(count for count in self.candidate_counts if count % 2 == parity)
 
@@ -1516,6 +1610,9 @@ def load_count_stream_capture_dataset(
                         "request_id": str(manifest["request_id"]),
                         "model_label": str(manifest["model_label"]),
                         "seed": int(manifest["seed"]),
+                        "split": str(
+                            manifest.get("split", index_row.get("split", ""))
+                        ),
                         "gold_count": int(manifest["gold_count"]),
                         "occurrence": int(site["occurrence"]),
                         "layer": int(layer),
@@ -1652,10 +1749,23 @@ def run_answer_source_mask_trial(
     *,
     condition: str,
     answer_site_id: str = "answer_query_v3",
+    mask_application: str = "answer_query_and_answer_tokens",
     run_greedy: bool = True,
     max_new_tokens: int = 16,
 ) -> dict[str, Any]:
-    """Score count candidates under a persistent final-query source mask."""
+    """Mask source edges in every head at the final answer query.
+
+    ``answer_query_only`` is directly comparable to the top-K answer-query
+    head ablation: later numeric answer tokens regain their clean source edges.
+    The persistent option is retained as a stronger sensitivity analysis.
+    """
+
+    application = str(mask_application)
+    if application not in {
+        "answer_query_only",
+        "answer_query_and_answer_tokens",
+    }:
+        raise ValueError(f"Unknown answer source-mask application: {application}")
 
     encoding, registry = build_answer_source_registry(
         row, tokenizer, answer_site_id=answer_site_id
@@ -1673,14 +1783,16 @@ def run_answer_source_mask_trial(
         prefix_output=prefix,
         query_attention_mask=mask,
     )
-    masked_encoding = replace(
-        encoding,
-        attention_mask=tuple(int(value) for value in mask[0].tolist()),
-    )
+    scoring_encoding = encoding
+    if application == "answer_query_and_answer_tokens":
+        scoring_encoding = replace(
+            encoding,
+            attention_mask=tuple(int(value) for value in mask[0].tolist()),
+        )
     outcomes = _score_and_generate_prefill(
         model,
         tokenizer,
-        masked_encoding,
+        scoring_encoding,
         query_output,
         run_greedy=run_greedy,
         max_new_tokens=max_new_tokens,
@@ -1696,7 +1808,11 @@ def run_answer_source_mask_trial(
         "gold_count": encoding.count,
         "answer_site_id": answer_site_id,
         "registry_sha256": registry.to_dict()["registry_sha256"],
-        "mask_scope": "answer_query_and_all_numeric_answer_tokens",
+        "mask_scope": application,
+        "source_edge_mask_head_scope": "all_attention_heads",
+        "source_edge_mask_layer_scope": "all_decoder_layers",
+        "decoder_layer_count": int(adapter.num_layers),
+        "attention_head_instances_per_query": int(sum(adapter.num_heads)),
         **mask_audit,
         **outcomes,
     }
@@ -1714,40 +1830,77 @@ def _validate_head_bank(
         if not 0 <= head < adapter.num_heads[layer]:
             raise ValueError(f"Invalid answer-query head L{layer}H{head}")
         grouped.setdefault(layer, []).append(head)
-    return {layer: tuple(sorted(set(values))) for layer, values in grouped.items()}
+    normalized = {
+        layer: tuple(sorted(set(values))) for layer, values in grouped.items()
+    }
+    if sum(len(values) for values in normalized.values()) != len(heads):
+        raise ValueError("Answer-query head bank contains duplicate heads")
+    return normalized
 
 
-@torch.inference_mode()
-def run_answer_broad_head_trial(
-    model: Any,
-    tokenizer: Any,
-    adapter: DecoderAdapter,
-    row: Mapping[str, Any],
-    *,
-    heads: Sequence[tuple[int, int]],
-    condition: str,
-    source_group: str,
-    answer_site_id: str = "answer_query_v3",
-    run_greedy: bool = True,
-    max_new_tokens: int = 16,
+def _normalize_head_readout_arm(
+    adapter: DecoderAdapter, raw_arm: Mapping[str, Any]
 ) -> dict[str, Any]:
-    """Ablate one frozen bank only while the final query is computed."""
+    """Validate a frozen arm without changing its serialized bank identity.
 
-    if condition not in {"clean", "selected_bank", "layer_matched_random"}:
-        raise ValueError(f"Unknown answer broad-head condition: {condition}")
-    encoding, registry = build_answer_source_registry(
-        row, tokenizer, answer_site_id=answer_site_id
+    Discovery stores selected heads in ranking order, whereas execution groups
+    them canonically by ``(layer, head)``.  The frozen ``bank_sha256`` protects
+    the serialized discovery plan and must therefore be checked against the
+    original order.  A separate canonical digest is used for set-level checks
+    after validating the bank against the active model adapter.
+    """
+
+    condition = str(raw_arm["condition"])
+    if condition not in REGISTERED_HEAD_READOUT_CONDITIONS:
+        raise ValueError(f"Unknown head-readout condition: {condition}")
+    repeat = int(raw_arm.get("repeat", 0))
+    raw_heads = tuple(
+        (int(pair[0]), int(pair[1])) for pair in raw_arm.get("heads", ())
     )
+    serialized_heads = [[layer_index, head] for layer_index, head in raw_heads]
+    serialized_sha = _sha256_json(serialized_heads)
+    planned_sha = str(raw_arm.get("bank_sha256", serialized_sha))
+    if planned_sha != serialized_sha:
+        raise ValueError("Head-readout bank hash disagrees with its head list")
+
+    grouped = _validate_head_bank(adapter, raw_heads)
+    heads = tuple(
+        (layer_index, head)
+        for layer_index, values in sorted(grouped.items())
+        for head in values
+    )
+    normalized_heads = [[layer_index, head] for layer_index, head in heads]
+    if condition == "clean" and heads:
+        raise ValueError("Intact head-readout arm must have an empty bank")
+    if condition != "clean" and not heads:
+        raise ValueError("Ablated head-readout arm requires a nonempty bank")
+    return {
+        "condition": condition,
+        "repeat": repeat,
+        "heads": heads,
+        "normalized_heads": normalized_heads,
+        "bank_size": len(heads),
+        "bank_sha256": planned_sha,
+        "canonical_bank_sha256": _sha256_json(normalized_heads),
+    }
+
+
+def _query_from_prefix_with_head_ablation(
+    model: Any,
+    adapter: DecoderAdapter,
+    encoding: NativeTraceEncoding,
+    *,
+    prefix_output: Any,
+    query_attention_mask: torch.Tensor,
+    heads: Sequence[tuple[int, int]],
+) -> tuple[Any, list[list[int]], dict[int, int]]:
+    """Compute one final query while zeroing exact pre-O head slices.
+
+    The prefix cache has already been built, so these hooks can only affect the
+    final answer query.  An empty head bank is the intact readout arm.
+    """
+
     grouped = _validate_head_bank(adapter, heads)
-    if condition == "clean" and grouped:
-        raise ValueError("Clean answer-query arm must have an empty head bank")
-    if condition != "clean" and not grouped:
-        raise ValueError("Ablated answer-query arm requires at least one head")
-    input_ids, attention_mask = _encoding_tensors(model, encoding)
-    query = int(encoding.query_position)
-    prefix = _prefix_forward(
-        model, adapter, input_ids[:, :query], attention_mask[:, :query]
-    )
     applications = {layer: 0 for layer in grouped}
     handles = []
     for layer, layer_heads in grouped.items():
@@ -1783,8 +1936,8 @@ def run_answer_broad_head_trial(
             model,
             adapter,
             encoding,
-            prefix_output=prefix,
-            query_attention_mask=attention_mask,
+            prefix_output=prefix_output,
+            query_attention_mask=query_attention_mask,
         )
     finally:
         for handle in handles:
@@ -1795,6 +1948,53 @@ def run_answer_broad_head_trial(
             "Answer-query head ablation must apply exactly once per layer: "
             f"{violations}"
         )
+    normalized_heads = [
+        [layer, head] for layer, values in sorted(grouped.items()) for head in values
+    ]
+    return query_output, normalized_heads, applications
+
+
+@torch.inference_mode()
+def run_answer_broad_head_trial(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    row: Mapping[str, Any],
+    *,
+    heads: Sequence[tuple[int, int]],
+    condition: str,
+    source_group: str,
+    answer_site_id: str = "answer_query_v3",
+    run_greedy: bool = True,
+    max_new_tokens: int = 16,
+) -> dict[str, Any]:
+    """Ablate one frozen bank only while the final query is computed."""
+
+    if condition not in {"clean", "selected_bank", "layer_matched_random"}:
+        raise ValueError(f"Unknown answer broad-head condition: {condition}")
+    encoding, registry = build_answer_source_registry(
+        row, tokenizer, answer_site_id=answer_site_id
+    )
+    grouped = _validate_head_bank(adapter, heads)
+    if condition == "clean" and grouped:
+        raise ValueError("Clean answer-query arm must have an empty head bank")
+    if condition != "clean" and not grouped:
+        raise ValueError("Ablated answer-query arm requires at least one head")
+    input_ids, attention_mask = _encoding_tensors(model, encoding)
+    query = int(encoding.query_position)
+    prefix = _prefix_forward(
+        model, adapter, input_ids[:, :query], attention_mask[:, :query]
+    )
+    query_output, normalized_heads, applications = (
+        _query_from_prefix_with_head_ablation(
+            model,
+            adapter,
+            encoding,
+            prefix_output=prefix,
+            query_attention_mask=attention_mask,
+            heads=heads,
+        )
+    )
     outcomes = _score_and_generate_prefill(
         model,
         tokenizer,
@@ -1803,9 +2003,6 @@ def run_answer_broad_head_trial(
         run_greedy=run_greedy,
         max_new_tokens=max_new_tokens,
     )
-    normalized_heads = [
-        [layer, head] for layer, values in sorted(grouped.items()) for head in values
-    ]
     return {
         "schema_version": COUNT_STREAM_SCHEMA_VERSION,
         "experiment_id": "answer_broad_head_ablation",
@@ -2129,6 +2326,252 @@ def build_sparse_trace_patch_sample_plan(
     return plan.sort_values(
         ["panel_kind", "gold_count", "donor_offset", "selection_rank"],
         kind="stable",
+    ).reset_index(drop=True)
+
+
+def build_terminal_last_trace_patch_sample_plan(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    model_label: str,
+    seeds_per_cell: int = 10,
+    sampling_seed: int = 20260820,
+) -> pd.DataFrame:
+    """Freeze the natural past-to-final receiver panel without outcomes.
+
+    Every receiver is the last observed count occurrence, immediately before
+    the answer query in the frozen teacher-forced trace.  Donors are earlier by
+    1, 3, or 5 occurrences.  The asymmetric count ranges are intentional:
+    ``-1`` uses counts 2..10, ``-3`` uses 5..10, and ``-5`` uses 7..10.
+    Selection depends only on registry identity and the sampling seed.
+    """
+
+    label = str(model_label)
+    per_cell = int(seeds_per_cell)
+    if not label:
+        raise ValueError("model_label cannot be empty")
+    if per_cell < 1:
+        raise ValueError("seeds_per_cell must be positive")
+
+    allowed_counts = {
+        count for values in TERMINAL_LAST_COUNT_RANGES.values() for count in values
+    }
+    registry: dict[tuple[int, int], dict[str, Any]] = {}
+    for raw in rows:
+        seed = int(raw["seed"])
+        count = int(
+            raw.get(
+                "gold_count",
+                len(raw.get("gold_records", raw.get("gold_pairs", ()))),
+            )
+        )
+        if count not in allowed_counts:
+            continue
+        row_model = raw.get("model_label")
+        if row_model not in {None, label}:
+            continue
+        key = (seed, count)
+        if key in registry:
+            raise ValueError(f"Terminal-last registry has duplicate seed/count {key}")
+        registry[key] = {
+            "request_id": str(raw["request_id"]),
+            "seed": seed,
+            "gold_count": count,
+        }
+    if not registry:
+        raise ValueError("No rows remain for the terminal-last trace-patch plan")
+
+    plan_rows: list[dict[str, Any]] = []
+    for offset in sorted(TERMINAL_LAST_COUNT_RANGES):
+        for count in TERMINAL_LAST_COUNT_RANGES[offset]:
+            candidates = [
+                dict(value)
+                for (_seed, observed_count), value in registry.items()
+                if observed_count == int(count)
+            ]
+            ranked: list[tuple[str, int, str, dict[str, Any]]] = []
+            for value in candidates:
+                priority_payload = {
+                    "sampling_seed": int(sampling_seed),
+                    "model_label": label,
+                    "panel_kind": "terminal_last",
+                    "gold_count": int(count),
+                    "donor_offset": int(offset),
+                    "seed": int(value["seed"]),
+                    "request_id": str(value["request_id"]),
+                }
+                ranked.append(
+                    (
+                        _sha256_json(priority_payload),
+                        int(value["seed"]),
+                        str(value["request_id"]),
+                        value,
+                    )
+                )
+            ranked.sort()
+            if len(ranked) < per_cell:
+                raise ValueError(
+                    f"Terminal-last cell count={count}, offset={offset} needs "
+                    f"{per_cell} eligible seeds but has {len(ranked)}"
+                )
+            cell_id = f"terminal_last:count={count}:offset={offset:+d}"
+            for selection_index, (digest, _seed, _request, value) in enumerate(
+                ranked[:per_cell]
+            ):
+                receiver = int(count)
+                donor = receiver + int(offset)
+                if not 1 <= donor < receiver:
+                    raise RuntimeError("Terminal-last donor is not a natural past state")
+                pair_identity = {
+                    "model_label": label,
+                    "panel_kind": "terminal_last",
+                    "request_id": str(value["request_id"]),
+                    "seed": int(value["seed"]),
+                    "gold_count": int(count),
+                    "receiver_occurrence": receiver,
+                    "donor_occurrence": donor,
+                    "donor_offset": int(offset),
+                }
+                plan_rows.append(
+                    {
+                        "schema_version": COUNT_STREAM_SCHEMA_VERSION,
+                        "experiment_id": "trace_terminal_last_pair_plan",
+                        "model_label": label,
+                        "panel_kind": "terminal_last",
+                        "selection_cell_id": cell_id,
+                        "selection_rank": selection_index + 1,
+                        "outcome_blind_priority_sha256": digest,
+                        "selection_input_fields": (
+                            "sampling_seed,model_label,panel_kind,gold_count,"
+                            "donor_offset,seed,request_id"
+                        ),
+                        "sampling_seed": int(sampling_seed),
+                        "seeds_per_cell": per_cell,
+                        **pair_identity,
+                        "donor_direction": "past_to_later_receiver",
+                        "receiver_is_terminal": True,
+                        "donor_is_terminal": False,
+                        "local_next_city_outcome_registered": False,
+                        "final_answer_outcome_registered": True,
+                        "pair_sha256": _sha256_json(pair_identity),
+                    }
+                )
+    plan = pd.DataFrame(plan_rows)
+    expected_cells = sum(len(values) for values in TERMINAL_LAST_COUNT_RANGES.values())
+    if len(plan) != expected_cells * per_cell:
+        raise RuntimeError("Terminal-last plan did not realize every frozen cell")
+    return plan.sort_values(
+        ["gold_count", "donor_offset", "selection_rank"], kind="stable"
+    ).reset_index(drop=True)
+
+
+def build_terminal_serial_pair_plan(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    model_label: str,
+) -> pd.DataFrame:
+    """Use every eligible registered seed in the terminal serial-readout panel.
+
+    Unlike the older fixed-budget patch sampler, this plan has no hash rank and
+    no pair-level discovery/confirmation split.  Discovery versus confirmation
+    is determined only by the row registry's canonical seed role.  Within each
+    count/offset cell, every eligible row appears exactly once in seed order.
+    """
+
+    label = str(model_label)
+    if not label:
+        raise ValueError("model_label cannot be empty")
+    allowed_counts = {
+        count for values in TERMINAL_LAST_COUNT_RANGES.values() for count in values
+    }
+    registry: dict[tuple[int, int], dict[str, Any]] = {}
+    observed_roles: set[str] = set()
+    for raw in rows:
+        seed = int(raw["seed"])
+        count = int(
+            raw.get(
+                "gold_count",
+                len(raw.get("gold_records", raw.get("gold_pairs", ()))),
+            )
+        )
+        if count not in allowed_counts:
+            continue
+        row_model = raw.get("model_label")
+        if row_model not in {None, label}:
+            continue
+        role = str(raw.get("mechanism_split", raw.get("split", "")))
+        if role:
+            observed_roles.add(role)
+        key = (seed, count)
+        if key in registry:
+            raise ValueError(f"Terminal serial registry has duplicate seed/count {key}")
+        registry[key] = {
+            "request_id": str(raw["request_id"]),
+            "seed": seed,
+            "gold_count": count,
+            "seed_role": role,
+        }
+    if not registry:
+        raise ValueError("No rows remain for the terminal serial-readout plan")
+    if len(observed_roles) > 1:
+        raise ValueError("Terminal serial plan cannot mix discovery and confirmation")
+
+    plan_rows: list[dict[str, Any]] = []
+    for offset in sorted(TERMINAL_LAST_COUNT_RANGES):
+        for count in TERMINAL_LAST_COUNT_RANGES[offset]:
+            candidates = sorted(
+                (
+                    dict(value)
+                    for (_seed, observed_count), value in registry.items()
+                    if observed_count == int(count)
+                ),
+                key=lambda value: (int(value["seed"]), str(value["request_id"])),
+            )
+            if not candidates:
+                raise ValueError(
+                    f"Terminal serial cell count={count}, offset={offset} has no "
+                    "eligible registered rows"
+                )
+            cell_id = f"terminal_serial:count={count}:offset={offset:+d}"
+            eligible_count = len(candidates)
+            for within_cell_index, value in enumerate(candidates, start=1):
+                receiver = int(count)
+                donor = receiver + int(offset)
+                if not 1 <= donor < receiver:
+                    raise RuntimeError("Terminal serial donor is not a natural past state")
+                pair_identity = {
+                    "model_label": label,
+                    "panel_kind": "terminal_serial",
+                    "request_id": str(value["request_id"]),
+                    "seed": int(value["seed"]),
+                    "gold_count": int(count),
+                    "receiver_occurrence": receiver,
+                    "donor_occurrence": donor,
+                    "donor_offset": int(offset),
+                }
+                plan_rows.append(
+                    {
+                        "schema_version": COUNT_STREAM_SCHEMA_VERSION,
+                        "experiment_id": "trace_terminal_serial_pair_plan",
+                        "model_label": label,
+                        "panel_kind": "terminal_serial",
+                        "selection_policy": "all_eligible_registered_seeds",
+                        "selection_cell_id": cell_id,
+                        "within_cell_index": within_cell_index,
+                        "eligible_seed_count": eligible_count,
+                        "seed_role": str(value["seed_role"]),
+                        **pair_identity,
+                        "donor_direction": "past_to_later_receiver",
+                        "receiver_is_terminal": True,
+                        "donor_is_terminal": False,
+                        "final_answer_outcome_registered": True,
+                        "pair_sha256": _sha256_json(pair_identity),
+                    }
+                )
+    plan = pd.DataFrame(plan_rows)
+    if plan["pair_sha256"].duplicated().any():
+        raise RuntimeError("Terminal serial plan emitted duplicate pairs")
+    return plan.sort_values(
+        ["gold_count", "donor_offset", "seed"], kind="stable"
     ).reset_index(drop=True)
 
 
@@ -2835,6 +3278,1759 @@ def run_trace_terminal_patch_trials(
     return result_rows
 
 
+def trace_patch_geometry_positions(
+    registry: AnswerSourceRegistry,
+    *,
+    receiver_occurrence: int,
+    donor_occurrence: int,
+    geometry: str,
+) -> tuple[tuple[int, ...], tuple[int, ...], dict[str, Any]]:
+    """Right-align one registered multi-token donor/receiver geometry."""
+
+    name = str(geometry)
+    if name not in SUPPORTED_TRACE_PATCH_GEOMETRIES:
+        raise ValueError(f"Unknown trace patch geometry: {name}")
+    count = len(registry.trace_items)
+    receiver = int(receiver_occurrence)
+    donor = int(donor_occurrence)
+    if not 1 <= receiver <= count or not 1 <= donor <= count or donor == receiver:
+        raise ValueError("Trace geometry needs two distinct valid occurrences")
+    receiver_span = registry.trace_items[receiver - 1]
+    donor_span = registry.trace_items[donor - 1]
+    receiver_length = int(receiver_span[1]) - int(receiver_span[0])
+    donor_length = int(donor_span[1]) - int(donor_span[0])
+    requested_width: int | None = None
+    capped_by_shorter_span = False
+    if name == "endpoint":
+        width = 1
+    elif name.startswith("suffix_cap"):
+        requested_width = int(name.removeprefix("suffix_cap"))
+        width = min(requested_width, receiver_length, donor_length)
+        capped_by_shorter_span = width < requested_width
+    elif name.startswith("suffix"):
+        width = int(name.removeprefix("suffix"))
+        requested_width = width
+        if min(receiver_length, donor_length) < width:
+            raise ValueError(
+                "not applicable: a trace item is shorter than the requested "
+                f"{name} geometry"
+            )
+    else:
+        if receiver_length != donor_length:
+            raise ValueError(
+                "not applicable: full_span requires exactly equal donor and "
+                "receiver token lengths"
+            )
+        width = receiver_length
+    receiver_positions = tuple(
+        range(int(receiver_span[1]) - width, int(receiver_span[1]))
+    )
+    donor_positions = tuple(range(int(donor_span[1]) - width, int(donor_span[1])))
+    if len(receiver_positions) != len(donor_positions) or not receiver_positions:
+        raise RuntimeError("Trace geometry changed donor/receiver token alignment")
+    audit = {
+        "patch_geometry": name,
+        "patch_position_alignment": "right_aligned_relative_token_index",
+        "patch_token_count": len(receiver_positions),
+        "requested_patch_token_count": requested_width,
+        "patch_token_count_capped_by_shorter_span": capped_by_shorter_span,
+        "receiver_span": list(receiver_span),
+        "donor_span": list(donor_span),
+        "receiver_span_token_count": receiver_length,
+        "donor_span_token_count": donor_length,
+        "donor_receiver_span_lengths_equal": bool(receiver_length == donor_length),
+        "receiver_patch_positions": list(receiver_positions),
+        "donor_patch_positions": list(donor_positions),
+        "receiver_patch_positions_sha256": _sha256_json(receiver_positions),
+        "donor_patch_positions_sha256": _sha256_json(donor_positions),
+    }
+    return receiver_positions, donor_positions, audit
+
+
+def _full_state_patch_layers(
+    *, source_layer: int, num_layers: int, layer_mode: str
+) -> tuple[int, ...]:
+    mode = str(layer_mode)
+    if mode not in REGISTERED_TRACE_PATCH_LAYER_MODES:
+        raise ValueError(f"Unknown trace patch layer mode: {mode}")
+    source = int(source_layer)
+    total = int(num_layers)
+    if not 0 <= source < total - 1:
+        raise ValueError("Full-state patching must leave a downstream decoder layer")
+    if mode == "one_shot":
+        return (source,)
+    return tuple(range(source, total))
+
+
+def build_html_aligned_uninformative_trace_encoding(
+    encoding: NativeTraceEncoding,
+    registry: AnswerSourceRegistry,
+    tokenizer: Any,
+    *,
+    random_seed: int,
+) -> tuple[NativeTraceEncoding, dict[str, Any]]:
+    """Replace every parsed trace item with same-length prompt-background tokens.
+
+    The replacement is deliberately token-level: no retokenization, padding, or
+    interpolation is allowed.  Each control carrier is a contiguous window from
+    the prompt outside registered prompt records and special tokens.  This
+    mirrors the original HTML's all-needle-uninformative counterfactual while
+    preserving every absolute position in the native trace.
+    """
+
+    original_ids = tuple(int(value) for value in encoding.input_ids)
+    if len(original_ids) != int(registry.sequence_length):
+        raise ValueError("Registry length disagrees with the trace encoding")
+    special_ids = {int(value) for value in getattr(tokenizer, "all_special_ids", ())}
+    forbidden = set(registry.positions("prompt_records"))
+    max_width = max(end - start for start, end in registry.trace_items)
+    candidate_windows: list[tuple[int, ...]] = []
+    candidate_starts: list[int] = []
+    for start in range(1, int(registry.prompt_token_count) - max_width + 1):
+        positions = tuple(range(start, start + max_width))
+        if set(positions) & forbidden:
+            continue
+        window = tuple(original_ids[position] for position in positions)
+        if any(token_id in special_ids for token_id in window):
+            continue
+        candidate_windows.append(window)
+        candidate_starts.append(start)
+    if not candidate_windows:
+        raise ValueError(
+            "No same-length ordinary prompt window can construct the "
+            "uninformative trace"
+        )
+
+    control_ids = list(original_ids)
+    selected_starts: list[int] = []
+    changed_counts: list[int] = []
+    for occurrence, (span_start, span_end) in enumerate(
+        registry.trace_items, start=1
+    ):
+        width = int(span_end) - int(span_start)
+        digest = hashlib.sha256(
+            (
+                f"{encoding.request_id}|{int(random_seed)}|{occurrence}|"
+                f"{span_start}|{span_end}"
+            ).encode("utf-8")
+        ).digest()
+        initial = int.from_bytes(digest[:8], "big") % len(candidate_windows)
+        original_span = original_ids[int(span_start) : int(span_end)]
+        selected_index = initial
+        replacement = candidate_windows[selected_index][:width]
+        for offset in range(len(candidate_windows)):
+            candidate_index = (initial + offset) % len(candidate_windows)
+            candidate = candidate_windows[candidate_index][:width]
+            if candidate != original_span:
+                selected_index = candidate_index
+                replacement = candidate
+                break
+        if replacement == original_span:
+            raise ValueError("Every ordinary control window equals one trace item")
+        control_ids[int(span_start) : int(span_end)] = replacement
+        selected_starts.append(candidate_starts[selected_index])
+        changed_counts.append(
+            sum(left != right for left, right in zip(original_span, replacement))
+        )
+
+    trace_positions = registry.positions("trace_items")
+    changed_total = sum(
+        original_ids[position] != control_ids[position]
+        for position in trace_positions
+    )
+    if changed_total != sum(changed_counts) or changed_total <= 0:
+        raise RuntimeError("Uninformative trace replacement audit failed")
+    control = replace(encoding, input_ids=tuple(control_ids))
+    audit = {
+        "control_construction": "same_length_prompt_background_windows",
+        "control_retokenized": False,
+        "control_sequence_length_equal": True,
+        "control_attention_mask_equal": bool(
+            tuple(control.attention_mask) == tuple(encoding.attention_mask)
+        ),
+        "all_trace_items_replaced": True,
+        "trace_item_count": len(registry.trace_items),
+        "trace_item_token_count": len(trace_positions),
+        "changed_trace_item_token_count": int(changed_total),
+        "changed_trace_item_token_fraction": float(
+            changed_total / len(trace_positions)
+        ),
+        "control_prompt_window_starts": selected_starts,
+        "control_prompt_window_starts_sha256": _sha256_json(selected_starts),
+        "control_input_ids_sha256": _sha256_json(control.input_ids),
+        "outcome_fields_accessed": False,
+    }
+    return control, audit
+
+
+@torch.inference_mode()
+def run_html_aligned_terminal_span_trials(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    row: Mapping[str, Any],
+    *,
+    layer: int,
+    random_seed: int,
+    answer_site_id: str = "answer_query_v3",
+    run_greedy: bool = True,
+    max_new_tokens: int = 16,
+) -> list[dict[str, Any]]:
+    """Run the original-HTML full-span ablation/restoration at the terminal item."""
+
+    clean_encoding, registry = build_answer_source_registry(
+        row, tokenizer, answer_site_id=answer_site_id
+    )
+    control_encoding, control_audit = (
+        build_html_aligned_uninformative_trace_encoding(
+            clean_encoding,
+            registry,
+            tokenizer,
+            random_seed=int(random_seed),
+        )
+    )
+    source_layer = int(layer)
+    patch_layers = _full_state_patch_layers(
+        source_layer=source_layer,
+        num_layers=int(adapter.num_layers),
+        layer_mode="cumulative_clamp",
+    )
+    target_occurrence = len(registry.trace_items)
+    span_start, span_end = registry.trace_items[target_occurrence - 1]
+    target_positions = tuple(range(int(span_start), int(span_end)))
+    if not target_positions or max(target_positions) >= registry.query_position:
+        raise RuntimeError("Terminal item span is not strictly before the answer query")
+
+    _clean_logits, clean_capture = capture_post_block_states(
+        model,
+        adapter,
+        clean_encoding,
+        target_positions,
+        layers=patch_layers,
+    )
+    _control_logits, control_capture = capture_post_block_states(
+        model,
+        adapter,
+        control_encoding,
+        target_positions,
+        layers=patch_layers,
+    )
+    clean_states = {
+        patch_layer: clean_capture[patch_layer].clone()
+        for patch_layer in patch_layers
+    }
+    control_states = {
+        patch_layer: control_capture[patch_layer].clone()
+        for patch_layer in patch_layers
+    }
+    delta_norms = {
+        str(patch_layer): float(
+            torch.linalg.vector_norm(
+                clean_states[patch_layer] - control_states[patch_layer]
+            )
+        )
+        for patch_layer in patch_layers
+    }
+    conditions: dict[
+        str, tuple[NativeTraceEncoding, Mapping[int, torch.Tensor] | None]
+    ] = {
+        "clean": (clean_encoding, None),
+        "uninformative": (control_encoding, None),
+        "clean_target_ablation": (clean_encoding, control_states),
+        "uninformative_target_restore": (control_encoding, clean_states),
+    }
+    result_rows: list[dict[str, Any]] = []
+    for condition in REGISTERED_HTML_ALIGNED_SPAN_CONDITIONS:
+        active_encoding, replacements = conditions[condition]
+        prefill, _captures, applications, realized_norms = (
+            _prefill_with_layerwise_state_replacements(
+                model,
+                adapter,
+                active_encoding,
+                positions=target_positions,
+                replacements=replacements,
+                readout_layers=(int(adapter.num_layers) - 1,),
+                readout_positions=(registry.query_position,),
+            )
+        )
+        outcomes = _score_and_generate_prefill(
+            model,
+            tokenizer,
+            active_encoding,
+            prefill,
+            run_greedy=run_greedy,
+            max_new_tokens=int(max_new_tokens),
+        )
+        result_rows.append(
+            {
+                "schema_version": COUNT_STREAM_SCHEMA_VERSION,
+                "experiment_id": "html_aligned_terminal_full_span",
+                "condition": condition,
+                "status": "ok",
+                "request_id": clean_encoding.request_id,
+                "model_label": clean_encoding.model_label,
+                "seed": clean_encoding.seed,
+                "dataset_split": clean_encoding.split,
+                "gold_count": clean_encoding.count,
+                "answer_site_id": answer_site_id,
+                "target_occurrence": target_occurrence,
+                "target_is_terminal": True,
+                "patch_geometry": "full_item_span_same_position",
+                "patch_layer_mode": "cumulative_clamp",
+                "layer": source_layer,
+                "patch_layers": list(patch_layers),
+                "patch_layer_count": len(patch_layers),
+                "patch_token_count": len(target_positions),
+                "target_span": [int(span_start), int(span_end)],
+                "target_positions_sha256": _sha256_json(target_positions),
+                "clean_control_state_delta_norm_by_layer": delta_norms,
+                "patch_hook_applications": {
+                    str(key): value for key, value in sorted(applications.items())
+                },
+                "patch_realized_fro_norm_by_layer": {
+                    str(key): value for key, value in sorted(realized_norms.items())
+                },
+                "final_answer_outcome_registered": True,
+                "causal_claim_scope": (
+                    "same_position_full_span_terminal_state_necessity_and_sufficiency"
+                ),
+                "registry_sha256": registry.to_dict()["registry_sha256"],
+                **control_audit,
+                **outcomes,
+            }
+        )
+    return result_rows
+
+
+def _prefill_with_layerwise_state_replacements(
+    model: Any,
+    adapter: DecoderAdapter,
+    encoding: NativeTraceEncoding,
+    *,
+    positions: Sequence[int],
+    replacements: Mapping[int, torch.Tensor] | None,
+    readout_layers: Sequence[int],
+    readout_positions: Sequence[int],
+) -> tuple[Any, dict[int, torch.Tensor], dict[int, int], dict[int, float]]:
+    """Patch the same positions at one or many post-block layers."""
+
+    selected_positions = tuple(int(value) for value in positions)
+    if not selected_positions:
+        raise ValueError("A full-state patch needs at least one receiver position")
+    if len(set(selected_positions)) != len(selected_positions):
+        raise ValueError("Full-state patch positions must be unique")
+    replacement_map = {
+        int(layer): torch.as_tensor(states).detach().float().cpu()
+        for layer, states in (replacements or {}).items()
+    }
+    for layer, states in replacement_map.items():
+        if not 0 <= layer < int(adapter.num_layers):
+            raise ValueError(f"Full-state patch layer L{layer} is outside the decoder")
+        if states.ndim != 2 or states.shape[0] != len(selected_positions):
+            raise ValueError("Full-state replacement must have [positions, hidden]")
+    active_readouts = tuple(sorted({int(value) for value in readout_layers}))
+    if not active_readouts or any(
+        not 0 <= layer < int(adapter.num_layers) for layer in active_readouts
+    ):
+        raise ValueError("Full-state patch readout layers are invalid")
+    selected_readouts = tuple(int(value) for value in readout_positions)
+    if not selected_readouts:
+        raise ValueError("Full-state patch needs at least one downstream readout")
+
+    applications = {layer: 0 for layer in replacement_map}
+    realized_norms = {layer: 0.0 for layer in replacement_map}
+    captures: dict[int, torch.Tensor] = {}
+    handles = []
+    for layer, states in sorted(replacement_map.items()):
+
+        def patch_hook(
+            _module: Any,
+            _args: tuple[Any, ...],
+            output: Any,
+            *,
+            layer: int = layer,
+            states: torch.Tensor = states,
+        ) -> Any:
+            hidden = _tensor_from_output(output)
+            if hidden.ndim != 3 or hidden.shape[1] != encoding.sequence_length:
+                return output
+            before = hidden[:, list(selected_positions), :]
+            replacement = states.to(device=hidden.device, dtype=hidden.dtype).unsqueeze(0)
+            if replacement.shape != before.shape:
+                raise RuntimeError("Full-state replacement width disagrees with model")
+            patched = hidden.clone()
+            patched[:, list(selected_positions), :] = replacement
+            realized_norms[layer] = float(
+                torch.linalg.vector_norm(before.float() - replacement.float())
+                .detach()
+                .cpu()
+            )
+            applications[layer] += 1
+            return _replace_output_tensor(output, patched)
+
+        handles.append(adapter.layers[layer].register_forward_hook(patch_hook))
+    # Register captures after patches so a readout on a clamped layer observes
+    # the realized post-patch tensor rather than the pre-hook output.
+    for layer in active_readouts:
+
+        def readout_hook(
+            _module: Any,
+            _args: tuple[Any, ...],
+            output: Any,
+            *,
+            layer: int = layer,
+        ) -> None:
+            hidden = _tensor_from_output(output)
+            if hidden.ndim != 3 or hidden.shape[1] != encoding.sequence_length:
+                return
+            captures[layer] = (
+                hidden[0, list(selected_readouts)].detach().float().cpu()
+            )
+
+        handles.append(adapter.layers[layer].register_forward_hook(readout_hook))
+    try:
+        input_ids, attention_mask = _encoding_tensors(model, encoding)
+        prefill = _prefix_forward(model, adapter, input_ids, attention_mask)
+    finally:
+        for handle in handles:
+            handle.remove()
+    violations = sorted(layer for layer, count in applications.items() if count != 1)
+    if violations:
+        raise RuntimeError(
+            "Every full-state patch hook must apply exactly once; bad layers "
+            f"{violations}"
+        )
+    missing_readouts = sorted(set(active_readouts) - set(captures))
+    if missing_readouts:
+        raise RuntimeError(f"Full-state patch missed readout layers {missing_readouts}")
+    return prefill, captures, applications, realized_norms
+
+
+def _prefix_with_layerwise_state_replacements(
+    model: Any,
+    adapter: DecoderAdapter,
+    encoding: NativeTraceEncoding,
+    *,
+    positions: Sequence[int],
+    replacements: Mapping[int, torch.Tensor] | None,
+) -> tuple[Any, dict[int, int], dict[int, float]]:
+    """Patch a teacher-forced trace, stopping before the final answer query."""
+
+    selected_positions = tuple(int(value) for value in positions)
+    query = int(encoding.query_position)
+    if not selected_positions or len(set(selected_positions)) != len(
+        selected_positions
+    ):
+        raise ValueError("Full-state prefix positions must be unique and nonempty")
+    if min(selected_positions) < 0 or max(selected_positions) >= query:
+        raise ValueError("Full-state prefix positions must precede the answer query")
+    replacement_map = {
+        int(layer): torch.as_tensor(states).detach().float().cpu()
+        for layer, states in (replacements or {}).items()
+    }
+    applications = {layer: 0 for layer in replacement_map}
+    realized_norms = {layer: 0.0 for layer in replacement_map}
+    handles = []
+    for layer, states in sorted(replacement_map.items()):
+        if not 0 <= layer < int(adapter.num_layers):
+            raise ValueError(f"Full-state patch layer L{layer} is outside the decoder")
+        if states.ndim != 2 or states.shape[0] != len(selected_positions):
+            raise ValueError("Full-state replacement must have [positions, hidden]")
+
+        def patch_hook(
+            _module: Any,
+            _args: tuple[Any, ...],
+            output: Any,
+            *,
+            layer: int = layer,
+            states: torch.Tensor = states,
+        ) -> Any:
+            hidden = _tensor_from_output(output)
+            if hidden.ndim != 3 or hidden.shape[1] != query:
+                return output
+            before = hidden[:, list(selected_positions), :]
+            replacement = states.to(
+                device=hidden.device, dtype=hidden.dtype
+            ).unsqueeze(0)
+            if replacement.shape != before.shape:
+                raise RuntimeError("Full-state replacement width disagrees with model")
+            patched = hidden.clone()
+            patched[:, list(selected_positions), :] = replacement
+            realized_norms[layer] = float(
+                torch.linalg.vector_norm(before.float() - replacement.float())
+                .detach()
+                .cpu()
+            )
+            applications[layer] += 1
+            return _replace_output_tensor(output, patched)
+
+        handles.append(adapter.layers[layer].register_forward_hook(patch_hook))
+    try:
+        input_ids, attention_mask = _encoding_tensors(model, encoding)
+        prefix = _prefix_forward(
+            model,
+            adapter,
+            input_ids[:, :query],
+            attention_mask[:, :query],
+        )
+    finally:
+        for handle in handles:
+            handle.remove()
+    violations = sorted(layer for layer, count in applications.items() if count != 1)
+    if violations:
+        raise RuntimeError(
+            "Every full-state prefix patch hook must apply exactly once; bad "
+            f"layers {violations}"
+        )
+    return prefix, applications, realized_norms
+
+
+@torch.inference_mode()
+def run_full_state_patch_answer_source_factorial_trials(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    row: Mapping[str, Any],
+    *,
+    receiver_occurrence: int,
+    donor_occurrence: int,
+    layer: int,
+    geometry: str,
+    layer_mode: str,
+    patch_conditions: Sequence[str] = ("self_patch", "full_donor_patch"),
+    mask_conditions: Sequence[str] = (
+        "clean",
+        "block_trace_items",
+        "block_trace_items_matched_control",
+        "block_prompt_records",
+        "block_prompt_records_matched_control",
+    ),
+    answer_site_id: str = "answer_query_v3",
+    mask_application: str = "answer_query_only",
+    run_greedy: bool = True,
+    max_new_tokens: int = 16,
+) -> list[dict[str, Any]]:
+    """Test whether answer-time source retrieval corrects a patched trace state.
+
+    Positive prompt-mask interaction means blocking prompt evidence amplifies
+    donor-state adoption (parallel/redundant recount).  Negative trace-mask
+    interaction means blocking trace sources occludes donor-state adoption
+    (serial readout/mediation through attention to the written trace state).
+    """
+
+    requested_patches = tuple(str(value) for value in patch_conditions)
+    requested_masks = tuple(str(value) for value in mask_conditions)
+    if len(set(requested_patches)) != len(requested_patches):
+        raise ValueError("Full-state factorial patch conditions must be unique")
+    if len(set(requested_masks)) != len(requested_masks):
+        raise ValueError("Full-state factorial mask conditions must be unique")
+    if not {"self_patch", "full_donor_patch"} <= set(requested_patches):
+        raise ValueError("The factorial requires self_patch and full_donor_patch")
+    unknown_patches = sorted(
+        set(requested_patches) - set(REGISTERED_TRACE_FULL_STATE_CONDITIONS)
+    )
+    unknown_masks = sorted(set(requested_masks) - set(REGISTERED_MASK_CONDITIONS))
+    if unknown_patches:
+        raise ValueError(f"Unknown full-state patch conditions: {unknown_patches}")
+    if unknown_masks:
+        raise ValueError(f"Unknown answer source masks: {unknown_masks}")
+    if mask_application not in {
+        "answer_query_only",
+        "answer_query_and_answer_tokens",
+    }:
+        raise ValueError(f"Unknown answer source-mask application: {mask_application}")
+
+    source_layer = int(layer)
+    patch_layers = _full_state_patch_layers(
+        source_layer=source_layer,
+        num_layers=int(adapter.num_layers),
+        layer_mode=layer_mode,
+    )
+    encoding, registry = build_answer_source_registry(
+        row, tokenizer, answer_site_id=answer_site_id
+    )
+    receiver = int(receiver_occurrence)
+    donor = int(donor_occurrence)
+    receiver_positions, donor_positions, geometry_audit = (
+        trace_patch_geometry_positions(
+            registry,
+            receiver_occurrence=receiver,
+            donor_occurrence=donor,
+            geometry=geometry,
+        )
+    )
+    capture_positions = receiver_positions + donor_positions
+    _last_logits, captured = capture_post_block_states(
+        model,
+        adapter,
+        encoding,
+        capture_positions,
+        layers=patch_layers,
+    )
+    width = len(receiver_positions)
+    receiver_states = {
+        patch_layer: captured[patch_layer][:width].clone()
+        for patch_layer in patch_layers
+    }
+    donor_states = {
+        patch_layer: captured[patch_layer][width:].clone()
+        for patch_layer in patch_layers
+    }
+    condition_replacements: dict[str, Mapping[int, torch.Tensor] | None] = {
+        "clean": None,
+        "self_patch": receiver_states,
+        "full_donor_patch": donor_states,
+    }
+    receiver_token_ids = tuple(
+        int(encoding.input_ids[position]) for position in receiver_positions
+    )
+    donor_token_ids = tuple(
+        int(encoding.input_ids[position]) for position in donor_positions
+    )
+    token_matches = sum(
+        left == right for left, right in zip(receiver_token_ids, donor_token_ids)
+    )
+    common = {
+        "schema_version": COUNT_STREAM_SCHEMA_VERSION,
+        "experiment_id": "full_state_patch_answer_source_factorial",
+        "request_id": encoding.request_id,
+        "model_label": encoding.model_label,
+        "seed": encoding.seed,
+        "dataset_split": encoding.split,
+        "gold_count": encoding.count,
+        "answer_site_id": answer_site_id,
+        "layer": source_layer,
+        "patch_layer_mode": str(layer_mode),
+        "patch_layers": list(patch_layers),
+        "patch_layer_count": len(patch_layers),
+        "receiver_occurrence": receiver,
+        "donor_occurrence": donor,
+        "donor_offset": donor - receiver,
+        "receiver_is_terminal": bool(receiver == len(registry.trace_items)),
+        "donor_is_terminal": bool(donor == len(registry.trace_items)),
+        "later_trace_self_correction_possible": bool(
+            max(receiver_positions) < max(end - 1 for _start, end in registry.trace_items)
+        ),
+        "receiver_patch_token_ids": list(receiver_token_ids),
+        "donor_patch_token_ids": list(donor_token_ids),
+        "donor_receiver_token_id_match_count": token_matches,
+        "donor_receiver_token_id_match_fraction": token_matches / width,
+        "donor_receiver_surface_tokens_identical": bool(token_matches == width),
+        "causal_claim_scope": (
+            "full_state_sufficiency_and_source_mediation_not_count_subspace_specificity"
+        ),
+        "registry_sha256": registry.to_dict()["registry_sha256"],
+        **geometry_audit,
+    }
+    rows: list[dict[str, Any]] = []
+    for patch_condition in requested_patches:
+        prefix, applications, realized_norms = (
+            _prefix_with_layerwise_state_replacements(
+                model,
+                adapter,
+                encoding,
+                positions=receiver_positions,
+                replacements=condition_replacements[patch_condition],
+            )
+        )
+        aggregate_realized_norm = float(
+            math.sqrt(sum(value * value for value in realized_norms.values()))
+        )
+        for mask_condition in requested_masks:
+            mask, mask_audit = answer_source_mask(
+                registry, condition=mask_condition
+            )
+            prefix_branch = clone_prefill_output_for_scoring(prefix)
+            query_output = _query_forward_from_prefix(
+                model,
+                adapter,
+                encoding,
+                prefix_output=prefix_branch,
+                query_attention_mask=mask,
+            )
+            scoring_encoding = encoding
+            if mask_application == "answer_query_and_answer_tokens":
+                scoring_encoding = replace(
+                    encoding,
+                    attention_mask=tuple(int(value) for value in mask[0].tolist()),
+                )
+            outcomes = _score_and_generate_prefill(
+                model,
+                tokenizer,
+                scoring_encoding,
+                query_output,
+                run_greedy=run_greedy,
+                max_new_tokens=max_new_tokens,
+            )
+            rows.append(
+                {
+                    **common,
+                    "patch_condition": patch_condition,
+                    "mask_condition": mask_condition,
+                    "patch_hook_applications": {
+                        str(key): value for key, value in sorted(applications.items())
+                    },
+                    "patch_realized_fro_norm_by_layer": {
+                        str(key): value for key, value in sorted(realized_norms.items())
+                    },
+                    "patch_realized_aggregate_fro_norm": aggregate_realized_norm,
+                    "mask_scope": mask_application,
+                    "source_edge_mask_head_scope": "all_attention_heads",
+                    "source_edge_mask_layer_scope": "all_decoder_layers",
+                    **mask_audit,
+                    **outcomes,
+                }
+            )
+    expected = len(requested_patches) * len(requested_masks)
+    if len(rows) != expected:
+        raise RuntimeError(f"Full-state factorial emitted {len(rows)}, expected {expected}")
+    return rows
+
+
+def _prefill_with_terminal_source_and_relay_reset(
+    model: Any,
+    adapter: DecoderAdapter,
+    encoding: NativeTraceEncoding,
+    *,
+    source_positions: Sequence[int],
+    source_replacements: Mapping[int, torch.Tensor],
+    relay_layer: int,
+    relay_positions: Sequence[int],
+    relay_replacement: torch.Tensor | None,
+) -> tuple[Any, dict[int, int], int, float]:
+    """Clamp a terminal state before a later, optionally clean-reset relay."""
+
+    sources = tuple(int(value) for value in source_positions)
+    relays = tuple(int(value) for value in relay_positions)
+    if not sources or len(set(sources)) != len(sources):
+        raise ValueError("Relay mediation needs unique terminal source positions")
+    if not relays or len(set(relays)) != len(relays):
+        raise ValueError("Relay mediation needs unique relay positions")
+    replacement_map = {
+        int(layer): torch.as_tensor(value).detach().float().cpu()
+        for layer, value in source_replacements.items()
+    }
+    if not replacement_map:
+        raise ValueError("Relay mediation needs at least one source patch layer")
+    if max(replacement_map) >= int(relay_layer):
+        raise ValueError("Every terminal source patch layer must precede the relay")
+    if min(relays) <= max(sources):
+        raise ValueError("Every relay position must follow the terminal source patch")
+    if max(relays) > int(encoding.query_position):
+        raise ValueError("A relay position lies after the answer query")
+
+    source_applications = {layer: 0 for layer in replacement_map}
+    relay_applications = 0
+    relay_realized_norm = 0.0
+    handles = []
+    for layer, states in sorted(replacement_map.items()):
+        if states.ndim != 2 or states.shape[0] != len(sources):
+            raise ValueError("Source replacement must be [positions, hidden]")
+
+        def source_hook(
+            _module: Any,
+            _args: tuple[Any, ...],
+            output: Any,
+            *,
+            layer: int = layer,
+            states: torch.Tensor = states,
+        ) -> Any:
+            hidden = _tensor_from_output(output)
+            if hidden.ndim != 3 or hidden.shape[1] != encoding.sequence_length:
+                return output
+            replacement = states.to(
+                device=hidden.device, dtype=hidden.dtype
+            ).unsqueeze(0)
+            before = hidden[:, list(sources), :]
+            if replacement.shape != before.shape:
+                raise RuntimeError("Terminal source replacement shape changed")
+            patched = hidden.clone()
+            patched[:, list(sources), :] = replacement
+            source_applications[layer] += 1
+            return _replace_output_tensor(output, patched)
+
+        handles.append(adapter.layers[layer].register_forward_hook(source_hook))
+
+    if relay_replacement is not None:
+        clean_relay = torch.as_tensor(relay_replacement).detach().float().cpu()
+        if clean_relay.ndim != 2 or clean_relay.shape[0] != len(relays):
+            raise ValueError("Relay replacement must be [positions, hidden]")
+
+        def relay_hook(_module: Any, _args: tuple[Any, ...], output: Any) -> Any:
+            nonlocal relay_applications, relay_realized_norm
+            hidden = _tensor_from_output(output)
+            if hidden.ndim != 3 or hidden.shape[1] != encoding.sequence_length:
+                return output
+            replacement = clean_relay.to(
+                device=hidden.device, dtype=hidden.dtype
+            ).unsqueeze(0)
+            before = hidden[:, list(relays), :]
+            if replacement.shape != before.shape:
+                raise RuntimeError("Relay replacement shape changed")
+            patched = hidden.clone()
+            patched[:, list(relays), :] = replacement
+            relay_realized_norm = float(
+                torch.linalg.vector_norm(before.float() - replacement.float())
+                .detach()
+                .cpu()
+            )
+            relay_applications += 1
+            return _replace_output_tensor(output, patched)
+
+        handles.append(
+            adapter.layers[int(relay_layer)].register_forward_hook(relay_hook)
+        )
+    try:
+        input_ids, attention_mask = _encoding_tensors(model, encoding)
+        prefill = _prefix_forward(model, adapter, input_ids, attention_mask)
+    finally:
+        for handle in handles:
+            handle.remove()
+    bad_sources = {
+        layer: count for layer, count in source_applications.items() if count != 1
+    }
+    if bad_sources:
+        raise RuntimeError(f"Terminal source hooks did not apply once: {bad_sources}")
+    expected_relay = 0 if relay_replacement is None else 1
+    if relay_applications != expected_relay:
+        raise RuntimeError(
+            f"Relay reset applied {relay_applications}, expected {expected_relay}"
+        )
+    return prefill, source_applications, relay_applications, relay_realized_norm
+
+
+@torch.inference_mode()
+def run_terminal_state_relay_reset_trials(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    row: Mapping[str, Any],
+    *,
+    receiver_occurrence: int,
+    donor_occurrence: int,
+    source_layer: int,
+    relay_layer: int,
+    geometry: str = "suffix8",
+    answer_site_id: str = "answer_query_v3",
+    run_greedy: bool = True,
+    max_new_tokens: int = 16,
+) -> list[dict[str, Any]]:
+    """Test terminal-state propagation through a frozen pre-answer relay.
+
+    The terminal state is clamped from ``source_layer`` through the layer just
+    before ``relay_layer``.  At the frozen relay layer, either the answer query
+    alone or the complete post-terminal suffix is reset to its clean receiver
+    state.  Source clamping never continues at or after the relay layer.
+    """
+
+    source = int(source_layer)
+    relay = int(relay_layer)
+    if not 0 <= source < relay < int(adapter.num_layers):
+        raise ValueError("Relay layers must satisfy 0 <= source < relay < depth")
+    encoding, registry = build_answer_source_registry(
+        row, tokenizer, answer_site_id=answer_site_id
+    )
+    receiver = int(receiver_occurrence)
+    donor = int(donor_occurrence)
+    if receiver != len(registry.trace_items):
+        raise ValueError("Relay mediation is registered only at the terminal item")
+    receiver_positions, donor_positions, geometry_audit = (
+        trace_patch_geometry_positions(
+            registry,
+            receiver_occurrence=receiver,
+            donor_occurrence=donor,
+            geometry=geometry,
+        )
+    )
+    terminal_end = int(registry.trace_items[-1][1])
+    query = int(registry.query_position)
+    if terminal_end > query:
+        raise RuntimeError("Terminal trace item ends after the answer query")
+    relay_positions = {
+        "natural_relay": (query,),
+        "answer_query_clean_reset": (query,),
+        "post_terminal_suffix_clean_reset": tuple(range(terminal_end, query + 1)),
+    }
+    if not relay_positions["post_terminal_suffix_clean_reset"]:
+        raise ValueError("No post-terminal relay suffix exists")
+
+    source_layers = tuple(range(source, relay))
+    all_capture_positions = tuple(
+        dict.fromkeys(
+            receiver_positions
+            + donor_positions
+            + relay_positions["post_terminal_suffix_clean_reset"]
+        )
+    )
+    _logits, captured = capture_post_block_states(
+        model,
+        adapter,
+        encoding,
+        all_capture_positions,
+        layers=source_layers + (relay,),
+    )
+    position_lookup = {
+        int(position): index for index, position in enumerate(all_capture_positions)
+    }
+
+    def states(layer: int, positions: Sequence[int]) -> torch.Tensor:
+        return captured[int(layer)][
+            [position_lookup[int(position)] for position in positions]
+        ].clone()
+
+    self_sources = {
+        layer: states(layer, receiver_positions) for layer in source_layers
+    }
+    donor_sources = {
+        layer: states(layer, donor_positions) for layer in source_layers
+    }
+    clean_relays = {
+        condition: states(relay, positions)
+        for condition, positions in relay_positions.items()
+        if condition != "natural_relay"
+    }
+    common = {
+        "schema_version": COUNT_STREAM_SCHEMA_VERSION,
+        "experiment_id": "terminal_state_pre_answer_relay_mediation",
+        "request_id": encoding.request_id,
+        "model_label": encoding.model_label,
+        "seed": encoding.seed,
+        "dataset_split": encoding.split,
+        "gold_count": encoding.count,
+        "answer_site_id": answer_site_id,
+        "source_layer": source,
+        "source_patch_layers": list(source_layers),
+        "source_patch_last_layer": relay - 1,
+        "source_patch_stops_before_relay": True,
+        "relay_layer": relay,
+        "receiver_occurrence": receiver,
+        "donor_occurrence": donor,
+        "donor_offset": donor - receiver,
+        "receiver_is_terminal": True,
+        "patch_geometry": str(geometry),
+        "registry_sha256": registry.to_dict()["registry_sha256"],
+        **geometry_audit,
+    }
+    rows: list[dict[str, Any]] = []
+    for source_condition, source_states in (
+        ("self_patch", self_sources),
+        ("full_donor_patch", donor_sources),
+    ):
+        for relay_condition in REGISTERED_RELAY_RESET_CONDITIONS:
+            active_relay_positions = relay_positions[relay_condition]
+            replacement = clean_relays.get(relay_condition)
+            prefill, source_applications, relay_applications, relay_norm = (
+                _prefill_with_terminal_source_and_relay_reset(
+                    model,
+                    adapter,
+                    encoding,
+                    source_positions=receiver_positions,
+                    source_replacements=source_states,
+                    relay_layer=relay,
+                    relay_positions=active_relay_positions,
+                    relay_replacement=replacement,
+                )
+            )
+            outcomes = _score_and_generate_prefill(
+                model,
+                tokenizer,
+                encoding,
+                prefill,
+                run_greedy=run_greedy,
+                max_new_tokens=max_new_tokens,
+            )
+            rows.append(
+                {
+                    **common,
+                    "source_condition": source_condition,
+                    "relay_condition": relay_condition,
+                    "relay_positions": list(active_relay_positions),
+                    "relay_position_count": len(active_relay_positions),
+                    "relay_includes_answer_query": query
+                    in set(active_relay_positions),
+                    "relay_reset_hook_applications": relay_applications,
+                    "relay_reset_realized_fro_norm": relay_norm,
+                    "source_patch_hook_applications": {
+                        str(key): int(value)
+                        for key, value in sorted(source_applications.items())
+                    },
+                    "status": "ok",
+                    **outcomes,
+                }
+            )
+    if len(rows) != 2 * len(REGISTERED_RELAY_RESET_CONDITIONS):
+        raise RuntimeError("Relay mediation did not emit the registered 2x3 panel")
+    return rows
+
+
+@torch.inference_mode()
+def run_terminal_state_complementary_readout_trials(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    row: Mapping[str, Any],
+    *,
+    receiver_occurrence: int,
+    donor_occurrence: int,
+    source_layer: int,
+    relay_layer: int,
+    geometry: str,
+    answer_site_id: str = "answer_query_v3",
+    run_greedy: bool = True,
+    max_new_tokens: int = 16,
+) -> list[dict[str, Any]]:
+    """Cross Qwen's residual relay with its direct trace-source reread.
+
+    The terminal patch is clamped strictly before ``relay_layer``.  The
+    post-terminal residual suffix can then be reset to its clean state at the
+    relay, while an independent all-head attention mask blocks direct reads of
+    trace-item keys at the answer query and all scored/generated answer tokens.
+    Thus the joint arm removes the two routes without changing the trace prefix.
+    """
+
+    source = int(source_layer)
+    relay = int(relay_layer)
+    if not 0 <= source < relay < int(adapter.num_layers):
+        raise ValueError("Complementary layers must satisfy source < relay < depth")
+    encoding, registry = build_answer_source_registry(
+        row, tokenizer, answer_site_id=answer_site_id
+    )
+    receiver = int(receiver_occurrence)
+    donor = int(donor_occurrence)
+    if receiver != len(registry.trace_items):
+        raise ValueError("Complementary readout is registered only at terminal item")
+    receiver_positions, donor_positions, geometry_audit = (
+        trace_patch_geometry_positions(
+            registry,
+            receiver_occurrence=receiver,
+            donor_occurrence=donor,
+            geometry=geometry,
+        )
+    )
+    query = int(registry.query_position)
+    terminal_end = int(registry.trace_items[-1][1])
+    relay_positions = tuple(range(terminal_end, query + 1))
+    if not relay_positions or relay_positions[-1] != query:
+        raise ValueError("No complete post-terminal suffix reaches answer query")
+    prefix_relay_positions = relay_positions[:-1]
+    source_layers = tuple(range(source, relay))
+    capture_positions = tuple(
+        dict.fromkeys(
+            receiver_positions + donor_positions + relay_positions
+        )
+    )
+    _logits, captured = capture_post_block_states(
+        model,
+        adapter,
+        encoding,
+        capture_positions,
+        layers=source_layers + (relay,),
+    )
+    lookup = {
+        int(position): index for index, position in enumerate(capture_positions)
+    }
+
+    def states(layer: int, positions: Sequence[int]) -> torch.Tensor:
+        return captured[int(layer)][
+            [lookup[int(position)] for position in positions]
+        ].clone()
+
+    condition_sources = {
+        "self_patch": {
+            layer: states(layer, receiver_positions) for layer in source_layers
+        },
+        "full_donor_patch": {
+            layer: states(layer, donor_positions) for layer in source_layers
+        },
+    }
+    clean_prefix_relay = states(relay, prefix_relay_positions)
+    clean_query_relay = states(relay, (query,))
+    input_ids, attention_mask = _encoding_tensors(model, encoding)
+
+    def patched_prefix(
+        replacements: Mapping[int, torch.Tensor], *, reset_relay: bool
+    ) -> tuple[Any, dict[int, int], int, float]:
+        source_applications = {int(layer): 0 for layer in replacements}
+        relay_applications = 0
+        relay_norm = 0.0
+        handles = []
+        for active_layer, replacement_states in sorted(replacements.items()):
+
+            def source_hook(
+                _module: Any,
+                _args: tuple[Any, ...],
+                output: Any,
+                *,
+                active_layer: int = int(active_layer),
+                replacement_states: torch.Tensor = replacement_states,
+            ) -> Any:
+                hidden = _tensor_from_output(output)
+                if hidden.ndim != 3 or hidden.shape[1] != query:
+                    return output
+                replacement = replacement_states.to(
+                    device=hidden.device, dtype=hidden.dtype
+                ).unsqueeze(0)
+                before = hidden[:, list(receiver_positions), :]
+                if replacement.shape != before.shape:
+                    raise RuntimeError("Complementary source replacement shape changed")
+                patched = hidden.clone()
+                patched[:, list(receiver_positions), :] = replacement
+                source_applications[active_layer] += 1
+                return _replace_output_tensor(output, patched)
+
+            handles.append(
+                adapter.layers[int(active_layer)].register_forward_hook(source_hook)
+            )
+        if reset_relay and prefix_relay_positions:
+
+            def prefix_relay_hook(
+                _module: Any, _args: tuple[Any, ...], output: Any
+            ) -> Any:
+                nonlocal relay_applications, relay_norm
+                hidden = _tensor_from_output(output)
+                if hidden.ndim != 3 or hidden.shape[1] != query:
+                    return output
+                replacement = clean_prefix_relay.to(
+                    device=hidden.device, dtype=hidden.dtype
+                ).unsqueeze(0)
+                before = hidden[:, list(prefix_relay_positions), :]
+                if replacement.shape != before.shape:
+                    raise RuntimeError("Complementary prefix relay shape changed")
+                patched = hidden.clone()
+                patched[:, list(prefix_relay_positions), :] = replacement
+                relay_norm = float(
+                    torch.linalg.vector_norm(before.float() - replacement.float())
+                    .detach()
+                    .cpu()
+                )
+                relay_applications += 1
+                return _replace_output_tensor(output, patched)
+
+            handles.append(
+                adapter.layers[relay].register_forward_hook(prefix_relay_hook)
+            )
+        try:
+            prefix = _prefix_forward(
+                model,
+                adapter,
+                input_ids[:, :query],
+                attention_mask[:, :query],
+            )
+        finally:
+            for handle in handles:
+                handle.remove()
+        bad = {
+            layer: count
+            for layer, count in source_applications.items()
+            if count != 1
+        }
+        if bad:
+            raise RuntimeError(f"Complementary source hooks did not apply once: {bad}")
+        expected_relay = int(bool(reset_relay and prefix_relay_positions))
+        if relay_applications != expected_relay:
+            raise RuntimeError("Complementary prefix relay hook count changed")
+        return prefix, source_applications, relay_applications, relay_norm
+
+    def query_branch(
+        prefix: Any,
+        *,
+        query_mask: torch.Tensor,
+        reset_relay: bool,
+    ) -> tuple[Any, int, float]:
+        applications = 0
+        realized_norm = 0.0
+        handle = None
+        if reset_relay:
+
+            def query_relay_hook(
+                _module: Any, _args: tuple[Any, ...], output: Any
+            ) -> Any:
+                nonlocal applications, realized_norm
+                hidden = _tensor_from_output(output)
+                if hidden.ndim != 3 or hidden.shape[1] != 1:
+                    return output
+                replacement = clean_query_relay.to(
+                    device=hidden.device, dtype=hidden.dtype
+                ).unsqueeze(0)
+                before = hidden[:, :1, :]
+                if replacement.shape != before.shape:
+                    raise RuntimeError("Complementary query relay shape changed")
+                patched = hidden.clone()
+                patched[:, :1, :] = replacement
+                realized_norm = float(
+                    torch.linalg.vector_norm(before.float() - replacement.float())
+                    .detach()
+                    .cpu()
+                )
+                applications += 1
+                return _replace_output_tensor(output, patched)
+
+            handle = adapter.layers[relay].register_forward_hook(query_relay_hook)
+        try:
+            output = _query_forward_from_prefix(
+                model,
+                adapter,
+                encoding,
+                prefix_output=prefix,
+                query_attention_mask=query_mask,
+            )
+        finally:
+            if handle is not None:
+                handle.remove()
+        if applications != int(reset_relay):
+            raise RuntimeError("Complementary query relay hook count changed")
+        return output, applications, realized_norm
+
+    common = {
+        "schema_version": COUNT_STREAM_SCHEMA_VERSION,
+        "experiment_id": "terminal_state_complementary_readout",
+        "request_id": encoding.request_id,
+        "model_label": encoding.model_label,
+        "seed": encoding.seed,
+        "dataset_split": encoding.split,
+        "gold_count": encoding.count,
+        "answer_site_id": answer_site_id,
+        "source_layer": source,
+        "source_patch_layers": list(source_layers),
+        "source_patch_stops_before_relay": True,
+        "relay_layer": relay,
+        "receiver_occurrence": receiver,
+        "donor_occurrence": donor,
+        "donor_offset": donor - receiver,
+        "receiver_is_terminal": True,
+        "patch_geometry": str(geometry),
+        "relay_positions": list(relay_positions),
+        "relay_position_count": len(relay_positions),
+        "mask_application": "answer_query_and_answer_tokens",
+        "source_edge_mask_head_scope": "all_attention_heads",
+        "source_edge_mask_layer_scope": "all_decoder_layers",
+        "registry_sha256": registry.to_dict()["registry_sha256"],
+        **geometry_audit,
+    }
+    rows: list[dict[str, Any]] = []
+    for patch_condition, source_states in condition_sources.items():
+        for relay_condition in REGISTERED_COMPLEMENTARY_RELAY_CONDITIONS:
+            reset_relay = relay_condition == "post_terminal_suffix_clean_reset"
+            prefix, source_applications, prefix_relay_applications, prefix_norm = (
+                patched_prefix(source_states, reset_relay=reset_relay)
+            )
+            for mask_condition in REGISTERED_COMPLEMENTARY_SOURCE_CONDITIONS:
+                mask, mask_audit = answer_source_mask(
+                    registry, condition=mask_condition
+                )
+                branch_prefix = clone_prefill_output_for_scoring(prefix)
+                query_output, query_relay_applications, query_norm = query_branch(
+                    branch_prefix,
+                    query_mask=mask,
+                    reset_relay=reset_relay,
+                )
+                scoring_encoding = replace(
+                    encoding,
+                    attention_mask=tuple(int(value) for value in mask[0].tolist()),
+                )
+                outcomes = _score_and_generate_prefill(
+                    model,
+                    tokenizer,
+                    scoring_encoding,
+                    query_output,
+                    run_greedy=run_greedy,
+                    max_new_tokens=max_new_tokens,
+                )
+                rows.append(
+                    {
+                        **common,
+                        "patch_condition": patch_condition,
+                        "relay_condition": relay_condition,
+                        "mask_condition": mask_condition,
+                        "source_patch_hook_applications": {
+                            str(key): int(value)
+                            for key, value in sorted(source_applications.items())
+                        },
+                        "prefix_relay_reset_hook_applications": int(
+                            prefix_relay_applications
+                        ),
+                        "query_relay_reset_hook_applications": int(
+                            query_relay_applications
+                        ),
+                        "relay_reset_realized_fro_norm": float(
+                            math.sqrt(prefix_norm * prefix_norm + query_norm * query_norm)
+                        ),
+                        "status": "ok",
+                        **mask_audit,
+                        **outcomes,
+                    }
+                )
+    expected = (
+        2
+        * len(REGISTERED_COMPLEMENTARY_RELAY_CONDITIONS)
+        * len(REGISTERED_COMPLEMENTARY_SOURCE_CONDITIONS)
+    )
+    if len(rows) != expected:
+        raise RuntimeError(
+            f"Complementary readout emitted {len(rows)} rows, expected {expected}"
+        )
+    return rows
+
+
+@torch.inference_mode()
+def run_full_state_patch_head_readout_factorial_trials(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    row: Mapping[str, Any],
+    *,
+    receiver_occurrence: int,
+    donor_occurrence: int,
+    layer: int,
+    geometry: str,
+    layer_mode: str,
+    head_arms: Sequence[Mapping[str, Any]],
+    patch_conditions: Sequence[str] = ("self_patch", "full_donor_patch"),
+    source_group: str = "trace_items",
+    answer_site_id: str = "answer_query_v3",
+    run_greedy: bool = True,
+    max_new_tokens: int = 16,
+) -> list[dict[str, Any]]:
+    """Cross a written terminal state with frozen answer-query head ablations.
+
+    The teacher-forced trace prefix is built once for each patch arm.  Cloned
+    caches then branch into intact, selected-bank, and layer-matched-random
+    final-query readouts.  Head hooks run strictly after the terminal state has
+    been written, so a patch-by-head interaction has the temporal order needed
+    for a serial ``state -> heads -> answer`` interpretation.
+    """
+
+    requested_patches = tuple(str(value) for value in patch_conditions)
+    if set(requested_patches) != {"self_patch", "full_donor_patch"} or len(
+        requested_patches
+    ) != 2:
+        raise ValueError(
+            "Serial head-readout factorial requires exactly self_patch and "
+            "full_donor_patch"
+        )
+    if str(source_group) != "trace_items":
+        raise ValueError("Serial head readout is registered only for trace_items")
+
+    normalized_arms: list[dict[str, Any]] = []
+    seen_arm_ids: set[tuple[str, int]] = set()
+    for raw_arm in head_arms:
+        normalized_arm = _normalize_head_readout_arm(adapter, raw_arm)
+        condition = str(normalized_arm["condition"])
+        repeat = int(normalized_arm["repeat"])
+        arm_id = (condition, repeat)
+        if arm_id in seen_arm_ids:
+            raise ValueError(f"Duplicate head-readout arm: {arm_id}")
+        seen_arm_ids.add(arm_id)
+        normalized_arms.append(normalized_arm)
+
+    condition_counts = {
+        condition: sum(arm["condition"] == condition for arm in normalized_arms)
+        for condition in REGISTERED_HEAD_READOUT_CONDITIONS
+    }
+    if condition_counts["clean"] != 1 or condition_counts["selected_bank"] != 1:
+        raise ValueError("Serial factorial needs one intact and one selected head arm")
+    if condition_counts["layer_matched_random"] < 1:
+        raise ValueError("Serial factorial needs at least one matched-random head arm")
+    selected_arm = next(
+        arm for arm in normalized_arms if arm["condition"] == "selected_bank"
+    )
+    selected_heads = set(selected_arm["heads"])
+
+    def layer_counts(heads: Sequence[tuple[int, int]]) -> dict[int, int]:
+        counts: dict[int, int] = {}
+        for layer_index, _head in heads:
+            counts[layer_index] = counts.get(layer_index, 0) + 1
+        return counts
+
+    selected_layers = layer_counts(selected_arm["heads"])
+    random_hashes: set[str] = set()
+    for arm in normalized_arms:
+        if arm["condition"] != "layer_matched_random":
+            continue
+        if layer_counts(arm["heads"]) != selected_layers:
+            raise ValueError("Random head bank is not layer-matched to selected bank")
+        if set(arm["heads"]) == selected_heads:
+            raise ValueError("Random head bank is identical to the selected bank")
+        if arm["canonical_bank_sha256"] in random_hashes:
+            raise ValueError("Matched-random head banks must be distinct")
+        random_hashes.add(arm["canonical_bank_sha256"])
+
+    source_layer = int(layer)
+    patch_layers = _full_state_patch_layers(
+        source_layer=source_layer,
+        num_layers=int(adapter.num_layers),
+        layer_mode=layer_mode,
+    )
+    encoding, registry = build_answer_source_registry(
+        row, tokenizer, answer_site_id=answer_site_id
+    )
+    receiver = int(receiver_occurrence)
+    donor = int(donor_occurrence)
+    receiver_positions, donor_positions, geometry_audit = (
+        trace_patch_geometry_positions(
+            registry,
+            receiver_occurrence=receiver,
+            donor_occurrence=donor,
+            geometry=geometry,
+        )
+    )
+    capture_positions = receiver_positions + donor_positions
+    _last_logits, captured = capture_post_block_states(
+        model,
+        adapter,
+        encoding,
+        capture_positions,
+        layers=patch_layers,
+    )
+    width = len(receiver_positions)
+    receiver_states = {
+        patch_layer: captured[patch_layer][:width].clone()
+        for patch_layer in patch_layers
+    }
+    donor_states = {
+        patch_layer: captured[patch_layer][width:].clone()
+        for patch_layer in patch_layers
+    }
+    condition_replacements = {
+        "self_patch": receiver_states,
+        "full_donor_patch": donor_states,
+    }
+    receiver_token_ids = tuple(
+        int(encoding.input_ids[position]) for position in receiver_positions
+    )
+    donor_token_ids = tuple(
+        int(encoding.input_ids[position]) for position in donor_positions
+    )
+    token_matches = sum(
+        left == right for left, right in zip(receiver_token_ids, donor_token_ids)
+    )
+    _input_ids, attention_mask = _encoding_tensors(model, encoding)
+    common = {
+        "schema_version": COUNT_STREAM_SCHEMA_VERSION,
+        "experiment_id": "full_state_patch_head_readout_factorial",
+        "request_id": encoding.request_id,
+        "model_label": encoding.model_label,
+        "seed": encoding.seed,
+        "dataset_split": encoding.split,
+        "gold_count": encoding.count,
+        "answer_site_id": answer_site_id,
+        "source_group": str(source_group),
+        "layer": source_layer,
+        "patch_layer_mode": str(layer_mode),
+        "patch_layers": list(patch_layers),
+        "patch_layer_count": len(patch_layers),
+        "receiver_occurrence": receiver,
+        "donor_occurrence": donor,
+        "donor_offset": donor - receiver,
+        "receiver_is_terminal": bool(receiver == len(registry.trace_items)),
+        "donor_is_terminal": bool(donor == len(registry.trace_items)),
+        "later_trace_self_correction_possible": bool(
+            max(receiver_positions)
+            < max(end - 1 for _start, end in registry.trace_items)
+        ),
+        "receiver_patch_token_ids": list(receiver_token_ids),
+        "donor_patch_token_ids": list(donor_token_ids),
+        "donor_receiver_token_id_match_count": token_matches,
+        "donor_receiver_token_id_match_fraction": token_matches / width,
+        "readout_intervention_scope": "answer_query_only",
+        "causal_claim_scope": "serial_trace_state_to_frozen_heads_to_answer",
+        "registry_sha256": registry.to_dict()["registry_sha256"],
+        **geometry_audit,
+    }
+    rows: list[dict[str, Any]] = []
+    for patch_condition in requested_patches:
+        prefix, patch_applications, realized_norms = (
+            _prefix_with_layerwise_state_replacements(
+                model,
+                adapter,
+                encoding,
+                positions=receiver_positions,
+                replacements=condition_replacements[patch_condition],
+            )
+        )
+        aggregate_realized_norm = float(
+            math.sqrt(sum(value * value for value in realized_norms.values()))
+        )
+        for arm in normalized_arms:
+            prefix_branch = clone_prefill_output_for_scoring(prefix)
+            query_output, realized_heads, head_applications = (
+                _query_from_prefix_with_head_ablation(
+                    model,
+                    adapter,
+                    encoding,
+                    prefix_output=prefix_branch,
+                    query_attention_mask=attention_mask,
+                    heads=arm["heads"],
+                )
+            )
+            outcomes = _score_and_generate_prefill(
+                model,
+                tokenizer,
+                encoding,
+                query_output,
+                run_greedy=run_greedy,
+                max_new_tokens=max_new_tokens,
+            )
+            rows.append(
+                {
+                    **common,
+                    "patch_condition": patch_condition,
+                    "head_condition": arm["condition"],
+                    "head_repeat": int(arm["repeat"]),
+                    "heads": realized_heads,
+                    "bank_size": int(arm["bank_size"]),
+                    "bank_sha256": str(arm["bank_sha256"]),
+                    "selected_bank_overlap_count": len(
+                        selected_heads & set(arm["heads"])
+                    ),
+                    "selected_bank_overlap_fraction": (
+                        len(selected_heads & set(arm["heads"]))
+                        / len(selected_heads)
+                    ),
+                    "patch_hook_applications": {
+                        str(key): value
+                        for key, value in sorted(patch_applications.items())
+                    },
+                    "patch_realized_fro_norm_by_layer": {
+                        str(key): value
+                        for key, value in sorted(realized_norms.items())
+                    },
+                    "patch_realized_aggregate_fro_norm": aggregate_realized_norm,
+                    "head_hook_applications": {
+                        str(key): value
+                        for key, value in sorted(head_applications.items())
+                    },
+                    **outcomes,
+                }
+            )
+    expected = len(requested_patches) * len(normalized_arms)
+    if len(rows) != expected:
+        raise RuntimeError(
+            f"Serial head-readout factorial emitted {len(rows)}, expected {expected}"
+        )
+    return rows
+
+
+@torch.inference_mode()
+def run_trace_full_state_patch_trials(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    row: Mapping[str, Any],
+    *,
+    receiver_occurrence: int,
+    donor_occurrence: int,
+    layer: int,
+    geometry: str,
+    layer_mode: str,
+    readout_layers: Sequence[int],
+    readout_bases: Mapping[int, np.ndarray],
+    conditions: Sequence[str] = REGISTERED_TRACE_FULL_STATE_CONDITIONS,
+    answer_site_id: str = "answer_query_v3",
+    run_greedy: bool = True,
+    max_new_tokens: int = 16,
+) -> list[dict[str, Any]]:
+    """Patch a multi-token full hidden-state tensor within one clean trace.
+
+    This is a sufficiency assay.  Because donor and receiver items can contain
+    different surface tokens, it does not by itself identify a count-specific
+    subspace.  ``cumulative_clamp`` mirrors the referenced HTML by writing the
+    donor tensor at every post-block layer from ``layer`` through the last;
+    ``one_shot`` writes it only once and lets all later computation evolve.
+    """
+
+    requested = tuple(str(value) for value in conditions)
+    if len(set(requested)) != len(requested):
+        raise ValueError("Full-state trace patch conditions must be unique")
+    unknown = sorted(set(requested) - set(REGISTERED_TRACE_FULL_STATE_CONDITIONS))
+    if unknown:
+        raise ValueError(f"Unknown full-state trace patch conditions: {unknown}")
+    if not {"clean", "self_patch"} <= set(requested):
+        raise ValueError("Full-state patching requires clean and self_patch controls")
+
+    source_layer = int(layer)
+    patch_layers = _full_state_patch_layers(
+        source_layer=source_layer,
+        num_layers=int(adapter.num_layers),
+        layer_mode=layer_mode,
+    )
+    encoding, registry = build_answer_source_registry(
+        row, tokenizer, answer_site_id=answer_site_id
+    )
+    receiver = int(receiver_occurrence)
+    donor = int(donor_occurrence)
+    receiver_positions, donor_positions, geometry_audit = (
+        trace_patch_geometry_positions(
+            registry,
+            receiver_occurrence=receiver,
+            donor_occurrence=donor,
+            geometry=geometry,
+        )
+    )
+    capture_positions = receiver_positions + donor_positions
+    _last_logits, captured = capture_post_block_states(
+        model,
+        adapter,
+        encoding,
+        capture_positions,
+        layers=patch_layers,
+    )
+    width = len(receiver_positions)
+    receiver_states = {
+        patch_layer: captured[patch_layer][:width].clone()
+        for patch_layer in patch_layers
+    }
+    donor_states = {
+        patch_layer: captured[patch_layer][width:].clone()
+        for patch_layer in patch_layers
+    }
+    if any(
+        receiver_states[value].shape != donor_states[value].shape
+        for value in patch_layers
+    ):
+        raise RuntimeError("Captured donor and receiver tensors have different shapes")
+
+    active_readout_layers = tuple(sorted({int(value) for value in readout_layers}))
+    if not active_readout_layers:
+        active_readout_layers = (source_layer + 1,)
+    if any(value <= source_layer for value in active_readout_layers):
+        raise ValueError("Full-state readout layers must be after the source layer")
+    missing_bases = sorted(set(active_readout_layers) - set(readout_bases))
+    if missing_bases:
+        raise ValueError(f"Full-state readout bases are missing {missing_bases}")
+    endpoints = tuple(end - 1 for _start, end in registry.trace_items)
+    downstream_endpoints = tuple(
+        position for position in endpoints if position > max(receiver_positions)
+    )
+    readout_positions = downstream_endpoints + (registry.query_position,)
+    if any(position >= registry.query_position for position in receiver_positions):
+        raise RuntimeError("A full-state receiver is not before the answer query")
+
+    receiver_token_ids = tuple(int(encoding.input_ids[pos]) for pos in receiver_positions)
+    donor_token_ids = tuple(int(encoding.input_ids[pos]) for pos in donor_positions)
+    token_matches = sum(
+        left == right for left, right in zip(receiver_token_ids, donor_token_ids)
+    )
+    marker_positions = set(registry.positions("trace_markers"))
+    full_delta_norms = {
+        str(patch_layer): float(
+            torch.linalg.vector_norm(
+                donor_states[patch_layer] - receiver_states[patch_layer]
+            )
+        )
+        for patch_layer in patch_layers
+    }
+    common = {
+        "schema_version": COUNT_STREAM_SCHEMA_VERSION,
+        "experiment_id": "trace_full_state_geometry_patching",
+        "request_id": encoding.request_id,
+        "model_label": encoding.model_label,
+        "seed": encoding.seed,
+        "dataset_split": encoding.split,
+        "gold_count": encoding.count,
+        "answer_site_id": answer_site_id,
+        "layer": source_layer,
+        "patch_layer_mode": str(layer_mode),
+        "patch_layers": list(patch_layers),
+        "patch_layer_count": len(patch_layers),
+        "receiver_occurrence": receiver,
+        "donor_occurrence": donor,
+        "donor_offset": donor - receiver,
+        "donor_direction": (
+            "past_to_later_receiver"
+            if donor < receiver
+            else "future_to_earlier_receiver"
+        ),
+        "future_donor_is_counterfactual_not_natural_stream": bool(donor > receiver),
+        "receiver_is_terminal": bool(receiver == encoding.count),
+        "donor_is_terminal": bool(donor == encoding.count),
+        "downstream_trace_item_count": len(downstream_endpoints),
+        "later_trace_self_correction_possible": bool(downstream_endpoints),
+        "final_answer_outcome_registered": True,
+        "local_next_city_outcome_registered": False,
+        "receiver_patch_marker_overlap_count": len(
+            set(receiver_positions) & marker_positions
+        ),
+        "donor_patch_marker_overlap_count": len(set(donor_positions) & marker_positions),
+        "receiver_patch_token_ids": list(receiver_token_ids),
+        "donor_patch_token_ids": list(donor_token_ids),
+        "donor_receiver_token_id_match_count": token_matches,
+        "donor_receiver_token_id_match_fraction": token_matches / width,
+        "donor_receiver_surface_tokens_identical": bool(token_matches == width),
+        "causal_claim_scope": "full_state_sufficiency_not_count_specificity",
+        "full_donor_delta_norm_by_layer": full_delta_norms,
+        "registry_sha256": registry.to_dict()["registry_sha256"],
+        **geometry_audit,
+    }
+    condition_replacements: dict[str, Mapping[int, torch.Tensor] | None] = {
+        "clean": None,
+        "self_patch": receiver_states,
+        "full_donor_patch": donor_states,
+    }
+    result_rows: list[dict[str, Any]] = []
+    states_by_condition: dict[str, np.ndarray] = {}
+    for condition in requested:
+        prefill, captures, applications, realized_norms = (
+            _prefill_with_layerwise_state_replacements(
+                model,
+                adapter,
+                encoding,
+                positions=receiver_positions,
+                replacements=condition_replacements[condition],
+                readout_layers=active_readout_layers,
+                readout_positions=readout_positions,
+            )
+        )
+        outcomes = _score_and_generate_prefill(
+            model,
+            tokenizer,
+            encoding,
+            prefill,
+            run_greedy=run_greedy,
+            max_new_tokens=max_new_tokens,
+        )
+        ordered_layers = sorted(captures)
+        readout_states = np.stack(
+            [captures[value].numpy() for value in ordered_layers]
+        )
+        states_by_condition[condition] = readout_states
+        aggregate_realized_norm = float(
+            math.sqrt(sum(value * value for value in realized_norms.values()))
+        )
+        result_rows.append(
+            {
+                **common,
+                "condition": condition,
+                "status": "ok",
+                "patch_hook_applications": {
+                    str(key): value for key, value in sorted(applications.items())
+                },
+                "patch_realized_fro_norm_by_layer": {
+                    str(key): value for key, value in sorted(realized_norms.items())
+                },
+                "patch_realized_aggregate_fro_norm": aggregate_realized_norm,
+                "readout_layers": ordered_layers,
+                "readout_positions": list(readout_positions),
+                **outcomes,
+            }
+        )
+    reference = states_by_condition["self_patch"]
+    for result in result_rows:
+        metrics = stream_state_retention_metrics(
+            reference,
+            states_by_condition[str(result["condition"])],
+            readout_layers=result["readout_layers"],
+            readout_positions=result["readout_positions"],
+            query_position=registry.query_position,
+            count_bases=readout_bases,
+        )
+        result.update(metrics)
+        result["downstream_progress_transport_magnitude"] = metrics[
+            "downstream_item_progress_subspace_displacement_rms"
+        ]
+    return result_rows
+
+
 def _stream_source_positions(
     registry: AnswerSourceRegistry,
     *,
@@ -2998,6 +5194,248 @@ def _full_prefill_with_stream_transform(
     if transform is not None and applications != 1:
         raise RuntimeError(f"Stream transform must apply once, observed {applications}")
     return prefill, captures, applications
+
+
+def _prefix_forward_with_stream_transform(
+    model: Any,
+    adapter: DecoderAdapter,
+    encoding: NativeTraceEncoding,
+    *,
+    source_layer: int,
+    source_positions: Sequence[int],
+    transform: Any | None,
+) -> tuple[Any, int]:
+    """Build an answer-prefix cache after an optional registered state removal.
+
+    Unlike ``_full_prefill_with_stream_transform``, this helper stops immediately
+    before the answer query.  The resulting cache can therefore be cloned into
+    several source-mask branches without recomputing the 10K-token prefix.
+    """
+
+    layer = int(source_layer)
+    query = int(encoding.query_position)
+    positions = tuple(int(value) for value in source_positions)
+    if not 0 <= layer < int(adapter.num_layers):
+        raise ValueError("Stream source layer is outside the decoder")
+    if not positions or len(set(positions)) != len(positions):
+        raise ValueError("Stream source positions must be unique and nonempty")
+    if min(positions) < 0 or max(positions) >= query:
+        raise ValueError("Every stream source must precede the answer query")
+    applications = 0
+    handle = None
+    if transform is not None:
+
+        def source_hook(_module: Any, _args: tuple[Any, ...], output: Any) -> Any:
+            nonlocal applications
+            hidden = _tensor_from_output(output)
+            if hidden.ndim != 3 or hidden.shape[1] != query:
+                return output
+            selected = hidden[:, list(positions), :]
+            replacement = transform(selected)
+            if replacement.shape != selected.shape:
+                raise RuntimeError("Stream transform changed the selected shape")
+            patched = hidden.clone()
+            patched[:, list(positions), :] = replacement.to(
+                device=hidden.device, dtype=hidden.dtype
+            )
+            applications += 1
+            return _replace_output_tensor(output, patched)
+
+        handle = adapter.layers[layer].register_forward_hook(source_hook)
+    try:
+        input_ids, attention_mask = _encoding_tensors(model, encoding)
+        prefix = _prefix_forward(
+            model,
+            adapter,
+            input_ids[:, :query],
+            attention_mask[:, :query],
+        )
+    finally:
+        if handle is not None:
+            handle.remove()
+    expected = 0 if transform is None else 1
+    if applications != expected:
+        raise RuntimeError(
+            f"Prefix stream transform must apply {expected} times, observed "
+            f"{applications}"
+        )
+    return prefix, applications
+
+
+@torch.inference_mode()
+def run_count_state_answer_source_factorial_trials(
+    model: Any,
+    tokenizer: Any,
+    adapter: DecoderAdapter,
+    row: Mapping[str, Any],
+    *,
+    source_layer: int,
+    center: np.ndarray | torch.Tensor,
+    basis: np.ndarray | torch.Tensor,
+    state_scope: str = "all",
+    state_occurrence: int | None = None,
+    state_conditions: Sequence[str] = REGISTERED_STREAM_CONDITIONS,
+    mask_conditions: Sequence[str] = (
+        "clean",
+        "block_trace_items",
+        "block_trace_items_matched_control",
+        "block_prompt_records",
+        "block_prompt_records_matched_control",
+    ),
+    answer_site_id: str = "answer_query_v3",
+    mask_application: str = "answer_query_only",
+    random_seed: int = 0,
+    run_greedy: bool = True,
+    max_new_tokens: int = 16,
+) -> list[dict[str, Any]]:
+    """Cross a written count-state intervention with answer-time read masks.
+
+    The long prefix is evaluated once per state arm and cloned into all mask
+    arms.  Consequently every source comparison has exactly the same residual
+    intervention and every residual comparison has exactly the same source
+    mask.  ``all`` removes the fitted occurrence subspace at every registered
+    item endpoint; ``occurrence`` can target one endpoint (including terminal).
+    """
+
+    active_state_conditions = tuple(str(value) for value in state_conditions)
+    active_mask_conditions = tuple(str(value) for value in mask_conditions)
+    if len(set(active_state_conditions)) != len(active_state_conditions):
+        raise ValueError("State conditions must be unique")
+    if len(set(active_mask_conditions)) != len(active_mask_conditions):
+        raise ValueError("Mask conditions must be unique")
+    if not active_state_conditions or "clean" not in active_state_conditions:
+        raise ValueError("The joint factorial requires a clean state arm")
+    unknown_states = sorted(
+        set(active_state_conditions) - set(REGISTERED_STREAM_CONDITIONS)
+    )
+    unknown_masks = sorted(
+        set(active_mask_conditions) - set(REGISTERED_MASK_CONDITIONS)
+    )
+    if unknown_states:
+        raise ValueError(f"Unknown state conditions: {unknown_states}")
+    if unknown_masks:
+        raise ValueError(f"Unknown mask conditions: {unknown_masks}")
+    if mask_application not in {
+        "answer_query_only",
+        "answer_query_and_answer_tokens",
+    }:
+        raise ValueError(f"Unknown answer source-mask application: {mask_application}")
+
+    encoding, registry = build_answer_source_registry(
+        row, tokenizer, answer_site_id=answer_site_id
+    )
+    active_state_scope = str(state_scope)
+    active_state_occurrence = state_occurrence
+    if active_state_scope == "terminal":
+        active_state_scope = "occurrence"
+        active_state_occurrence = len(registry.trace_items)
+    source_positions, source_occurrences = _stream_source_positions(
+        registry,
+        scope=active_state_scope,
+        occurrence=active_state_occurrence,
+    )
+    marker_positions = set(registry.positions("trace_markers"))
+    marker_overlap = tuple(
+        position for position in source_positions if position in marker_positions
+    )
+    center_tensor = torch.as_tensor(center, dtype=torch.float32)
+    basis_tensor = torch.as_tensor(basis, dtype=torch.float32)
+    rows: list[dict[str, Any]] = []
+    for state_condition in active_state_conditions:
+        transform_audit: dict[str, Any] = {"applications": 0}
+        transform = None
+        if state_condition != "clean":
+            transform = _running_state_transform(
+                condition=state_condition,
+                center=center_tensor,
+                basis=basis_tensor,
+                random_seed=int(random_seed),
+                audit=transform_audit,
+            )
+        prefix, applications = _prefix_forward_with_stream_transform(
+            model,
+            adapter,
+            encoding,
+            source_layer=int(source_layer),
+            source_positions=source_positions,
+            transform=transform,
+        )
+        for mask_condition in active_mask_conditions:
+            mask, mask_audit = answer_source_mask(
+                registry, condition=mask_condition
+            )
+            prefix_branch = clone_prefill_output_for_scoring(prefix)
+            query_output = _query_forward_from_prefix(
+                model,
+                adapter,
+                encoding,
+                prefix_output=prefix_branch,
+                query_attention_mask=mask,
+            )
+            scoring_encoding = encoding
+            if mask_application == "answer_query_and_answer_tokens":
+                scoring_encoding = replace(
+                    encoding,
+                    attention_mask=tuple(int(value) for value in mask[0].tolist()),
+                )
+            outcomes = _score_and_generate_prefill(
+                model,
+                tokenizer,
+                scoring_encoding,
+                query_output,
+                run_greedy=run_greedy,
+                max_new_tokens=max_new_tokens,
+            )
+            rows.append(
+                {
+                    "schema_version": COUNT_STREAM_SCHEMA_VERSION,
+                    "experiment_id": "count_state_answer_source_factorial",
+                    "request_id": encoding.request_id,
+                    "model_label": encoding.model_label,
+                    "seed": encoding.seed,
+                    "dataset_split": encoding.split,
+                    "gold_count": encoding.count,
+                    "answer_site_id": answer_site_id,
+                    "state_condition": state_condition,
+                    "state_source_layer": int(source_layer),
+                    "state_source_scope": state_scope,
+                    "state_source_occurrences": list(source_occurrences),
+                    "state_source_positions": list(source_positions),
+                    "state_source_positions_sha256": _sha256_json(source_positions),
+                    "state_basis_site_kind": "item_end",
+                    "state_source_marker_overlap_count": len(marker_overlap),
+                    "state_source_marker_overlap_fraction": len(marker_overlap)
+                    / len(source_positions),
+                    "state_source_marker_confounded": bool(marker_overlap),
+                    "state_intervention_hook_applications": applications,
+                    "state_target_removed_fro_norm": float(
+                        transform_audit.get("target_removed_fro_norm", 0.0)
+                    ),
+                    "state_removed_fro_norm": float(
+                        transform_audit.get("removed_fro_norm", 0.0)
+                    ),
+                    "state_removal_norm_ratio": float(
+                        transform_audit.get("norm_ratio", 1.0)
+                    ),
+                    "mask_condition": mask_condition,
+                    "mask_scope": mask_application,
+                    "source_edge_mask_head_scope": "all_attention_heads",
+                    "source_edge_mask_layer_scope": "all_decoder_layers",
+                    "decoder_layer_count": int(adapter.num_layers),
+                    "attention_head_instances_per_query": int(
+                        sum(adapter.num_heads)
+                    ),
+                    "registry_sha256": registry.to_dict()["registry_sha256"],
+                    **mask_audit,
+                    **outcomes,
+                }
+            )
+    expected_rows = len(active_state_conditions) * len(active_mask_conditions)
+    if len(rows) != expected_rows:
+        raise RuntimeError(
+            f"Joint factorial emitted {len(rows)} rows, expected {expected_rows}"
+        )
+    return rows
 
 
 def stream_state_retention_metrics(

@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="560" viewBox="0 0 980 560">
+<rect width="100%" height="100%" fill="#fbfaf7"/>
+<text x="92" y="34" font-family="Arial,sans-serif" font-size="22" font-weight="700" fill="#19212b">Gemma4-E4B · grammar-specific P0 targeted retrieval</text>
+<text x="92" y="56" font-family="Arial,sans-serif" font-size="13" fill="#59636f">Confirmation only · registered-anchor weighted · persistent P0 pre-O ablation</text>
+<line x1="92" y1="468.00" x2="944" y2="468.00" stroke="#d9d6cf" stroke-width="1"/>
+<text x="80" y="472.00" text-anchor="end" font-family="Arial,sans-serif" font-size="12" fill="#59636f">0%</text>
+<line x1="92" y1="388.40" x2="944" y2="388.40" stroke="#d9d6cf" stroke-width="1"/>
+<text x="80" y="392.40" text-anchor="end" font-family="Arial,sans-serif" font-size="12" fill="#59636f">16%</text>
+<line x1="92" y1="308.80" x2="944" y2="308.80" stroke="#d9d6cf" stroke-width="1"/>
+<text x="80" y="312.80" text-anchor="end" font-family="Arial,sans-serif" font-size="12" fill="#59636f">32%</text>
+<line x1="92" y1="229.20" x2="944" y2="229.20" stroke="#d9d6cf" stroke-width="1"/>
+<text x="80" y="233.20" text-anchor="end" font-family="Arial,sans-serif" font-size="12" fill="#59636f">48%</text>
+<line x1="92" y1="149.60" x2="944" y2="149.60" stroke="#d9d6cf" stroke-width="1"/>
+<text x="80" y="153.60" text-anchor="end" font-family="Arial,sans-serif" font-size="12" fill="#59636f">63%</text>
+<line x1="92" y1="70.00" x2="944" y2="70.00" stroke="#d9d6cf" stroke-width="1"/>
+<text x="80" y="74.00" text-anchor="end" font-family="Arial,sans-serif" font-size="12" fill="#59636f">79%</text>
+<line x1="92" y1="468.00" x2="944" y2="468.00" stroke="#7d838a" stroke-width="1.4"/>
+<line x1="92.00" y1="70" x2="92.00" y2="468" stroke="#eeeae2" stroke-width="1"/>
+<text x="92.00" y="493" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" fill="#26313c">K1</text>
+<line x1="305.00" y1="70" x2="305.00" y2="468" stroke="#eeeae2" stroke-width="1"/>
+<text x="305.00" y="493" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" fill="#26313c">K2</text>
+<line x1="518.00" y1="70" x2="518.00" y2="468" stroke="#eeeae2" stroke-width="1"/>
+<text x="518.00" y="493" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" fill="#26313c">K4</text>
+<line x1="731.00" y1="70" x2="731.00" y2="468" stroke="#eeeae2" stroke-width="1"/>
+<text x="731.00" y="493" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" fill="#26313c">K6</text>
+<line x1="944.00" y1="70" x2="944.00" y2="468" stroke="#eeeae2" stroke-width="1"/>
+<text x="944.00" y="493" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" fill="#26313c">K8</text>
+<path d="M 92.00 244.66 L 305.00 199.99 L 518.00 166.48 L 731.00 116.23 L 944.00 99.48" fill="none" stroke="#a43b32" stroke-width="3"/>
+<circle cx="92.00" cy="244.66" r="4.5" fill="#fbfaf7" stroke="#a43b32" stroke-width="2.5"/>
+<circle cx="305.00" cy="199.99" r="4.5" fill="#fbfaf7" stroke="#a43b32" stroke-width="2.5"/>
+<circle cx="518.00" cy="166.48" r="4.5" fill="#fbfaf7" stroke="#a43b32" stroke-width="2.5"/>
+<circle cx="731.00" cy="116.23" r="4.5" fill="#fbfaf7" stroke="#a43b32" stroke-width="2.5"/>
+<circle cx="944.00" cy="99.48" r="4.5" fill="#fbfaf7" stroke="#a43b32" stroke-width="2.5"/>
+<line x1="100" y1="532" x2="132" y2="532" stroke="#a43b32" stroke-width="3"/>
+<text x="140" y="536" font-family="Arial,sans-serif" font-size="12" fill="#26313c">Selected bank failure</text>
+<path d="M 92.00 443.80 L 305.00 408.44 L 518.00 404.72 L 731.00 408.44 L 944.00 412.16" fill="none" stroke="#315f78" stroke-width="3" stroke-dasharray="7 5"/>
+<circle cx="92.00" cy="443.80" r="4.5" fill="#fbfaf7" stroke="#315f78" stroke-width="2.5"/>
+<circle cx="305.00" cy="408.44" r="4.5" fill="#fbfaf7" stroke="#315f78" stroke-width="2.5"/>
+<circle cx="518.00" cy="404.72" r="4.5" fill="#fbfaf7" stroke="#315f78" stroke-width="2.5"/>
+<circle cx="731.00" cy="408.44" r="4.5" fill="#fbfaf7" stroke="#315f78" stroke-width="2.5"/>
+<circle cx="944.00" cy="412.16" r="4.5" fill="#fbfaf7" stroke="#315f78" stroke-width="2.5"/>
+<line x1="350" y1="532" x2="382" y2="532" stroke="#315f78" stroke-width="3" stroke-dasharray="7 5"/>
+<text x="390" y="536" font-family="Arial,sans-serif" font-size="12" fill="#26313c">Random control failure</text>
+<path d="M 92.00 268.85 L 305.00 259.55 L 518.00 229.77 L 731.00 175.79 L 944.00 155.32" fill="none" stroke="#7b4ea3" stroke-width="3" stroke-dasharray="3 3"/>
+<circle cx="92.00" cy="268.85" r="4.5" fill="#fbfaf7" stroke="#7b4ea3" stroke-width="2.5"/>
+<circle cx="305.00" cy="259.55" r="4.5" fill="#fbfaf7" stroke="#7b4ea3" stroke-width="2.5"/>
+<circle cx="518.00" cy="229.77" r="4.5" fill="#fbfaf7" stroke="#7b4ea3" stroke-width="2.5"/>
+<circle cx="731.00" cy="175.79" r="4.5" fill="#fbfaf7" stroke="#7b4ea3" stroke-width="2.5"/>
+<circle cx="944.00" cy="155.32" r="4.5" fill="#fbfaf7" stroke="#7b4ea3" stroke-width="2.5"/>
+<line x1="600" y1="532" x2="632" y2="532" stroke="#7b4ea3" stroke-width="3" stroke-dasharray="3 3"/>
+<text x="640" y="536" font-family="Arial,sans-serif" font-size="12" fill="#26313c">Selected − random</text>
+<text x="22" y="269.0" transform="rotate(-90 22 269.0)" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" fill="#26313c">Failure rate / specificity</text>
+<text x="518.0" y="506" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" fill="#26313c">Number of ablated ranked heads (Top-K)</text>
+</svg>

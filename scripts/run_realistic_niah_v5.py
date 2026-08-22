@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import socket
 import sys
 import time
@@ -720,6 +721,42 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
+def _load_completed_behavior_shard(
+    path: Path, *, expected_trial_id: str
+) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """Validate a resumable behavioral shard before treating it as complete."""
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            saved = [json.loads(line) for line in handle if line.strip()]
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        return None, f"{type(error).__name__}: {error}"
+    if len(saved) != 1:
+        return None, f"expected one result row, found {len(saved)}"
+    result = saved[0]
+    if str(result.get("trial_id")) != expected_trial_id:
+        return None, (
+            "trial_id mismatch: "
+            f"expected {expected_trial_id!r}, found {result.get('trial_id')!r}"
+        )
+    if result.get("trial_complete") is not True:
+        return None, "trial_complete is not true"
+    return saved, None
+
+
+def _archive_invalid_behavior_shard(path: Path) -> Path:
+    """Preserve an invalid shard by content hash before exact recomputation."""
+
+    payload = path.read_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    archive = path.parent.parent / "corrupt_shards"
+    archive.mkdir(parents=True, exist_ok=True)
+    destination = archive / f"{path.stem}.{digest}.jsonl"
+    if not destination.exists():
+        shutil.copy2(path, destination)
+    return destination
+
+
 def _frame_records(frame: Any) -> list[dict[str, Any]]:
     """Use pandas' strict null conversion before JSON shard serialization."""
 
@@ -966,6 +1003,48 @@ def _prompt_balanced_anchor_subset(
         grammar_counts[grammar] = grammar_counts.get(grammar, 0) + 1
         surface_counts[surface] = surface_counts.get(surface, 0) + 1
         transition_counts[transition] = transition_counts.get(transition, 0) + 1
+    return selected
+
+
+def _prompt_final_transition_anchor_subset(
+    tasks: list[tuple[dict[str, Any], dict[str, Any]]], limit: int | None
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Choose the registered N-1 -> N retrieval transition per prompt.
+
+    The deterministic rule is outcome-blind and leaves exactly one remaining
+    trace item on every selected branch, making it suitable for propagation
+    tests that terminate at the final count.
+    """
+
+    grouped: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
+    for row, specification in tasks:
+        count = _row_gold_count(row)
+        if (
+            int(specification["from_occurrence"]) == count - 1
+            and int(specification["to_occurrence"]) == count
+        ):
+            request_id = str(row.get("request_id", row.get("stimulus_id")))
+            grouped.setdefault(request_id, []).append((row, specification))
+    if limit is None:
+        limit = len(grouped)
+    if int(limit) < 1:
+        raise ValueError("--limit must be positive")
+    selected: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for request_id in sorted(
+        grouped,
+        key=lambda value: (
+            int(grouped[value][0][0]["seed"]),
+            _row_gold_count(grouped[value][0][0]),
+            value,
+        ),
+    )[: int(limit)]:
+        candidates = grouped[request_id]
+        if len(candidates) != 1:
+            raise ValueError(
+                "Final-transition routing must yield one candidate per prompt: "
+                f"{request_id} has {len(candidates)}"
+            )
+        selected.append(candidates[0])
     return selected
 
 
@@ -1896,6 +1975,20 @@ def _validate_behavior_selection_window(
     return declared_roles
 
 
+def _selection_intervention_site_decoupled(
+    selection_anchor_role: str | None,
+    intervention_anchor_roles: list[str] | tuple[str, ...],
+) -> bool:
+    """Return whether bank localization and intervention use disjoint sites."""
+
+    if selection_anchor_role is None:
+        return False
+    roles = {str(value) for value in intervention_anchor_roles}
+    if not roles:
+        raise ValueError("At least one intervention anchor role is required")
+    return str(selection_anchor_role) not in roles
+
+
 def _route_transition_anchors(
     specifications: list[dict[str, Any]],
     routing: dict[str, Any],
@@ -2522,6 +2615,10 @@ def command_causal_heads_behavior(args: argparse.Namespace) -> None:
             anchors.append((row, specification))
     elif args.anchor_sampling == "prompt_balanced":
         anchors = _prompt_balanced_anchor_subset(list(distinct.values()), args.limit)
+    elif args.anchor_sampling == "prompt_final_transition":
+        anchors = _prompt_final_transition_anchor_subset(
+            list(distinct.values()), args.limit
+        )
     else:
         anchors = _seed_first_anchor_subset(
             list(distinct.values()), args.limit
@@ -2754,13 +2851,24 @@ def command_causal_heads_behavior(args: argparse.Namespace) -> None:
         )
         shard_path = shard_dir / f"{trial_id}.jsonl"
         if args.resume and shard_path.exists():
-            skipped += 1
-            with shard_path.open("r", encoding="utf-8") as handle:
-                saved = [json.loads(line) for line in handle if line.strip()]
-            for result in saved:
-                outcome = str(result.get("behavior_outcome"))
-                outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
-            continue
+            saved, resume_error = _load_completed_behavior_shard(
+                shard_path, expected_trial_id=trial_id
+            )
+            if resume_error is None:
+                assert saved is not None
+                skipped += 1
+                for result in saved:
+                    outcome = str(result.get("behavior_outcome"))
+                    outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
+                continue
+            archived = _archive_invalid_behavior_shard(shard_path)
+            print(
+                "[v5 causal-heads-behavior] invalid resume shard; "
+                f"recomputing exact trial path={shard_path} "
+                f"archive={archived} error={resume_error}",
+                file=sys.stderr,
+                flush=True,
+            )
         intervention_anchor_ids = specification.get(
             "routed_anchor_equivalence_ids",
             [str(specification["anchor_equivalence_id"])],
@@ -4632,11 +4740,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     heads_behavior.add_argument(
         "--anchor-sampling",
-        choices=["seed_first", "prompt_balanced"],
+        choices=["seed_first", "prompt_balanced", "prompt_final_transition"],
         default="seed_first",
         help=(
             "prompt_balanced freezes at most one transition per prompt and "
-            "greedily balances grammar/surface/transition coverage."
+            "greedily balances grammar/surface/transition coverage; "
+            "prompt_final_transition chooses the registered N-1 -> N "
+            "transition for each prompt."
         ),
     )
     heads_behavior.add_argument(

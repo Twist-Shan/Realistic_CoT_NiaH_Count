@@ -14,6 +14,21 @@ from .prompts import PromptEncoding, TokenSpan
 from .spec import V4ModelSpec
 
 
+def _tokenizer_compatibility_kwargs(model_spec: V4ModelSpec) -> dict[str, Any]:
+    """Return narrow loader overrides for known tokenizer/config mismatches.
+
+    The pinned Gemma 4 snapshot stores ``extra_special_tokens`` as a list,
+    while transformers 4.57's Gemma tokenizer expects a name-to-token mapping.
+    The extra entry is a video placeholder and is unused by the text-only NIAH
+    experiments, so an empty mapping preserves the text vocabulary while
+    avoiding a loader-time type error.
+    """
+
+    if model_spec.label == "Gemma4-E4B":
+        return {"extra_special_tokens": {}}
+    return {}
+
+
 @dataclass(frozen=True)
 class DecoderAdapter:
     layer_container_name: str
@@ -187,6 +202,7 @@ def load_registered_model(
         revision=model_spec.revision,
         cache_dir=str(cache_dir) if cache_dir is not None else None,
         trust_remote_code=False,
+        **_tokenizer_compatibility_kwargs(model_spec),
     )
     loader = getattr(transformers, model_spec.loader_class, None)
     if loader is None:
@@ -226,6 +242,7 @@ def load_registered_tokenizer(
         revision=model_spec.revision,
         cache_dir=str(cache_dir) if cache_dir is not None else None,
         trust_remote_code=False,
+        **_tokenizer_compatibility_kwargs(model_spec),
     )
 
 

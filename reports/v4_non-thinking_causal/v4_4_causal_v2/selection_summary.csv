@@ -1,7 +1,0 @@
-model_label,family,selected_conditions,screen_seeds,held_out_confirmation_seeds,screen_detail_sha256,threshold_both_directions_must_be_positive,threshold_minimum_control_adjusted_transport,threshold_minimum_positive_anchor_pairs,threshold_minimum_positive_seeds,threshold_minimum_valid_rate
-Qwen3-8B,prompt_patching,126,5,5,3847ad790c3a1eba8532439707d739c9eb16abc1e596f7b944a726f371850443,True,0.15,2,4,0.95
-Qwen3-8B,answer_patching,149,5,5,8e141e66029158337f4ac377770c78920d9cbf95c9f4271902baf3e6dc160f83,True,0.15,2,4,0.95
-Qwen3-8B,steering,42,5,5,6340419ca419f92c01dd43666b129cd7ec11a1c4129d1b6171c7b24ee945d5cc,True,0.15,2,4,0.95
-Gemma4-E4B,prompt_patching,102,5,5,43d820364b89367c8f5244bc3b09c5986252c6a1e876e306e07e8d5351c99af5,True,0.15,2,4,0.95
-Gemma4-E4B,answer_patching,177,5,5,f5cf61184dc5a8c833e01d032bacdfe1322fb36abf639a0e7fcfd7bb7ef614c3,True,0.15,2,4,0.95
-Gemma4-E4B,steering,51,5,5,1ebf6011d468f44cb5afd2300150bbec5db5db9d47613d4cb36c36134ca57bff,True,0.15,2,4,0.95

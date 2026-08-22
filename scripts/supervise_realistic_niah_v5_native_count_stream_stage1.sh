@@ -18,7 +18,7 @@ case "$MODEL" in
 esac
 
 CODE_ROOT="${CODE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-RUN_ROOT="${RUN_ROOT:-$CODE_ROOT/work/v5_native_count_stream/stage1_20260820/$MODEL}"
+RUN_ROOT="${RUN_ROOT:-$CODE_ROOT/work/v5_native_count_stream/stage1_20d10c_20260820/$MODEL}"
 if [[ -x "$CODE_ROOT/.venv/bin/python" ]]; then
   DEFAULT_PYTHON="$CODE_ROOT/.venv/bin/python"
 else
@@ -32,7 +32,7 @@ export TOKENIZERS_PARALLELISM=false
 
 RUNNER="$CODE_ROOT/scripts/run_realistic_niah_v5_count_stream.py"
 MECHANISM="$CODE_ROOT/configs/realistic_niah_v5_native_count_stream_dev.json"
-V5_CONFIG="$CODE_ROOT/configs/realistic_niah_v5_native_count_stream_registry_v1.json"
+V5_CONFIG="$CODE_ROOT/configs/realistic_niah_v5.json"
 GENERATIONS="$CODE_ROOT/work/v5_trace_parser_v2/${MODEL}_generations_reparsed.jsonl"
 CAPTURE_INDEX="$CODE_ROOT/work/v5_geometry_full_panel/running/$MODEL/capture_index.jsonl"
 
@@ -295,14 +295,14 @@ for source in ("trace", "prompt"):
         for line in shard.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    assert int(trial_manifest["completed_shards"]) == 100
-    assert len(shards) == 100
-    assert len(rows) == 3000, (source, len(rows))
+    assert int(trial_manifest["completed_shards"]) == 50
+    assert len(shards) == 50
+    assert len(rows) == 1500, (source, len(rows))
     assert {int(row["bank_size"]) for row in rows} == {1, 2, 4, 8, 16, 32}
     assert collections.Counter(str(row["condition"]) for row in rows) == {
-        "clean": 600,
-        "selected_bank": 600,
-        "layer_matched_random": 1800,
+        "clean": 300,
+        "selected_bank": 300,
+        "layer_matched_random": 900,
     }
 
 trace_shards = sorted((root / "trace_patch" / "shards").glob("*.jsonl"))

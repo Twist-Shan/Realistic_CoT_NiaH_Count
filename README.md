@@ -131,6 +131,18 @@ Reusable logic belongs in `src/`. Scripts should remain command-line
 orchestration layers, and notebooks should call tested functions rather than
 become the only implementation of an analysis.
 
+### Data and artifact policy
+
+Git tracks source code, registered configs, small source corpora, documentation,
+and curated final reports. Raw responses, per-seed/per-arm tables, hidden-state
+captures, audit snapshots, resumable run state, browser QA output, and generated
+report data are external artifacts. Keep them under `work/`,
+`work_remote_snapshots/`, `output/`, or an external evidence bundle; these paths
+and the generated `reports/` tree are ignored. Final self-contained reports may
+be force-added deliberately after review. Report builders accept local paths to
+the external evidence bundle and should not assume those data ship with a Git
+clone.
+
 `src/realistic_niah_v4/` is the registered V4 package. It keeps controlled
 stimulus freezing, registered prompt-span mapping, selective hooks, representation
 statistics, attention scoring, and causal interventions separate. V4 outputs

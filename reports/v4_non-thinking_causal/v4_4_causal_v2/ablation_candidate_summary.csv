@@ -1,5 +1,0 @@
-model_label,analysis_population,candidate_top_n,primary_metric,primary_effect,ci95_low,ci95_high,ci95_excludes_zero_positive,examples,seed_clusters,random_replicates_min,random_overlap_mean,selection_status
-Qwen3-8B,all_examples_signed,2,ranked_minus_random_absolute_count_shift,0.13333333333333333,0.013333333333333334,0.3,True,50,10,3,0.0,candidate_from_unfrozen_n_1_to_5_discovery
-Qwen3-8B,clean_correct_only,4,ranked_minus_random_correct_to_wrong,0.08333333333333334,0.023255813953488372,0.15789473684210525,True,40,10,3,1.0,candidate_from_unfrozen_n_1_to_5_discovery
-Gemma4-E4B,all_examples_signed,1,ranked_minus_random_absolute_count_shift,0.1466666666666667,0.06000000000000002,0.2333333333333333,True,50,10,3,0.0,candidate_from_unfrozen_n_1_to_5_discovery
-Gemma4-E4B,clean_correct_only,1,ranked_minus_random_correct_to_wrong,0.10185185185185186,0.0,0.20512820512820512,False,36,10,3,0.0,candidate_from_unfrozen_n_1_to_5_discovery
