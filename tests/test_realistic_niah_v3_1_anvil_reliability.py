@@ -226,6 +226,8 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     assert "CUDA_HOME,CUDA_PATH,LD_LIBRARY_PATH,VLLM_USE_FLASHINFER_SAMPLER" in slurm
     assert "CUDA runtime environment did not reach task" in task_launcher
     assert 'ctypes.CDLL("libcudart.so.12")' in task_launcher
+    assert 'Qwen3-32B) echo "1 1 0.92"' in worker
+    assert 'Gemma4-31B) echo "1 1 0.995"' in worker
     assert 'dirname -- "${BASH_SOURCE[0]}"' not in slurm
 
 

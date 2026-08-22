@@ -61,7 +61,10 @@ mkdir -p "${run_root}/shards" "${state_root}/claims" \
 
 engine_settings_for() {
   case "$1" in
-    Qwen3-32B|Gemma4-31B) echo "1 1 0.92" ;;
+    Qwen3-32B) echo "1 1 0.92" ;;
+    # Gemma4-31B needs about 15.8 GiB of KV cache at the frozen 32,768-token
+    # engine limit.  On an 80 GiB H100, 0.92 leaves only about 10.8 GiB.
+    Gemma4-31B) echo "1 1 0.995" ;;
     Gemma4-26B-A4B|Qwen3-14B) echo "2 2 0.92" ;;
     Gemma4-12B|Nemotron-Nano-v2-9B|GLM-4-9B-0414|GLM-Z1-9B-0414)
       echo "4 4 0.90" ;;
