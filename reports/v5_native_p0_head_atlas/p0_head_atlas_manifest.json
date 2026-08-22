@@ -7,8 +7,8 @@
   "inputs": {
     "Qwen3-8B": {
       "atlas": {
-        "path": "work\\v5_native_p0_head_atlas_20260820\\p0_head_atlas_qwen_with_bank_sum.json",
-        "sha256": "5335fe8daf97819696c7002cfca857eaf4c3d9ad52364b2c34759d0986da0fb3"
+        "path": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_native_p0_head_atlas_20260820\\p0_head_atlas_qwen.json",
+        "sha256": "6673cbf1f2e7de772fcd75a1c569737fea030a016b9d62cf34f875f4a9e9b984"
       },
       "ordinal": {
         "path": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_native_p0_head_atlas_20260820\\p0_head_ordinal_qwen.json",
@@ -17,8 +17,8 @@
     },
     "Gemma4-E4B": {
       "atlas": {
-        "path": "work\\v5_native_p0_head_atlas_20260820\\p0_head_atlas_gemma_with_bank_sum.json",
-        "sha256": "8e082e8499e6a05dc6f896ffeb8de733e904b61154c2f2d8763804b35d39febd"
+        "path": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_native_p0_head_atlas_20260820\\p0_head_atlas_gemma.json",
+        "sha256": "a8122d184e1eafdc5744f24e4d5d5e7da383eff1f34333429e1a8eb4941d6c09"
       },
       "ordinal": {
         "path": "C:\\Users\\HP\\Desktop\\Research\\UWM Yiqiao Zhong\\CoT for Counting\\Realistic_CoT_NiaH_Count\\work\\v5_native_p0_head_atlas_20260820\\p0_head_ordinal_gemma.json",

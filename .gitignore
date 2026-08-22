@@ -76,3 +76,7 @@ nohup.out
 Thumbs.db
 .vscode/
 .idea/
+
+# Local browser QA captures and machine-specific Playwright smoke scripts.
+output/playwright/native-v3-*.png
+output/playwright/qa_native_restructured_v3.js

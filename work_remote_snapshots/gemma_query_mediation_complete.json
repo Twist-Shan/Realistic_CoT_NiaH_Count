@@ -1,0 +1,14 @@
+{
+  "complete_query_mediation_pass": false,
+  "completed_utc": "2026-08-21T19:54:26.701869+00:00",
+  "confirmation_opened": false,
+  "geometry_order": [
+    "endpoint",
+    "suffix4",
+    "suffix8"
+  ],
+  "model_label": "Gemma4-E4B",
+  "schema_version": "realistic_niah_v5_query_mediation_complete_v1",
+  "selected_geometry": null,
+  "status": "DISCOVERY_GEOMETRY_EXHAUSTED"
+}

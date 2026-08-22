@@ -116,7 +116,7 @@ def _head_map_svg(
     }
     selected_k = int(MODEL_K[model])
     parts = [
-        f'<svg class="head-map" viewBox="0 0 {width} {height}" role="img" '
+        f'<svg xmlns="http://www.w3.org/2000/svg" class="head-map" viewBox="0 0 {width} {height}" role="img" '
         f'aria-label="{_escape(model)} {_escape(grammar)} P0 targeted retrieval head map">',
         '<rect width="100%" height="100%" rx="14" fill="#101927"/>',
     ]
@@ -217,7 +217,7 @@ def _ordinal_head_svg(
     height = top + plot_height + bottom
     explicit_width = f"width:{width}px;max-width:none" if len(heads) > 16 else "width:100%;max-width:760px"
     parts = [
-        f'<svg class="ordinal-map" style="{explicit_width}" viewBox="0 0 {width} {height}" '
+        f'<svg xmlns="http://www.w3.org/2000/svg" class="ordinal-map" style="{explicit_width}" viewBox="0 0 {width} {height}" '
         f'role="img" aria-label="{_escape(model)} {_escape(scope)} target needle ordinal by ranked head">',
         f'<title>{_escape(model)} · {_escape(scope)} · target needle ordinal × ranked head</title>',
         '<desc>Columns are ranked layer-head identities; rows are the ordinal of the next needle retrieved at exact P0. Color is raw attention mass to the correct prompt record span.</desc>',
@@ -372,7 +372,7 @@ def _attention_svg(example: dict[str, Any]) -> str:
         else "raw attention mass"
     )
     parts = [
-        f'<svg class="attention-map" viewBox="0 0 {width} {height}" role="img" '
+        f'<svg xmlns="http://www.w3.org/2000/svg" class="attention-map" viewBox="0 0 {width} {height}" role="img" '
         f'aria-label="{_escape(example["model_label"])} {_escape(identity)} P0 per-needle attention distribution">',
         f'<title>{_escape(example["model_label"])} · {_escape(identity)} · exact-P0 city attention map</title>',
         '<rect width="100%" height="100%" rx="14" fill="#101927"/>',
