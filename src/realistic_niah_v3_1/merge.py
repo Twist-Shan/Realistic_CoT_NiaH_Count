@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,7 @@ from realistic_niah_v3.merge import (
 )
 
 from .sharding import expected_request_ids, formal_bundle_plan, formal_shard_plan
+from .resume import audit_resume_manifests, parse_resume_commits
 from .spec import (
     CANONICAL_TOKENIZER,
     CANONICAL_TOKENIZER_REVISION,
@@ -123,6 +125,17 @@ def audit_and_merge(run_root: Path, *, audit_only: bool = False) -> dict[str, An
     ):
         raise RuntimeError("V3.1 prepare provenance audit is invalid")
     prepared_commit = str(prepare_audit["git"]["commit"])
+    resume_audit = audit_resume_manifests(
+        run_root,
+        current_commit=prepared_commit,
+        allowed_commits=parse_resume_commits(
+            os.environ.get("REALISTIC_NIAH_RESUME_FROM_COMMITS", "")
+        ),
+    )
+    permitted_manifest_commits = {
+        prepared_commit,
+        *resume_audit["allowed_commits"],
+    }
 
     all_rows: list[dict[str, Any]] = []
     model_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -156,7 +169,8 @@ def audit_and_merge(run_root: Path, *, audit_only: bool = False) -> dict[str, An
             or manifest.get("model", {}).get("label") != task["model_label"]
             or manifest.get("model_revision") != task["model_revision"]
             or manifest.get("prompt_modes") != [task["prompt_mode"]]
-            or manifest.get("git", {}).get("commit") != prepared_commit
+            or manifest.get("git", {}).get("commit")
+            not in permitted_manifest_commits
             or manifest.get("git", {}).get("dirty") is not False
         ):
             raise RuntimeError(f"Structural V3.1 shard audit failed: {task_id}")
@@ -213,6 +227,7 @@ def audit_and_merge(run_root: Path, *, audit_only: bool = False) -> dict[str, An
         "bundle_plan_sha256": bundle_plan["bundles_sha256"],
         "physical_model_loads": bundle_plan["physical_model_loads"],
         "git_commit": prepared_commit,
+        "resume_manifest_audit": resume_audit,
         "stimuli_sha256": _sha256(stimuli_path),
         "stimuli": len(stimuli),
         "shards": len(shard_audits),

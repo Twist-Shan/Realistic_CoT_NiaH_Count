@@ -97,6 +97,9 @@ PYTHONPATH=src "${python_bin}" scripts/prepare_realistic_niah_v3_1.py \
   --run-root "${run_root}" --repo-root "${repo}" \
   --expected-commit "${expected_commit}" --require-source-revision
 flock -u 8
+PYTHONPATH=src "${python_bin}" scripts/audit_realistic_niah_v3_1_resume_manifests.py \
+  --run-root "${run_root}" --expected-commit "${expected_commit}" \
+  --resume-from-commits "${resume_from_commits}"
 
 runtime_exports="HOME,USER,PATH,SHELL,REALISTIC_NIAH_REPO_ROOT,REALISTIC_NIAH_PYTHON,REALISTIC_NIAH_HF_CACHE,REALISTIC_NIAH_EXPECTED_COMMIT,REALISTIC_NIAH_RESUME_FROM_COMMITS,CUDA_HOME,CUDA_PATH,LD_LIBRARY_PATH,VLLM_USE_FLASHINFER_SAMPLER"
 children=()

@@ -106,6 +106,10 @@ actual_commit="$(git -C "${repo}" rev-parse HEAD)"
 PYTHONPATH="${repo}/src" "${python_bin}" \
   "${repo}/scripts/validate_realistic_niah_v3_1_dataset.py" \
   --dataset-dir "${run_root}/dataset" >/dev/null
+PYTHONPATH="${repo}/src" "${python_bin}" \
+  "${repo}/scripts/audit_realistic_niah_v3_1_resume_manifests.py" \
+  --run-root "${run_root}" --expected-commit "${expected_commit}" \
+  --resume-from-commits "${resume_from_commits}" >/dev/null
 
 run_tag="$(basename "${run_root}" | sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-16)"
 slurm_log_dir="${run_root}/orchestration/slurm"

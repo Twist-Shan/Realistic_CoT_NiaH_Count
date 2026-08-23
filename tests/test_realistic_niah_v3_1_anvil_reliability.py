@@ -255,11 +255,7 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     assert 'version("vllm")=="0.25.1"' in task_launcher
     assert "REALISTIC_NIAH_WORKER_NAMESPACE" in task_launcher
     assert "REALISTIC_NIAH_WORKER_OFFSET" in task_launcher
-    assert 'Qwen3-32B) echo "1 1 1 0.92 0 0"' in worker
-    assert (
-        'Gemma4-31B) echo "${requested_tensor_parallel_size} 1 1 0.92 1 1"'
-        in worker
-    )
+    assert "-m realistic_niah_v3_1.engine" in worker
     assert 'bundle_command+=(--enforce-eager)' in worker
     assert 'bundle_command+=(--disable-custom-all-reduce)' in worker
     assert '[[ -z "${model_filter}" || "${model}" == "${model_filter}" ]]' in worker
@@ -306,6 +302,11 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     assert 'REALISTIC_NIAH_TENSOR_PARALLEL_SIZE=2' in split_slurm
     assert 'REALISTIC_NIAH_WORKER_NAMESPACE=gemma-topup' in split_slurm
     assert 'flock -x 8' in split_slurm
+    assert 'audit_realistic_niah_v3_1_resume_manifests.py' in split_slurm
+    assert 'audit_realistic_niah_v3_1_resume_manifests.py' in split_submit
+    merge = (root / "src" / "realistic_niah_v3_1" / "merge.py").read_text()
+    assert "audit_resume_manifests" in merge
+    assert "permitted_manifest_commits" in merge
     assert 'finalize_realistic_niah_v3_1_split_group.sh' in split_slurm
     assert 'flock -x 9' in split_finalizer
     assert 'gemma4.done' in split_finalizer

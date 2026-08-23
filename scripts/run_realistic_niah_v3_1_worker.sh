@@ -73,17 +73,8 @@ mkdir -p "${run_root}/shards" "${state_root}/claims" \
   "${run_root}/orchestration/logs"
 
 engine_settings_for() {
-  case "$1" in
-    Qwen3-32B) echo "1 1 1 0.92 0 0" ;;
-    Gemma4-31B) echo "${requested_tensor_parallel_size} 1 1 0.92 1 1" ;;
-    Gemma4-26B-A4B|Qwen3-14B) echo "1 2 2 0.92 0 0" ;;
-    Gemma4-12B|Nemotron-Nano-v2-9B|GLM-4-9B-0414|GLM-Z1-9B-0414)
-      echo "1 4 4 0.90 0 0" ;;
-    Qwen3-8B|Gemma4-E4B|Ministral-3-Instruct-8B|Ministral-3-Reasoning-8B)
-      echo "1 6 6 0.90 0 0" ;;
-    Qwen3-4B|Nemotron-3-Nano-4B) echo "1 8 8 0.90 0 0" ;;
-    *) echo "No V3.1 engine settings for $1" >&2; return 2 ;;
-  esac
+  PYTHONPATH="${repo}/src" "${python_bin}" -m realistic_niah_v3_1.engine \
+    "$1" "${requested_tensor_parallel_size}"
 }
 
 write_two_row_marker() {
