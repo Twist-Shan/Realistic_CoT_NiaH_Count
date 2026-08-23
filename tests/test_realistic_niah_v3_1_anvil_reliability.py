@@ -226,8 +226,23 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     assert "CUDA_HOME,CUDA_PATH,LD_LIBRARY_PATH,VLLM_USE_FLASHINFER_SAMPLER" in slurm
     assert "CUDA runtime environment did not reach task" in task_launcher
     assert 'ctypes.CDLL("libcudart.so.12")' in task_launcher
-    assert 'Qwen3-32B) echo "1 1 0.92"' in worker
-    assert 'Gemma4-31B) echo "1 1 0.995"' in worker
+    assert 'Qwen3-32B) echo "1 1 1 0.92"' in worker
+    assert (
+        'Gemma4-31B) echo "${requested_tensor_parallel_size} 1 1 0.92"'
+        in worker
+    )
+    assert '[[ -z "${model_filter}" || "${model}" == "${model_filter}" ]]' in worker
+    assert '--tensor-parallel-size "${tensor_parallel_size}"' in worker
+    assert 'gpus_per_task="${REALISTIC_NIAH_GPUS_PER_TASK:-1}"' in slurm
+    assert (
+        'tensor_parallel_size="${REALISTIC_NIAH_TENSOR_PARALLEL_SIZE:-1}"'
+        in slurm
+    )
+    assert '[[ "${tensor_parallel_size}" == "${gpus_per_task}" ]]' in slurm
+    assert '[[ "${model_filter}" != "Gemma4-31B" ]]' in slurm
+    assert '--gpus-per-task="${gpus_per_task}"' in slurm
+    assert '--gpu-bind="per_task:${gpus_per_task}"' in slurm
+    assert 'if [[ "${finalize_mode}" == "1" ]]' in slurm
     assert 'dirname -- "${BASH_SOURCE[0]}"' not in slurm
 
 
