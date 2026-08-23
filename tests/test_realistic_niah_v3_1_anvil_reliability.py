@@ -195,6 +195,16 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     task_launcher = (
         root / "infra" / "anvil" / "realistic_niah_v3_1" / "run_slurm_task.sh"
     ).read_text()
+    mixed_submit = (
+        root / "infra" / "anvil" / "realistic_niah_v3_1" / "submit_anvil_mixed.sh"
+    ).read_text()
+    mixed_slurm = (
+        root
+        / "infra"
+        / "anvil"
+        / "realistic_niah_v3_1"
+        / "v3_1_mixed_inference.slurm"
+    ).read_text()
     assert "while true" not in finalizer
     assert "audit_realistic_niah_v3_1_shard_state.py" in finalizer
     assert "write_two_row_marker" in worker
@@ -226,6 +236,12 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     assert "CUDA_HOME,CUDA_PATH,LD_LIBRARY_PATH,VLLM_USE_FLASHINFER_SAMPLER" in slurm
     assert "CUDA runtime environment did not reach task" in task_launcher
     assert 'ctypes.CDLL("libcudart.so.12")' in task_launcher
+    assert "Visible GPU count does not match GPUs per task" in task_launcher
+    assert "Tensor parallel size does not match GPUs per task" in task_launcher
+    assert "VLLM_TP2_PREFLIGHT_OK" in task_launcher
+    assert 'version("vllm")=="0.25.1"' in task_launcher
+    assert "REALISTIC_NIAH_WORKER_NAMESPACE" in task_launcher
+    assert "REALISTIC_NIAH_WORKER_OFFSET" in task_launcher
     assert 'Qwen3-32B) echo "1 1 1 0.92 0 0"' in worker
     assert (
         'Gemma4-31B) echo "${requested_tensor_parallel_size} 1 1 0.92 1 1"'
@@ -234,6 +250,7 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     assert 'bundle_command+=(--enforce-eager)' in worker
     assert 'bundle_command+=(--disable-custom-all-reduce)' in worker
     assert '[[ -z "${model_filter}" || "${model}" == "${model_filter}" ]]' in worker
+    assert '[[ -z "${model_exclude}" || "${model}" != "${model_exclude}" ]]' in worker
     assert '--tensor-parallel-size "${tensor_parallel_size}"' in worker
     assert 'gpus_per_task="${REALISTIC_NIAH_GPUS_PER_TASK:-1}"' in slurm
     assert (
@@ -246,6 +263,21 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     assert '--gpu-bind="per_task:${gpus_per_task}"' in slurm
     assert 'if [[ "${finalize_mode}" == "1" ]]' in slurm
     assert 'dirname -- "${BASH_SOURCE[0]}"' not in slurm
+    assert "--gpus-per-node=4" in mixed_submit
+    assert "--nodes=2" in mixed_submit
+    assert "--dependency" in mixed_submit
+    assert 'layout=mixed_8gpu' in mixed_slurm
+    assert 'REALISTIC_NIAH_MODEL_FILTER=Gemma4-31B' in mixed_slurm
+    assert mixed_slurm.count('REALISTIC_NIAH_MODEL_EXCLUDE=Gemma4-31B') == 3
+    assert 'REALISTIC_NIAH_TENSOR_PARALLEL_SIZE=2' in mixed_slurm
+    assert 'REALISTIC_NIAH_WORKER_NAMESPACE=topup' in mixed_slurm
+    assert 'REALISTIC_NIAH_WORKER_OFFSET=6' in mixed_slurm
+    assert mixed_slurm.index('wait "${gemma_pid}"') < mixed_slurm.index(
+        'REALISTIC_NIAH_WORKER_NAMESPACE=topup'
+    )
+    assert mixed_slurm.index('wait "${topup_pid}"') < mixed_slurm.index(
+        'finalize_realistic_niah_v3_1.sh'
+    )
 
 
 def test_prepare_script_exports_the_frozen_protocol_version() -> None:

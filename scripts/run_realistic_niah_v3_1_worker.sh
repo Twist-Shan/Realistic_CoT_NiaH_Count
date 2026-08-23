@@ -16,6 +16,7 @@ worker_id="${REALISTIC_NIAH_WORKER_ID:-gpu${worker_slot}}"
 stagger_slot="${REALISTIC_NIAH_STAGGER_SLOT:-${worker_slot}}"
 claim_grace_seconds="${REALISTIC_NIAH_CLAIM_GRACE_SECONDS:-120}"
 model_filter="${REALISTIC_NIAH_MODEL_FILTER:-}"
+model_exclude="${REALISTIC_NIAH_MODEL_EXCLUDE:-}"
 requested_tensor_parallel_size="${REALISTIC_NIAH_TENSOR_PARALLEL_SIZE:-1}"
 stimuli="${run_root}/dataset/stimuli.jsonl"
 plan_tsv="${run_root}/orchestration/formal_bundles.tsv"
@@ -35,6 +36,11 @@ esac
   || { echo "REALISTIC_NIAH_CLAIM_GRACE_SECONDS must be non-negative" >&2; exit 2; }
 [[ "${requested_tensor_parallel_size}" =~ ^[1-9][0-9]*$ ]] \
   || { echo "REALISTIC_NIAH_TENSOR_PARALLEL_SIZE must be positive" >&2; exit 2; }
+[[ -z "${model_exclude}" || "${model_exclude}" =~ ^[A-Za-z0-9_.-]+$ ]] \
+  || { echo "REALISTIC_NIAH_MODEL_EXCLUDE is invalid" >&2; exit 2; }
+[[ -z "${model_filter}" || -z "${model_exclude}" \
+    || "${model_filter}" != "${model_exclude}" ]] \
+  || { echo "Model filter and exclusion cannot match" >&2; exit 2; }
 case "${device_mode}" in
   explicit)
     nvidia-smi --query-gpu=index --format=csv,noheader \
@@ -177,6 +183,7 @@ while IFS=$'\t' read -r \
 do
   [[ "${bundle_id}" == "bundle_id" ]] && continue
   [[ -z "${model_filter}" || "${model}" == "${model_filter}" ]] || continue
+  [[ -z "${model_exclude}" || "${model}" != "${model_exclude}" ]] || continue
   bundle_completed_file="${state_root}/completed_bundles/${bundle_id}.tsv"
   failed_file="${state_root}/failed_bundles/${bundle_id}.tsv"
   claim_dir="${state_root}/claims/${bundle_id}"
