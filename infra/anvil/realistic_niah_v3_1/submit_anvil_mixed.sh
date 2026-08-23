@@ -15,13 +15,16 @@ Options:
   --partition NAME      Slurm partition (default: ai)
   --constraint NAME     Node feature (default: H100)
   --expected-commit SHA Exact Git commit authorized for this formal run
+  --resume-from-commits SHAS
+                        Colon-separated prior commits allowed for resume
   --dependency SPEC     Optional afterany:JOBID or afterok:JOBID dependency
   --dry-run             Print the resolved sbatch command without submitting
   -h, --help            Show this help
 
 Environment overrides:
   REALISTIC_NIAH_REPO_ROOT, REALISTIC_NIAH_PYTHON,
-  REALISTIC_NIAH_HF_CACHE, REALISTIC_NIAH_EXPECTED_COMMIT
+  REALISTIC_NIAH_HF_CACHE, REALISTIC_NIAH_EXPECTED_COMMIT,
+  REALISTIC_NIAH_RESUME_FROM_COMMITS
 EOF
 }
 
@@ -37,12 +40,13 @@ account="${ANVIL_ACCOUNT:-mth260088-ai}"
 partition="${ANVIL_PARTITION:-ai}"
 constraint="${ANVIL_CONSTRAINT:-H100}"
 expected_commit="${REALISTIC_NIAH_EXPECTED_COMMIT:-}"
+resume_from_commits="${REALISTIC_NIAH_RESUME_FROM_COMMITS:-}"
 dependency=""
 dry_run=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --time|--account|--partition|--constraint|--expected-commit|--dependency)
+    --time|--account|--partition|--constraint|--expected-commit|--resume-from-commits|--dependency)
       [[ $# -ge 2 ]] || { echo "Missing value for $1" >&2; exit 2; }
       option="$1"
       value="$2"
@@ -53,6 +57,7 @@ while [[ $# -gt 0 ]]; do
         --partition) partition="${value}" ;;
         --constraint) constraint="${value}" ;;
         --expected-commit) expected_commit="${value}" ;;
+        --resume-from-commits) resume_from_commits="${value}" ;;
         --dependency) dependency="${value}" ;;
       esac
       ;;
@@ -64,6 +69,9 @@ done
 
 [[ "${expected_commit}" =~ ^[0-9a-f]{40}$ ]] \
   || { echo "--expected-commit must be an exact 40-character Git SHA" >&2; exit 2; }
+[[ -z "${resume_from_commits}" \
+    || "${resume_from_commits}" =~ ^[0-9a-f]{40}(:[0-9a-f]{40})*$ ]] \
+  || { echo "--resume-from-commits must contain colon-separated Git SHAs" >&2; exit 2; }
 [[ -z "${dependency}" || "${dependency}" =~ ^(afterany|afterok):[0-9]+$ ]] \
   || { echo "--dependency must be afterany:JOBID or afterok:JOBID" >&2; exit 2; }
 
@@ -127,7 +135,7 @@ sbatch_args=(
   --job-name="${job_name}"
   --output="${slurm_log_dir}/%x-%j.out"
   --error="${slurm_log_dir}/%x-%j.out"
-  --export="HOME,USER,PATH,SHELL,REALISTIC_NIAH_REPO_ROOT=${repo},REALISTIC_NIAH_PYTHON=${python_bin},REALISTIC_NIAH_HF_CACHE=${hf_cache},REALISTIC_NIAH_EXPECTED_COMMIT=${expected_commit}"
+  --export="HOME,USER,PATH,SHELL,REALISTIC_NIAH_REPO_ROOT=${repo},REALISTIC_NIAH_PYTHON=${python_bin},REALISTIC_NIAH_HF_CACHE=${hf_cache},REALISTIC_NIAH_EXPECTED_COMMIT=${expected_commit},REALISTIC_NIAH_RESUME_FROM_COMMITS=${resume_from_commits}"
 )
 [[ -z "${dependency}" ]] || sbatch_args+=(--dependency="${dependency}")
 sbatch_args+=("${job_script}" "${run_root}")

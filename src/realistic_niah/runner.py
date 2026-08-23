@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import json
+import os
 import platform
 import subprocess
 import time
@@ -76,6 +77,28 @@ class LoadedVLLMRuntime:
 
 
 V2_RUN_PROTOCOL = RunProtocol()
+
+
+_ENGINE_MANIFEST_ADDITIVE_DEFAULTS = {
+    "enforce_eager": False,
+    "disable_custom_all_reduce": False,
+}
+
+
+def _normalized_manifest_engine(value: Any) -> dict[str, Any]:
+    """Normalize additive engine fields introduced after a run was created."""
+
+    if not isinstance(value, dict):
+        raise RuntimeError("Existing run manifest has an invalid engine config")
+    normalized = dict(value)
+    for key, default in _ENGINE_MANIFEST_ADDITIVE_DEFAULTS.items():
+        normalized.setdefault(key, default)
+    return normalized
+
+
+def _resume_from_git_commits() -> set[str]:
+    raw = os.environ.get("REALISTIC_NIAH_RESUME_FROM_COMMITS", "")
+    return {value for value in raw.split(":") if value}
 
 
 def decoding_config(model_spec: ModelSpec, prompt_mode: str) -> DecodingConfig:
@@ -634,7 +657,11 @@ def run_vllm_experiment(
         )
         created_at_utc = datetime.now(timezone.utc).isoformat()
         elapsed_before_seconds = 0.0
+        resumed_from_git_commits: list[str] = []
     else:
+        existing_git_commit = str(
+            existing_manifest.get("git", {}).get("commit", "")
+        )
         expected_existing = {
             "schema_version": existing_manifest.get("schema_version"),
             "protocol_version": existing_manifest.get("protocol_version"),
@@ -642,7 +669,9 @@ def run_vllm_experiment(
             "query_layout": existing_manifest.get("query_layout"),
             "stimuli_sha256": existing_manifest.get("stimuli_sha256"),
             "request_ids_sha256": existing_manifest.get("request_ids_sha256"),
-            "engine": existing_manifest.get("engine"),
+            "engine": _normalized_manifest_engine(
+                existing_manifest.get("engine")
+            ),
             "model_engine_overrides": existing_manifest.get(
                 "model_engine_overrides",
                 {},
@@ -655,7 +684,6 @@ def run_vllm_experiment(
                 "checkpoint_strategy",
                 "legacy_full_file_rewrite",
             ),
-            "git_commit": existing_manifest.get("git", {}).get("commit"),
         }
         current = {
             "schema_version": resolved_protocol.run_manifest_schema_version,
@@ -672,13 +700,42 @@ def run_vllm_experiment(
             "checkpoint_strategy": (
                 "atomic_batch_parts_then_single_canonical_merge"
             ),
-            "git_commit": provenance["commit"],
         }
         if expected_existing != current:
             raise RuntimeError(
                 "Refusing to mix incompatible results in one output directory: "
                 f"existing={expected_existing}, current={current}"
             )
+        if existing_git_commit != provenance["commit"]:
+            allowed_commits = _resume_from_git_commits()
+            if existing_git_commit not in allowed_commits:
+                raise RuntimeError(
+                    "Refusing to resume results from a different Git commit "
+                    "without an explicit REALISTIC_NIAH_RESUME_FROM_COMMITS "
+                    f"allowlist: existing={existing_git_commit!r}, "
+                    f"current={provenance['commit']!r}"
+                )
+            print(
+                "RESUME_GIT_COMMIT_ALLOWLIST_OK "
+                f"existing={existing_git_commit} "
+                f"current={provenance['commit']}",
+                flush=True,
+            )
+        resumed_from_git_commits = list(
+            dict.fromkeys(
+                [
+                    *existing_manifest.get("git", {}).get(
+                        "resumed_from_commits",
+                        [],
+                    ),
+                    *(
+                        [existing_git_commit]
+                        if existing_git_commit != provenance["commit"]
+                        else []
+                    ),
+                ]
+            )
+        )
         immutable_revision = str(existing_manifest["model_revision"])
         if revision is not None:
             requested_revision = (
@@ -704,6 +761,9 @@ def run_vllm_experiment(
                 f"Model revision mismatch in completed row {identifier}"
             )
 
+    manifest_git = dict(provenance)
+    if resumed_from_git_commits:
+        manifest_git["resumed_from_commits"] = resumed_from_git_commits
     manifest = {
         "schema_version": resolved_protocol.run_manifest_schema_version,
         "protocol_version": resolved_protocol.protocol_version,
@@ -730,7 +790,7 @@ def run_vllm_experiment(
         "expected_requests": len(requests),
         "completed_requests": len(completed),
         "elapsed_generation_seconds": elapsed_before_seconds,
-        "git": provenance,
+        "git": manifest_git,
         "hardware": _hardware_snapshot(),
         "packages": _package_versions(
             (

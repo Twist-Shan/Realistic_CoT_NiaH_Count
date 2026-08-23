@@ -13,6 +13,8 @@ from realistic_niah.runner import (
     _cleanup_checkpoint_parts,
     _decode_generated_text,
     _load_completed_checkpoints,
+    _normalized_manifest_engine,
+    _resume_from_git_commits,
     _sampling_params_kwargs,
     build_requests,
     decoding_config,
@@ -54,6 +56,35 @@ def test_atomic_batch_parts_resume_and_cleanup(tmp_path: Path) -> None:
     assert sorted(_load_completed_checkpoints(results, parts)) == ["a", "b"]
     _cleanup_checkpoint_parts(parts)
     assert not parts.exists()
+
+
+def test_manifest_engine_additive_defaults_are_resume_compatible() -> None:
+    legacy = {
+        "tensor_parallel_size": 1,
+        "max_model_len": 32_768,
+    }
+
+    assert _normalized_manifest_engine(legacy) == {
+        "tensor_parallel_size": 1,
+        "max_model_len": 32_768,
+        "enforce_eager": False,
+        "disable_custom_all_reduce": False,
+    }
+    assert legacy == {
+        "tensor_parallel_size": 1,
+        "max_model_len": 32_768,
+    }
+
+
+def test_resume_git_commits_are_an_explicit_allowlist(monkeypatch) -> None:
+    first = "a" * 40
+    second = "b" * 40
+    monkeypatch.setenv(
+        "REALISTIC_NIAH_RESUME_FROM_COMMITS",
+        f"{first}:{second}",
+    )
+
+    assert _resume_from_git_commits() == {first, second}
 
 
 def test_qwen_builds_four_formal_requests_per_stimulus() -> None:

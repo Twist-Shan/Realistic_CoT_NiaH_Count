@@ -266,7 +266,9 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
     assert "--gpus-per-node=4" in mixed_submit
     assert "--nodes=2" in mixed_submit
     assert "--dependency" in mixed_submit
+    assert "--resume-from-commits" in mixed_submit
     assert 'layout=mixed_8gpu' in mixed_slurm
+    assert "REALISTIC_NIAH_RESUME_FROM_COMMITS" in mixed_slurm
     assert 'REALISTIC_NIAH_MODEL_FILTER=Gemma4-31B' in mixed_slurm
     assert mixed_slurm.count('REALISTIC_NIAH_MODEL_EXCLUDE=Gemma4-31B') == 3
     assert 'REALISTIC_NIAH_TENSOR_PARALLEL_SIZE=2' in mixed_slurm

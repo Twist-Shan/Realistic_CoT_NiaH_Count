@@ -15,6 +15,7 @@ repo="${REALISTIC_NIAH_REPO_ROOT:?Set REALISTIC_NIAH_REPO_ROOT}"
 python_bin="${REALISTIC_NIAH_PYTHON:?Set REALISTIC_NIAH_PYTHON}"
 hf_cache="${REALISTIC_NIAH_HF_CACHE:?Set REALISTIC_NIAH_HF_CACHE}"
 expected_commit="${REALISTIC_NIAH_EXPECTED_COMMIT:?Set REALISTIC_NIAH_EXPECTED_COMMIT}"
+resume_from_commits="${REALISTIC_NIAH_RESUME_FROM_COMMITS:-}"
 task_script="${repo}/infra/anvil/realistic_niah_v3_1/run_slurm_task.sh"
 
 case "${run_root}" in
@@ -29,6 +30,10 @@ esac
 actual_commit="$(git -C "${repo}" rev-parse HEAD)"
 [[ "${actual_commit}" == "${expected_commit}" ]] \
   || { echo "Formal V3.1 commit mismatch: ${actual_commit} != ${expected_commit}" >&2; exit 2; }
+[[ -z "${resume_from_commits}" \
+    || "${resume_from_commits}" =~ ^[0-9a-f]{40}(:[0-9a-f]{40})*$ ]] \
+  || { echo "Invalid REALISTIC_NIAH_RESUME_FROM_COMMITS" >&2; exit 2; }
+export REALISTIC_NIAH_RESUME_FROM_COMMITS="${resume_from_commits}"
 
 mapfile -t allocation_nodes < <(scontrol show hostnames "${SLURM_JOB_NODELIST}")
 [[ "${#allocation_nodes[@]}" -eq 2 ]] \
@@ -70,6 +75,7 @@ provenance_file="${slurm_dir}/job-${SLURM_JOB_ID}-provenance.txt"
   printf 'gemma_gpus=2\ngeneral_initial_gpus=6\ngeneral_topup_gpus=2\n'
   printf 'repo=%s\ncommit=%s\npython=%s\nhf_cache=%s\n' \
     "${repo}" "${actual_commit}" "${python_bin}" "${hf_cache}"
+  printf 'resume_from_commits=%s\n' "${resume_from_commits}"
   scontrol show job "${SLURM_JOB_ID}"
   module list
   printf 'cuda_home=%s\nnvcc=%s\nld_library_path=%s\n' \
@@ -85,7 +91,7 @@ PYTHONPATH=src "${python_bin}" scripts/prepare_realistic_niah_v3_1.py \
   --run-root "${run_root}" --repo-root "${repo}" \
   --expected-commit "${expected_commit}" --require-source-revision
 
-runtime_exports="HOME,USER,PATH,SHELL,REALISTIC_NIAH_REPO_ROOT,REALISTIC_NIAH_PYTHON,REALISTIC_NIAH_HF_CACHE,REALISTIC_NIAH_EXPECTED_COMMIT,CUDA_HOME,CUDA_PATH,LD_LIBRARY_PATH,VLLM_USE_FLASHINFER_SAMPLER"
+runtime_exports="HOME,USER,PATH,SHELL,REALISTIC_NIAH_REPO_ROOT,REALISTIC_NIAH_PYTHON,REALISTIC_NIAH_HF_CACHE,REALISTIC_NIAH_EXPECTED_COMMIT,REALISTIC_NIAH_RESUME_FROM_COMMITS,CUDA_HOME,CUDA_PATH,LD_LIBRARY_PATH,VLLM_USE_FLASHINFER_SAMPLER"
 children=()
 cleanup_children() {
   local status=$?
