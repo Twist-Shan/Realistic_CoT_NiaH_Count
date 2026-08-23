@@ -97,6 +97,8 @@ def test_registered_decoding_budgets() -> None:
     assert thinking.max_tokens == 4096
     assert thinking.temperature == 0.6
     assert EngineConfig().max_model_len == 32_768
+    assert EngineConfig().enforce_eager is False
+    assert EngineConfig().disable_custom_all_reduce is False
     assert _sampling_params_kwargs(thinking, seed=1234)[
         "skip_special_tokens"
     ] is False

@@ -68,14 +68,14 @@ mkdir -p "${run_root}/shards" "${state_root}/claims" \
 
 engine_settings_for() {
   case "$1" in
-    Qwen3-32B) echo "1 1 1 0.92" ;;
-    Gemma4-31B) echo "${requested_tensor_parallel_size} 1 1 0.92" ;;
-    Gemma4-26B-A4B|Qwen3-14B) echo "1 2 2 0.92" ;;
+    Qwen3-32B) echo "1 1 1 0.92 0 0" ;;
+    Gemma4-31B) echo "${requested_tensor_parallel_size} 1 1 0.92 1 1" ;;
+    Gemma4-26B-A4B|Qwen3-14B) echo "1 2 2 0.92 0 0" ;;
     Gemma4-12B|Nemotron-Nano-v2-9B|GLM-4-9B-0414|GLM-Z1-9B-0414)
-      echo "1 4 4 0.90" ;;
+      echo "1 4 4 0.90 0 0" ;;
     Qwen3-8B|Gemma4-E4B|Ministral-3-Instruct-8B|Ministral-3-Reasoning-8B)
-      echo "1 6 6 0.90" ;;
-    Qwen3-4B|Nemotron-3-Nano-4B) echo "1 8 8 0.90" ;;
+      echo "1 6 6 0.90 0 0" ;;
+    Qwen3-4B|Nemotron-3-Nano-4B) echo "1 8 8 0.90 0 0" ;;
     *) echo "No V3.1 engine settings for $1" >&2; return 2 ;;
   esac
 }
@@ -203,7 +203,13 @@ do
   fi
   mv -- "${claim_temporary}" "${claim_dir}/claim.tsv"
   read -r tensor_parallel_size request_batch_size max_num_seqs gpu_utilization \
+    enforce_eager disable_custom_all_reduce \
     < <(engine_settings_for "${model}")
+  [[ "${enforce_eager}" == "0" || "${enforce_eager}" == "1" ]] \
+    || { echo "Invalid enforce_eager setting for ${model}" >&2; exit 2; }
+  [[ "${disable_custom_all_reduce}" == "0" \
+      || "${disable_custom_all_reduce}" == "1" ]] \
+    || { echo "Invalid disable_custom_all_reduce setting for ${model}" >&2; exit 2; }
   log_file="${run_root}/orchestration/logs/${bundle_id}.${attempt_id}.log"
   inference_environment=(
     env
@@ -214,18 +220,24 @@ do
   if [[ "${device_mode}" == "explicit" ]]; then
     inference_environment+=("CUDA_VISIBLE_DEVICES=${worker_slot}")
   fi
+  bundle_command=(
+    "${python_bin}" scripts/run_realistic_niah_v3_1_model_bundle.py
+    --stimuli "${stimuli}" --run-root "${run_root}"
+    --model "${model}" --revision "${revision}"
+    --query-layout cue_before_query_after
+    --cache-dir "${cache}" --repo-root "${repo}"
+    --tensor-parallel-size "${tensor_parallel_size}" --max-model-len 32768
+    --gpu-memory-utilization "${gpu_utilization}"
+    --max-num-seqs "${max_num_seqs}"
+    --request-batch-size "${request_batch_size}" --require-clean-git
+  )
+  [[ "${enforce_eager}" == "0" ]] || bundle_command+=(--enforce-eager)
+  [[ "${disable_custom_all_reduce}" == "0" ]] \
+    || bundle_command+=(--disable-custom-all-reduce)
   if (
     cd "${repo}"
     "${inference_environment[@]}" \
-      "${python_bin}" scripts/run_realistic_niah_v3_1_model_bundle.py \
-        --stimuli "${stimuli}" --run-root "${run_root}" \
-        --model "${model}" --revision "${revision}" \
-        --query-layout cue_before_query_after \
-        --cache-dir "${cache}" --repo-root "${repo}" \
-        --tensor-parallel-size "${tensor_parallel_size}" --max-model-len 32768 \
-        --gpu-memory-utilization "${gpu_utilization}" \
-        --max-num-seqs "${max_num_seqs}" \
-        --request-batch-size "${request_batch_size}" --require-clean-git
+      "${bundle_command[@]}"
   ) > "${log_file}" 2>&1; then
     IFS=',' read -r -a task_ids <<< "${logical_task_ids}"
     [[ "${#task_ids[@]}" -eq "${expected_logical_shards}" ]]

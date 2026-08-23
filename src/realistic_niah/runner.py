@@ -43,6 +43,8 @@ class EngineConfig:
     max_model_len: int = 32_768
     gpu_memory_utilization: float = 0.90
     max_num_seqs: int | None = None
+    enforce_eager: bool = False
+    disable_custom_all_reduce: bool = False
     dtype: str = "bfloat16"
     trust_remote_code: bool = True
     enable_prefix_caching: bool = True
@@ -514,6 +516,8 @@ def load_vllm_runtime(
         "tensor_parallel_size": engine_config.tensor_parallel_size,
         "max_model_len": engine_config.max_model_len,
         "gpu_memory_utilization": engine_config.gpu_memory_utilization,
+        "enforce_eager": engine_config.enforce_eager,
+        "disable_custom_all_reduce": engine_config.disable_custom_all_reduce,
         "trust_remote_code": engine_config.trust_remote_code,
         "enable_prefix_caching": engine_config.enable_prefix_caching,
     }
