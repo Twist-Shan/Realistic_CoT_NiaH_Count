@@ -205,6 +205,19 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
         / "realistic_niah_v3_1"
         / "v3_1_mixed_inference.slurm"
     ).read_text()
+    split_submit = (
+        root / "infra" / "anvil" / "realistic_niah_v3_1" / "submit_anvil_split.sh"
+    ).read_text()
+    split_slurm = (
+        root
+        / "infra"
+        / "anvil"
+        / "realistic_niah_v3_1"
+        / "v3_1_split_inference.slurm"
+    ).read_text()
+    split_finalizer = (
+        root / "scripts" / "finalize_realistic_niah_v3_1_split_group.sh"
+    ).read_text()
     assert "while true" not in finalizer
     assert "audit_realistic_niah_v3_1_shard_state.py" in finalizer
     assert "write_two_row_marker" in worker
@@ -278,6 +291,26 @@ def test_anvil_adapter_has_bounded_finalization_and_explicit_exports() -> None:
         'REALISTIC_NIAH_WORKER_NAMESPACE=topup'
     )
     assert mixed_slurm.index('wait "${topup_pid}"') < mixed_slurm.index(
+        'finalize_realistic_niah_v3_1.sh'
+    )
+    assert "two independent four-H100" in split_submit
+    assert split_submit.count("--nodes=1") == 1
+    assert split_submit.count("--gpus-per-node=4") == 1
+    assert "REALISTIC_NIAH_SPLIT_ROLE=gemma4" in split_submit
+    assert "REALISTIC_NIAH_SPLIT_ROLE=general4" in split_submit
+    assert "--dependency" not in split_submit
+    assert 'layout=split_4gpu' in split_slurm
+    assert '[[ "${SLURM_NNODES}" == "1" ]]' in split_slurm
+    assert 'REALISTIC_NIAH_MODEL_FILTER=Gemma4-31B' in split_slurm
+    assert split_slurm.count('REALISTIC_NIAH_MODEL_EXCLUDE=Gemma4-31B') == 3
+    assert 'REALISTIC_NIAH_TENSOR_PARALLEL_SIZE=2' in split_slurm
+    assert 'REALISTIC_NIAH_WORKER_NAMESPACE=gemma-topup' in split_slurm
+    assert 'flock -x 8' in split_slurm
+    assert 'finalize_realistic_niah_v3_1_split_group.sh' in split_slurm
+    assert 'flock -x 9' in split_finalizer
+    assert 'gemma4.done' in split_finalizer
+    assert 'general4.done' in split_finalizer
+    assert split_finalizer.index('gemma4.done') < split_finalizer.index(
         'finalize_realistic_niah_v3_1.sh'
     )
 
