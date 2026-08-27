@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+from types import ModuleType
 
 from realistic_niah.drive_sync import build_run_archive
 from realistic_niah.runner import (
@@ -11,9 +13,12 @@ from realistic_niah.runner import (
     _cleanup_checkpoint_parts,
     _decode_generated_text,
     _load_completed_checkpoints,
+    _normalized_manifest_engine,
+    _resume_from_git_commits,
     _sampling_params_kwargs,
     build_requests,
     decoding_config,
+    load_vllm_runtime,
 )
 from realistic_niah.spec import (
     FORMAL_PROMPT_MODES,
@@ -51,6 +56,35 @@ def test_atomic_batch_parts_resume_and_cleanup(tmp_path: Path) -> None:
     assert sorted(_load_completed_checkpoints(results, parts)) == ["a", "b"]
     _cleanup_checkpoint_parts(parts)
     assert not parts.exists()
+
+
+def test_manifest_engine_additive_defaults_are_resume_compatible() -> None:
+    legacy = {
+        "tensor_parallel_size": 1,
+        "max_model_len": 32_768,
+    }
+
+    assert _normalized_manifest_engine(legacy) == {
+        "tensor_parallel_size": 1,
+        "max_model_len": 32_768,
+        "enforce_eager": False,
+        "disable_custom_all_reduce": False,
+    }
+    assert legacy == {
+        "tensor_parallel_size": 1,
+        "max_model_len": 32_768,
+    }
+
+
+def test_resume_git_commits_are_an_explicit_allowlist(monkeypatch) -> None:
+    first = "a" * 40
+    second = "b" * 40
+    monkeypatch.setenv(
+        "REALISTIC_NIAH_RESUME_FROM_COMMITS",
+        f"{first}:{second}",
+    )
+
+    assert _resume_from_git_commits() == {first, second}
 
 
 def test_qwen_builds_four_formal_requests_per_stimulus() -> None:
@@ -97,9 +131,55 @@ def test_registered_decoding_budgets() -> None:
     assert thinking.max_tokens == 4096
     assert thinking.temperature == 0.6
     assert EngineConfig().max_model_len == 32_768
+    assert EngineConfig().enforce_eager is False
+    assert EngineConfig().disable_custom_all_reduce is False
     assert _sampling_params_kwargs(thinking, seed=1234)[
         "skip_special_tokens"
     ] is False
+
+
+def test_vllm_runtime_forwards_tp2_stability_flags(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeLLM:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+    class FakeAutoTokenizer:
+        @classmethod
+        def from_pretrained(cls, *args: object, **kwargs: object) -> object:
+            return object()
+
+    fake_vllm = ModuleType("vllm")
+    fake_vllm.LLM = FakeLLM  # type: ignore[attr-defined]
+    fake_vllm.SamplingParams = object  # type: ignore[attr-defined]
+    fake_transformers = ModuleType("transformers")
+    fake_transformers.AutoTokenizer = FakeAutoTokenizer  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "vllm", fake_vllm)
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+    monkeypatch.setattr(
+        "realistic_niah.runner.resolve_model_revision",
+        lambda model_id, revision: MODEL_REVISIONS["Qwen3-8B"],
+    )
+
+    config = EngineConfig(
+        tensor_parallel_size=2,
+        gpu_memory_utilization=0.92,
+        enforce_eager=True,
+        disable_custom_all_reduce=True,
+    )
+    runtime = load_vllm_runtime(
+        model_spec=MODEL_SPECS["Qwen3-8B"],
+        revision=MODEL_REVISIONS["Qwen3-8B"],
+        engine_config=config,
+        cache_dir=None,
+    )
+
+    assert runtime.engine_config == config
+    assert captured["tensor_parallel_size"] == 2
+    assert captured["gpu_memory_utilization"] == 0.92
+    assert captured["enforce_eager"] is True
+    assert captured["disable_custom_all_reduce"] is True
 
 
 def test_deepseek_output_uses_tokenizer_json_decoder() -> None:

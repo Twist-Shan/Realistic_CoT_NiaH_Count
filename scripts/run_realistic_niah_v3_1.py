@@ -39,6 +39,8 @@ def main() -> None:
     parser.add_argument("--max-model-len", type=int, default=32_768)
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.90)
     parser.add_argument("--max-num-seqs", type=int)
+    parser.add_argument("--enforce-eager", action="store_true")
+    parser.add_argument("--disable-custom-all-reduce", action="store_true")
     parser.add_argument("--request-batch-size", type=int, default=32)
     parser.add_argument("--require-clean-git", action="store_true")
     args = parser.parse_args()
@@ -57,6 +59,8 @@ def main() -> None:
             max_model_len=args.max_model_len,
             gpu_memory_utilization=args.gpu_memory_utilization,
             max_num_seqs=args.max_num_seqs,
+            enforce_eager=args.enforce_eager,
+            disable_custom_all_reduce=args.disable_custom_all_reduce,
             request_batch_size=args.request_batch_size,
         ),
         cache_dir=args.cache_dir,

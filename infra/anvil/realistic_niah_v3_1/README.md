@@ -60,9 +60,32 @@ python -m pip install -r "$PROJECT/niah/requirements-inference-v3.txt"
 That requirements file is the repository's authoritative inference pin; it
 currently selects the V3-compatible Transformers and vLLM versions.
 
-## Eight-GPU submission
+## Mixed eight-GPU submission (recommended for the 31B panel)
 
-From the repository root on an Anvil login node:
+The mixed launcher keeps the whole panel in one two-node, eight-H100 Slurm
+job. On the first node, Gemma4-31B uses two GPUs with tensor parallel size 2
+while two ordinary workers use the other GPUs. Four ordinary workers run on
+the second node. When Gemma finishes, its two GPUs rejoin the ordinary worker
+pool. Atomic bundle claims prevent duplicate model execution.
+
+```bash
+RUN_ROOT="$PROJECT/runs/realistic_niah_v3_1/run_YYYYMMDD"
+CODE_COMMIT="FULL_40_CHARACTER_COMMIT"
+
+bash infra/anvil/realistic_niah_v3_1/submit_anvil_mixed.sh \
+  "$RUN_ROOT" \
+  --expected-commit "$CODE_COMMIT"
+```
+
+The allocation is always two nodes with four H100s and 48 CPU cores per node.
+Gemma4-31B alone uses eager execution and NCCL all-reduce for stability; the
+other models retain their registered single-GPU engine settings. Finalization
+runs once, after both the TP=2 bundle and all single-GPU bundles succeed.
+
+## Homogeneous one-GPU-worker submission
+
+For panels where every model fits one GPU, use the homogeneous launcher from
+the repository root on an Anvil login node:
 
 ```bash
 RUN_ROOT="$PROJECT/runs/realistic_niah_v3_1/run_YYYYMMDD"
