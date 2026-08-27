@@ -47,7 +47,7 @@ from scripts.build_niah_geometry_comparison_report import (  # noqa: E402
 )
 
 
-REPORT_SCHEMA_VERSION = "niah_geometry_comparison_v23_grammar_filtered_paired"
+REPORT_SCHEMA_VERSION = "niah_geometry_comparison_v31_explicit_grammar_endpoints"
 
 
 GRAMMAR_ITEM_END_LOCATIONS = {
@@ -2112,7 +2112,7 @@ def grammar_filtered_comparison(
 </div></article>"""
         )
     return f"""
-<section id="appendix-grammar-filter"><h2>Appendix A.2 · Grammar-filtered、逐 event 配对的 cross-mode 对比</h2>
+<section id="appendix-grammar-filter"><h2>Appendix C · 单一 thinking-trace grammar 的 3D PCA</h2>
 <div class="callout"><strong>结论：</strong>filter 能把 native-thinking 的<strong>线性可读性优势</strong>显著放大，但不能把它改写成两个模型都具有更高 PCA3 cluster tightness。{'；'.join(verdicts)}。因此这组图适合说明“控制 native grammar 后 count path 更可读”，不宜单独 claim“所有簇都更紧”。</div>
 <div class="definitions"><div><h3>Filter 如何冻结</h3><p>每个模型只用 native discovery 的 grouped-CV 选择一个覆盖 k=1…10 的 grammar × native layer；confirmation 不参与选择。</p></div><div><h3>左右如何配对</h3><p>筛中 native event 后，按 <code>split + seed + gold N + running k</code> 从 non-thinking 取完全相同的任务单元；左右 state 数、类别支持完全相同。</p></div><div><h3>Non-thinking 如何选层</h3><p>在这批 paired discovery rows 上独立选择自己的最佳层；没有把 native 的层强加给 non-thinking，也没有用 confirmation 挑视角。</p></div></div>
 {table(('model','mode','native filter grammar','layer','states','C min nₖ','C Log / NCC','C SNR','C PCA3 silhouette','C PCA3 ordinal RSA'), rows)}
@@ -2120,6 +2120,448 @@ def grammar_filtered_comparison(
 {''.join(cards)}
 <div class="callout warning"><strong>Estimand 边界：</strong>grammar 是 native trace 的结果变量，non-thinking 本身没有该 grammar。这是条件于“native 生成了 grammar G”的 paired subgroup analysis，不是随机化的 grammar intervention，也不替代上面的全样本主比较。Gemma confirmation 的 k=10 只有 2 个 states，尾部 centroid 仍属低支持。</div>
 </section>""", [metrics_path, candidates_path, payload_path, audit_path], payload
+
+
+def pure_trace_n10_comparison(
+    root: Path,
+) -> tuple[str, list[Path], dict[str, Any]]:
+    metrics_path = root / "paired_metrics.csv"
+    selected_path = root / "selected_pure_trace_grammar.csv"
+    support_path = root / "pure_trace_grammar_support.csv"
+    candidates_path = root / "layer_candidates.csv"
+    payload_path = root / "geometry_payload.json"
+    audit_path = root / "audit.json"
+    metrics = read_csv(metrics_path)
+    selected = read_csv(selected_path)
+    payload = read_json(payload_path)
+    audit = read_json(audit_path)
+    expected = {
+        "realistic_niah_v5_pure_trace_n10_cross_mode_geometry_v1",
+        "realistic_niah_v5_pure_trace_n10_cross_mode_geometry_v2",
+    }
+    if (
+        str(payload.get("schema_version")) not in expected
+        or str(audit.get("schema_version")) not in expected
+    ):
+        raise ValueError(f"Unexpected pure-trace N=10 schema in {root}")
+    supplemented = str(payload.get("schema_version")).endswith("_v2")
+    indexed = {
+        (str(row["model_label"]), str(row["mode"])): row for row in metrics
+    }
+    expected_keys = {
+        (model, mode)
+        for model in MODELS
+        for mode in ("non_thinking", "native_thinking")
+    }
+    if set(indexed) != expected_keys:
+        raise ValueError(f"Pure-trace N=10 metric panel is incomplete: {metrics_path}")
+    selected_by_model = {str(row["model_label"]): row for row in selected}
+    if set(selected_by_model) != set(MODELS):
+        raise ValueError(f"Pure-trace N=10 selections are incomplete: {selected_path}")
+
+    rows = []
+    cards = []
+    summaries = []
+    for model in MODELS:
+        chosen = selected_by_model[model]
+        grammar = str(chosen["grammar_class"])
+        discovery_n = int(float(chosen["discovery_trajectories"]))
+        confirmation_n = int(float(chosen["confirmation_trajectories"]))
+        non = indexed[(model, "non_thinking")]
+        native = indexed[(model, "native_thinking")]
+        log_gap = 100 * (
+            float(native["confirmation_logistic_balanced_accuracy"])
+            - float(non["confirmation_logistic_balanced_accuracy"])
+        )
+        ncc_gap = 100 * (
+            float(native["confirmation_ncc_balanced_accuracy"])
+            - float(non["confirmation_ncc_balanced_accuracy"])
+        )
+        summaries.append(
+            f"{model}: D/C={discovery_n}/{confirmation_n} 条，"
+            f"Log/NCC gap={log_gap:+.1f}/{ncc_gap:+.1f} pp"
+        )
+        for mode, label in (
+            ("non_thinking", "non-thinking"),
+            ("native_thinking", "native-thinking"),
+        ):
+            row = indexed[(model, mode)]
+            rows.append(
+                (
+                    esc(model),
+                    label,
+                    f"<code>{esc(grammar)}</code>",
+                    f"L{int(float(row['layer']))}",
+                    f"{discovery_n} / {confirmation_n}",
+                    str(int(float(row["confirmation_rows"]))),
+                    f"{_pct(row['confirmation_logistic_balanced_accuracy'])} / "
+                    f"{_pct(row['confirmation_ncc_balanced_accuracy'])}",
+                    f"{float(row['confirmation_class_balanced_snr_db']):.2f} dB",
+                    f"{float(row['confirmation_pca3_class_balanced_silhouette']):.3f}",
+                    f"{float(row['confirmation_pca3_ordinal_rsa']):.3f}",
+                )
+            )
+        slug = "qwen" if model.startswith("Qwen") else "gemma"
+        cards.append(
+            f"""
+<article class="appendix-model"><h3>{esc(model)} · N=10 · <code>{esc(grammar)}</code></h3>
+<div class="controls"><label>Rows<select id="pure-trace-n10-{slug}-cohort"><option value="confirmation">Confirmation only</option><option value="all">Discovery + confirmation</option></select></label></div>
+<div class="dual-grid">
+<figure class="geometry-card"><h3>Paired non-thinking</h3><canvas id="pure-trace-n10-{slug}-non" role="img" aria-label="{esc(model)} N=10 pure-trace paired non-thinking PCA3"></canvas><p class="rotate-hint">drag to rotate · faint lines are individual k=1→10 trajectories</p><p class="panel-stats" id="pure-trace-n10-{slug}-non-stats"></p></figure>
+<figure class="geometry-card"><h3>Whole-trace-pure native-thinking</h3><canvas id="pure-trace-n10-{slug}-native" role="img" aria-label="{esc(model)} N=10 whole-trace-pure native-thinking PCA3"></canvas><p class="rotate-hint">drag to rotate · same seeds and k cells; independent discovery-selected layer/PCA basis</p><p class="panel-stats" id="pure-trace-n10-{slug}-native-stats"></p></figure>
+</div></article>"""
+        )
+
+    return f"""
+<section id="appendix-pure-trace-n10"><h2>Appendix D · N=10 整条 trace 单一 grammar</h2>
+<div class="callout"><strong>{'连续 seed 补样结果' if supplemented else '当前探索性结果'}：</strong>{'；'.join(summaries)}。Qwen 的线性可读性差距很大，但 raw PCA3 silhouette 是否更紧仍须按数值如实判断；Gemma 若支持量仍小则不解释方向。{'Grammar/marker target 在补样生成前已由原 discovery panel 冻结；新增 discovery 只拟合 layer/PCA，新增 confirmation 只评价。' if supplemented else '新增连续 seed 的独立补样正在单独进行，下面先如实展示已注册 30-seed panel。'}</div>
+<div class="definitions"><div><h3>为什么只取 N=10</h3><p>每条轨迹都必须真实提供 k=1…10，因而左右都能画完整 counter path；不把较小 N 的短轨迹混入，也不补齐缺失 item。</p></div><div><h3>“纯 grammar”如何定义</h3><p>整条 native trace 必须 exact-count、one-to-one，含十个唯一 progress commits，rank 与 occurrence 都严格为 1…10，而且十个 item 共用同一个 <code>grammar_class</code> 与 <code>marker_kind</code>。</p></div><div><h3>如何避免挑图</h3><p>grammar 只按 native discovery 中合格的完整轨迹数最大化；两个 mode 再各自用 discovery grouped-CV 选层。Confirmation 不参与 grammar、layer 或 PCA basis 的选择。</p></div></div>
+{table(('model','mode','whole-trace grammar','layer','D / C traces','C states','C Log / NCC','C SNR','C PCA3 silhouette','C PCA3 ordinal RSA'), rows)}
+{''.join(cards)}
+<div class="callout warning"><strong>解释边界：</strong>这是条件于 native 生成一整条纯 grammar 的 subgroup analysis，不是 grammar intervention。每个 retained seed 在 non-thinking 侧按 <code>split + seed + N=10 + k</code> 精确配对。独立 PCA 坐标只允许比较形状、轨迹一致性与冻结指标，不能比较左右的绝对坐标距离。</div>
+</section>""", [
+        metrics_path,
+        selected_path,
+        support_path,
+        candidates_path,
+        payload_path,
+        audit_path,
+    ], payload
+
+
+def indexed_numeric_n10_comparison(
+    root: Path,
+    gemma_root: Path | None = None,
+    gemma_premarker_root: Path | None = None,
+) -> tuple[str, list[Path], dict[str, Any]]:
+    """Render strict single-surface N=10 secondary panels as Appendix C."""
+
+    metrics_path = root / "paired_metrics.csv"
+    selected_path = root / "selected_strict_dash_20_10_trajectories.csv"
+    candidates_path = root / "layer_candidates.csv"
+    payload_path = root / "geometry_payload.json"
+    audit_path = root / "audit.json"
+    metrics = read_csv(metrics_path)
+    selected = read_csv(selected_path)
+    payload = read_json(payload_path)
+    audit = read_json(audit_path)
+    expected = (
+        "realistic_niah_v5_indexed_numeric_n10_strict_dash_20_10_geometry_v1"
+    )
+    if (
+        str(payload.get("schema_version")) != expected
+        or str(audit.get("schema_version")) != expected
+    ):
+        raise ValueError(f"Unexpected indexed-numeric N=10 schema in {root}")
+    model = "Qwen3-8B"
+    model_payload = payload.get("models", {}).get(model)
+    if not isinstance(model_payload, Mapping):
+        raise ValueError(f"Indexed-numeric payload lacks {model}: {payload_path}")
+    indexed = {str(row["mode"]): row for row in metrics}
+    if set(indexed) != {"non_thinking", "native_thinking"}:
+        raise ValueError(f"Indexed-numeric metrics are incomplete: {metrics_path}")
+    discovery_seeds = sorted(
+        int(float(row["seed"]))
+        for row in selected
+        if str(row["split"]) == "discovery"
+    )
+    confirmation_seeds = sorted(
+        int(float(row["seed"]))
+        for row in selected
+        if str(row["split"]) == "confirmation"
+    )
+    if len(discovery_seeds) != 20 or len(confirmation_seeds) != 10:
+        raise ValueError(
+            "Indexed-numeric seed panel changed unexpectedly: "
+            f"D/C={len(discovery_seeds)}/{len(confirmation_seeds)}"
+        )
+    rows = []
+    layer_selects: dict[str, str] = {}
+    for mode, label, short in (
+        ("non_thinking", "non-thinking", "non"),
+        ("native_thinking", "native-thinking", "native"),
+    ):
+        row = indexed[mode]
+        mode_payload = model_payload[mode]
+        selected_layer = int(mode_payload["selected_layer"])
+        layers = sorted(int(value) for value in mode_payload["layers"])
+        if layers != list(range(36)):
+            raise ValueError(f"Indexed-numeric {mode} layer grid is incomplete")
+        layer_selects[short] = "".join(
+            f'<option value="{layer}"'
+            f'{" selected" if layer == selected_layer else ""}>L{layer}'
+            f'{" · discovery best" if layer == selected_layer else ""}</option>'
+            for layer in layers
+        )
+        rows.append(
+            (
+                label,
+                "span_end" if mode == "non_thinking" else "item_end = score digit",
+                f"L{selected_layer}",
+                f"{len(discovery_seeds)} / {len(confirmation_seeds)}",
+                str(int(float(row["confirmation_rows"]))),
+                f"{_pct(row['confirmation_logistic_balanced_accuracy'])} / "
+                f"{_pct(row['confirmation_ncc_balanced_accuracy'])}",
+                f"{float(row['confirmation_class_balanced_snr_db']):.2f} dB",
+                f"{float(row['confirmation_pca3_class_balanced_silhouette']):.3f}",
+                f"{float(row['confirmation_pca3_ordinal_rsa']):.3f}",
+            )
+        )
+    non = indexed["non_thinking"]
+    native = indexed["native_thinking"]
+    log_gap = 100 * (
+        float(native["confirmation_logistic_balanced_accuracy"])
+        - float(non["confirmation_logistic_balanced_accuracy"])
+    )
+    ncc_gap = 100 * (
+        float(native["confirmation_ncc_balanced_accuracy"])
+        - float(non["confirmation_ncc_balanced_accuracy"])
+    )
+    discovery_text = ", ".join(map(str, discovery_seeds))
+    confirmation_text = ", ".join(map(str, confirmation_seeds))
+    html = f"""
+<section id="appendix-indexed-numeric-n10"><h2>Appendix C · N=10 单一 surface 主簇</h2>
+<div class="callout"><strong>Qwen 结果：</strong>排除 <code>city received a score of …</code> 长句支簇，只保留整条十项均为 <code>k. city - score</code>、且 <code>item_end</code> 落在 score digit 的轨迹后，secondary D/C={len(discovery_seeds)}/{len(confirmation_seeds)}；冻结 confirmation 的 Log/NCC gap 为 {log_gap:+.1f}/{ncc_gap:+.1f} pp。</div>
+<div class="definitions"><div><h3>Qwen grammar</h3><p>每条 native trace 必须 exact、one-to-one、N=10；十个 item 都精确匹配 <code>k. city - score</code>，例如 <code>7. Seattle - 84</code>。显式 running index <code>7.</code> 已在同一个 item 开头；<code>item_end</code> 读取 score 的末 token <code>84</code>。</p></div><div><h3>Hidden state 在哪里</h3><p>若 output endpoint token 为 <code>t</code>，图中 Lℓ 使用该 token 经过 decoder block ℓ 后的 residual state <code>h^(ℓ)[prompt_tokens + t]</code>。它是 post-block、single-token state，能够看到截至 endpoint 的全部自回归上下文；不是 token embedding、span mean 或下一 token state。</p></div><div><h3>20/10 与选层</h3><p>该 surface rule 是诊断旧分簇后的 exploratory analysis。30 个 text-eligible seeds 只按固定 seed hash 分成 20 discovery / 10 confirmation；层和每层 PCA3 均只用 discovery 拟合，confirmation 冻结评价。图不画 per-seed 折线。</p></div></div>
+{table(('mode','endpoint','default layer','D / C traces','C states','C Log / NCC','C SNR','C PCA3 silhouette','C PCA3 ordinal RSA'), rows)}
+<div class="callout"><strong>Discovery seeds：</strong><code class="seed-list">{esc(discovery_text)}</code><br><strong>Confirmation seeds：</strong><code class="seed-list">{esc(confirmation_text)}</code></div>
+<article class="appendix-model"><h3>Qwen3-8B · N=10 · strict <code>k. city - score</code></h3>
+<div class="controls"><label>Rows<select id="indexed-numeric-n10-qwen-cohort"><option value="confirmation">Confirmation only</option><option value="all">Discovery + confirmation</option></select></label></div>
+<div class="dual-grid">
+<figure class="geometry-card"><h3>Paired non-thinking</h3><label class="layer-control">Layer<select id="indexed-numeric-n10-qwen-non-layer">{layer_selects['non']}</select></label><canvas id="indexed-numeric-n10-qwen-non" role="img" aria-label="Qwen strict city-dash-score paired non-thinking PCA3"></canvas><p class="rotate-hint">drag to rotate · scatter plus count-centroid path; no per-seed lines</p><p class="panel-stats" id="indexed-numeric-n10-qwen-non-stats"></p></figure>
+<figure class="geometry-card"><h3>Strict main-cluster native-thinking</h3><label class="layer-control">Layer<select id="indexed-numeric-n10-qwen-native-layer">{layer_selects['native']}</select></label><canvas id="indexed-numeric-n10-qwen-native" role="img" aria-label="Qwen strict city-dash-score native-thinking PCA3"></canvas><p class="rotate-hint">drag to rotate · independent layer and discovery-fitted PCA basis</p><p class="panel-stats" id="indexed-numeric-n10-qwen-native-stats"></p></figure>
+</div></article>
+<div class="callout warning"><strong>共同解释边界：</strong>Qwen 与 Gemma 的主图都把显式 running index 当作 grammar 的一部分，而不是试图构造 label-free latent-counter test。因而可以比较“固定显式 grammar 后的 representation geometry / decodability”，不能把高准确率单独解释成模型形成了抽象离散计数器。两组都是诊断旧分簇后定义的 exploratory paired subgroup，不是新的预注册 confirmation。</div>
+</section>"""
+    inputs = [metrics_path, selected_path, candidates_path, payload_path, audit_path]
+    if gemma_root is None:
+        return html, inputs, payload
+
+    gemma_metrics_path = gemma_root / "paired_metrics.csv"
+    gemma_selected_path = gemma_root / "selected_trajectories.csv"
+    gemma_candidates_path = gemma_root / "layer_candidates.csv"
+    gemma_payload_path = gemma_root / "geometry_payload.json"
+    gemma_audit_path = gemma_root / "audit.json"
+    gemma_metrics = read_csv(gemma_metrics_path)
+    gemma_selected = read_csv(gemma_selected_path)
+    gemma_candidates = read_csv(gemma_candidates_path)
+    gemma_payload = read_json(gemma_payload_path)
+    gemma_audit = read_json(gemma_audit_path)
+    gemma_expected = "realistic_niah_v5_gemma_inline_count_n10_geometry_v2"
+    if (
+        str(gemma_payload.get("schema_version")) != gemma_expected
+        or str(gemma_audit.get("schema_version")) != gemma_expected
+    ):
+        raise ValueError(f"Unexpected Gemma count-colon schema in {gemma_root}")
+    gemma_model = "Gemma4-E4B"
+    gemma_model_payload = gemma_payload.get("models", {}).get(gemma_model)
+    if not isinstance(gemma_model_payload, Mapping):
+        raise ValueError(f"Gemma count-colon payload lacks {gemma_model}")
+    gemma_native_site = str(gemma_payload.get("native_site_kind", "item_end"))
+    if gemma_native_site != "item_end":
+        raise ValueError(
+            "The report's explicit-grammar Gemma panel must use item_end; "
+            f"got {gemma_native_site!r}"
+        )
+    gemma_family = str(gemma_payload.get("surface_family", "count_colon"))
+    gemma_prefix_record = gemma_family == "controlled_prefix_record"
+    if gemma_family not in {"count_colon", "controlled_prefix_record"}:
+        raise ValueError(f"Unsupported Gemma Appendix C surface family: {gemma_family}")
+    gemma_model_payload["surface_label"] = (
+        "controlled Record-k prefix core; item-end after city/score"
+        if gemma_prefix_record
+        else "single-episode (Count: k), item-end read"
+    )
+    gemma_model_payload["native_site_kind"] = gemma_native_site
+    gemma_indexed = {str(row["mode"]): row for row in gemma_metrics}
+    if set(gemma_indexed) != {"non_thinking", "native_thinking"}:
+        raise ValueError(f"Gemma count-colon metrics are incomplete: {gemma_metrics_path}")
+    gemma_discovery_seeds = sorted(
+        int(float(row["seed"]))
+        for row in gemma_selected
+        if str(row["split"]) == "discovery"
+    )
+    gemma_confirmation_seeds = sorted(
+        int(float(row["seed"]))
+        for row in gemma_selected
+        if str(row["split"]) == "confirmation"
+    )
+    if len(gemma_discovery_seeds) != 20 or len(gemma_confirmation_seeds) != 10:
+        raise ValueError(
+            "Gemma count-colon seed panel changed unexpectedly: "
+            f"D/C={len(gemma_discovery_seeds)}/{len(gemma_confirmation_seeds)}"
+        )
+    gemma_rows = []
+    gemma_layer_selects: dict[str, str] = {}
+    for mode, label, short in (
+        ("non_thinking", "non-thinking", "non"),
+        ("native_thinking", "native-thinking", "native"),
+    ):
+        row = gemma_indexed[mode]
+        mode_payload = gemma_model_payload[mode]
+        selected_layer = int(mode_payload["selected_layer"])
+        layers = sorted(int(value) for value in mode_payload["layers"])
+        if layers != list(range(max(layers) + 1)):
+            raise ValueError(f"Gemma count-colon {mode} layer grid is incomplete")
+        gemma_layer_selects[short] = "".join(
+            f'<option value="{layer}"'
+            f'{" selected" if layer == selected_layer else ""}>L{layer}'
+            f'{" · discovery best" if layer == selected_layer else ""}</option>'
+            for layer in layers
+        )
+        gemma_rows.append(
+            (
+                label,
+                (
+                    "span_end"
+                    if mode == "non_thinking"
+                    else (
+                        "item_end after city/score"
+                        if gemma_prefix_record
+                        else "item_end = closing )"
+                    )
+                ),
+                f"L{selected_layer}",
+                f"{len(gemma_discovery_seeds)} / {len(gemma_confirmation_seeds)}",
+                str(int(float(row["confirmation_rows"]))),
+                f"{_pct(row['confirmation_logistic_balanced_accuracy'])} / "
+                f"{_pct(row['confirmation_ncc_balanced_accuracy'])}",
+                f"{float(row['confirmation_class_balanced_snr_db']):.2f} dB",
+                f"{float(row['confirmation_pca3_class_balanced_silhouette']):.3f}",
+                f"{float(row['confirmation_pca3_ordinal_rsa']):.3f}",
+            )
+        )
+    gemma_non = gemma_indexed["non_thinking"]
+    gemma_native = gemma_indexed["native_thinking"]
+    gemma_native_candidates = [
+        row
+        for row in gemma_candidates
+        if str(row.get("mode")) == "native_thinking"
+    ]
+    gemma_best_score = max(
+        float(row["discovery_selection_score"])
+        for row in gemma_native_candidates
+    )
+    gemma_tied_best_layers = sorted(
+        int(float(row["layer"]))
+        for row in gemma_native_candidates
+        if math.isclose(
+            float(row["discovery_selection_score"]),
+            gemma_best_score,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        )
+    )
+    gemma_tie_text = ", ".join(f"L{layer}" for layer in gemma_tied_best_layers)
+    gemma_log_gap = 100 * (
+        float(gemma_native["confirmation_logistic_balanced_accuracy"])
+        - float(gemma_non["confirmation_logistic_balanced_accuracy"])
+    )
+    gemma_ncc_gap = 100 * (
+        float(gemma_native["confirmation_ncc_balanced_accuracy"])
+        - float(gemma_non["confirmation_ncc_balanced_accuracy"])
+    )
+    filter_audit = gemma_payload.get("generation_filter_audit", [])
+    filter_text = "；".join(
+        f"{int(row['retained_trajectories'])}/{int(row['raw_trajectories'])}"
+        for row in filter_audit
+    ) or "未提供"
+    gemma_generated_candidates = sum(
+        int(row.get("raw_trajectories", 0)) for row in filter_audit
+    )
+    prem_rows: list[dict[str, str]] = []
+    prem_inputs: list[Path] = []
+    if gemma_premarker_root is not None and not gemma_prefix_record:
+        prem_metrics_path = gemma_premarker_root / "paired_metrics.csv"
+        prem_payload_path = gemma_premarker_root / "geometry_payload.json"
+        prem_candidates_path = gemma_premarker_root / "layer_candidates.csv"
+        prem_selected_path = gemma_premarker_root / "selected_trajectories.csv"
+        prem_audit_path = gemma_premarker_root / "audit.json"
+        prem_payload = read_json(prem_payload_path)
+        prem_audit = read_json(prem_audit_path)
+        if (
+            str(prem_payload.get("schema_version")) != gemma_expected
+            or str(prem_audit.get("schema_version")) != gemma_expected
+            or str(prem_payload.get("native_site_kind")) != "pre_marker"
+        ):
+            raise ValueError(f"Unexpected Gemma pre-marker control in {gemma_premarker_root}")
+        prem_rows = read_csv(prem_metrics_path)
+        prem_inputs = [
+            prem_metrics_path,
+            prem_payload_path,
+            prem_candidates_path,
+            prem_selected_path,
+            prem_audit_path,
+        ]
+    prem_native = next(
+        (row for row in prem_rows if str(row.get("mode")) == "native_thinking"),
+        None,
+    )
+    prem_control_html = (
+        f'<div class="callout"><strong>去显式标签 sensitivity control：</strong>'
+        f'把同一批 Gemma trajectories 的 endpoint 前移到 <code>pre_marker</code>（city/score evidence 已结束，'
+        f'<code>Count: k</code> 尚未开始）后，discovery 最佳层为 L{int(float(prem_native["layer"]))}，'
+        f'冻结 confirmation Log/NCC 为 {_pct(prem_native["confirmation_logistic_balanced_accuracy"])} / '
+        f'{_pct(prem_native["confirmation_ncc_balanced_accuracy"])}。这说明主图的 L1/100% 含有显式 surface cue，'
+        f'但移除该 cue 后仍有较强的 retrieval-complete count decodability。</div>'
+        if prem_native is not None
+        else ""
+    )
+    if gemma_prefix_record:
+        gemma_title = (
+            "Gemma4-E4B · N=10 · controlled "
+            "<code>Record k … city … score</code> prefix core"
+        )
+        gemma_result_text = (
+            "用单独 controlled prompt 诱导结构性不同的 prefix grammar；整条轨迹必须 "
+            "exact、one-to-one，并且十个 selected events 都由 <code>Record k</code> "
+            "先给出 running index，随后在同一完整 item 中出现 city 与 score。"
+            "Markdown bullet/bold 仅记为外壳，不改变 parser core。"
+        )
+        gemma_definitions_html = f"""
+<div class="definitions"><div><h3>Gemma grammar</h3><p>冻结 parser core 与本地 Markdown shell 为 <code>same_unit_rank_before_city / inline_count</code>：每个 item 必须精确是 <code>*&nbsp;&nbsp;&nbsp;Record 7: (Seattle, 84)</code>。<code>Record 7</code> 在 Seattle 与 84 之前；plain-line、粗体/斜体、<code>(Count: 7)</code> suffix、city-before-rank 与漏数轨迹全部排除。</p></div><div><h3>Hidden state 在哪里</h3><p><code>item_end</code> 固定为 city/score 之后的裸 closing parenthesis <code>)</code>；带 Markdown 尾缀的 <code>)*</code>/<code>)**</code> 或句号/引号 endpoint 也被排除。它与显式 <code>k</code> 之间隔着完整 city/score，因此不会像旧 <code>(Count: k)</code> 的 closing parenthesis 那样形成紧邻数字的浅层 shortcut。</p></div><div><h3>为什么选 L{int(float(gemma_native['layer']))}</h3><p>每层仅用 20 个 discovery seeds 的 grouped OOF Logistic/NCC 选取；最高 selection score 的层为 <code>{esc(gemma_tie_text)}</code>，固定 tie-break 后默认 L{int(float(gemma_native['layer']))}。10 个 confirmation seeds 完全不参与选层或 PCA 拟合。</p></div><div><h3>筛选与 split</h3><p>共生成 <code>{gemma_generated_candidates}</code> 个 controlled candidates，严格保留 30 个完整 N=10、同一 nested-bullet shell 与同一裸 <code>)</code> endpoint trajectories；再用独立固定 salt 哈希分为 20 discovery / 10 confirmation。筛选只读取文本/parser，不查看 hidden states、PCA 或 probe 指标。</p></div></div>"""
+        gemma_aria = "Gemma controlled Record-prefix"
+    else:
+        gemma_title = "Gemma4-E4B · N=10 · single episode <code>(Count: k)</code>"
+        gemma_result_text = (
+            "要求整条 reasoning 只有一个十项 counting episode，且每项均以 "
+            "<code>(Count: k)</code> 结束。主图固定读取右括号上的 "
+            "<code>item_end</code>；此时该项 targeted city/score evidence 与显式 "
+            "<code>Count: k</code> 都已经在自回归上下文中。"
+        )
+        gemma_definitions_html = f"""
+<div class="definitions"><div><h3>Gemma grammar</h3><p>Parser 名称为 <code>adjacent_rank_after_city / inline_count / count_colon</code>。可读 surface 例如 <code>… Ljubljana received a score of 64.\" (Count: 1)</code>；十项必须依次写成 <code>Count: 1…10</code>，整条 reasoning 不得出现第二个 counting episode。</p></div><div><h3>Hidden state 在哪里</h3><p><code>item_end</code> 是 closing parenthesis <code>)</code> 的 post-block state：Lℓ 读取 <code>h^(ℓ)[prompt_tokens + t_)]</code>。它位于该项 retrieval 文本与 count marker 之后，并能看到当前 <code>k</code>；L1 是第一个 decoder block 的输出，不是“retrieval 之前”的时间点。</p></div><div><h3>为什么默认是 L1</h3><p>Discovery 上 <code>{esc(gemma_tie_text)}</code> 的 selection score 并列最高；固定 tie-break 取最浅层，所以默认显示 L1。这里数字 <code>k</code> 紧邻 endpoint，浅层即可读取显式 surface cue；L1 不能解释为模型在第一层完成了 counting 或 consolidation。</p></div><div><h3>筛选与 split</h3><p>两个独立 raw seed pools 的 retained/raw 分别为 <code>{esc(filter_text)}</code>。30 个文本合格 seeds 使用独立固定 salt 做 20 discovery / 10 confirmation；hidden states 不参与 seed 筛选，层和 PCA 只由 discovery 拟合。</p></div></div>"""
+        gemma_aria = "Gemma strict count-colon"
+    gemma_html = f"""
+<article class="appendix-model"><h3>{gemma_title}</h3>
+<div class="callout"><strong>结果：</strong>{gemma_result_text} secondary D/C=20/10；冻结 confirmation 的 Log/NCC gap 为 {gemma_log_gap:+.1f}/{gemma_ncc_gap:+.1f} pp。</div>
+{gemma_definitions_html}
+{table(('mode','endpoint','default layer','D / C traces','C states','C Log / NCC','C SNR','C PCA3 silhouette','C PCA3 ordinal RSA'), gemma_rows)}
+{prem_control_html}
+<div class="callout"><strong>Discovery seeds：</strong><code class="seed-list">{esc(', '.join(map(str, gemma_discovery_seeds)))}</code><br><strong>Confirmation seeds：</strong><code class="seed-list">{esc(', '.join(map(str, gemma_confirmation_seeds)))}</code></div>
+<div class="controls"><label>Rows<select id="indexed-numeric-n10-gemma-cohort"><option value="confirmation">Confirmation only</option><option value="all">Discovery + confirmation</option></select></label></div>
+<div class="dual-grid">
+<figure class="geometry-card"><h3>Paired non-thinking</h3><label class="layer-control">Layer<select id="indexed-numeric-n10-gemma-non-layer">{gemma_layer_selects['non']}</select></label><canvas id="indexed-numeric-n10-gemma-non" role="img" aria-label="{gemma_aria} paired non-thinking PCA3"></canvas><p class="rotate-hint">drag to rotate · scatter plus count-centroid path; no per-seed lines</p><p class="panel-stats" id="indexed-numeric-n10-gemma-non-stats"></p></figure>
+<figure class="geometry-card"><h3>Strict main-cluster native-thinking</h3><label class="layer-control">Layer<select id="indexed-numeric-n10-gemma-native-layer">{gemma_layer_selects['native']}</select></label><canvas id="indexed-numeric-n10-gemma-native" role="img" aria-label="{gemma_aria} native-thinking PCA3"></canvas><p class="rotate-hint">drag to rotate · independent layer and discovery-fitted PCA basis</p><p class="panel-stats" id="indexed-numeric-n10-gemma-native-stats"></p></figure>
+</div></article>"""
+    html = html.replace(
+        '<div class="callout warning"><strong>共同解释边界：</strong>',
+        gemma_html + '\n<div class="callout warning"><strong>共同解释边界：</strong>',
+        1,
+    )
+    payload["models"].update(gemma_payload["models"])
+    payload["gemma_surface_family"] = gemma_family
+    inputs.extend(
+        [
+            gemma_metrics_path,
+            gemma_selected_path,
+            gemma_candidates_path,
+            gemma_payload_path,
+            gemma_audit_path,
+        ]
+    )
+    inputs.extend(prem_inputs)
+    return html, inputs, payload
 
 
 def _domain_dimension_svg(model: str, payload: Mapping[str, Any]) -> str:
@@ -2891,6 +3333,63 @@ window.addEventListener('resize',()=>{for(const model of Object.keys(GRAMMAR_FIL
 """.replace("__GRAMMAR_FILTER__", payload)
 
 
+def _pure_trace_n10_script(visual: Mapping[str, Any]) -> str:
+    if not visual:
+        return ""
+    payload = json.dumps(
+        visual, ensure_ascii=False, separators=(",", ":")
+    ).replace("</", "<\\/")
+    return r"""
+const PURE_TRACE_N10=__PURE_TRACE_N10__;
+const PURE_TRACE_N10_VIEWS={};
+function pureTraceN10Ids(model,mode){const s=slug(model),short=mode==='non_thinking'?'non':'native',base='pure-trace-n10-'+s+'-'+short;return {cohort:document.getElementById('pure-trace-n10-'+s+'-cohort'),canvas:document.getElementById(base),stats:document.getElementById(base+'-stats')}}
+function drawPureTraceN10(model,mode){
+  const modelPayload=PURE_TRACE_N10.models[model],payload=modelPayload[mode],ids=pureTraceN10Ids(model,mode);if(!payload||!ids.canvas)return;const cohort=ids.cohort.value,points=payload.points.filter(p=>cohort==='all'||p.split==='confirmation'),canvas=ids.canvas,rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+  canvas.width=Math.max(1,Math.round(rect.width*dpr));canvas.height=Math.max(1,Math.round(rect.height*dpr));const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);const w=rect.width,h=rect.height;c.clearRect(0,0,w,h);if(!points.length){c.fillStyle='#626A74';c.font='14px Segoe UI';c.fillText('No retained states in this cohort.',20,30);return}
+  const view=PURE_TRACE_N10_VIEWS[canvas.id]||(PURE_TRACE_N10_VIEWS[canvas.id]={yaw:-.72,pitch:.46}),classGroups=new Map(),traceGroups=new Map();for(const p of points){if(!classGroups.has(p.occurrence))classGroups.set(p.occurrence,[]);classGroups.get(p.occurrence).push(p);if(!traceGroups.has(p.request_id))traceGroups.set(p.request_id,[]);traceGroups.get(p.request_id).push(p)}
+  const cent=[...classGroups.entries()].sort((a,b)=>a[0]-b[0]).map(([k,ps])=>({k,n:ps.length,x:ps.reduce((s,p)=>s+p.x,0)/ps.length,y:ps.reduce((s,p)=>s+p.y,0)/ps.length,z:ps.reduce((s,p)=>s+p.z,0)/ps.length})),rotated=points.map(p=>({p,r:rotate3(p.x,p.y,p.z,view)})),rcent=cent.map(p=>({p,r:rotate3(p.x,p.y,p.z,view)}));
+  const maxAbs=Math.max(...points.flatMap(p=>[Math.abs(p.x),Math.abs(p.y),Math.abs(p.z)]),1e-6),axisLen=maxAbs*.72,axes=[['PC1','#D14B4B',rotate3(axisLen,0,0,view)],['PC2','#008E7B',rotate3(0,axisLen,0,view)],['PC3','#6750E8',rotate3(0,0,axisLen,view)]],xy=rotated.map(o=>o.r).concat(rcent.map(o=>o.r),axes.map(a=>a[2]),[[0,0,0]]);let xmin=Math.min(...xy.map(v=>v[0])),xmax=Math.max(...xy.map(v=>v[0])),ymin=Math.min(...xy.map(v=>v[1])),ymax=Math.max(...xy.map(v=>v[1]));const dx=Math.max(xmax-xmin,1e-6),dy=Math.max(ymax-ymin,1e-6);xmin-=dx*.11;xmax+=dx*.11;ymin-=dy*.11;ymax+=dy*.11;const pad={l:24,r:24,t:18,b:23},sx=x=>pad.l+(x-xmin)/(xmax-xmin)*(w-pad.l-pad.r),sy=y=>h-pad.b-(y-ymin)/(ymax-ymin)*(h-pad.t-pad.b);
+  for(const [label,color,end] of axes){c.strokeStyle=color;c.lineWidth=1.2;c.beginPath();c.moveTo(sx(0),sy(0));c.lineTo(sx(end[0]),sy(end[1]));c.stroke();c.fillStyle=color;c.font='10px Consolas';c.fillText(label,sx(end[0])+3,sy(end[1])-3)}
+  c.strokeStyle='#7A7270';c.lineWidth=.75;c.globalAlpha=.20;for(const ps of traceGroups.values()){const path=ps.slice().sort((a,b)=>a.occurrence-b.occurrence).map(p=>rotate3(p.x,p.y,p.z,view));c.beginPath();path.forEach((r,i)=>i?c.lineTo(sx(r[0]),sy(r[1])):c.moveTo(sx(r[0]),sy(r[1])));c.stroke()}
+  c.strokeStyle='#303744';c.globalAlpha=.86;c.lineWidth=2.2;c.beginPath();rcent.forEach((o,i)=>i?c.lineTo(sx(o.r[0]),sy(o.r[1])):c.moveTo(sx(o.r[0]),sy(o.r[1])));c.stroke();const depths=rotated.map(o=>o.r[2]),zmin=Math.min(...depths),zmax=Math.max(...depths),zspan=Math.max(zmax-zmin,1e-6);rotated.sort((a,b)=>a.r[2]-b.r[2]);
+  for(const o of rotated){const depth=(o.r[2]-zmin)/zspan;c.globalAlpha=.36+.50*depth;c.fillStyle=COLORS[Math.max(0,Math.min(9,o.p.occurrence-1))];c.strokeStyle=o.p.split==='confirmation'?'#FFFDF8':'#20242D';c.lineWidth=o.p.split==='confirmation'?1.9:.8;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),2.5+1.1*depth,0,Math.PI*2);c.fill();c.stroke()}
+  c.globalAlpha=1;for(const o of rcent){c.fillStyle=COLORS[Math.max(0,Math.min(9,o.p.k-1))];c.strokeStyle='#20242D';c.lineWidth=1.4;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),5.8,0,Math.PI*2);c.fill();c.stroke();c.fillStyle='#20242D';c.font='10px Consolas';c.fillText(String(o.p.k),sx(o.r[0])+7,sy(o.r[1])-6)}
+  const trajectories=traceGroups.size,seeds=new Set(points.map(p=>p.seed)).size,support=cent.map(p=>p.n),evr=100*payload.pca3_explained_variance_ratio.reduce((a,b)=>a+b,0),m=payload.metrics,label=mode==='non_thinking'?'span_end':'item_end';ids.stats.textContent=`${modelPayload.grammar_class} · ${label} · L${payload.layer} · ${cohort==='all'?'discovery + confirmation':'frozen confirmation'} · ${trajectories} complete trajectories / ${points.length} states / ${seeds} seeds · nₖ ${Math.min(...support)}–${Math.max(...support)} · EVR3 ${evr.toFixed(1)}% · C Log/NCC ${(100*m.confirmation_logistic_balanced_accuracy).toFixed(1)}%/${(100*m.confirmation_ncc_balanced_accuracy).toFixed(1)}% · SNR ${m.confirmation_class_balanced_snr_db.toFixed(2)} dB · PCA3 sil ${payload.confirmation_pca3_class_balanced_silhouette.toFixed(3)} · RSA ${payload.confirmation_pca3_ordinal_rsa.toFixed(3)}`;
+}
+function setupPureTraceN10(model){const non=pureTraceN10Ids(model,'non_thinking'),redraw=()=>{drawPureTraceN10(model,'non_thinking');drawPureTraceN10(model,'native_thinking')};non.cohort.addEventListener('change',redraw);for(const mode of ['non_thinking','native_thinking']){const ids=pureTraceN10Ids(model,mode);let active=false,lastX=0,lastY=0;ids.canvas.addEventListener('pointerdown',e=>{active=true;lastX=e.clientX;lastY=e.clientY;ids.canvas.setPointerCapture(e.pointerId)});ids.canvas.addEventListener('pointermove',e=>{if(!active)return;const view=PURE_TRACE_N10_VIEWS[ids.canvas.id]||(PURE_TRACE_N10_VIEWS[ids.canvas.id]={yaw:-.72,pitch:.46});view.yaw+=(e.clientX-lastX)*.009;view.pitch=Math.max(-1.45,Math.min(1.45,view.pitch+(e.clientY-lastY)*.009));lastX=e.clientX;lastY=e.clientY;drawPureTraceN10(model,mode)});const stop=()=>{active=false};ids.canvas.addEventListener('pointerup',stop);ids.canvas.addEventListener('pointercancel',stop)}redraw()}
+for(const model of Object.keys(PURE_TRACE_N10.models)){try{setupPureTraceN10(model)}catch(error){console.error('pure-trace N10 panel failed',model,error)}}
+window.addEventListener('resize',()=>{for(const model of Object.keys(PURE_TRACE_N10.models))for(const mode of ['non_thinking','native_thinking']){try{drawPureTraceN10(model,mode)}catch(error){console.error('pure-trace N10 resize failed',model,mode,error)}}});
+""".replace("__PURE_TRACE_N10__", payload)
+
+
+def _indexed_numeric_n10_script(visual: Mapping[str, Any]) -> str:
+    if not visual:
+        return ""
+    payload = json.dumps(
+        visual, ensure_ascii=False, separators=(",", ":")
+    ).replace("</", "<\\/")
+    return r"""
+const INDEXED_NUMERIC_N10=__INDEXED_NUMERIC_N10__;
+const INDEXED_NUMERIC_N10_VIEWS={};
+function indexedNumericN10Ids(model,mode){const s=slug(model),short=mode==='non_thinking'?'non':'native',base='indexed-numeric-n10-'+s+'-'+short;return {cohort:document.getElementById('indexed-numeric-n10-'+s+'-cohort'),layer:document.getElementById(base+'-layer'),canvas:document.getElementById(base),stats:document.getElementById(base+'-stats')}}
+function drawIndexedNumericN10(model,mode){
+  const modelPayload=INDEXED_NUMERIC_N10.models[model],modePayload=modelPayload[mode],ids=indexedNumericN10Ids(model,mode);if(!modePayload||!ids.canvas||!ids.layer)return;const layer=String(ids.layer.value),payload=modePayload.layers[layer];if(!payload)return;const cohort=ids.cohort.value,points=payload.points.filter(p=>cohort==='all'||p.split==='confirmation'),canvas=ids.canvas,rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+  canvas.width=Math.max(1,Math.round(rect.width*dpr));canvas.height=Math.max(1,Math.round(rect.height*dpr));const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);const w=rect.width,h=rect.height;c.clearRect(0,0,w,h);if(!points.length){c.fillStyle='#626A74';c.font='14px Segoe UI';c.fillText('No retained states in this cohort.',20,30);return}
+  const view=INDEXED_NUMERIC_N10_VIEWS[canvas.id]||(INDEXED_NUMERIC_N10_VIEWS[canvas.id]={yaw:-.72,pitch:.46}),classGroups=new Map();for(const p of points){if(!classGroups.has(p.occurrence))classGroups.set(p.occurrence,[]);classGroups.get(p.occurrence).push(p)}
+  const cent=[...classGroups.entries()].sort((a,b)=>a[0]-b[0]).map(([k,ps])=>({k,n:ps.length,x:ps.reduce((s,p)=>s+p.x,0)/ps.length,y:ps.reduce((s,p)=>s+p.y,0)/ps.length,z:ps.reduce((s,p)=>s+p.z,0)/ps.length})),rotated=points.map(p=>({p,r:rotate3(p.x,p.y,p.z,view)})),rcent=cent.map(p=>({p,r:rotate3(p.x,p.y,p.z,view)}));
+  const maxAbs=Math.max(...points.flatMap(p=>[Math.abs(p.x),Math.abs(p.y),Math.abs(p.z)]),1e-6),axisLen=maxAbs*.72,axes=[['PC1','#D14B4B',rotate3(axisLen,0,0,view)],['PC2','#008E7B',rotate3(0,axisLen,0,view)],['PC3','#6750E8',rotate3(0,0,axisLen,view)]],xy=rotated.map(o=>o.r).concat(rcent.map(o=>o.r),axes.map(a=>a[2]),[[0,0,0]]);let xmin=Math.min(...xy.map(v=>v[0])),xmax=Math.max(...xy.map(v=>v[0])),ymin=Math.min(...xy.map(v=>v[1])),ymax=Math.max(...xy.map(v=>v[1]));const dx=Math.max(xmax-xmin,1e-6),dy=Math.max(ymax-ymin,1e-6);xmin-=dx*.11;xmax+=dx*.11;ymin-=dy*.11;ymax+=dy*.11;const pad={l:24,r:24,t:18,b:23},sx=x=>pad.l+(x-xmin)/(xmax-xmin)*(w-pad.l-pad.r),sy=y=>h-pad.b-(y-ymin)/(ymax-ymin)*(h-pad.t-pad.b);
+  for(const [label,color,end] of axes){c.strokeStyle=color;c.lineWidth=1.2;c.beginPath();c.moveTo(sx(0),sy(0));c.lineTo(sx(end[0]),sy(end[1]));c.stroke();c.fillStyle=color;c.font='10px Consolas';c.fillText(label,sx(end[0])+3,sy(end[1])-3)}
+  c.strokeStyle='#303744';c.globalAlpha=.86;c.lineWidth=2.2;c.beginPath();rcent.forEach((o,i)=>i?c.lineTo(sx(o.r[0]),sy(o.r[1])):c.moveTo(sx(o.r[0]),sy(o.r[1])));c.stroke();const depths=rotated.map(o=>o.r[2]),zmin=Math.min(...depths),zmax=Math.max(...depths),zspan=Math.max(zmax-zmin,1e-6);rotated.sort((a,b)=>a.r[2]-b.r[2]);
+  for(const o of rotated){const depth=(o.r[2]-zmin)/zspan;c.globalAlpha=.36+.50*depth;c.fillStyle=COLORS[Math.max(0,Math.min(9,o.p.occurrence-1))];c.strokeStyle=o.p.split==='confirmation'?'#FFFDF8':'#20242D';c.lineWidth=o.p.split==='confirmation'?1.9:.8;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),2.5+1.1*depth,0,Math.PI*2);c.fill();c.stroke()}
+  c.globalAlpha=1;for(const o of rcent){c.fillStyle=COLORS[Math.max(0,Math.min(9,o.p.k-1))];c.strokeStyle='#20242D';c.lineWidth=1.4;c.beginPath();c.arc(sx(o.r[0]),sy(o.r[1]),5.8,0,Math.PI*2);c.fill();c.stroke();c.fillStyle='#20242D';c.font='10px Consolas';c.fillText(String(o.p.k),sx(o.r[0])+7,sy(o.r[1])-6)}
+  const trajectories=new Set(points.map(p=>p.request_id)).size,seeds=new Set(points.map(p=>p.seed)).size,support=cent.map(p=>p.n),evr=100*payload.pca3_explained_variance_ratio.reduce((a,b)=>a+b,0),m=payload.metrics,label=mode==='non_thinking'?'span_end':(modelPayload.native_site_kind||'item_end'),best=Number(layer)===Number(modePayload.selected_layer)?' · discovery best':'',surface=modelPayload.surface_label||'strict k. city - score';ids.stats.textContent=`${surface} · ${label} · L${layer}${best} · ${cohort==='all'?'discovery + confirmation':'secondary frozen confirmation'} · ${trajectories} complete trajectories / ${points.length} states / ${seeds} seeds · nₖ ${Math.min(...support)}–${Math.max(...support)} · EVR3 ${evr.toFixed(1)}% · C Log/NCC ${(100*m.confirmation_logistic_balanced_accuracy).toFixed(1)}%/${(100*m.confirmation_ncc_balanced_accuracy).toFixed(1)}% · SNR ${m.confirmation_class_balanced_snr_db.toFixed(2)} dB · PCA3 sil ${payload.confirmation_pca3_class_balanced_silhouette.toFixed(3)} · RSA ${payload.confirmation_pca3_ordinal_rsa.toFixed(3)}`;
+}
+function setupIndexedNumericN10(model){const non=indexedNumericN10Ids(model,'non_thinking'),native=indexedNumericN10Ids(model,'native_thinking'),redraw=()=>{drawIndexedNumericN10(model,'non_thinking');drawIndexedNumericN10(model,'native_thinking')};non.cohort.addEventListener('change',redraw);non.layer.addEventListener('change',()=>drawIndexedNumericN10(model,'non_thinking'));native.layer.addEventListener('change',()=>drawIndexedNumericN10(model,'native_thinking'));for(const mode of ['non_thinking','native_thinking']){const ids=indexedNumericN10Ids(model,mode);let active=false,lastX=0,lastY=0;ids.canvas.addEventListener('pointerdown',e=>{active=true;lastX=e.clientX;lastY=e.clientY;ids.canvas.setPointerCapture(e.pointerId)});ids.canvas.addEventListener('pointermove',e=>{if(!active)return;const view=INDEXED_NUMERIC_N10_VIEWS[ids.canvas.id]||(INDEXED_NUMERIC_N10_VIEWS[ids.canvas.id]={yaw:-.72,pitch:.46});view.yaw+=(e.clientX-lastX)*.009;view.pitch=Math.max(-1.45,Math.min(1.45,view.pitch+(e.clientY-lastY)*.009));lastX=e.clientX;lastY=e.clientY;drawIndexedNumericN10(model,mode)});const stop=()=>{active=false};ids.canvas.addEventListener('pointerup',stop);ids.canvas.addEventListener('pointercancel',stop)}redraw()}
+for(const model of Object.keys(INDEXED_NUMERIC_N10.models)){try{setupIndexedNumericN10(model)}catch(error){console.error('indexed-numeric N10 panel failed',model,error)}}
+window.addEventListener('resize',()=>{for(const model of Object.keys(INDEXED_NUMERIC_N10.models))for(const mode of ['non_thinking','native_thinking']){try{drawIndexedNumericN10(model,mode)}catch(error){console.error('indexed-numeric N10 resize failed',model,mode,error)}}});
+""".replace("__INDEXED_NUMERIC_N10__", payload)
+
+
 def build_html(
     *,
     dual_results: Mapping[str, Mapping[str, Any]],
@@ -2911,6 +3410,10 @@ def build_html(
     band_audits: Mapping[str, Mapping[str, Any]],
     grammar_filter_html: str = "",
     grammar_filter_visual: Mapping[str, Any] | None = None,
+    pure_trace_n10_html: str = "",
+    pure_trace_n10_visual: Mapping[str, Any] | None = None,
+    indexed_numeric_n10_html: str = "",
+    indexed_numeric_n10_visual: Mapping[str, Any] | None = None,
     nonthinking_internal_html: str = "",
     domain_html: str = "",
     domain_visual: Mapping[str, Any] | None = None,
@@ -2918,12 +3421,14 @@ def build_html(
     domain_endpoint_visual: Mapping[str, Any] | None = None,
 ) -> str:
     css = """
-:root{--paper:#F3EEE4;--surface:#FFFDF8;--ink:#20242D;--muted:#626A74;--line:#C9C2B6;--indigo:#23165C;--teal:#00A88F;--yellow:#D6B52C}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;overflow-x:hidden;background:var(--paper);color:var(--ink);font-family:"Segoe UI",Arial,sans-serif;line-height:1.62}a{color:var(--indigo)}nav{position:sticky;top:0;z-index:5;display:flex;gap:18px;padding:10px 22px;background:rgba(243,238,228,.96);border-bottom:1px solid var(--line);overflow-x:auto}nav a{color:var(--indigo);font-size:13px;font-weight:750;text-decoration:none;white-space:nowrap}main{max-width:1480px;margin:auto;padding:38px 28px 80px}header{max-width:1080px;border-bottom:2px solid var(--ink);padding-bottom:28px}.eyebrow{font:700 12px/1.2 Consolas,monospace;letter-spacing:.12em;color:var(--teal)}h1{font-size:44px;line-height:1.08;margin:10px 0 16px;letter-spacing:-.035em}h2{font-size:29px;margin:0 0 12px}h4{color:var(--indigo)}.lead{font-size:18px;color:#404852;max-width:92ch}section{padding:46px 0;border-bottom:1px solid var(--line)}.callout{max-width:1120px;background:var(--surface);border-left:4px solid var(--teal);padding:15px 19px;margin:20px 0}.warning{border-left-color:var(--yellow)}.definitions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}.definitions.two{grid-template-columns:repeat(2,minmax(0,1fr))}.definitions>div,.geometry-card,.appendix-model{min-width:0;background:var(--surface);border:1px solid var(--line);padding:17px}.definitions h3,.geometry-card h3{color:var(--indigo);margin:0 0 8px;font-size:17px}.definitions p,.geometry-card p{font-size:13px;color:var(--muted);margin:0 0 12px}.controls{display:flex;gap:12px;flex-wrap:wrap}.controls label{font-size:12px;font-weight:700;color:var(--muted)}select{display:block;margin-top:4px;border:1px solid var(--line);background:var(--surface);padding:7px 28px 7px 9px;color:var(--ink)}.dual-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:28px}.geometry-card canvas{display:block;width:100%;height:390px;background:#F8F4EC;border:1px solid #DDD5C9;touch-action:none;cursor:grab}.geometry-card canvas:active{cursor:grabbing}.rotate-hint{margin-top:5px;color:#7A7270;font:10px/1.4 Consolas,monospace}.panel-stats{min-height:70px;margin-top:7px;color:var(--muted);font:12px/1.5 Consolas,monospace}.table-scroll{overflow:auto;background:var(--surface);border:1px solid var(--line);margin:16px 0 22px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid #DED8CE}th{background:#ECE6DA;color:#303744}.site-badge{display:block;width:max-content;margin-top:5px;padding:2px 6px;border:1px solid currentColor;border-radius:2px;font:700 9px/1.3 Consolas,monospace;letter-spacing:.04em}.primary-badge{color:var(--teal)}.winner-badge{color:var(--indigo)}.muted,.small{color:var(--muted);font-size:12px}.metric-grid,.metric-guide-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0 20px}.metric-guide-card{min-width:0;background:var(--surface);border:1px solid var(--line);padding:17px}.metric-guide-card h3{color:var(--indigo);margin:0 0 9px;font-size:17px}.metric-guide-card p{font-size:13px;margin:8px 0}.metric-guide-card .formula{background:#ECE6DA;color:#303744;padding:8px 10px;font:12px/1.5 Consolas,monospace}.metric-figure{min-width:0;margin:0;background:var(--surface);border:1px solid var(--line);padding:13px}.metric-figure h3{margin:0;color:var(--indigo);font-size:17px}.metric-figure svg{display:block;width:100%;height:auto}.metric-gridline{stroke:#D9D2C7;stroke-width:1}.metric-zero{stroke:#756E68;stroke-width:1.5}.metric-tick,.metric-label,.metric-value,.metric-axis-title{fill:#303744;font:12px Consolas,monospace}.metric-tick{fill:var(--muted);font-size:11px}.metric-link{stroke:#8A838E;stroke-width:2}.metric-dot{stroke:#FFFDF8;stroke-width:2}.metric-non,.snr-non{fill:#20242D}.metric-native,.snr-native,.metric-answer{fill:#00A88F}.metric-running{fill:#6750E8}.snr-upper{fill:#E76F51}.snr-lower{fill:#6750E8}.metric-legend,.band-dynamic-legend{display:flex;gap:15px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:10px 0}.metric-legend span,.band-dynamic-legend span{display:inline-flex;align-items:center;gap:6px}.metric-legend i,.band-dynamic-legend i{display:inline-block;width:11px;height:11px;border-radius:50%;background:#8A838E}.metric-legend .legend-non{background:#20242D}.metric-legend .legend-native,.metric-legend .legend-answer{background:#00A88F}.metric-legend .legend-running{background:#6750E8}.metric-legend .legend-upper{background:#E76F51}.metric-legend .legend-lower{background:#6750E8}.band-dynamic-legend i.square{border-radius:0}.band-dynamic-legend b{font-weight:500}.token-flow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:20px 0}.token-flow article{min-width:0;background:var(--surface);border:1px solid var(--line);padding:17px}.token-flow h3{color:var(--indigo);margin:0 0 8px;font-size:17px}.token-flow p{font-size:13px;color:var(--muted)}.token-strip{display:flex;gap:5px;align-items:flex-start;flex-wrap:wrap;margin:17px 0 26px}.token-strip span{position:relative;background:#ECE6DA;padding:5px 7px;font:12px Consolas,monospace}.token-strip span[data-pos]::after{content:attr(data-pos);position:absolute;left:50%;top:100%;transform:translateX(-50%);font:9px Consolas,monospace;color:#7A7270}.token-strip .picked{background:#00A88F;color:#FFFDF8}.token-strip b{font:11px Consolas,monospace;color:var(--indigo);padding:5px}.boundary-example{display:flex;align-items:stretch;margin:15px 0;font:12px/1.5 Consolas,monospace}.boundary-example span{background:#ECE6DA;padding:8px 10px}.boundary-example i{display:block;width:4px;background:#E76F51}.boundary-example .answer-token{background:#D9F1EA}.band-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0}.band-figure{min-width:0;margin:0;background:#FFFDF8;border:1px solid var(--line);padding:12px}.band-figure h4{font-size:15px;color:var(--indigo);margin:0 0 8px}.band-figure canvas{display:block;width:100%;height:380px;background:#F8F4EC;border:1px solid #DDD5C9;touch-action:none;cursor:grab}.band-figure canvas:active{cursor:grabbing}.band-controls{margin-top:15px}.appendix-model{margin:22px 0}.domain-legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:-14px 0 18px}.domain-legend span{display:inline-flex;align-items:center;gap:6px}.domain-legend i{display:inline-block;width:11px;height:11px;background:#20242D}.domain-legend .domain-city{border-radius:50%}.domain-legend .domain-flower{background:#00A88F;clip-path:polygon(50% 0,100% 100%,0 100%)}.domain-legend .domain-animal{background:#E76F51}.domain-dim-figure{margin:18px 0}.domain-dim-line{fill:none;stroke-width:2.3}.domain-line-non{stroke:#20242D;fill:#20242D}.domain-line-native{stroke:#00A88F;fill:#00A88F}.domain-dim-mark{stroke:#FFFDF8;stroke-width:1.4}.domain-chance{stroke:#8A838E;stroke-width:1.3;stroke-dasharray:5 4}.provenance{font:11px/1.6 Consolas,monospace;color:var(--muted)}details{background:var(--surface);border:1px solid var(--line);margin:18px 0}summary{cursor:pointer;padding:12px 15px;font-weight:750;color:var(--indigo)}@media(max-width:1000px){.dual-grid,.definitions,.definitions.two,.metric-grid,.metric-guide-grid,.token-flow,.band-grid{grid-template-columns:1fr}}@media(max-width:650px){main{padding:25px 13px 60px}h1{font-size:34px}.geometry-card canvas,.band-figure canvas{height:330px}.metric-value{font-size:10px}}
+:root{--paper:#F3EEE4;--surface:#FFFDF8;--ink:#20242D;--muted:#626A74;--line:#C9C2B6;--indigo:#23165C;--teal:#00A88F;--yellow:#D6B52C}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;overflow-x:hidden;background:var(--paper);color:var(--ink);font-family:"Segoe UI",Arial,sans-serif;line-height:1.62}a{color:var(--indigo)}nav{position:sticky;top:0;z-index:5;display:flex;gap:18px;padding:10px 22px;background:rgba(243,238,228,.96);border-bottom:1px solid var(--line);overflow-x:auto}nav a{color:var(--indigo);font-size:13px;font-weight:750;text-decoration:none;white-space:nowrap}main{max-width:1480px;margin:auto;padding:38px 28px 80px}header{max-width:1080px;border-bottom:2px solid var(--ink);padding-bottom:28px}.eyebrow{font:700 12px/1.2 Consolas,monospace;letter-spacing:.12em;color:var(--teal)}h1{font-size:44px;line-height:1.08;margin:10px 0 16px;letter-spacing:-.035em}h2{font-size:29px;margin:0 0 12px}h4{color:var(--indigo)}.lead{font-size:18px;color:#404852;max-width:92ch}section{padding:46px 0;border-bottom:1px solid var(--line)}.callout{max-width:1120px;background:var(--surface);border-left:4px solid var(--teal);padding:15px 19px;margin:20px 0}.warning{border-left-color:var(--yellow)}.definitions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}.definitions.two{grid-template-columns:repeat(2,minmax(0,1fr))}.definitions>div,.geometry-card,.appendix-model{min-width:0;background:var(--surface);border:1px solid var(--line);padding:17px}.definitions h3,.geometry-card h3{color:var(--indigo);margin:0 0 8px;font-size:17px}.definitions p,.geometry-card p{font-size:13px;color:var(--muted);margin:0 0 12px}.controls{display:flex;gap:12px;flex-wrap:wrap}.controls label,.layer-control{font-size:12px;font-weight:700;color:var(--muted)}.layer-control{display:inline-block;margin:0 0 10px}select{display:block;margin-top:4px;border:1px solid var(--line);background:var(--surface);padding:7px 28px 7px 9px;color:var(--ink)}.seed-list{white-space:normal;word-break:break-word}.dual-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:28px}.geometry-card canvas{display:block;width:100%;height:390px;background:#F8F4EC;border:1px solid #DDD5C9;touch-action:none;cursor:grab}.geometry-card canvas:active{cursor:grabbing}.rotate-hint{margin-top:5px;color:#7A7270;font:10px/1.4 Consolas,monospace}.panel-stats{min-height:70px;margin-top:7px;color:var(--muted);font:12px/1.5 Consolas,monospace}.table-scroll{overflow:auto;background:var(--surface);border:1px solid var(--line);margin:16px 0 22px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid #DED8CE}th{background:#ECE6DA;color:#303744}.site-badge{display:block;width:max-content;margin-top:5px;padding:2px 6px;border:1px solid currentColor;border-radius:2px;font:700 9px/1.3 Consolas,monospace;letter-spacing:.04em}.primary-badge{color:var(--teal)}.winner-badge{color:var(--indigo)}.muted,.small{color:var(--muted);font-size:12px}.metric-grid,.metric-guide-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0 20px}.metric-guide-card{min-width:0;background:var(--surface);border:1px solid var(--line);padding:17px}.metric-guide-card h3{color:var(--indigo);margin:0 0 9px;font-size:17px}.metric-guide-card p{font-size:13px;margin:8px 0}.metric-guide-card .formula{background:#ECE6DA;color:#303744;padding:8px 10px;font:12px/1.5 Consolas,monospace}.metric-figure{min-width:0;margin:0;background:var(--surface);border:1px solid var(--line);padding:13px}.metric-figure h3{margin:0;color:var(--indigo);font-size:17px}.metric-figure svg{display:block;width:100%;height:auto}.metric-gridline{stroke:#D9D2C7;stroke-width:1}.metric-zero{stroke:#756E68;stroke-width:1.5}.metric-tick,.metric-label,.metric-value,.metric-axis-title{fill:#303744;font:12px Consolas,monospace}.metric-tick{fill:var(--muted);font-size:11px}.metric-link{stroke:#8A838E;stroke-width:2}.metric-dot{stroke:#FFFDF8;stroke-width:2}.metric-non,.snr-non{fill:#20242D}.metric-native,.snr-native,.metric-answer{fill:#00A88F}.metric-running{fill:#6750E8}.snr-upper{fill:#E76F51}.snr-lower{fill:#6750E8}.metric-legend,.band-dynamic-legend{display:flex;gap:15px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:10px 0}.metric-legend span,.band-dynamic-legend span{display:inline-flex;align-items:center;gap:6px}.metric-legend i,.band-dynamic-legend i{display:inline-block;width:11px;height:11px;border-radius:50%;background:#8A838E}.metric-legend .legend-non{background:#20242D}.metric-legend .legend-native,.metric-legend .legend-answer{background:#00A88F}.metric-legend .legend-running{background:#6750E8}.metric-legend .legend-upper{background:#E76F51}.metric-legend .legend-lower{background:#6750E8}.band-dynamic-legend i.square{border-radius:0}.band-dynamic-legend b{font-weight:500}.token-flow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:20px 0}.token-flow article{min-width:0;background:var(--surface);border:1px solid var(--line);padding:17px}.token-flow h3{color:var(--indigo);margin:0 0 8px;font-size:17px}.token-flow p{font-size:13px;color:var(--muted)}.token-strip{display:flex;gap:5px;align-items:flex-start;flex-wrap:wrap;margin:17px 0 26px}.token-strip span{position:relative;background:#ECE6DA;padding:5px 7px;font:12px Consolas,monospace}.token-strip span[data-pos]::after{content:attr(data-pos);position:absolute;left:50%;top:100%;transform:translateX(-50%);font:9px Consolas,monospace;color:#7A7270}.token-strip .picked{background:#00A88F;color:#FFFDF8}.token-strip b{font:11px Consolas,monospace;color:var(--indigo);padding:5px}.boundary-example{display:flex;align-items:stretch;margin:15px 0;font:12px/1.5 Consolas,monospace}.boundary-example span{background:#ECE6DA;padding:8px 10px}.boundary-example i{display:block;width:4px;background:#E76F51}.boundary-example .answer-token{background:#D9F1EA}.band-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0}.band-figure{min-width:0;margin:0;background:#FFFDF8;border:1px solid var(--line);padding:12px}.band-figure h4{font-size:15px;color:var(--indigo);margin:0 0 8px}.band-figure canvas{display:block;width:100%;height:380px;background:#F8F4EC;border:1px solid #DDD5C9;touch-action:none;cursor:grab}.band-figure canvas:active{cursor:grabbing}.band-controls{margin-top:15px}.appendix-model{margin:22px 0}.domain-legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:-14px 0 18px}.domain-legend span{display:inline-flex;align-items:center;gap:6px}.domain-legend i{display:inline-block;width:11px;height:11px;background:#20242D}.domain-legend .domain-city{border-radius:50%}.domain-legend .domain-flower{background:#00A88F;clip-path:polygon(50% 0,100% 100%,0 100%)}.domain-legend .domain-animal{background:#E76F51}.domain-dim-figure{margin:18px 0}.domain-dim-line{fill:none;stroke-width:2.3}.domain-line-non{stroke:#20242D;fill:#20242D}.domain-line-native{stroke:#00A88F;fill:#00A88F}.domain-dim-mark{stroke:#FFFDF8;stroke-width:1.4}.domain-chance{stroke:#8A838E;stroke-width:1.3;stroke-dasharray:5 4}.provenance{font:11px/1.6 Consolas,monospace;color:var(--muted)}details{background:var(--surface);border:1px solid var(--line);margin:18px 0}summary{cursor:pointer;padding:12px 15px;font-weight:750;color:var(--indigo)}@media(max-width:1000px){.dual-grid,.definitions,.definitions.two,.metric-grid,.metric-guide-grid,.token-flow,.band-grid{grid-template-columns:1fr}}@media(max-width:650px){main{padding:25px 13px 60px}h1{font-size:34px}.geometry-card canvas,.band-figure canvas{height:330px}.metric-value{font-size:10px}}
 """
     script = (
         _dual_script(dual_visual)
         + _band_script(band_visual)
         + _grammar_filter_script(grammar_filter_visual or {})
+        + _pure_trace_n10_script(pure_trace_n10_visual or {})
+        + _indexed_numeric_n10_script(indexed_numeric_n10_visual or {})
         + _domain_script(domain_visual or {})
         + _domain_endpoint_script(domain_endpoint_visual or {})
         + _clean_grammar_script(new_native_visual)
@@ -2931,7 +3436,7 @@ def build_html(
         + _phase_grammar_script(phase_grammar_visual)
     )
     return f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NiaH Geometry Comparison</title><style>{css}</style></head><body>
-<nav><a href="#scope">口径</a><a href="#tokens">Token 提取</a><a href="#causal-aligned">Causal 对齐</a><a href="#metric-guide">指标定义</a><a href="#claims">核心结果</a><a href="#dual">PCA 对比</a><a href="#snr">SNR</a><a href="#appendix-bands">Appendix A</a>{'<a href="#appendix-grammar-filter">A.2 paired filter</a>' if grammar_filter_html else ''}{'<a href="#appendix-domain-transfer">Appendix B</a>' if domain_html else ''}{'<a href="#appendix-domain-endpoints">B.2 endpoints</a>' if domain_endpoint_html else ''}{'<a href="#appendix-nonthinking-internal">Appendix C</a>' if nonthinking_internal_html else ''}{'<a href="#appendix-clean-grammar">Appendix D</a>' if new_native_html else ''}{'<a href="#appendix-index-city">D.2 index+city</a>' if index_city_html else ''}{'<a href="#appendix-phase-grammar">Appendix E</a>' if phase_grammar_html else ''}</nav><main>
+<nav><a href="#scope">口径</a><a href="#tokens">Token 提取</a><a href="#causal-aligned">Causal 对齐</a><a href="#metric-guide">指标定义</a><a href="#claims">核心结果</a><a href="#dual">PCA 对比</a><a href="#snr">SNR</a><a href="#appendix-bands">Appendix A</a>{'<a href="#appendix-domain-transfer">Appendix B</a>' if domain_html else ''}{'<a href="#appendix-domain-endpoints">B.2 endpoints</a>' if domain_endpoint_html else ''}{'<a href="#appendix-indexed-numeric-n10">Appendix C</a>' if indexed_numeric_n10_html else ''}{'<a href="#appendix-nonthinking-internal">Appendix D</a>' if nonthinking_internal_html else ''}{'<a href="#appendix-clean-grammar">Appendix E</a>' if new_native_html else ''}{'<a href="#appendix-index-city">E.2 index+city</a>' if index_city_html else ''}{'<a href="#appendix-phase-grammar">Appendix F</a>' if phase_grammar_html else ''}</nav><main>
 <header><div class="eyebrow">REALISTIC NIAH · ALL-COUNT GEOMETRY</div><h1>NiaH Geometry Comparison</h1><p class="lead">Running index 与 final count 的全部四组正式 PCA 对比均保留，并覆盖 N=1…10 的完整 300 trajectories 与 confirmation 100 trajectories。最稳定的跨模型现象不是“每张 PCA 都更紧”，而是 native-thinking 在 Logistic 与 nearest-centroid 的全部 8 个 frozen held-out 比较中都更可解码；报告据此先给结论，再完整展示 PCA 与负/混合视觉结果。</p></header>
 <section id="scope"><h2>严格比较口径</h2><div class="definitions"><div><h3>Full 300</h3><p>10 个 gold N × 30 seeds。它是 descriptive geometry view；PCA3 仍只由 discovery 200 拟合，避免 confirmation 反向选显示 basis。</p></div><div><h3>Confirmation 100</h3><p>10 个 gold N × 10 held-out seeds。主表的 Logistic、nearest-centroid 与 SNR 都是 discovery-frozen 后在这里评价。</p></div><div><h3>Native running 的 ragged rule</h3><p>每条 trace 只贡献 parser 实际观察到的 1…M。数到 8 就贡献八个 states；不按 gold N 或最终 Total 补到 9/10。</p></div></div></section>
 {token_html}
@@ -2940,10 +3445,10 @@ def build_html(
 {empirical_claims(dual_results)}
 {dual_endpoint_section(dual_results, dual_visual)}
 {snr_section(dual_results, band_audits)}
-{marker_html}{band_html}{grammar_filter_html}{domain_html}{domain_endpoint_html}
+{marker_html}{band_html}{domain_html}{domain_endpoint_html}{grammar_filter_html}{pure_trace_n10_html}{indexed_numeric_n10_html}
 {nonthinking_internal_html}
 {new_native_html}{index_city_html}{phase_grammar_html}
-<section><h2>解释边界</h2><p>这些图和 probes 证明的是 within-task decodability/geometry，不单独证明离散计数器、逐步加一算法或因果使用。两个 mode 的 end token 语义和最佳层仍不同，因此比较的是两个 single-token 完成边界上同一任务变量的可读性，而不是共享坐标系中的绝对距离。</p><p class="provenance">Report schema: {REPORT_SCHEMA_VERSION} · pooled 10 counts × 30 seeds · full/confirmation views: 300/100 trajectories · running sites fixed: span_end/item_end · layer selector: pooled discovery only · new-parser grammar diagnosis: Appendix A · paired grammar-filter sensitivity: Appendix A.2</p></section>
+<section><h2>解释边界</h2><p>这些图和 probes 证明的是 within-task decodability/geometry，不单独证明离散计数器、逐步加一算法或因果使用。两个 mode 的 end token 语义和最佳层仍不同，因此比较的是各自语义对齐的 single-token 边界上同一任务变量的可读性，而不是共享坐标系中的绝对距离。Appendix C 主图明确包含显式 running-index surface；Gemma 另报 retrieval-complete、label-not-yet-visible 的 <code>pre_marker</code> sensitivity control。</p><p class="provenance">Report schema: {REPORT_SCHEMA_VERSION} · pooled 10 counts × 30 seeds · full/confirmation views: 300/100 trajectories · pooled running sites fixed: span_end/item_end · Appendix C main sites: Qwen score-digit item_end, Gemma closing-parenthesis item_end · Gemma sensitivity site: pre_marker · layer selector: discovery only · new-parser grammar diagnosis: Appendix A · entity-domain diagnostics: Appendix B/B.2 · Qwen/Gemma strict single-surface N=10 secondary 20/10 layer sweeps: Appendix C</p></section>
 </main><script>{script}</script></body></html>"""
 
 
@@ -2963,6 +3468,10 @@ def build_report(
     covariance_root: Path | None = None,
     causal_aligned_root: Path | None = None,
     grammar_filter_root: Path | None = None,
+    pure_trace_n10_root: Path | None = None,
+    indexed_numeric_n10_root: Path | None = None,
+    gemma_count_colon_n10_root: Path | None = None,
+    gemma_premarker_n10_root: Path | None = None,
     clean_grammar_root: Path | None = None,
     post_marker_root: Path | None = None,
     index_city_root: Path | None = None,
@@ -3051,6 +3560,32 @@ def build_report(
             grammar_filter_inputs,
             grammar_filter_visual,
         ) = grammar_filtered_comparison(grammar_filter_root.resolve())
+    pure_trace_n10_html = ""
+    pure_trace_n10_inputs: list[Path] = []
+    pure_trace_n10_visual: dict[str, Any] = {}
+    if pure_trace_n10_root is not None:
+        (
+            pure_trace_n10_html,
+            pure_trace_n10_inputs,
+            pure_trace_n10_visual,
+        ) = pure_trace_n10_comparison(pure_trace_n10_root.resolve())
+    indexed_numeric_n10_html = ""
+    indexed_numeric_n10_inputs: list[Path] = []
+    indexed_numeric_n10_visual: dict[str, Any] = {}
+    if indexed_numeric_n10_root is not None:
+        (
+            indexed_numeric_n10_html,
+            indexed_numeric_n10_inputs,
+            indexed_numeric_n10_visual,
+        ) = indexed_numeric_n10_comparison(
+            indexed_numeric_n10_root.resolve(),
+            gemma_count_colon_n10_root.resolve()
+            if gemma_count_colon_n10_root is not None
+            else None,
+            gemma_premarker_n10_root.resolve()
+            if gemma_premarker_n10_root is not None
+            else None,
+        )
     domain_html = ""
     domain_inputs: list[Path] = []
     domain_visual: dict[str, Any] = {}
@@ -3097,6 +3632,10 @@ def build_report(
         band_audits=band_audits,
         grammar_filter_html=grammar_filter_html,
         grammar_filter_visual=grammar_filter_visual,
+        pure_trace_n10_html=pure_trace_n10_html,
+        pure_trace_n10_visual=pure_trace_n10_visual,
+        indexed_numeric_n10_html=indexed_numeric_n10_html,
+        indexed_numeric_n10_visual=indexed_numeric_n10_visual,
         nonthinking_internal_html=nonthinking_internal_html,
         domain_html=domain_html,
         domain_visual=domain_visual,
@@ -3113,6 +3652,8 @@ def build_report(
             + fisher_lda_inputs
             + band_inputs
             + grammar_filter_inputs
+            + pure_trace_n10_inputs
+            + indexed_numeric_n10_inputs
             + token_inputs
             + domain_inputs
             + covariance_inputs
@@ -3158,10 +3699,40 @@ def build_report(
         "legacy_marker_appendix": "removed; superseded by the new per-event grammar registry in the token section and Appendix A",
         "trace_format_site_layer_sweep": "omitted; Appendix A diagnoses frozen-band association with the new parser grammar",
         "grammar_filtered_cross_mode": (
-            "Appendix A.2; native grammar and native layer selected on discovery only; "
+            "Appendix C; native grammar and native layer selected on discovery only; "
             "non-thinking paired one-to-one by split/seed/gold-N/running-k and selects "
             "its own layer on paired discovery; confirmation frozen"
             if grammar_filter_html
+            else "not included"
+        ),
+        "pure_trace_n10_cross_mode": (
+            "Appendix D; N=10 only; whole native trace must be exact one-to-one "
+            "with ten commits from one grammar and marker kind; grammar selected by "
+            "qualified discovery trajectory count only; exact non-thinking pairing; "
+            "each mode independently selects layer on discovery; confirmation frozen"
+            if pure_trace_n10_html
+            else "not included"
+        ),
+        "indexed_numeric_n10_cross_mode": (
+            "Appendix C exploratory secondary panels; Qwen requires exact k. city - "
+            "score items ending on the score digit; "
+            + (
+                "Gemma requires exact ten-item nested bullets of the form "
+                "Record k: (city, score), with item_end fixed to the bare closing "
+                "parenthesis after city/score. "
+                if indexed_numeric_n10_visual.get("gemma_surface_family")
+                == "controlled_prefix_record"
+                else
+                "Gemma requires one and only one ten-item reasoning episode whose "
+                "items end in (Count: k), with item_end fixed to the closing "
+                "parenthesis after the explicit count label. "
+            )
+            + "Each model has exactly 30 text-eligible "
+            "paired seeds and an independent seed-hash 20/10 split; hidden states do "
+            "not select seeds. Every layer has its own discovery-fitted PCA3 and "
+            "secondary frozen confirmation metrics; all retained seeds and Gemma raw "
+            "generation filter rates are printed in the report"
+            if indexed_numeric_n10_html
             else "not included"
         ),
         "single_grammar_counter_geometry": (
@@ -3241,6 +3812,10 @@ def main() -> None:
     parser.add_argument("--covariance-root", type=Path)
     parser.add_argument("--causal-aligned-root", type=Path)
     parser.add_argument("--grammar-filter-root", type=Path)
+    parser.add_argument("--pure-trace-n10-root", type=Path)
+    parser.add_argument("--indexed-numeric-n10-root", type=Path)
+    parser.add_argument("--gemma-count-colon-n10-root", type=Path)
+    parser.add_argument("--gemma-premarker-n10-root", type=Path)
     parser.add_argument("--clean-grammar-root", type=Path)
     parser.add_argument("--post-marker-root", type=Path)
     parser.add_argument("--index-city-root", type=Path)
@@ -3264,6 +3839,10 @@ def main() -> None:
         covariance_root=args.covariance_root,
         causal_aligned_root=args.causal_aligned_root,
         grammar_filter_root=args.grammar_filter_root,
+        pure_trace_n10_root=args.pure_trace_n10_root,
+        indexed_numeric_n10_root=args.indexed_numeric_n10_root,
+        gemma_count_colon_n10_root=args.gemma_count_colon_n10_root,
+        gemma_premarker_n10_root=args.gemma_premarker_n10_root,
         clean_grammar_root=args.clean_grammar_root,
         post_marker_root=args.post_marker_root,
         index_city_root=args.index_city_root,

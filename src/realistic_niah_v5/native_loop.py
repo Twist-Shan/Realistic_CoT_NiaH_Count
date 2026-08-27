@@ -88,6 +88,22 @@ REGISTERED_P0_LOOP_CONDITIONS = (
     "count_component_restored",
 )
 
+# Optional full-state controls for the commit -> next-query specificity
+# extension.  They are deliberately kept out of REGISTERED_P0_LOOP_CONDITIONS
+# so the sealed historical experiment and its default CLI remain unchanged.
+REGISTERED_FULL_COMMIT_SPECIFICITY_CONDITIONS = (
+    "full_delta_norm_matched_orthogonal_r0",
+    "full_delta_norm_matched_orthogonal_r1",
+    "full_delta_norm_matched_orthogonal_r2",
+    "opposite_full_delta_patch",
+    "shuffled_natural_donor_patch",
+)
+
+AVAILABLE_P0_LOOP_CONDITIONS = (
+    *REGISTERED_P0_LOOP_CONDITIONS,
+    *REGISTERED_FULL_COMMIT_SPECIFICITY_CONDITIONS,
+)
+
 REGISTERED_BOUNDARY_CONDITIONS = (
     "clean",
     "self_patch",
@@ -750,6 +766,159 @@ def native_loop_condition_states(
             torch.max(torch.abs(restored - receiver))
         ),
         "condition_audit": condition_audit,
+    }
+
+
+def choose_shuffled_commit_donor_occurrence(
+    *,
+    gold_count: int,
+    receiver_occurrence: int,
+    donor_occurrence: int,
+    random_seed: int,
+) -> int:
+    """Choose an outcome-blind natural commit with the wrong ordinal.
+
+    A control donor must own a successor transition, so occurrence ``N`` is
+    excluded. We first prefer the donor mirrored across the receiver because
+    it matches absolute donor distance. If that state has no successor, a
+    deterministic random choice is made among the closest-distance states.
+    """
+
+    count = int(gold_count)
+    receiver = int(receiver_occurrence)
+    donor = int(donor_occurrence)
+    if count < 4:
+        raise ValueError("Full-commit specificity needs at least four items")
+    if not 1 <= receiver < count or not 1 <= donor < count or donor == receiver:
+        raise ValueError(
+            "Receiver and donor must own distinct successor transitions"
+        )
+    candidates = [
+        occurrence
+        for occurrence in range(1, count)
+        if occurrence not in {receiver, donor}
+    ]
+    if not candidates:
+        raise ValueError("No natural shuffled commit donor is available")
+    offset = donor - receiver
+    mirrored = receiver - offset
+    if mirrored in candidates:
+        return int(mirrored)
+    target_distance = abs(offset)
+    best_mismatch = min(
+        abs(abs(occurrence - receiver) - target_distance)
+        for occurrence in candidates
+    )
+    finalists = sorted(
+        occurrence
+        for occurrence in candidates
+        if abs(abs(occurrence - receiver) - target_distance) == best_mismatch
+    )
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(int(random_seed))
+    selected = int(torch.randint(len(finalists), (1,), generator=generator).item())
+    return int(finalists[selected])
+
+
+def full_commit_specificity_condition_states(
+    receiver_state: np.ndarray | torch.Tensor,
+    donor_state: np.ndarray | torch.Tensor,
+    *,
+    shuffled_donor_state: np.ndarray | torch.Tensor | None,
+    random_seed: int,
+    random_replicates: int = 3,
+) -> tuple[dict[str, torch.Tensor], dict[str, Any]]:
+    """Build complete-delta-matched and natural-donor controls.
+
+    This construction makes no claim about a linear count subspace. Random
+    controls match the complete donor-minus-receiver norm and are orthogonal
+    to that realized transition. The opposite control is antipodal with the
+    same norm. The shuffled control, when supplied, is an unmodified commit
+    state from a different ordinal in the same natural trace.
+    """
+
+    receiver = torch.as_tensor(receiver_state).detach().float().cpu().reshape(-1)
+    donor = torch.as_tensor(donor_state).detach().float().cpu().reshape(-1)
+    if receiver.shape != donor.shape:
+        raise ValueError("Receiver and donor widths disagree")
+    full_delta = donor - receiver
+    full_norm = float(torch.linalg.vector_norm(full_delta))
+    if full_norm <= 1e-12:
+        raise ValueError("Full donor delta is zero")
+    unit_delta = full_delta / full_norm
+    states: dict[str, torch.Tensor] = {
+        "opposite_full_delta_patch": receiver - full_delta,
+    }
+    audits: dict[str, dict[str, Any]] = {}
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(int(random_seed))
+    for replicate in range(int(random_replicates)):
+        random = torch.randn(receiver.shape, generator=generator)
+        random = random - torch.dot(random, unit_delta) * unit_delta
+        random_norm = float(torch.linalg.vector_norm(random))
+        if random_norm <= 1e-12:
+            raise RuntimeError("Could not sample a full-delta orthogonal control")
+        delta = random * (full_norm / random_norm)
+        name = f"full_delta_norm_matched_orthogonal_r{replicate}"
+        states[name] = receiver + delta
+    shuffled = None
+    if shuffled_donor_state is not None:
+        shuffled = (
+            torch.as_tensor(shuffled_donor_state)
+            .detach()
+            .float()
+            .cpu()
+            .reshape(-1)
+        )
+        if shuffled.shape != receiver.shape:
+            raise ValueError("Shuffled donor width disagrees")
+        states["shuffled_natural_donor_patch"] = shuffled
+
+    for name, state in states.items():
+        delta = state - receiver
+        norm = float(torch.linalg.vector_norm(delta))
+        cosine = float(
+            torch.dot(delta, full_delta) / max(norm * full_norm, 1e-12)
+        )
+        audits[name] = {
+            "condition_patch_delta_norm": norm,
+            "condition_full_donor_delta_norm_ratio": norm / full_norm,
+            "condition_full_donor_delta_cosine": cosine,
+            "condition_distance_to_full_donor": float(
+                torch.linalg.vector_norm(state - donor)
+            ),
+            "condition_is_natural_commit_state": bool(
+                name == "shuffled_natural_donor_patch"
+            ),
+        }
+    random_names = [
+        name
+        for name in states
+        if name.startswith("full_delta_norm_matched_orthogonal_r")
+    ]
+    max_random_cosine = max(
+        abs(audits[name]["condition_full_donor_delta_cosine"])
+        for name in random_names
+    )
+    max_random_norm_error = max(
+        abs(audits[name]["condition_full_donor_delta_norm_ratio"] - 1.0)
+        for name in random_names
+    )
+    if max_random_cosine > 2e-5:
+        raise RuntimeError("Full-delta random control is not orthogonal")
+    if max_random_norm_error > 2e-5:
+        raise RuntimeError("Full-delta random control is not norm matched")
+    return states, {
+        "full_donor_delta_norm": full_norm,
+        "full_delta_random_replicates": int(random_replicates),
+        "full_delta_random_max_abs_cosine": max_random_cosine,
+        "full_delta_random_max_relative_norm_error": max_random_norm_error,
+        "shuffled_donor_delta_norm": (
+            None
+            if shuffled is None
+            else float(torch.linalg.vector_norm(shuffled - receiver))
+        ),
+        "condition_audit": audits,
     }
 
 
@@ -1633,6 +1802,7 @@ def run_p0_native_loop_trials(
     *,
     receiver_occurrence: int,
     donor_occurrence: int,
+    shuffled_donor_occurrence: int | None = None,
     layer: int,
     center: np.ndarray | torch.Tensor,
     basis: np.ndarray | torch.Tensor,
@@ -1647,18 +1817,40 @@ def run_p0_native_loop_trials(
     requested = tuple(str(value) for value in conditions)
     if len(set(requested)) != len(requested):
         raise ValueError("P0 loop conditions must be unique")
-    unknown = sorted(set(requested) - set(REGISTERED_P0_LOOP_CONDITIONS))
+    unknown = sorted(set(requested) - set(AVAILABLE_P0_LOOP_CONDITIONS))
     if unknown:
         raise ValueError(f"Unknown P0 loop conditions: {unknown}")
     if not {"clean", "self_patch"} <= set(requested):
         raise ValueError("P0 loop trials require clean and self_patch")
+    specificity_requested = set(requested) & set(
+        REGISTERED_FULL_COMMIT_SPECIFICITY_CONDITIONS
+    )
+    if specificity_requested and "full_donor_patch" not in requested:
+        raise ValueError("Full-commit specificity requires full_donor_patch")
+    if (
+        "shuffled_natural_donor_patch" in specificity_requested
+        and shuffled_donor_occurrence is None
+    ):
+        raise ValueError("Shuffled natural-donor control lacks an occurrence")
     count = len(gold_records(row))
     receiver = int(receiver_occurrence)
     donor = int(donor_occurrence)
+    shuffled_donor = (
+        None
+        if shuffled_donor_occurrence is None
+        else int(shuffled_donor_occurrence)
+    )
     if not 1 < receiver < count:
         raise ValueError("P0 loop receiver must be strictly intermediate")
     if donor == receiver or not 1 <= donor < count:
         raise ValueError("P0 loop donor must own a next-item transition")
+    if shuffled_donor is not None and (
+        shuffled_donor in {receiver, donor}
+        or not 1 <= shuffled_donor < count
+    ):
+        raise ValueError(
+            "Shuffled donor must own a distinct next-item transition"
+        )
     source_layer = int(layer)
     if not 0 <= source_layer < int(adapter.num_layers) - 1:
         raise ValueError("P0 loop layer must leave a downstream decoder layer")
@@ -1673,18 +1865,38 @@ def run_p0_native_loop_trials(
         raise ValueError("P0 loop pair lacks a progress transition")
     receiver_spec = by_occurrence[receiver]
     donor_spec = by_occurrence[donor]
+    shuffled_spec = (
+        None
+        if shuffled_donor is None
+        else by_occurrence.get(shuffled_donor)
+    )
+    if shuffled_donor is not None and shuffled_spec is None:
+        raise ValueError("Shuffled donor lacks a progress transition")
     answer_encoding, registry = build_answer_source_registry(row, tokenizer)
     endpoints = tuple(end - 1 for _start, end in registry.trace_items)
     receiver_position = int(endpoints[receiver - 1])
     donor_position = int(endpoints[donor - 1])
+    shuffled_position = (
+        None
+        if shuffled_donor is None
+        else int(endpoints[shuffled_donor - 1])
+    )
+    capture_positions = [receiver_position, donor_position]
+    if shuffled_position is not None:
+        capture_positions.append(shuffled_position)
     _logits, captured = capture_post_block_states(
         model,
         adapter,
         answer_encoding,
-        [receiver_position, donor_position],
+        capture_positions,
         layers=[source_layer],
     )
-    receiver_state, donor_state = captured[source_layer]
+    receiver_state, donor_state = captured[source_layer][:2]
+    shuffled_state = (
+        None
+        if shuffled_position is None
+        else captured[source_layer][2]
+    )
     states, state_audit = native_loop_condition_states(
         receiver_state,
         donor_state,
@@ -1692,6 +1904,27 @@ def run_p0_native_loop_trials(
         basis,
         random_seed=int(random_seed),
     )
+    if specificity_requested:
+        specificity_states, specificity_audit = (
+            full_commit_specificity_condition_states(
+                receiver_state,
+                donor_state,
+                shuffled_donor_state=shuffled_state,
+                random_seed=int(random_seed) + 1_000_003,
+                random_replicates=3,
+            )
+        )
+        states.update(specificity_states)
+        state_audit["condition_audit"].update(
+            specificity_audit["condition_audit"]
+        )
+        state_audit.update(
+            {
+                f"full_specificity_{key}": value
+                for key, value in specificity_audit.items()
+                if key not in {"condition_audit", "full_donor_delta_norm"}
+            }
+        )
 
     query_output_index = int(receiver_spec["query_output_token_index"])
     target_start = int(receiver_spec["target_output_token_start"])
@@ -1704,6 +1937,16 @@ def run_p0_native_loop_trials(
         raise RuntimeError("Receiver path disagrees with registered target city")
     donor_city_ids = tuple(int(value) for value in donor_spec["target_token_ids"])
     donor_path = receiver_path[:city_offset] + donor_city_ids
+    shuffled_city_ids = (
+        None
+        if shuffled_spec is None
+        else tuple(int(value) for value in shuffled_spec["target_token_ids"])
+    )
+    shuffled_path = (
+        None
+        if shuffled_city_ids is None
+        else receiver_path[:city_offset] + shuffled_city_ids
+    )
     local_encoding = build_native_causal_encoding(
         row,
         tokenizer,
@@ -1717,9 +1960,29 @@ def run_p0_native_loop_trials(
     known_cities = tuple(str(value["city"]) for value in gold_records(row))
     receiver_next_city = str(receiver_spec["target_city"])
     donor_next_city = str(donor_spec["target_city"])
+    shuffled_next_city = (
+        None if shuffled_spec is None else str(shuffled_spec["target_city"])
+    )
+    ordinal_by_city = {
+        str(record["city"]).casefold(): index
+        for index, record in enumerate(gold_records(row), start=1)
+    }
+    shuffled_successor_ordinal = (
+        None
+        if shuffled_next_city is None
+        else int(ordinal_by_city[shuffled_next_city.casefold()])
+    )
     common = {
         "schema_version": NATIVE_LOOP_SCHEMA_VERSION,
         "experiment_id": "p0_count_state_to_targeted_retrieval",
+        **(
+            {
+                "experiment_variant": "full_commit_specificity_v1",
+                "full_commit_specificity_uses_count_subspace": False,
+            }
+            if specificity_requested
+            else {}
+        ),
         "request_id": str(row["request_id"]),
         "model_label": str(answer_encoding.model_label),
         "seed": int(row["seed"]),
@@ -1727,7 +1990,11 @@ def run_p0_native_loop_trials(
         "layer": source_layer,
         "receiver_occurrence": receiver,
         "donor_occurrence": donor,
+        "shuffled_donor_occurrence": shuffled_donor,
         "donor_offset": donor - receiver,
+        "shuffled_donor_offset": (
+            None if shuffled_donor is None else shuffled_donor - receiver
+        ),
         "donor_direction": (
             "past_to_later_receiver"
             if donor < receiver
@@ -1736,8 +2003,11 @@ def run_p0_native_loop_trials(
         "future_donor_is_counterfactual_not_natural_stream": bool(donor > receiver),
         "receiver_position": receiver_position,
         "donor_position": donor_position,
+        "shuffled_donor_position": shuffled_position,
         "receiver_expected_next_city": receiver_next_city,
         "donor_expected_next_city": donor_next_city,
+        "shuffled_donor_expected_next_city": shuffled_next_city,
+        "shuffled_donor_successor_source_ordinal": shuffled_successor_ordinal,
         "teacher_forced_interstitial_token_count": city_offset,
         "probe_site": "patched_p0_post_block_state",
         "attention_site": "frozen_grammar_routed_targeted_query",
@@ -1774,6 +2044,17 @@ def run_p0_native_loop_trials(
             donor_path,
             city_token_offset=city_offset,
         )
+        shuffled_score = (
+            None
+            if shuffled_path is None
+            else _score_trace_continuation(
+                model,
+                local_encoding,
+                prefill,
+                shuffled_path,
+                city_token_offset=city_offset,
+            )
+        )
         attention = _routed_targeted_attention_metrics(
             model,
             tokenizer,
@@ -1802,6 +2083,41 @@ def run_p0_native_loop_trials(
                 - receiver_score["city_log_probability"]
             ),
         }
+        if shuffled_score is not None:
+            local_outcomes.update(
+                {
+                    "shuffled_donor_path_log_probability": shuffled_score[
+                        "sequence_log_probability"
+                    ],
+                    "shuffled_donor_city_log_probability": shuffled_score[
+                        "city_log_probability"
+                    ],
+                    "shuffled_donor_vs_receiver_city_log_odds": float(
+                        shuffled_score["city_log_probability"]
+                        - receiver_score["city_log_probability"]
+                    ),
+                    "donor_vs_shuffled_donor_city_log_odds": float(
+                        donor_score["city_log_probability"]
+                        - shuffled_score["city_log_probability"]
+                    ),
+                }
+            )
+        if shuffled_successor_ordinal is not None:
+            source_masses = attention["targeted_bank_source_masses"]
+            shuffled_mass = float(source_masses[str(shuffled_successor_ordinal)])
+            donor_mass = float(attention["donor_successor_attention_mass"])
+            receiver_mass = float(attention["receiver_successor_attention_mass"])
+            local_outcomes.update(
+                {
+                    "shuffled_donor_successor_attention_mass": shuffled_mass,
+                    "shuffled_minus_receiver_successor_attention_mass": float(
+                        shuffled_mass - receiver_mass
+                    ),
+                    "donor_minus_shuffled_successor_attention_mass": float(
+                        donor_mass - shuffled_mass
+                    ),
+                }
+            )
         if run_greedy:
             completion = generate_answer_completion_from_prefill(
                 model,
@@ -1829,6 +2145,12 @@ def run_p0_native_loop_trials(
                     "receiver_city_retention": bool(
                         generated_city is not None
                         and generated_city.casefold() == receiver_next_city.casefold()
+                    ),
+                    "shuffled_donor_city_adoption": bool(
+                        generated_city is not None
+                        and shuffled_next_city is not None
+                        and generated_city.casefold()
+                        == shuffled_next_city.casefold()
                     ),
                 }
             )

@@ -91,6 +91,8 @@ def run_pipeline(
     analysis_root: Path,
     band_root: Path,
     grammar_filter_root: Path | None = None,
+    pure_trace_n10_root: Path | None = None,
+    indexed_numeric_n10_root: Path | None = None,
     output: Path,
     manifest: Path,
     domain_transfer_root: Path | None = None,
@@ -164,6 +166,8 @@ def run_pipeline(
         band_root=band_root,
         grammar_registry=grammar_registry,
         grammar_filter_root=grammar_filter_root,
+        pure_trace_n10_root=pure_trace_n10_root,
+        indexed_numeric_n10_root=indexed_numeric_n10_root,
         output=output,
         manifest_path=manifest,
         domain_transfer_root=domain_transfer_root,
@@ -182,6 +186,8 @@ def main() -> None:
     parser.add_argument("--analysis-root", type=Path, required=True)
     parser.add_argument("--band-root", type=Path, required=True)
     parser.add_argument("--grammar-filter-root", type=Path)
+    parser.add_argument("--pure-trace-n10-root", type=Path)
+    parser.add_argument("--indexed-numeric-n10-root", type=Path)
     parser.add_argument("--domain-transfer-root", type=Path)
     parser.add_argument("--covariance-root", type=Path)
     parser.add_argument("--output", type=Path, required=True)
@@ -202,6 +208,16 @@ def main() -> None:
         grammar_filter_root=(
             args.grammar_filter_root.resolve()
             if args.grammar_filter_root is not None
+            else None
+        ),
+        pure_trace_n10_root=(
+            args.pure_trace_n10_root.resolve()
+            if args.pure_trace_n10_root is not None
+            else None
+        ),
+        indexed_numeric_n10_root=(
+            args.indexed_numeric_n10_root.resolve()
+            if args.indexed_numeric_n10_root is not None
             else None
         ),
         domain_transfer_root=(

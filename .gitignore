@@ -54,7 +54,7 @@ report/
 /work_remote_snapshots/
 /output/
 /.playwright-cli/
-/({src
+/(\{src
 
 # Local credentials and machine-specific configuration.
 .env

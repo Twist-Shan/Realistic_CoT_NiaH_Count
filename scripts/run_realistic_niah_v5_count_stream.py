@@ -71,11 +71,14 @@ from realistic_niah_v5.integrated_bridge import (  # noqa: E402
     run_integrated_serial_bridge_trials,
 )
 from realistic_niah_v5.native_loop import (  # noqa: E402
+    AVAILABLE_P0_LOOP_CONDITIONS,
     REGISTERED_BOUNDARY_CONDITIONS,
+    REGISTERED_FULL_COMMIT_SPECIFICITY_CONDITIONS,
     REGISTERED_P0_LOOP_CONDITIONS,
     REGISTERED_QUERY_MEDIATION_GEOMETRIES,
     build_query_mediation_head_plan,
     build_fixed_native_loop_plan,
+    choose_shuffled_commit_donor_occurrence,
     load_frozen_query_mediation_head_plan,
     load_frozen_targeted_bank,
     run_endpoint_boundary_transplant_trials,
@@ -246,7 +249,7 @@ def _spec(args: argparse.Namespace) -> NativeCountMechanismSpec:
 def _validate_seed_contract(
     config: V5Config, mechanism: NativeCountMechanismSpec
 ) -> None:
-    """Reject any native count-stream run outside the canonical 20/10 split."""
+    """Require the dataset and validated mechanism registries to agree exactly."""
 
     expected_discovery = tuple(int(value) for value in mechanism.development_seeds)
     expected_confirmation = tuple(int(value) for value in mechanism.confirmation_seeds)
@@ -273,8 +276,7 @@ def _validate_seed_contract(
     }
     if mismatches:
         raise ValueError(
-            "Native count-stream experiments require exactly 20 discovery seeds "
-            "(1234..1253) and 10 confirmation seeds (1254..1263): "
+            "Native count-stream dataset and mechanism seed registries disagree: "
             f"{mismatches}"
         )
 
@@ -1654,8 +1656,21 @@ def _native_loop_plan_for_rows(
         if args.seed_role == "development"
         else mechanism.confirmation_seeds
     )
+    plan_rows = rows
+    if (
+        mechanism.experiment_id
+        == "realistic_niah_v5_full_commit_specificity_confirmation_v1"
+    ):
+        # The receiver, intended donor, and wrong-ordinal donor must be three
+        # distinct natural commits that each own a successor. With occurrences
+        # 1..N-1, that structural gate is N >= 4. Apply it before outcome-blind
+        # hash sampling, so an ineligible request cannot displace an eligible
+        # request from the same seed/offset cell.
+        plan_rows = [
+            row for row in rows if int(row.get("gold_count", 0)) >= 4
+        ]
     return build_fixed_native_loop_plan(
-        rows,
+        plan_rows,
         model_label=args.model,
         seeds=seeds,
         seed_role=args.seed_role,
@@ -1839,8 +1854,36 @@ def command_p0_native_loop(args: argparse.Namespace) -> None:
     output = Path(args.output)
     shard_dir = _prepare_shards(output, resume=args.resume, suffix="jsonl")
     completed = skipped = 0
+    requested_conditions = {str(value) for value in args.conditions}
+    requires_shuffled = (
+        "shuffled_natural_donor_patch" in requested_conditions
+    )
+    if requested_conditions & set(REGISTERED_FULL_COMMIT_SPECIFICITY_CONDITIONS):
+        if not {"clean", "self_patch", "full_donor_patch"} <= requested_conditions:
+            raise ValueError(
+                "Full-commit specificity runs require clean, self_patch, and "
+                "full_donor_patch"
+            )
+    if requires_shuffled and "shuffled_donor_occurrence" not in plan.columns:
+        raise ValueError(
+            "The specificity plan lacks frozen shuffled_donor_occurrence"
+        )
     for index, pair in enumerate(plan.itertuples(index=False), start=1):
         row = row_by_request[str(pair.request_id)]
+        shuffled_donor_occurrence = None
+        if requires_shuffled:
+            shuffled_donor_occurrence = int(pair.shuffled_donor_occurrence)
+            expected_control = choose_shuffled_commit_donor_occurrence(
+                gold_count=int(pair.gold_count),
+                receiver_occurrence=int(pair.receiver_occurrence),
+                donor_occurrence=int(pair.donor_occurrence),
+                random_seed=int(args.random_seed) + int(pair.seed) * 1009,
+            )
+            if shuffled_donor_occurrence != expected_control:
+                raise ValueError(
+                    "Frozen shuffled donor disagrees with its outcome-blind "
+                    "reconstruction"
+                )
         stem = _safe_stem(pair.pair_sha256, "p0_native_loop", args.layer)
         shard = shard_dir / f"{stem}.jsonl"
         if args.resume and shard.exists():
@@ -1853,6 +1896,7 @@ def command_p0_native_loop(args: argparse.Namespace) -> None:
             row,
             receiver_occurrence=int(pair.receiver_occurrence),
             donor_occurrence=int(pair.donor_occurrence),
+            shuffled_donor_occurrence=shuffled_donor_occurrence,
             layer=int(args.layer),
             center=center,
             basis=basis,
@@ -4202,7 +4246,7 @@ def build_parser() -> argparse.ArgumentParser:
     p0_loop.add_argument(
         "--conditions",
         nargs="+",
-        choices=list(REGISTERED_P0_LOOP_CONDITIONS),
+        choices=list(AVAILABLE_P0_LOOP_CONDITIONS),
         default=list(REGISTERED_P0_LOOP_CONDITIONS),
     )
     p0_loop.add_argument(

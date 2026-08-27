@@ -693,6 +693,7 @@ def build_answer_source_registry(
     tokenizer: Any,
     *,
     answer_site_id: str = "answer_query_v3",
+    candidate_counts: Sequence[int] = tuple(range(1, 11)),
 ) -> tuple[NativeTraceEncoding, AnswerSourceRegistry]:
     """Compile exact prompt/trace/marker partitions for one answer prefix."""
 
@@ -700,7 +701,7 @@ def build_answer_source_registry(
         row,
         tokenizer,
         site_id=answer_site_id,
-        candidate_counts=tuple(range(1, 11)),
+        candidate_counts=tuple(int(value) for value in candidate_counts),
     )
     family = infer_model_family(row)
     raw = raw_output_text(row)
