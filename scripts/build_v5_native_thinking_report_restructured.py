@@ -2899,9 +2899,11 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 .core-claim{margin:24px 0;padding:22px 24px;border-top:4px solid #0f766e;background:#f0f9f7;font-size:17px;line-height:1.72}.core-claim strong{color:#075e58}.claim-tier-grid{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:1px;margin:20px 0;border:1px solid var(--line);background:var(--line)}.claim-tier-grid>div{padding:18px;background:#fff}.claim-tier-grid h3{margin:0 0 8px;font-size:15px}.claim-tier-grid p{margin:7px 0;color:#475467;font-size:13px}.claim-tier-grid>div:first-child{box-shadow:inset 0 3px #0f766e}.claim-tier-grid>div:nth-child(2){box-shadow:inset 0 3px #46758f}.claim-tier-grid>div:last-child{box-shadow:inset 0 3px #9a4b00}.scope-layer-figure{overflow-x:auto}.scope-layer-figure svg{display:block;width:100%;min-width:820px;height:auto;border:1px solid var(--line);background:#fff}.evidence-ladder{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;margin:18px 0;background:var(--line);border:1px solid var(--line)}.evidence-ladder>div{padding:15px 16px;background:#fbfcfe}.evidence-ladder span,.evidence-ladder strong{display:block}.evidence-ladder span{color:#0f766e;font:800 11px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.evidence-ladder strong{margin:6px 0;font-size:15px}.evidence-ladder p{margin:0;color:#667085;font-size:12px}.evidence-ledger td:first-child{font-weight:750;color:#172033}.evidence-ledger td:last-child{color:#667085}.appendix-sequence{margin-top:20px}.appendix-sequence details{margin:12px 0;padding:0;border-top:1px solid var(--line)}.appendix-sequence summary{cursor:pointer;padding:13px 2px;font-weight:800}.appendix-sequence details>div{padding:0 2px 12px}.main-note{margin:16px 0;padding:14px 17px;border-left:3px solid #46758f;background:#f5f8fb;color:#344054;font-size:13px}.audit-badge{display:inline-block;margin:2px 5px 2px 0;padding:3px 7px;border:1px solid #b8d7d1;background:#f4fbf9;color:#075e58;font:750 11px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .reading-contract{margin:22px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.contract-row{display:grid;grid-template-columns:150px 1fr;gap:18px;padding:13px 2px;border-bottom:1px solid var(--line)}.contract-row:last-child{border-bottom:0}.contract-row strong{color:#172033}.contract-row span{color:#475467;font-size:13px;line-height:1.65}.mirror-table td:nth-child(2){font-weight:750;color:#075e58}.mirror-table td:last-child{color:#667085}.subsection-conclusion{margin:16px 0 24px;padding:12px 15px;border-left:3px solid #46758f;background:#f5f8fb;color:#344054;font-size:13px;line-height:1.65}.subsection-conclusion strong{color:#244b62}.result-analysis{margin:16px 0}.result-analysis>p{margin:8px 0}.appendix-method{margin:12px 0 18px}.appendix-method p{margin:7px 0}.appendix-method strong{color:#172033}.completion-note{margin:14px 0;padding:13px 16px;border-left:3px solid #0f766e;background:#f4fbf9;color:#344054;font-size:13px}.figure-status{display:inline-block;margin-right:8px;padding:2px 7px;border:1px solid #b8c1cf;color:#475467;font:750 10px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-transform:uppercase;letter-spacing:.04em}
 .attention-atlas-stack figure,.appendix-e-figure{min-width:0;max-width:100%;box-sizing:border-box}.attention-atlas-frame{min-width:0;max-width:100%}.appendix-sequence details,.appendix-sequence details>div{min-width:0;max-width:100%}
+.parser-contract{margin:30px 0 8px;padding-top:22px;border-top:1px solid var(--line);scroll-margin-top:72px}.parser-contract-head{display:grid;grid-template-columns:190px minmax(0,1fr);gap:22px;align-items:start;margin-bottom:14px}.parser-contract-kicker{color:#0f766e;font:850 11px/1.35 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase}.parser-contract-head h3{margin:4px 0 8px;font-size:22px}.parser-contract-head p{margin:0;color:#475467;font-size:13px;line-height:1.68}.parser-disclosure{margin:0;border-top:1px solid var(--line);background:#fff}.parser-disclosure:last-child{border-bottom:1px solid var(--line)}.parser-disclosure summary{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;padding:15px 3px;cursor:pointer;color:#172033;font-weight:800;list-style:none}.parser-disclosure summary::-webkit-details-marker{display:none}.parser-disclosure summary::after{content:"+";display:grid;width:24px;height:24px;place-items:center;border:1px solid #b8c1cf;border-radius:50%;color:#0f766e;font:700 16px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.parser-disclosure[open] summary::after{content:"−"}.parser-disclosure-body{padding:1px 3px 20px;color:#344054}.parser-disclosure-body>p:first-child{margin-top:2px}.parser-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 22px;margin:14px 0;border-top:1px solid var(--line)}.parser-grid>div{padding:13px 0;border-bottom:1px solid var(--line);font-size:13px;line-height:1.62}.parser-grid strong{display:block;margin-bottom:4px;color:#172033}.parser-flow{display:flex;align-items:stretch;gap:0;margin:15px 0;overflow-x:auto}.parser-flow>div{min-width:150px;flex:1;padding:13px 14px;border:1px solid var(--line);background:#f8fafc;font-size:12px;line-height:1.55}.parser-flow>span{display:grid;min-width:30px;place-items:center;color:#667085}.parser-code{display:block;margin:11px 0;padding:12px 14px;border-left:3px solid #46758f;background:#f5f8fb;font:12px/1.62 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-x:auto}.parser-warning{margin:14px 0 0;padding:13px 15px;border-left:3px solid var(--amber);background:#fff8eb;color:#7a3d00;font-size:12px;line-height:1.62}.parser-table td,.parser-table th{padding:8px 9px;font-size:12px;vertical-align:top}.parser-table td:first-child{font-weight:800;color:#172033}.parser-table code{white-space:normal}.parser-tag{display:inline-block;margin:2px 5px 2px 0;padding:3px 7px;border:1px solid #b8d7d1;background:#f4fbf9;color:#075e58;font:750 10px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 @media print{.attention-pair{display:block}.attention-pair figure{break-inside:avoid-page;margin:0 0 20px}.attention-pair figure .head-map{width:auto;max-width:100%;max-height:620px;margin:0 auto}.attention-atlas-stack figure{break-inside:avoid-page}.attention-atlas-frame .head-map{min-width:0}.three-d{break-inside:avoid-page}.three-d canvas{height:430px}.formula{white-space:normal}.attention-switcher{break-inside:avoid-page}}
 @media(max-width:900px){.manifold-grid{grid-template-columns:1fr}}
 @media(max-width:760px){.status-grid,.walkthrough-callout,.metric-strip,.definition-grid,.attention-pair,.figure-primer,.edge-roadmap,.scope-compare,.appendix-e-index,.claim-tier-grid,.evidence-ladder{grid-template-columns:1fr}.contract-row{grid-template-columns:1fr;gap:4px}.condition-row{grid-template-columns:1fr;gap:4px}.three-d-head{align-items:flex-start;flex-direction:column}.three-d-controls{justify-content:flex-start}.three-d canvas{height:430px}.chain-figure{min-width:850px}.chain-scroll{overflow-x:auto}}
+@media(max-width:760px){.parser-contract-head,.parser-grid{grid-template-columns:1fr}.parser-contract-head{gap:4px}.parser-flow{flex-direction:column;overflow-x:visible}.parser-flow>div{min-width:0}.parser-flow>span{min-width:0;min-height:26px;transform:rotate(90deg)}.parser-disclosure summary{padding:14px 0}.parser-disclosure-body{padding-left:0;padding-right:0}}
 """
     css = extract_css(args.reference_report) + custom_css
     generated = datetime.now(timezone.utc).isoformat()
@@ -3566,7 +3568,7 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 <section id="audit"><p class="eyebrow">09 · Boundaries and reproducibility</p><h2>边界、复现与底层文件</h2>
 <ul><li>本报告证明一条 pathway，不证明唯一性、排他性或所有 grammar 共用完全相同的 heads。</li><li>CI 与 p-value 保留用于审计；正文的“强/弱”判断同时考虑 effect size、控制组和跨 phase 复现。</li><li>单 seed walkthrough 不进入 discovery/confirmation gate；V2 是在 V1 暴露 trace-tail 泄露后修正的 exploratory control。</li><li>Qwen 与 Gemma 的状态几何、bank 宽度和最后一条边不同，不强行合并成完全同构 circuit。</li></ul>
 <details class="paper-appendix"><summary>底层报告与外部证据包</summary><div class="source-list"><a href="NiaH_Native-Thinking_P0_Targeted_Retrieval_Atlas.html">P0 targeted-retrieval atlas</a><br><a href="NiaH_Native-Thinking_Parser_and_Token_Sites.html">Parser / token sites</a><br><a href="NiaH_Geometry_Comparison.html">Representation geometry</a><br><span>逐 seed、逐 arm、claim-gate 与运行审计文件保存在外部实验归档，不随 Git 仓库分发。报告中的聚合值与输入哈希已冻结；复算时通过构建器参数挂载对应 evidence bundle。</span></div></details>
-<p class="audit">Generated UTC: {esc(generated)}<br>Schema: realistic_niah_v5_native_thinking_restructured_v11</p></section>
+<p class="audit">Generated UTC: {esc(generated)}<br>Schema: realistic_niah_v5_native_thinking_restructured_v12</p></section>
 
 </main></article><script>
 {point_cloud_script(geometry_3d)}
@@ -3969,6 +3971,80 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
         ),
         class_name="mirror-table",
     )
+    parser_grammar_table = table(
+        ("Setting", "可见表面 / prompt 改动", "Parser contract", "在本文中的证据角色"),
+        (
+            (
+                "Qwen natural no-index",
+                "原始 prompt byte-identical；自然 first-pass 文本",
+                "按 gold city+score 注册首次唯一 evidence mention；要求完整覆盖、无重复，并通过 strict no-index cue gate",
+                "唯一进入自然 no-index 主 claim 的 cohort",
+            ),
+            (
+                "Gemma prompt-conditioned no-visible-index",
+                "passage 不变；只改 passage 后 task tail；assistant prefix 为 FOUND: ",
+                "只接受 FOUND: <city> | score <score>；拒绝 ordinal、labeled index、running total、非 FOUND prose、重复或缺失 event；只允许一个 Total:",
+                "auxiliary surrogate；simulatively confirmed†，不是 natural confirmation",
+            ),
+            (
+                "Explicit-index positive control",
+                "Qwen: k. City - score；Gemma: * Record k: (City, score)",
+                "恰好十个 spans；visible marker 必须为 1…10；gold city/score 一一对应且表面格式精确匹配",
+                "校准 transplant assay；因 visible k 混淆，不能支持 no-index claim",
+            ),
+        ),
+        class_name="parser-table",
+    )
+    parser_contract_section = f"""<div class="parser-contract" id="parser-design-contract">
+<div class="parser-contract-head"><div><span class="parser-contract-kicker">Pre-experiment contract</span><h3>实验前置 · Parser 与因果设计合同</h3></div><p>以下四项是所有主实验之前冻结的解析与干预规则。它们决定一条 trace 能否进入 cohort、字符区间如何编译成 token sites、一个 donor→receiver cell 如何构造，以及什么才算行为转移。折叠内容默认收起；展开后可复核定义、公式和 false-positive gate。Parser 是测量合同，不是机制结果本身。</p></div>
+<details class="parser-disclosure"><summary>A · Natural no-index cohort parser：first-pass、<code>t*</code> 与 global-clean</summary><div class="parser-disclosure-body">
+<div class="parser-flow"><div><strong>1 · Raw archive</strong><br>原始 prompt 与自然 reasoning</div><span>→</span><div><strong>2 · Evidence registry</strong><br>首次、唯一、score-supported gold event</div><span>→</span><div><strong>3 · <code>t*</code> boundary</strong><br>第 N 个唯一 event 的字符末端</div><span>→</span><div><strong>4 · Strict gate</strong><br>coverage、uniqueness、no-index</div><span>→</span><div><strong>5 · Token context</strong><br>覆盖 <code>t*</code> 的最小完整 token prefix</div></div>
+<div class="parser-grid">
+  <div><strong>Evidence unit</strong>只有同时匹配 gold city 与对应 score 的 mention 才算一次 event；同一 city 后续再次出现不增加 progress，重复会进入审计。</div>
+  <div><strong>First-pass boundary <code>t*</code></strong><code>t*</code> 是第 N 个首次唯一 evidence mention 的结束字符。它把最早完成 evidence enumeration 的前缀与之后 recap / rethink 分开。</div>
+  <div><strong>Prefix eligibility</strong>在 <code>t*</code> 以前必须覆盖全部 N 个 gold records，且每条恰好出现一次；任何显式 progress cue 都使该 trace 不合格。</div>
+  <div><strong>Explicit-cue families</strong>包括 <code>Count=k</code> / running progress、<code>Item k</code> / <code>Excerpt k</code>、ordinal、编号 evidence line、city 后括号 index、以及 gold-city 前导 index。</div>
+  <div><strong>Primary frozen field</strong>主 cohort 使用 <code>strict_eligible_no_explicit_count_cue</code>，它等同于更严格的 <code>global_clean</code>：整段 reasoning 不得出现 per-record index；terminal aggregate total 仍允许。</div>
+  <div><strong>Outcome blindness</strong>按固定 split 与 seed 升序选 20 discovery + 10 confirmation；筛选器不读取最终 answer、patch outcome、attention、generation 或 mechanism score。</div>
+  <div><strong>Prompt integrity</strong>Qwen natural setting 的 system/user prompt 与 archive 逐 byte 比较；任何 prompt 改写都会被排除，而不是悄悄并入 natural cohort。</div>
+  <div><strong>字符→token 编译</strong>机制 context 使用 archived prompt 加覆盖 <code>t*</code> 的最小 whole-token output prefix；跨过边界的末 token spill 单独记录，未来 recap 在因果上不可见。</div>
+</div>
+<div class="parser-warning"><strong>容易误读的地方。</strong><code>global_clean</code> 不是“完整输出中不能出现任何数字”，而是“不能出现逐项 count/index cue”。Needle 自带的 score numeral 和最终一次 aggregate total 属于任务内容，不被当作 running index。主结果中的 no-index 也只指被分析的 first-pass enumeration。</div>
+</div></details>
+<details class="parser-disclosure"><summary>B · 三套 trace grammar：natural、prompt-conditioned 与 indexed control</summary><div class="parser-disclosure-body">
+<p>三套 parser 共享 gold-record 一一对应、span 不重叠和 outcome-blind selection，但它们回答的科学问题不同，不能互相替代。</p>
+{parser_grammar_table}
+<p><span class="parser-tag">PRIMARY</span>Qwen natural no-index　<span class="parser-tag">AUXILIARY</span>Gemma prompt-conditioned　<span class="parser-tag">CALIBRATION</span>explicit-index control</p>
+<div class="parser-warning"><strong>Claim firewall。</strong><code>FOUND:</code> marker 本身不携带 count，因此 Gemma auxiliary 能说明在受控 no-visible-index grammar 下可诱发 successor routing；但 task tail 已改变。Explicit-index control 又直接暴露 k。两者共同只支持 <em>simulatively confirmed†</em>，都不把 Gemma 升格为 natural no-index confirmation。</div>
+</div></details>
+<details class="parser-disclosure"><summary>C · Span compiler 与 patch geometry：从字符 event 到同绝对位置 hidden states</summary><div class="parser-disclosure-body">
+<p>Trace parser 先把每个 event 注册为 half-open token span <code>[start, end)</code>。随后只在注册 item 内选择 endpoint；不会跨入下一项之间的 lead-in、空白或 recap 文本。Donor 或 receiver prefix 会做等长位置对齐，使两个 commit sites 落在同一绝对 token index，且 prefix sequence length 相同。</p>
+<div class="parser-grid">
+  <div><strong>Endpoint w1</strong>只移植注册 item endpoint 的一个 post-block residual vector；这是最窄但也最弱的 scope。</div>
+  <div><strong>Event tail w4</strong>以 endpoint 为右边界移植最后四个 tokens；固定宽度不得越过 donor 或 receiver 的 item boundary。</div>
+  <div><strong>Item span</strong>令 donor/receiver endpoint 前可用宽度为 <code>a<sub>d</sub>, a<sub>r</sub></code>，有效宽度 <code>w=min(a<sub>d</sub>,a<sub>r</sub>)</code>；两边都取 endpoint-aligned suffix <code>[end−w,end)</code>。</div>
+  <div><strong>Unequal tokenization</strong>等宽时移植完整 item；不等宽时移植较短 item 的全部 tokens 与较长 item 的等宽 suffix，不对 hidden states 插值或 resample。</div>
+  <div><strong>Site matching</strong>候选点限于 item tail；优先相同 token，并审计相同 tail offset。固定 tail-offset robustness 允许 token 不同，但显式记录 <code>surface_token_matched</code>。</div>
+  <div><strong>Coverage audit</strong>每个 cell 保存 donor/receiver coverage、有效宽度、endpoint alignment、完整 item 是否等长，以及 patch-span token ids/text。</div>
+</div>
+<span class="parser-code">receiver patch = [e<sub>r</sub>−w, e<sub>r</sub>)　←　donor state [e<sub>d</sub>−w, e<sub>d</sub>)<br>Lℓ = decoder block ℓ 之后的 post-block residual；L0 是第一层输出，不是 raw embedding。</span>
+<div class="parser-warning"><strong>为什么这一步重要。</strong>“同一个 token”本身不保证同一个语义 site；parser 同时约束 item membership、tail offset、绝对位置和 prefix 长度。这样 patch 不会因为选到 recap 空白、跨 item span 或位置编码变化而制造假跳转。</div>
+</div></details>
+<details class="parser-disclosure"><summary>D · Causal cell 与 readout parser：什么叫“下一项跟随 donor”</summary><div class="parser-disclosure-body">
+<p>一个 cell 由 receiver progress <em>j</em> 与 donor progress <em>k</em> 定义。Receiver 原本应继续到 <em>N</em><sub>j+1</sub>；patch 后的 donor hypothesis 是继续到 <em>N</em><sub>k+1</sub>。<em>j&lt;k</em> 是 forward skip，<em>j&gt;k</em> 是 backward rewind。例：receiver 已完成 N4、donor 表示完成 N6，则自然候选是 N5，donor 候选是 N7。</p>
+<div class="parser-flow"><div><strong>1 · Likelihood</strong><br>paired donor-vs-receiver Δ log-odds</div><span>→</span><div><strong>2 · Attention</strong><br>target query → donor-successor record edge</div><span>→</span><div><strong>3 · Decision</strong><br>donor successor 是否为 10-way argmax</div><span>→</span><div><strong>4 · Generation</strong><br>首个已知 city 是否为 donor successor</div></div>
+<span class="parser-code">Δroute = [S<sub>patch</sub>(k+1) − S<sub>patch</sub>(j+1)] − [S<sub>self</sub>(k+1) − S<sub>self</sub>(j+1)]</span>
+<div class="parser-grid">
+  <div><strong>Self-patch control</strong>把 receiver 自己的 state 写回同一位置，控制 hook、复制和写回操作；主差分不是 patch 对完全不干预的裸比较。</div>
+  <div><strong>Exact attention edge</strong>只读取已冻结 targeted heads 上“下一次 query token → prompt 中 donor-successor needle span”的 attention mass；不汇总到任意相关文本。</div>
+  <div><strong>Generation parser</strong><code>first_generated_known_city_ordinal</code> 在最早 <code>&lt;/think&gt;</code>、<code>&lt;|im_end|&gt;</code> 或 <code>&lt;end_of_turn&gt;</code> 前，用 word-boundary 搜索首个 gold city。</div>
+  <div><strong>False-positive audit</strong>窄 bullet-line parser 只作审计，不是 primary endpoint；所有 donor-adoption completion 再人工核对，recap-only mention 不计成功。</div>
+  <div><strong>Discovery freeze</strong>Qwen N=10 discovery 只用 k=6 双方向扫 36 层；scope/layer 只看 registered transition likelihood，attention 与 generation 对选择不可见。</div>
+  <div><strong>Held-out test</strong>Confirmation 固定到 10 个新 seeds，测试 k∈{{4,6,8}} 与双方向；L16 k=6 是同一 confirmation seeds 的 post-hoc robustness，不伪装成第二次独立 confirmation。</div>
+</div>
+<div class="parser-warning"><strong>最小成功标准与 claim 层级。</strong>连续量改变说明 routing 被因果推动；candidate argmax 与首个生成 city 跟随 donor 才说明改变越过决策边界。即使四级都成立，也只证明 contextual progress state 控制 successor retrieval；它仍不证明一个 content-free state 经固定算子实现 <code>c ← c + 1</code>。</div>
+</div></details>
+</div>"""
     summary_section = f"""<section id="summary"><p class="eyebrow">Conclusion first</p>
 <h2>先说机制：Native-thinking 通过分布式 event/progress state 组织逐项检索</h2>
 <div class="core-claim"><strong>本文主张（仅限 Qwen3-8B 的自然 no-index trace）。</strong> Qwen 维护一个分布式、content-bound 的 event/progress state；该状态在中层即可因果控制下一项 retrieval。更窄的 event tail 含有 counter-like routing information，但单 endpoint 不充分，且尚无证据表明模型实现了 memoryless arithmetic <code>+1</code> recurrence。Gemma 尚无对应的自然 no-index 因果结果。</div>
@@ -3989,6 +4065,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
   <div><h3>Supported, not isolated</h3><p>event tail 比 endpoint 稳定且更 norm-efficient，含有 progress-correlated routing information；但 tail 仍含 score，item span 仍含 city/score/syntax。</p></div>
   <div><h3>Not established</h3><p>单一 counter cell、content-free count variable、memoryless <code>+1</code> transition、唯一 circuit，或 Qwen 结果对 Gemma 的直接外推。</p></div>
 </div>
+{parser_contract_section}
 <div class="section-conclusion"><strong>Summary 结论。</strong>在 Qwen 的自然 no-index trace 中，这是一个分布式、依赖事件内容的 progress controller；它在功能上控制“下一项读什么”，但目前不是已定位的 arithmetic counter。该句不能外推到 Gemma。计划内结果均已落盘；第 9 节列的是升级更强 claim 所需的新实验，不是当前报告的未完成运行。</div></section>"""
 
     formation_section = f"""<section id="formation"><p class="eyebrow">03 · Logical chain A</p>
@@ -4329,7 +4406,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
         *(Path(path) for evidence in token_evidence.values() for path in evidence["input_files"]),
     ]
     manifest = {
-        "schema_version": "realistic_niah_v5_native_thinking_restructured_v11",
+        "schema_version": "realistic_niah_v5_native_thinking_restructured_v12",
         "status": "PASS",
         "generated_at": generated,
         "output": str(args.output),
@@ -4337,6 +4414,13 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
             "discovery_seed_count": 20,
             "confirmation_seed_count": 10,
             "outcome_blind": True,
+            "parser_design_contract_in_main_text": True,
+            "parser_design_disclosure_count": 4,
+            "qwen_natural_noindex_eligibility_field": "strict_eligible_no_explicit_count_cue",
+            "qwen_natural_noindex_primary_gate": "global_clean",
+            "natural_context_excludes_future_recap": True,
+            "generation_primary_endpoint": "first_generated_known_city_ordinal",
+            "generation_bullet_parser_is_audit_only": True,
             "selection_rank_used": False,
             "qwen_targeted_bank": 128,
             "gemma_targeted_bank": 6,

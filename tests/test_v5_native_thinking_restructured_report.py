@@ -40,6 +40,10 @@ def _assert_current_report_contract(text: str, payload: dict) -> None:
     assert "Gemma 尚无对应的自然 no-index 因果结果" in text
     assert "simulatively confirmed†" in text
     assert "可诱发的机制能力，不是自然使用" in text
+    assert "实验前置 · Parser 与因果设计合同" in text
+    assert text.count('class="parser-disclosure"') == 4
+    assert "strict_eligible_no_explicit_count_cue" in text
+    assert "first_generated_known_city_ordinal" in text
     assert "20 discovery / 10 confirmation" in text
     assert "J.1 显式 index positive control" in text
     assert "Appendix K · Gemma prompt-conditioned no-visible-index" in text
@@ -51,12 +55,17 @@ def _assert_current_report_contract(text: str, payload: dict) -> None:
 
     assert payload["status"] == "PASS"
     assert payload["schema_version"] == (
-        "realistic_niah_v5_native_thinking_restructured_v11"
+        "realistic_niah_v5_native_thinking_restructured_v12"
     )
     contract = payload["scientific_contract"]
     assert contract["discovery_seed_count"] == 20
     assert contract["confirmation_seed_count"] == 10
     assert contract["outcome_blind"] is True
+    assert contract["parser_design_contract_in_main_text"] is True
+    assert contract["parser_design_disclosure_count"] == 4
+    assert contract["generation_primary_endpoint"] == (
+        "first_generated_known_city_ordinal"
+    )
     assert contract["indexed_positive_control_active_confirmation_layer"] == {
         "Qwen3-8B": 16,
         "Gemma4-E4B": 16,

@@ -102,8 +102,11 @@ def main() -> int:
         "图 5c · 同一 L16 state intervention",
         "simulatively confirmed†",
         "可诱发的机制能力，不是自然使用",
+        "实验前置 · Parser 与因果设计合同",
+        "strict_eligible_no_explicit_count_cue",
+        "first_generated_known_city_ordinal",
         "计划内结果均已落盘",
-        "realistic_niah_v5_native_thinking_restructured_v11",
+        "realistic_niah_v5_native_thinking_restructured_v12",
     ):
         if required not in text:
             raise ValueError(f"Required report statement is absent: {required}")

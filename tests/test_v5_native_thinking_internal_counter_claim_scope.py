@@ -37,8 +37,10 @@ def test_shipped_report_keeps_natural_noindex_claim_qwen_only() -> None:
     assert "自然 no-index 主张仍严格限于 Qwen" in text
     assert "simulatively confirmed†" in text
     assert "可诱发的机制能力，不是自然使用" in text
+    assert "实验前置 · Parser 与因果设计合同" in text
+    assert "strict_eligible_no_explicit_count_cue" in text
     assert manifest["schema_version"] == (
-        "realistic_niah_v5_native_thinking_restructured_v11"
+        "realistic_niah_v5_native_thinking_restructured_v12"
     )
     assert manifest["claim_scope"][
         "qwen_no_index_scope_result_extrapolated_to_gemma"
