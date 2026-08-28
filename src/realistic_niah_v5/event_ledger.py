@@ -56,8 +56,8 @@ def build_marker_event_factorial(
     active_receiver = int(receiver)
     physical_target = active_receiver + 1
     sources = tuple(int(value) for value in source_occurrences)
-    if not 2 <= len(sources) <= 4 or len(set(sources)) != len(sources):
-        raise ValueError("Ledger factorial requires two to four distinct sources")
+    if not 1 <= len(sources) <= 4 or len(set(sources)) != len(sources):
+        raise ValueError("Ledger factorial requires one to four distinct sources")
     if not 1 <= active_receiver < physical_target <= len(items):
         raise ValueError("Ledger receiver/target geometry is invalid")
     if any(not 1 <= source < len(items) for source in sources):
@@ -240,5 +240,192 @@ def build_marker_event_factorial(
         "all_cells_equal_length": True,
         "all_cells_equal_attention_mask": True,
         "only_marker_token_ids_vary": True,
+    }
+    return tuple(variants), geometry
+
+
+def build_semantic_event_factorial(
+    encoding: Any,
+    neutral_encoding: Any,
+    registry: Any,
+    boundaries: Mapping[int, int],
+    *,
+    receiver: int,
+    source_occurrences: Sequence[int],
+) -> tuple[tuple[dict[str, Any], ...], dict[str, Any]]:
+    """Insert equal-length events whose semantic validity forms a factorial.
+
+    This is the no-marker analogue of :func:`build_marker_event_factorial`.
+    Each valid slot copies a native city-score event.  Its invalid counterpart
+    keeps punctuation, whitespace, separator, closing token, attention mask,
+    and length fixed while replacing only the event's alphanumeric token ids
+    by same-position neutral ids supplied in ``neutral_encoding``.
+    """
+
+    items = tuple((int(start), int(end)) for start, end in registry.trace_items)
+    active_receiver = int(receiver)
+    physical_target = active_receiver + 1
+    sources = tuple(int(value) for value in source_occurrences)
+    if not 1 <= len(sources) <= 4 or len(set(sources)) != len(sources):
+        raise ValueError("Semantic factorial requires one to four distinct sources")
+    if not 1 <= active_receiver < physical_target <= len(items):
+        raise ValueError("Semantic-factorial receiver/target geometry is invalid")
+    if any(not 1 <= source < len(items) for source in sources):
+        raise ValueError("A semantic-factorial source lacks a following separator")
+
+    ids = tuple(int(value) for value in encoding.input_ids)
+    mask = tuple(int(value) for value in encoding.attention_mask)
+    neutral_ids = tuple(int(value) for value in neutral_encoding.input_ids)
+    if (
+        len(neutral_ids) != len(ids)
+        or tuple(int(value) for value in neutral_encoding.attention_mask) != mask
+    ):
+        raise ValueError("Semantic neutral encoding does not preserve geometry")
+
+    source_specs: list[dict[str, Any]] = []
+    for slot, source in enumerate(sources):
+        start, item_end = items[source - 1]
+        segment_end = items[source][0]
+        if not start < item_end <= segment_end:
+            raise ValueError(f"Source occurrence {source} has invalid item geometry")
+        valid_segment = tuple(ids[start:segment_end])
+        invalid_segment = tuple(neutral_ids[start:segment_end])
+        discriminative_local = tuple(
+            index
+            for index, (left, right) in enumerate(
+                zip(valid_segment, invalid_segment)
+            )
+            if int(left) != int(right)
+        )
+        if not discriminative_local:
+            raise ValueError(
+                f"Source occurrence {source} has no semantic validity tokens"
+            )
+        if any(index >= item_end - start for index in discriminative_local):
+            raise ValueError("Semantic neutralization changed a separator token")
+        boundary_local = int(boundaries[source]) - start
+        if not 0 <= boundary_local < len(valid_segment):
+            raise ValueError(f"Source occurrence {source} boundary leaves its segment")
+        if valid_segment[boundary_local] != invalid_segment[boundary_local]:
+            raise ValueError("Semantic neutralization changed the shared commit token")
+        source_specs.append(
+            {
+                "slot": slot,
+                "source_occurrence": source,
+                "source_start": start,
+                "source_item_end": item_end,
+                "source_segment_end": segment_end,
+                "segment_length": len(valid_segment),
+                "valid_segment": valid_segment,
+                "invalid_segment": invalid_segment,
+                "segment_mask": tuple(mask[start:segment_end]),
+                "discriminative_local_positions": discriminative_local,
+                "boundary_local_position": boundary_local,
+            }
+        )
+
+    insertion_start = int(items[physical_target - 1][0])
+    total_delta = sum(int(spec["segment_length"]) for spec in source_specs)
+    event_end = insertion_start + total_delta
+    target_boundary = int(boundaries[physical_target]) + total_delta
+    slots: list[dict[str, Any]] = []
+    offset = 0
+    for spec in source_specs:
+        absolute_start = insertion_start + offset
+        slots.append(
+            {
+                "slot": int(spec["slot"]),
+                "source_occurrence": int(spec["source_occurrence"]),
+                "start": absolute_start,
+                "end": absolute_start + int(spec["segment_length"]),
+                "discriminative_positions": [
+                    absolute_start + int(local)
+                    for local in spec["discriminative_local_positions"]
+                ],
+                "event_boundary": absolute_start
+                + int(spec["boundary_local_position"]),
+            }
+        )
+        offset += int(spec["segment_length"])
+    discriminative_positions = tuple(
+        position
+        for slot in slots
+        for position in slot["discriminative_positions"]
+    )
+    if len(set(discriminative_positions)) != len(discriminative_positions):
+        raise RuntimeError("Semantic-factorial discriminative positions overlap")
+
+    variants: list[dict[str, Any]] = []
+    for bits_raw in product((0, 1), repeat=len(source_specs)):
+        bits = tuple(int(value) for value in bits_raw)
+        replacement_ids: list[int] = []
+        replacement_mask: list[int] = []
+        for bit, spec in zip(bits, source_specs):
+            replacement_ids.extend(
+                spec["valid_segment"] if bit else spec["invalid_segment"]
+            )
+            replacement_mask.extend(spec["segment_mask"])
+        active = _splice_encoding(
+            encoding,
+            position=insertion_start,
+            replacement_ids=replacement_ids,
+            replacement_mask=replacement_mask,
+        )
+        variants.append(
+            {
+                "variant_id": "events_" + "".join(str(value) for value in bits),
+                "marker_bits": bits,
+                "valid_marker_count": sum(bits),
+                "valid_event_count": sum(bits),
+                "event_count_at_inserted_commit": active_receiver + sum(bits),
+                "encoding": active,
+                "insertion_start": insertion_start,
+                "event_end": event_end,
+                "target_boundary": target_boundary,
+            }
+        )
+
+    baseline_ids = tuple(int(value) for value in variants[0]["encoding"].input_ids)
+    union = set(discriminative_positions)
+    for variant in variants:
+        active_encoding = variant["encoding"]
+        if (
+            int(active_encoding.sequence_length)
+            != int(variants[0]["encoding"].sequence_length)
+            or tuple(int(value) for value in active_encoding.attention_mask)
+            != tuple(int(value) for value in variants[0]["encoding"].attention_mask)
+        ):
+            raise RuntimeError("Semantic-factorial cells changed sequence geometry")
+        active_ids = tuple(int(value) for value in active_encoding.input_ids)
+        changed = {
+            position
+            for position, (left, right) in enumerate(zip(baseline_ids, active_ids))
+            if left != right
+        }
+        expected = {
+            position
+            for bit, slot in zip(variant["marker_bits"], slots)
+            if bit
+            for position in slot["discriminative_positions"]
+        }
+        if changed != expected or not changed.issubset(union):
+            raise RuntimeError("Semantic-factorial cell changed an unregistered token")
+
+    geometry = {
+        "receiver": active_receiver,
+        "physical_target": physical_target,
+        "source_occurrences": list(sources),
+        "factor_count": len(sources),
+        "insertion_start": insertion_start,
+        "event_end": event_end,
+        "total_token_delta": total_delta,
+        "inserted_slots": slots,
+        "inserted_discriminative_positions": list(discriminative_positions),
+        "target_boundary": target_boundary,
+        "factorial_cell_count": len(variants),
+        "all_cells_equal_length": True,
+        "all_cells_equal_attention_mask": True,
+        "only_event_semantic_token_ids_vary": True,
+        "shared_commit_token_identical": True,
     }
     return tuple(variants), geometry

@@ -4,7 +4,8 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import Any, Sequence
+from collections import defaultdict
+from typing import Any, Mapping, Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -117,19 +118,40 @@ def bootstrap_basis_angle(
 def load_bank_states(
     run_root: Path,
     models: Sequence[str],
+    head_registry: Mapping[str, Sequence[Sequence[int]]] | None = None,
 ) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for model in models:
+        registered_by_layer: dict[int, list[int]] = defaultdict(list)
+        if head_registry is not None:
+            for layer, head in head_registry[str(model)]:
+                registered_by_layer[int(layer)].append(int(head))
         detail_path = run_root / model / "detail.jsonl"
         for row in read_jsonl(detail_path):
             if row["condition"] != "clean" or int(row["patch_layer"]) != -1:
                 continue
             state_path = run_root / model / str(row["state_path"])
             payload = torch.load(state_path, map_location="cpu", weights_only=True)
-            for key, value in payload["selected_head_writes"].items():
-                if not str(key).endswith(".bank_o"):
-                    continue
-                layer = int(str(key).split(".")[0][1:])
+            writes = payload["selected_head_writes"]
+            if head_registry is None:
+                layer_values = {
+                    int(str(key).split(".")[0][1:]): value
+                    for key, value in writes.items()
+                    if str(key).endswith(".bank_o")
+                }
+            else:
+                layer_values = {}
+                for layer, heads in registered_by_layer.items():
+                    keys = [f"L{layer}H{head}.o" for head in heads]
+                    missing = [key for key in keys if key not in writes]
+                    if missing:
+                        raise KeyError(
+                            f"{state_path} lacks registered head writes: {missing}"
+                        )
+                    layer_values[layer] = torch.stack(
+                        [writes[key].detach().float() for key in keys]
+                    ).sum(dim=0)
+            for layer, value in layer_values.items():
                 rows.append(
                     {
                         "model_label": str(model),
@@ -341,6 +363,14 @@ def main() -> None:
     )
     parser.add_argument("--models", nargs="+", default=["Qwen3-8B", "Gemma4-E4B"])
     parser.add_argument("--bootstrap-draws", type=int, default=200)
+    parser.add_argument(
+        "--sum-registered-head-writes",
+        action="store_true",
+        help=(
+            "Rebuild each layer bank from the per-head .o tensors named in "
+            "experiment-config instead of reading the precomputed .bank_o tensor."
+        ),
+    )
     args = parser.parse_args()
 
     config = json.loads(Path(args.experiment_config).read_text(encoding="utf-8"))
@@ -349,7 +379,8 @@ def main() -> None:
     root = Path(args.run_root).resolve()
     output = Path(args.output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
-    states = load_bank_states(root, args.models)
+    head_registry = config["retrieval_heads"] if args.sum_registered_head_writes else None
+    states = load_bank_states(root, args.models, head_registry=head_registry)
     metrics, fitted = geometry_metrics(
         states,
         discovery,
@@ -378,6 +409,16 @@ def main() -> None:
         "layer_metrics": int(len(metrics)),
         "basis_fit_population": "discovery clean natural forward only",
         "classifier_site": "answer-query broad-bank post-O output",
+        "bank_construction": (
+            "sum_registered_per_head_post_o_writes"
+            if args.sum_registered_head_writes
+            else "saved_precomputed_bank_o"
+        ),
+        "registered_heads": (
+            {model: config["retrieval_heads"][model] for model in args.models}
+            if args.sum_registered_head_writes
+            else None
+        ),
         "predictive_preprocessing": (
             "discovery-fitted PCA32 followed by discovery-fitted StandardScaler"
         ),

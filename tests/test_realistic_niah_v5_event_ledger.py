@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import SimpleNamespace
 
-from realistic_niah_v5.event_ledger import build_marker_event_factorial
+from realistic_niah_v5.event_ledger import (
+    build_marker_event_factorial,
+    build_semantic_event_factorial,
+)
 
 
 @dataclass(frozen=True)
@@ -108,3 +111,45 @@ def test_factorial_rejects_a_source_without_registered_marker() -> None:
         assert "lacks marker" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("A markerless source should fail deterministic preflight")
+
+
+def test_single_semantic_event_factorial_preserves_commit_geometry() -> None:
+    encoding, _unused, registry, boundaries = _fixture()
+    neutral_ids = list(encoding.input_ids)
+    for start, end in registry.trace_items:
+        for position in range(start, end):
+            neutral_ids[position] += 1000
+    neutral = _Encoding(
+        input_ids=tuple(neutral_ids),
+        attention_mask=encoding.attention_mask,
+        query_position=encoding.query_position,
+        prompt_token_count=encoding.prompt_token_count,
+    )
+    variants, geometry = build_semantic_event_factorial(
+        encoding,
+        neutral,
+        registry,
+        boundaries,
+        receiver=1,
+        source_occurrences=(1,),
+    )
+
+    assert [row["variant_id"] for row in variants] == ["events_0", "events_1"]
+    assert [row["event_count_at_inserted_commit"] for row in variants] == [1, 2]
+    assert geometry["factor_count"] == 1
+    assert geometry["all_cells_equal_length"]
+    assert geometry["only_event_semantic_token_ids_vary"]
+    slot = geometry["inserted_slots"][0]
+    boundary = int(slot["event_boundary"])
+    assert (
+        variants[0]["encoding"].input_ids[boundary]
+        == variants[1]["encoding"].input_ids[boundary]
+    )
+    changed = {
+        index
+        for index, (left, right) in enumerate(
+            zip(variants[0]["encoding"].input_ids, variants[1]["encoding"].input_ids)
+        )
+        if left != right
+    }
+    assert changed == set(slot["discriminative_positions"])

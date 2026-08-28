@@ -137,8 +137,13 @@ def esc(value: Any) -> str:
 def inline_standalone_svg(path: Path) -> str:
     """Embed a generated SVG and make its namespace explicit for HTML delivery."""
     markup = path.read_text(encoding="utf-8")
-    if not markup.lstrip().startswith("<svg"):
+    svg_start = markup.find("<svg")
+    if svg_start < 0:
         raise ValueError(f"Expected SVG root in {path}")
+    # Matplotlib exports include an XML declaration and a DOCTYPE.  Those are
+    # valid in a standalone file but invalid when nested inside an HTML body.
+    markup = markup[svg_start:]
+    markup = "\n".join(line.rstrip() for line in markup.splitlines())
     if 'xmlns="http://www.w3.org/2000/svg"' not in markup[:512]:
         markup = markup.replace(
             "<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ', 1
@@ -164,13 +169,19 @@ def ci(row: Mapping[str, Any], digits: int = 3) -> str:
     )
 
 
-def table(headers: Sequence[str], rows: Iterable[Sequence[Any]]) -> str:
+def table(
+    headers: Sequence[str],
+    rows: Iterable[Sequence[Any]],
+    *,
+    class_name: str = "",
+) -> str:
     head = "".join(f"<th>{esc(value)}</th>" for value in headers)
     body = "".join(
         "<tr>" + "".join(f"<td>{value}</td>" for value in row) + "</tr>"
         for row in rows
     )
-    return f'<div class="table-wrap"><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
+    classes = "table-wrap" + (f" {class_name}" if class_name else "")
+    return f'<div class="{classes}"><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
 
 def extract_css(path: Path) -> str:
@@ -997,6 +1008,167 @@ def walkthrough_svg(walkthrough: Mapping[str, Mapping[str, Any]]) -> str:
     return "".join(parts)
 
 
+def indexed_progress_control_svg(
+    analyses: Mapping[str, Mapping[str, Any]],
+    active_confirmation_layers: Mapping[str, int],
+) -> str:
+    """Render discovery-only layer profiles for the explicit-index controls.
+
+    Each model gets its own y scale because transition log-odds are not
+    calibrated across tokenizers or models.  The frozen layer is selected from
+    the dark seed-median curve; directional medians remain visible so a large
+    one-sided effect cannot masquerade as a bidirectional progress transfer.
+    """
+
+    width, height = 1040, 365
+    parts = [
+        f'<svg class="paper-chart" viewBox="0 0 {width} {height}" role="img" '
+        'aria-labelledby="indexed-layer-title indexed-layer-desc">',
+        '<title id="indexed-layer-title">Explicit-index discovery layer sweeps</title>',
+        '<desc id="indexed-layer-desc">Qwen and Gemma panels show the discovery paired donor-directed transition log-odds shift by post-block layer. The selected layer is frozen before confirmation.</desc>',
+    ]
+    series = (
+        ("seed median", "median_seed_mean_effect", "#172033"),
+        (
+            "forward median",
+            ("directions", "forward_skip", "median_paired_logodds_shift"),
+            "#0f766e",
+        ),
+        (
+            "backward median",
+            ("directions", "backward_rewind", "median_paired_logodds_shift"),
+            "#7c3aed",
+        ),
+    )
+
+    def value(row: Mapping[str, Any], key: Any) -> float:
+        if isinstance(key, tuple):
+            active: Any = row
+            for part in key:
+                active = active[part]
+            return float(active)
+        return float(row[key])
+
+    for column, model in enumerate(MODELS):
+        scope_rows = [
+            row for row in analyses[model]["scopes"] if row["scope"] == "item_span"
+        ]
+        require(len(scope_rows) == 1, f"{model}: expected one indexed item-span scope")
+        scope = scope_rows[0]
+        rows = sorted(scope["layer_summaries"], key=lambda row: int(row["layer"]))
+        require(rows, f"{model}: indexed layer profile is empty")
+        layers = [int(row["layer"]) for row in rows]
+        values = [0.0]
+        for _label, key, _color in series:
+            values.extend(value(row, key) for row in rows)
+        lower, upper = min(values), max(values)
+        span = max(upper - lower, 1.0)
+        lower -= 0.08 * span
+        upper += 0.08 * span
+
+        ox, oy = 62 + column * 510, 54
+        plot_w, plot_h = 438, 232
+        max_layer = max(layers)
+
+        def sx(layer: int) -> float:
+            return ox + layer / max(max_layer, 1) * plot_w
+
+        def sy(metric: float) -> float:
+            return oy + (upper - metric) / max(upper - lower, 1e-12) * plot_h
+
+        grammar = (
+            "k. City - score"
+            if model == "Qwen3-8B"
+            else "Record k: (City, score)"
+        )
+        parts.append(
+            f'<text x="{ox}" y="{oy-26}" class="heat-title">'
+            f'{esc(SHORT[model])} · {esc(grammar)}</text>'
+        )
+        parts.append(
+            f'<rect x="{ox}" y="{oy}" width="{plot_w}" height="{plot_h}" class="plot-bg"/>'
+        )
+        for index in range(5):
+            tick = lower + index * (upper - lower) / 4
+            y = sy(tick)
+            parts.append(
+                f'<line x1="{ox}" y1="{y:.1f}" x2="{ox+plot_w}" y2="{y:.1f}" class="grid"/>'
+            )
+            parts.append(
+                f'<text x="{ox-8}" y="{y+4:.1f}" text-anchor="end" class="tick">{tick:+.0f}</text>'
+            )
+        zero_y = sy(0.0)
+        parts.append(
+            f'<line x1="{ox}" y1="{zero_y:.1f}" x2="{ox+plot_w}" y2="{zero_y:.1f}" '
+            'stroke="#667085" stroke-width="1.4" stroke-dasharray="5 4"/>'
+        )
+        for _label, key, color in series:
+            points = " ".join(
+                f'{sx(int(row["layer"])):.1f},{sy(value(row, key)):.1f}'
+                for row in rows
+            )
+            parts.append(
+                f'<polyline points="{points}" fill="none" stroke="{color}" stroke-width="2.6"/>'
+            )
+        selected_layer = int(scope["selected_layer"])
+        selected_rows = [row for row in rows if int(row["layer"]) == selected_layer]
+        require(len(selected_rows) == 1, f"{model}: automatic indexed layer unavailable")
+        selected_value = value(selected_rows[0], "median_seed_mean_effect")
+        parts.append(
+            f'<circle cx="{sx(selected_layer):.1f}" cy="{sy(selected_value):.1f}" r="6" '
+            'fill="#fff" stroke="#172033" stroke-width="3"/>'
+        )
+        parts.append(
+            f'<text x="{sx(selected_layer)+8:.1f}" y="{sy(selected_value)-10:.1f}" '
+            f'class="chart-value">auto L{selected_layer}</text>'
+        )
+        active_layer = int(active_confirmation_layers[model])
+        active_rows = [row for row in rows if int(row["layer"]) == active_layer]
+        require(len(active_rows) == 1, f"{model}: active indexed layer unavailable")
+        active_value = value(active_rows[0], "median_seed_mean_effect")
+        active_x, active_y = sx(active_layer), sy(active_value)
+        diamond = " ".join(
+            (
+                f"{active_x:.1f},{active_y-7:.1f}",
+                f"{active_x+7:.1f},{active_y:.1f}",
+                f"{active_x:.1f},{active_y+7:.1f}",
+                f"{active_x-7:.1f},{active_y:.1f}",
+            )
+        )
+        parts.append(
+            f'<polygon points="{diamond}" fill="#d97706" stroke="#fff" stroke-width="1.5"/>'
+        )
+        parts.append(
+            f'<text x="{active_x+9:.1f}" y="{active_y+18:.1f}" class="chart-value">'
+            f'confirm L{active_layer} · {active_value:+.1f}</text>'
+        )
+        for layer_tick in sorted({0, max_layer // 2, max_layer}):
+            parts.append(
+                f'<text x="{sx(layer_tick):.1f}" y="{oy+plot_h+20}" text-anchor="middle" '
+                f'class="tick">{layer_tick}</text>'
+            )
+        if column == 0:
+            parts.append(
+                f'<text transform="translate({ox-48} {oy+plot_h/2}) rotate(-90)" '
+                'text-anchor="middle" class="axis-label">paired donor-directed log-odds shift</text>'
+            )
+        parts.append(
+            f'<text x="{ox+plot_w/2}" y="{oy+plot_h+40}" text-anchor="middle" '
+            'class="axis-label">zero-based post-block layer</text>'
+        )
+    legend_x = 288
+    for index, (label, _key, color) in enumerate(series):
+        x = legend_x + index * 175
+        parts.append(
+            f'<line x1="{x}" y1="348" x2="{x+26}" y2="348" stroke="{color}" stroke-width="3"/>'
+        )
+        parts.append(f'<text x="{x+33}" y="352" class="legend-label">{esc(label)}</text>')
+    parts.append('<polygon points="817,341 824,348 817,355 810,348" fill="#d97706"/>')
+    parts.append('<text x="832" y="352" class="legend-label">external L16 confirmation anchor</text>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
 def internal_counter_restoration_svg(
     occurrence_rows: Mapping[str, Sequence[Mapping[str, Any]]],
 ) -> str:
@@ -1080,11 +1252,11 @@ def internal_counter_restoration_svg(
 
 def chain_svg() -> str:
     stages = (
-        ("Targeted retrieval", "bank ablation", "strong", "strong"),
-        ("Grammar carrier", "marker / tail state", "strong", "strong"),
-        ("Commit state", "progress submission", "strong", "strong"),
-        ("Next query", "targeted-head routing", "strong", "qualified"),
-        ("Answer", "terminal local bridge", "conditional", "conditional"),
+        ("Targeted retrieval", "read next record", "strong", "strong"),
+        ("Grammar carrier", "write retrieved event", "controlled", "controlled"),
+        ("Commit / event state", "content + progress", "controlled", "controlled"),
+        ("Next-item routing", "state-guided successor", "natural", "simulated"),
+        ("Terminal readout", "fixed-suffix bridge", "conditional", "conditional"),
     )
     width, height, box_w, gap = 1080, 260, 170, 28
     x0 = 80
@@ -1102,13 +1274,144 @@ def chain_svg() -> str:
         parts.append(f'<text x="{x0-8}" y="{y+16}" text-anchor="end" class="chain-model">{esc(SHORT[model])}</text>')
         for idx, (_, _, q_status, g_status) in enumerate(stages):
             status = q_status if model == MODELS[0] else g_status
-            color = {"strong": "#0f766e", "qualified": "#0f766e", "conditional": "#7c3aed"}[status]
-            label = {"strong": "confirmed", "qualified": "confirmed†", "conditional": "controlled only"}[status]
+            color = {
+                "strong": "#0f766e",
+                "natural": "#0f766e",
+                "controlled": "#46758f",
+                "qualified": "#46758f",
+                "latent": "#9a4b00",
+                "simulated": "#9a4b00",
+                "conditional": "#7c3aed",
+                "not_run": "#667085",
+            }[status]
+            label = {
+                "strong": "confirmed",
+                "natural": "natural confirmed",
+                "controlled": "controlled edge",
+                "qualified": "legacy causal†",
+                "latent": "latent score only",
+                "simulated": "simulatively confirmed†",
+                "conditional": "controlled only",
+                "not_run": "not run",
+            }[status]
             x = x0 + idx * (box_w + gap)
             parts.append(f'<rect x="{x}" y="{y}" width="{box_w}" height="29" rx="3" fill="{color}" opacity=".12" stroke="{color}"/>')
             parts.append(f'<text x="{x+box_w/2}" y="{y+19}" text-anchor="middle" class="chain-status" fill="{color}">{label}</text>')
     parts.append("</svg>")
     return "".join(parts)
+
+
+def natural_progress_bridge_svg(summary: Mapping[str, Any]) -> str:
+    """Show how one L16 intervention propagates across four ordered readouts."""
+
+    values = (
+        ("Δ route > 0", 20, 20),
+        ("Δ attention > 0", 20, 20),
+        ("donor argmax", int(round(20 * float(summary["patched_donor_argmax_rate"]))), 20),
+        (
+            "first city follows donor",
+            int(summary["patched_first_known_city_donor_adoption_count"]),
+            20,
+        ),
+    )
+    width, height = 900, 390
+    left, top, plot_w, plot_h = 92, 42, 750, 260
+    bar_w = 105
+    gap = (plot_w - len(values) * bar_w) / (len(values) + 1)
+    parts = [
+        f'<svg class="paper-chart" viewBox="0 0 {width} {height}" role="img" '
+        'aria-labelledby="progress-bridge-title progress-bridge-desc">',
+        '<title id="progress-bridge-title">Qwen L16 natural no-index progress-state bridge</title>',
+        '<desc id="progress-bridge-desc">Four bars report the fraction of twenty paired cells with a donor-directed likelihood shift, donor-directed attention shift, donor successor candidate argmax, and donor-following first generated city.</desc>',
+        f'<rect x="{left}" y="{top}" width="{plot_w}" height="{plot_h}" fill="#fbfcfe" stroke="#d0d5dd"/>',
+    ]
+    for tick in (0.0, 0.25, 0.5, 0.75, 1.0):
+        y = top + (1.0 - tick) * plot_h
+        parts.append(
+            f'<line x1="{left}" y1="{y:.1f}" x2="{left+plot_w}" y2="{y:.1f}" class="grid"/>'
+        )
+        parts.append(
+            f'<text x="{left-10}" y="{y+4:.1f}" text-anchor="end" class="tick">{tick:.2f}</text>'
+        )
+    for index, (label, hits, total) in enumerate(values):
+        value = hits / total
+        x = left + gap + index * (bar_w + gap)
+        y = top + (1.0 - value) * plot_h
+        color = "#0f766e" if index < 2 else "#46758f"
+        parts.append(
+            f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w}" height="{value*plot_h:.1f}" '
+            f'fill="{color}" opacity=".88"><title>{esc(label)}: {hits}/{total}</title></rect>'
+        )
+        parts.append(
+            f'<text x="{x+bar_w/2:.1f}" y="{y-9:.1f}" text-anchor="middle" class="chart-value">{hits}/{total}</text>'
+        )
+        words = label.split(" ")
+        if len(words) > 2:
+            first = " ".join(words[:2])
+            second = " ".join(words[2:])
+            parts.append(
+                f'<text x="{x+bar_w/2:.1f}" y="{top+plot_h+24}" text-anchor="middle" class="tick">{esc(first)}</text>'
+            )
+            parts.append(
+                f'<text x="{x+bar_w/2:.1f}" y="{top+plot_h+39}" text-anchor="middle" class="tick">{esc(second)}</text>'
+            )
+        else:
+            parts.append(
+                f'<text x="{x+bar_w/2:.1f}" y="{top+plot_h+28}" text-anchor="middle" class="tick">{esc(label)}</text>'
+            )
+    parts.append(
+        f'<text transform="translate(25 {top+plot_h/2}) rotate(-90)" text-anchor="middle" class="axis-label">fraction of 20 paired cells</text>'
+    )
+    parts.append(
+        f'<text x="{left+plot_w/2}" y="{height-18}" text-anchor="middle" class="axis-label">ordered readout after the same L16 item-span patch</text>'
+    )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+TOP_LEVEL_SECTION_IDS = (
+    "definitions",
+    "summary",
+    "design",
+    "task",
+    "representation",
+    "retrieval",
+    "write",
+    "answer",
+    "walkthrough",
+    "comparison",
+    "appendix",
+    "audit",
+)
+
+
+def extract_top_level_sections(document: str) -> dict[str, str]:
+    """Extract the report's original top-level sections before reordering them.
+
+    The source template predates the current claim hierarchy.  Keeping the
+    expensive, audited figures in that template and composing a new main path
+    here makes the scientific reordering explicit without duplicating loaders.
+    """
+
+    starts: dict[str, int] = {}
+    for section_id in TOP_LEVEL_SECTION_IDS:
+        marker = f'<section id="{section_id}"'
+        starts[section_id] = document.index(marker)
+    ordered = sorted(starts.items(), key=lambda item: item[1])
+    sections: dict[str, str] = {}
+    for index, (section_id, start) in enumerate(ordered):
+        end = ordered[index + 1][1] if index + 1 < len(ordered) else document.index("</main>", start)
+        sections[section_id] = document[start:end].strip()
+    return sections
+
+
+def section_body(section: str) -> str:
+    """Return the contents of a complete top-level <section> block."""
+
+    start = section.index(">") + 1
+    end = section.rfind("</section>")
+    require(end > start, "Malformed top-level section")
+    return section[start:end].strip()
 
 
 def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
@@ -1314,9 +1617,322 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         )
         for model in MODELS
     }
+    patch_scope_layer = read_json(args.patch_scope_layer_sweep)
+    patch_scope_frozen = read_json(args.patch_scope_frozen_confirmation)
+    patch_scope_generation_audit = read_json(args.patch_scope_generation_audit)
+    item_span_l16 = read_json(args.item_span_l16)
+    item_span_l16_generation_audit = read_json(args.item_span_l16_generation_audit)
+    historical_event_tail = read_json(args.historical_event_tail_confirmation)
+    indexed_cohort_manifest = read_json(args.indexed_progress_cohort_manifest)
+    indexed_progress_freeze = read_json(args.indexed_progress_freeze_manifest)
+    indexed_progress_discovery = {
+        model: read_json(
+            args.indexed_progress_discovery_root
+            / model
+            / "layer_sweep_analysis.json"
+        )
+        for model in MODELS
+    }
+    indexed_progress_confirmation = {
+        model: read_json(
+            args.indexed_progress_confirmation_root
+            / model
+            / "frozen_scope_analysis.json"
+        )
+        for model in MODELS
+    }
+    indexed_progress_generation_audit = read_json(
+        args.indexed_progress_generation_audit
+    )
+    gemma_prompt_noindex_cohort = read_json(
+        args.gemma_prompt_conditioned_noindex_cohort_manifest
+    )
+    gemma_prompt_noindex = read_json(
+        args.gemma_prompt_conditioned_noindex_analysis
+    )
+    patch_scope_layer_svg = inline_standalone_svg(args.patch_scope_layer_plot)
+    indexed_confirmation_layers = {
+        model: int(indexed_progress_freeze["active_confirmation_layers"][model])
+        for model in MODELS
+    }
+    indexed_progress_layer_svg = indexed_progress_control_svg(
+        indexed_progress_discovery,
+        indexed_confirmation_layers,
+    )
+
+    patch_scope_discovery = {
+        row["scope"]: row for row in patch_scope_layer["scopes"]
+    }
+    patch_scope_confirmation = {
+        row["scope"]: row for row in patch_scope_frozen["summaries"]
+    }
+    item_span_l16_summary = item_span_l16["summaries"][0]
+    natural_progress_bridge = natural_progress_bridge_svg(item_span_l16_summary)
+    qwen_noindex_discovery_seeds = sorted(
+        {int(row["seed"]) for row in patch_scope_layer["cells"]}
+    )
+    qwen_noindex_confirmation_seeds = sorted(
+        {int(row["seed"]) for row in patch_scope_frozen["cells"]}
+    )
+    require(
+        len(qwen_noindex_discovery_seeds) == 20
+        and len(qwen_noindex_confirmation_seeds) == 10
+        and not set(qwen_noindex_discovery_seeds)
+        & set(qwen_noindex_confirmation_seeds),
+        "Qwen natural no-index 20/10 cohort changed",
+    )
+    historical_event_tail_summary = historical_event_tail["pooled_summary"]
+    indexed_progress_selected = {
+        model: next(
+            row
+            for row in indexed_progress_discovery[model]["scopes"]
+            if row["scope"] == "item_span"
+        )
+        for model in MODELS
+    }
+    indexed_progress_active_discovery = {
+        model: next(
+            row
+            for row in indexed_progress_selected[model]["layer_summaries"]
+            if int(row["layer"]) == indexed_confirmation_layers[model]
+        )
+        for model in MODELS
+    }
+    indexed_progress_summary = {
+        model: next(
+            row
+            for row in indexed_progress_confirmation[model]["summaries"]
+            if row["split"] == "confirmation10" and row["scope"] == "item_span"
+        )
+        for model in MODELS
+    }
+    gemma_prompt_noindex_discovery = gemma_prompt_noindex["phases"]["discovery"]
+    gemma_prompt_noindex_confirmation = gemma_prompt_noindex["phases"][
+        "confirmation"
+    ]
+    gemma_prompt_noindex_confirm_pooled = gemma_prompt_noindex_confirmation[
+        "pooled_across_k"
+    ]
 
     require(q_analysis.get("status") == "PASS" and g_analysis.get("status") == "PASS", "Targeted analyses must PASS")
+    require(
+        gemma_prompt_noindex_cohort.get("status") == "PASS"
+        and gemma_prompt_noindex_cohort.get("schema_version")
+        == "realistic_niah_v5_gemma_prompt_conditioned_noindex_v3"
+        and gemma_prompt_noindex_cohort.get("prompt_conditioned") is True
+        and gemma_prompt_noindex_cohort.get("prompt_modified") is True
+        and gemma_prompt_noindex_cohort.get(
+            "fixed_marker_contains_count_information"
+        )
+        is False
+        and gemma_prompt_noindex_cohort.get(
+            "terminal_total_correctness_used_for_selection"
+        )
+        is False
+        and gemma_prompt_noindex_cohort.get(
+            "selection_independent_of_patch_outcomes"
+        )
+        is True
+        and gemma_prompt_noindex_cohort.get(
+            "spontaneous_natural_noindex_claim_allowed"
+        )
+        is False,
+        "Gemma prompt-conditioned cohort claim boundary changed",
+    )
+    require(
+        len(gemma_prompt_noindex_cohort["discovery_seeds"]) == 20
+        and len(gemma_prompt_noindex_cohort["confirmation_seeds"]) == 10
+        and not set(gemma_prompt_noindex_cohort["discovery_seeds"])
+        & set(gemma_prompt_noindex_cohort["confirmation_seeds"])
+        and int(gemma_prompt_noindex_cohort["scanned_seed_count"]) == 52
+        and int(gemma_prompt_noindex_cohort["selected_seed_count"]) == 30,
+        "Gemma prompt-conditioned 20/10 cohort changed",
+    )
+    require(
+        gemma_prompt_noindex.get("status") == "PASS"
+        and gemma_prompt_noindex.get("schema_version")
+        == "gemma_prompt_conditioned_forward_analysis_v1"
+        and gemma_prompt_noindex.get("model_label") == "Gemma4-E4B"
+        and int(gemma_prompt_noindex.get("layer")) == 16
+        and gemma_prompt_noindex.get("patch_scope") == "item_span"
+        and gemma_prompt_noindex.get("direction")
+        == "forward_only_k_to_k_plus_one"
+        and gemma_prompt_noindex.get("claim_scope")
+        == "prompt-conditioned no-index auxiliary only",
+        "Gemma prompt-conditioned causal contract changed",
+    )
+    require(
+        int(gemma_prompt_noindex_discovery["seed_count"]) == 20
+        and int(gemma_prompt_noindex_discovery["pair_count_across_k"]) == 60
+        and int(gemma_prompt_noindex_confirmation["seed_count"]) == 10
+        and int(gemma_prompt_noindex_confirmation["pair_count_across_k"]) == 30
+        and int(
+            gemma_prompt_noindex_confirm_pooled["donor_argmax_patch"]["hits"]
+        )
+        == 30
+        and int(
+            gemma_prompt_noindex_confirm_pooled[
+                "greedy_donor_adoption_patch"
+            ]["hits"]
+        )
+        == 22
+        and int(
+            gemma_prompt_noindex_confirm_pooled["positive_logodds_gain"][
+                "hits"
+            ]
+        )
+        == 30,
+        "Gemma prompt-conditioned confirmation result changed",
+    )
+    require(
+        indexed_cohort_manifest.get("status") == "PASS"
+        and indexed_cohort_manifest.get("claim_role")
+        == "explicit-index positive control only"
+        and indexed_cohort_manifest.get(
+            "internal_counter_without_visible_index_claim_allowed"
+        )
+        is False,
+        "Indexed cohort must remain an explicit-index positive control",
+    )
+    require(
+        indexed_progress_freeze.get("status") == "FROZEN_BEFORE_CONFIRMATION"
+        and indexed_progress_freeze.get("confirmation_results_observed") is False
+        and indexed_confirmation_layers
+        == {"Qwen3-8B": 16, "Gemma4-E4B": 16},
+        "Indexed confirmation must retain the pre-confirmation L16 amendment",
+    )
+    for model in MODELS:
+        cohort = indexed_cohort_manifest["models"][model]
+        require(
+            len(cohort["discovery_seeds"]) == 20
+            and len(cohort["confirmation_seeds"]) == 10
+            and not set(cohort["discovery_seeds"])
+            & set(cohort["confirmation_seeds"]),
+            f"{model}: indexed 20/10 split changed",
+        )
+        require(
+            int(indexed_progress_selected[model]["selected_layer_summary"]["cell_count"])
+            == 40
+            and int(indexed_progress_selected[model]["selected_layer_summary"]["seed_count"])
+            == 20,
+            f"{model}: indexed discovery support changed",
+        )
+        require(
+            int(indexed_progress_active_discovery[model]["cell_count"]) == 40
+            and float(
+                indexed_progress_active_discovery[model]["directions"]
+                ["forward_skip"]["median_paired_logodds_shift"]
+            )
+            > 0.0
+            and float(
+                indexed_progress_active_discovery[model]["directions"]
+                ["backward_rewind"]["median_paired_logodds_shift"]
+            )
+            > 0.0,
+            f"{model}: L16 indexed discovery sanity check changed",
+        )
+        require(
+            int(indexed_progress_summary[model]["cell_count"]) == 60
+            and int(indexed_progress_summary[model]["seed_count"]) == 10,
+            f"{model}: indexed confirmation support changed",
+        )
+        generation_audit = indexed_progress_generation_audit["models"][model]
+        require(
+            int(generation_audit["cell_count"]) == 60
+            and int(generation_audit["patched_donor_adoption_count"])
+            == int(
+                indexed_progress_summary[model][
+                    "patched_first_known_city_donor_adoption_count"
+                ]
+            )
+            and int(generation_audit["receiver_donor_adoption_count"])
+            == int(
+                indexed_progress_summary[model][
+                    "receiver_first_known_city_donor_adoption_count"
+                ]
+            )
+            and int(generation_audit["adoption_after_first_80_chars_count"])
+            == 0,
+            f"{model}: indexed generation audit changed",
+        )
+        require(
+            {
+                int(cell["layer"])
+                for cell in indexed_progress_confirmation[model]["cells"]
+            }
+            == {indexed_confirmation_layers[model]},
+            f"{model}: indexed confirmation layer changed",
+        )
+        discovery_path = (
+            args.indexed_progress_discovery_root
+            / model
+            / "layer_sweep_analysis.json"
+        )
+        require(
+            sha256(discovery_path)
+            == indexed_progress_freeze["discovery_analysis_sha256"][model],
+            f"{model}: indexed discovery changed after the L16 freeze",
+        )
     require(float(g_primary["selected_minus_random_failure_rate"]) > float(selected_row(g_analysis, 8)["selected_minus_random_failure_rate"]), "Gemma K6 must remain the frozen primary over K8")
+    require(
+        {
+            scope: int(row["selected_layer"])
+            for scope, row in patch_scope_discovery.items()
+        }
+        == {"event_tail_w4": 0, "item_end_w1": 26, "item_span": 0},
+        "Patch-scope discovery layers changed",
+    )
+    require(
+        {
+            scope: int(row["cell_count"])
+            for scope, row in patch_scope_confirmation.items()
+        }
+        == {"event_tail_w4": 60, "item_end_w1": 60, "item_span": 60},
+        "Patch-scope confirmation support changed",
+    )
+    require(
+        abs(
+            float(
+                patch_scope_confirmation["item_span"][
+                    "patched_first_known_city_donor_adoption_rate"
+                ]
+            )
+            - 43 / 60
+        )
+        < 1e-12,
+        "Item-span held-out generation result changed",
+    )
+    require(
+        patch_scope_generation_audit["summary"]["donor_adoption_count"] == 43
+        and patch_scope_generation_audit["manual_review"][
+            "recap_only_false_positive_count"
+        ]
+        == 0,
+        "Item-span manual generation audit changed",
+    )
+    require(
+        int(item_span_l16_summary["cell_count"]) == 20
+        and abs(
+            float(
+                item_span_l16_summary[
+                    "patched_first_known_city_donor_adoption_rate"
+                ]
+            )
+            - 0.8
+        )
+        < 1e-12
+        and item_span_l16_generation_audit["manual_review"][
+            "recap_only_false_positive_count"
+        ]
+        == 0,
+        "L16 contextual item-span robustness result changed",
+    )
+    require(
+        int(historical_event_tail_summary["cell_count"]) == 60
+        and float(historical_event_tail_summary["positive_logodds_shift_rate"])
+        == 1.0,
+        "Historical L16 event-tail result changed",
+    )
     for model in MODELS:
         ncc = ncc_supplement[model]
         require(ncc.get("status") == "PASS", f"{model} NCC analysis not sealed")
@@ -2280,9 +2896,12 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 .report-note{max-width:920px;color:#475467}.status-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:22px 0}.status-card{padding:18px;border:1px solid var(--line);background:#fbfcfe}.status-card h3{margin:0 0 8px}.status-card p{margin:6px 0;font-size:14px}.status-good{color:#075e58;font-weight:750}.status-open{color:#9a4b00;font-weight:750}.chain-figure{display:block;width:100%;height:auto;border:1px solid var(--line);background:#fbfcfe}.chain-title{fill:#172033;font-size:13px;font-weight:750}.chain-sub{fill:#667085;font-size:11px}.chain-model{fill:#344054;font-size:12px;font-weight:750}.chain-status{font-size:11px;font-weight:750}.mini-model{font-size:11px;font-weight:800}.metric-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:20px 0}.metric{padding:15px;border-top:3px solid var(--teal);background:#f8fafc}.metric strong,.metric span{display:block}.metric strong{font-size:22px}.metric span{color:#667085;font-size:12px}.negative-result{padding:17px 19px;border-left:4px solid var(--amber);background:#fff8eb}.audit-list{font-size:12px;color:#667085;overflow-wrap:anywhere}.compact-table td,.compact-table th{padding:7px 8px}.walkthrough-callout{display:grid;grid-template-columns:1fr 1fr;gap:14px}.walkthrough-callout>div{padding:15px;border:1px solid var(--line);background:#fbfcfe}.edge-roadmap{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;margin:18px 0 28px;border:1px solid var(--line);background:var(--line)}.edge-roadmap>div{padding:16px 17px;background:#fbfcfe}.edge-roadmap strong,.edge-roadmap span{display:block}.edge-roadmap span{margin-bottom:5px;color:#0f766e;font:800 11px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.condition-list{margin:14px 0 22px;border-top:1px solid var(--line)}.condition-row{display:grid;grid-template-columns:170px 1fr 1fr;gap:16px;padding:12px 4px;border-bottom:1px solid var(--line);font-size:13px;line-height:1.55}.condition-row strong{color:#172033}.condition-row span{color:#475467}.plain-language{margin:16px 0;padding:16px 18px;border:1px solid #b8d7d1;background:#f4fbf9}.plain-language strong{color:#075e58}.scope-compare{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0}.scope-compare>div{padding:16px 18px;border-top:3px solid #98a2b3;background:#f8fafc}.scope-compare>div:first-child{border-top-color:#0f766e}.scope-compare h4{margin:0 0 7px}.scope-compare p{margin:6px 0;font-size:13px}.appendix-e-index{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0 20px}.appendix-e-index div{padding:12px 14px;border-left:3px solid #46758f;background:#f5f8fb;font-size:12px;line-height:1.55}.appendix-e-index strong{display:block;color:#172033}.appendix-e-figure{scroll-margin-top:24px}.appendix-e-figure .attention-atlas-frame>svg{display:block;width:100%;height:auto;margin:0 auto}.appendix-e-figure .attention-atlas-frame>.ordinal-map{min-width:1100px}.appendix-e-proof{margin:10px 0;color:#475467;font-size:12px}
 .definition-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:18px 0 28px}.definition{padding:15px 16px;border:1px solid var(--line);background:#fbfcfe}.definition dt{font-weight:800;color:#172033;margin-bottom:6px}.definition dd{margin:0;color:#475467;font-size:13px;line-height:1.62}.experiment-frame{margin:18px 0 26px;border:1px solid var(--line);background:#fff}.experiment-frame>div{padding:15px 18px;border-bottom:1px solid var(--line)}.experiment-frame>div:last-child{border-bottom:0}.experiment-label{display:inline-block;min-width:88px;color:#0f766e;font-size:11px;font-weight:850;letter-spacing:.07em;text-transform:uppercase}.formula{display:block;margin:9px 0 0;padding:15px 18px;background:#f5f8fb;border-left:3px solid #46758f;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;overflow-x:auto}.figure-primer{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;margin:16px 0 8px;background:var(--line);border:1px solid var(--line)}.figure-primer>div{padding:13px 15px;background:#f8fafc;font-size:12px;line-height:1.55}.figure-primer strong{display:block;margin-bottom:4px;color:#172033}.paper-chart{display:block;width:100%;height:auto;border:1px solid var(--line);background:#fff}.three-d{margin:12px 0 0;border:1px solid var(--line);background:linear-gradient(#fbfcfe,#f5f8fb)}.three-d-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 15px;border-bottom:1px solid var(--line)}.three-d-controls{display:flex;align-items:end;justify-content:flex-end;gap:10px;flex-wrap:wrap}.three-d-head label,.manifold-panel-head label{color:#475467;font-size:12px;font-weight:700}.three-d-head select,.three-d-head button,.manifold-panel-head select{display:block;margin-top:5px;padding:7px 9px;border:1px solid #b8c1cf;background:#fff;color:#172033;font:inherit}.three-d-head button{cursor:pointer}.manifold-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line)}.manifold-panel{min-width:0;padding:0;background:#fbfcfe;border:0}.manifold-panel-head{display:flex;align-items:end;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line)}.manifold-panel-head strong,.manifold-panel-head span{display:block}.manifold-panel-head span{margin-top:3px;color:#667085;font-size:12px}.three-d canvas{display:block;width:100%;height:455px;cursor:grab;touch-action:none}.three-d canvas:active{cursor:grabbing}.manifold-stats{min-height:45px;margin:0;padding:9px 13px;border-top:1px solid var(--line);color:#667085;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.attention-pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}.attention-pair figure{margin:0}.attention-pair img{display:block;width:100%;height:auto;border:1px solid var(--line);background:#fff}.attention-atlas-stack{display:grid;grid-template-columns:1fr;gap:26px;margin-top:12px}.attention-atlas-stack figure{margin:0;padding:16px;border:1px solid var(--line);background:#fff}.attention-atlas-frame{width:100%;overflow-x:auto}.attention-atlas-frame .head-map{display:block;width:100%;min-width:900px;height:auto;margin:0 auto}.attention-switcher{margin:14px 0;padding:16px;border:1px solid var(--line);background:#fbfcfe}.attention-select{display:block;max-width:680px;color:#344054;font-size:12px;font-weight:750}.attention-select select{display:block;width:100%;margin-top:7px;padding:9px 11px;border:1px solid #b8c1cf;background:#fff;color:#172033;font:inherit}.attention-example-panel{margin-top:16px}.attention-example-svg{overflow-x:auto}.attention-example-svg svg{display:block;width:100%;min-width:900px;height:auto;margin:0 auto}.map-meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 9px;color:#667085;font-size:12px}.map-meta strong{color:#172033;font-size:14px}.head-map{display:block;width:100%;height:auto;background:#fff}.term-note{font-size:12px;color:#667085}.qualification{padding:16px 18px;border-left:4px solid #0f766e;background:#f0f9f7}.appendix-block{margin-top:22px}.appendix-block summary{cursor:pointer;font-weight:800}.section-conclusion{margin-top:22px;padding:17px 19px;background:#eef7f5;border-left:4px solid #0f766e}.section-conclusion strong{color:#075e58}
 .attention-pair svg{display:block;width:100%;height:auto;border:1px solid var(--line);background:#fff}
+.core-claim{margin:24px 0;padding:22px 24px;border-top:4px solid #0f766e;background:#f0f9f7;font-size:17px;line-height:1.72}.core-claim strong{color:#075e58}.claim-tier-grid{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:1px;margin:20px 0;border:1px solid var(--line);background:var(--line)}.claim-tier-grid>div{padding:18px;background:#fff}.claim-tier-grid h3{margin:0 0 8px;font-size:15px}.claim-tier-grid p{margin:7px 0;color:#475467;font-size:13px}.claim-tier-grid>div:first-child{box-shadow:inset 0 3px #0f766e}.claim-tier-grid>div:nth-child(2){box-shadow:inset 0 3px #46758f}.claim-tier-grid>div:last-child{box-shadow:inset 0 3px #9a4b00}.scope-layer-figure{overflow-x:auto}.scope-layer-figure svg{display:block;width:100%;min-width:820px;height:auto;border:1px solid var(--line);background:#fff}.evidence-ladder{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;margin:18px 0;background:var(--line);border:1px solid var(--line)}.evidence-ladder>div{padding:15px 16px;background:#fbfcfe}.evidence-ladder span,.evidence-ladder strong{display:block}.evidence-ladder span{color:#0f766e;font:800 11px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.evidence-ladder strong{margin:6px 0;font-size:15px}.evidence-ladder p{margin:0;color:#667085;font-size:12px}.evidence-ledger td:first-child{font-weight:750;color:#172033}.evidence-ledger td:last-child{color:#667085}.appendix-sequence{margin-top:20px}.appendix-sequence details{margin:12px 0;padding:0;border-top:1px solid var(--line)}.appendix-sequence summary{cursor:pointer;padding:13px 2px;font-weight:800}.appendix-sequence details>div{padding:0 2px 12px}.main-note{margin:16px 0;padding:14px 17px;border-left:3px solid #46758f;background:#f5f8fb;color:#344054;font-size:13px}.audit-badge{display:inline-block;margin:2px 5px 2px 0;padding:3px 7px;border:1px solid #b8d7d1;background:#f4fbf9;color:#075e58;font:750 11px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.reading-contract{margin:22px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.contract-row{display:grid;grid-template-columns:150px 1fr;gap:18px;padding:13px 2px;border-bottom:1px solid var(--line)}.contract-row:last-child{border-bottom:0}.contract-row strong{color:#172033}.contract-row span{color:#475467;font-size:13px;line-height:1.65}.mirror-table td:nth-child(2){font-weight:750;color:#075e58}.mirror-table td:last-child{color:#667085}.subsection-conclusion{margin:16px 0 24px;padding:12px 15px;border-left:3px solid #46758f;background:#f5f8fb;color:#344054;font-size:13px;line-height:1.65}.subsection-conclusion strong{color:#244b62}.result-analysis{margin:16px 0}.result-analysis>p{margin:8px 0}.appendix-method{margin:12px 0 18px}.appendix-method p{margin:7px 0}.appendix-method strong{color:#172033}.completion-note{margin:14px 0;padding:13px 16px;border-left:3px solid #0f766e;background:#f4fbf9;color:#344054;font-size:13px}.figure-status{display:inline-block;margin-right:8px;padding:2px 7px;border:1px solid #b8c1cf;color:#475467;font:750 10px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-transform:uppercase;letter-spacing:.04em}
+.attention-atlas-stack figure,.appendix-e-figure{min-width:0;max-width:100%;box-sizing:border-box}.attention-atlas-frame{min-width:0;max-width:100%}.appendix-sequence details,.appendix-sequence details>div{min-width:0;max-width:100%}
 @media print{.attention-pair{display:block}.attention-pair figure{break-inside:avoid-page;margin:0 0 20px}.attention-pair figure .head-map{width:auto;max-width:100%;max-height:620px;margin:0 auto}.attention-atlas-stack figure{break-inside:avoid-page}.attention-atlas-frame .head-map{min-width:0}.three-d{break-inside:avoid-page}.three-d canvas{height:430px}.formula{white-space:normal}.attention-switcher{break-inside:avoid-page}}
 @media(max-width:900px){.manifold-grid{grid-template-columns:1fr}}
-@media(max-width:760px){.status-grid,.walkthrough-callout,.metric-strip,.definition-grid,.attention-pair,.figure-primer,.edge-roadmap,.scope-compare,.appendix-e-index{grid-template-columns:1fr}.condition-row{grid-template-columns:1fr;gap:4px}.three-d-head{align-items:flex-start;flex-direction:column}.three-d-controls{justify-content:flex-start}.three-d canvas{height:430px}.chain-figure{min-width:850px}.chain-scroll{overflow-x:auto}}
+@media(max-width:760px){.status-grid,.walkthrough-callout,.metric-strip,.definition-grid,.attention-pair,.figure-primer,.edge-roadmap,.scope-compare,.appendix-e-index,.claim-tier-grid,.evidence-ladder{grid-template-columns:1fr}.contract-row{grid-template-columns:1fr;gap:4px}.condition-row{grid-template-columns:1fr;gap:4px}.three-d-head{align-items:flex-start;flex-direction:column}.three-d-controls{justify-content:flex-start}.three-d canvas{height:430px}.chain-figure{min-width:850px}.chain-scroll{overflow-x:auto}}
 """
     css = extract_css(args.reference_report) + custom_css
     generated = datetime.now(timezone.utc).isoformat()
@@ -2495,15 +3114,192 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             for model in MODELS
         ),
     )
+    scope_labels = {
+        "item_end_w1": "单 endpoint（1 token）",
+        "event_tail_w4": "event tail（4 tokens）",
+        "item_span": "endpoint-aligned item span",
+    }
+    patch_scope_discovery_table = table(
+        (
+            "Patch scope",
+            "Frozen layer",
+            "Median Δ donor log-odds",
+            "Positive cells",
+            "Mean patch norm",
+            "Mean Δ / norm",
+        ),
+        (
+            (
+                scope_labels[scope],
+                f"L{int(patch_scope_discovery[scope]['selected_layer'])}",
+                f"{float(patch_scope_discovery[scope]['selected_layer_summary']['median_paired_logodds_shift']):+.2f}",
+                f"{100*float(patch_scope_discovery[scope]['selected_layer_summary']['positive_shift_rate']):.1f}% / 40",
+                f"{float(patch_scope_discovery[scope]['selected_layer_summary']['mean_patch_norm']):.2f}",
+                f"{float(patch_scope_discovery[scope]['selected_layer_summary']['mean_logodds_shift_per_patch_norm']):.2f}",
+            )
+            for scope in ("item_end_w1", "event_tail_w4", "item_span")
+        ),
+    )
+    patch_scope_confirmation_table = table(
+        (
+            "Frozen scope",
+            "Median Δ log-odds",
+            "Attention Δ > 0",
+            "Donor argmax",
+            "First known city → donor",
+            "Seeds with ≥1 incremental transfer",
+        ),
+        (
+            (
+                f"{scope_labels[scope]} · L{int(patch_scope_discovery[scope]['selected_layer'])}",
+                f"{float(patch_scope_confirmation[scope]['median_paired_logodds_shift']):+.2f}",
+                f"{int(round(60*float(patch_scope_confirmation[scope]['positive_attention_shift_rate'])))}/60",
+                f"{int(round(60*float(patch_scope_confirmation[scope]['patched_donor_argmax_rate'])))}/60",
+                f"{int(round(60*float(patch_scope_confirmation[scope]['patched_first_known_city_donor_adoption_rate'])))}/60",
+                f"{int(round(10*float(patch_scope_confirmation[scope]['seed_with_any_greedy_donor_adoption_rate'])))}/10",
+            )
+            for scope in ("item_end_w1", "event_tail_w4", "item_span")
+        ),
+    )
+    extension_audit_table = table(
+        ("Extension", "What was transplanted / intervened", "Observed result", "Role in this report"),
+        (
+            (
+                "CountScope",
+                "full-item state → one-placeholder receiver",
+                "N=3: k=1/2/3 candidate 0.90/0.70/1.00; N=10: k=1–4 usable, k≥5 mostly fails",
+                "supports readable local state; rejects a standalone context-invariant register",
+            ),
+            (
+                "Continued counting",
+                "source last-k states → target first-k; evaluate hop 1/2 and final",
+                "N=3 hop 1 briefly 0.3–0.7; N=10 hop 1 ≤0.20; hop 2/final ≈0",
+                "does not establish memoryless +1 recurrence",
+            ),
+            (
+                "Geometry steering",
+                "single-site +1 direction, all-layer scan; opposite/orthogonal controls",
+                "peak L19: N=3 +0.622 [0.471, 0.767], N=10 +0.215 [0.107, 0.334]",
+                "local causal geometry; post-hoc layer profile, not fresh confirmation",
+            ),
+            (
+                "Separator dose",
+                "collapse later events to first-event marker / closing / full-event states",
+                "per-event slope: marker −0.125, closing −0.219, full event −0.690",
+                "full event dominates marker; supports a distributed carrier",
+            ),
+            (
+                "Maximum-count",
+                "source last-k → target last-k; test max(Ns, Nt−k)",
+                "donor-dominant candidate 0.13–0.30; target−k branch history-confounded",
+                "no evidence for a general max operator",
+            ),
+            (
+                "Marker K/V and operator scan",
+                "K-only, V-only, layer bands; broad recurrence-operator family",
+                "K/V 0.835, V 0.500, K 0.276; operator scan reset 97.08%, target +1 0.625%",
+                "event-memory substrate is plausible; reset dominates explicit recurrence candidates",
+            ),
+        ),
+        class_name="evidence-ledger",
+    )
+
+    def direction_count(
+        summary: Mapping[str, Any], direction: str, count_field: str
+    ) -> tuple[int, int]:
+        rows = [
+            row
+            for row in summary["by_direction_k"]
+            if row["direction"] == direction and int(row.get("cell_count", 0)) > 0
+        ]
+        return (
+            sum(int(row[count_field]) for row in rows),
+            sum(int(row["cell_count"]) for row in rows),
+        )
+
+    l0_item_forward = direction_count(
+        patch_scope_confirmation["item_span"],
+        "forward_skip",
+        "patched_first_known_city_donor_adoption_count",
+    )
+    l0_item_backward = direction_count(
+        patch_scope_confirmation["item_span"],
+        "backward_rewind",
+        "patched_first_known_city_donor_adoption_count",
+    )
+    l16_item_forward = direction_count(
+        item_span_l16_summary,
+        "forward_skip",
+        "patched_first_known_city_donor_adoption_count",
+    )
+    l16_item_backward = direction_count(
+        item_span_l16_summary,
+        "backward_rewind",
+        "patched_first_known_city_donor_adoption_count",
+    )
+    qwen_l0_forward_cells = [
+        cell
+        for cell in patch_scope_frozen["cells"]
+        if cell["scope"] == "item_span"
+        and cell["direction"] == "forward_skip"
+    ]
+    require(
+        len(qwen_l0_forward_cells) == 30,
+        "Qwen natural no-index forward comparison support changed",
+    )
+    qwen_l0_forward_argmax = sum(
+        bool(cell["patched_donor_argmax"]) for cell in qwen_l0_forward_cells
+    )
+    qwen_l0_forward_attention = sum(
+        float(cell["paired_attention_shift"]) > 0.0
+        for cell in qwen_l0_forward_cells
+    )
+    qwen_l0_forward_logodds = sum(
+        float(cell["paired_logodds_shift"]) > 0.0
+        for cell in qwen_l0_forward_cells
+    )
+    qwen_l0_forward_self_donor = sum(
+        int(cell["receiver_first_known_city_ordinal"])
+        == int(cell["donor_occurrence_k"]) + 1
+        for cell in qwen_l0_forward_cells
+    )
+    gemma_prompt_k_rows = []
+    for group in sorted(
+        gemma_prompt_noindex_confirmation["groups"].values(),
+        key=lambda row: int(row["donor_occurrence"]),
+    ):
+        paired = group["paired_patch_minus_self"]
+        gemma_prompt_k_rows.append(
+            [
+                f'{int(group["receiver_occurrence"])} ← {int(group["donor_occurrence"])}',
+                f'{int(paired["donor_argmax_patch"]["hits"])}/10',
+                f'{int(paired["greedy_donor_adoption_patch"]["hits"])}/10',
+                f'{int(paired["greedy_donor_adoption_self"]["hits"])}/10',
+                f'{float(paired["logodds_gain_patch_minus_self"]["mean"]):+.2f}',
+                f'{int(paired["positive_attention_gain"]["hits"])}/10',
+            ]
+        )
+    gemma_prompt_k_table = table(
+        [
+            "receiver ← donor",
+            "Donor argmax",
+            "Greedy donor",
+            "Self donor",
+            "Mean Δ log-odds",
+            "Attention Δ > 0",
+        ],
+        gemma_prompt_k_rows,
+        class_name="compact-table",
+    )
 
     html_text = f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Native-thinking 计数机制：因果链与表征报告</title><link rel="icon" href="data:,"><style>{css}</style></head>
+<title>Native-thinking 计数机制：分布式事件状态与检索控制</title><link rel="icon" href="data:,"><style>{css}</style></head>
 <body><article class="page"><header><p class="eyebrow">Realistic CoT NiaH · Native-thinking mechanism</p>
-<h1>Native-thinking 如何在 trace 中维持并输出 count</h1>
-<p class="dek">本报告与 Non-thinking 冻结版使用同一证据语法：先定义对象与判据，再分别检验表征、局部检索、状态写入、循环传播与终端读取。</p>
+<h1>Native-thinking 如何计数：分布式事件状态与定向检索</h1>
+<p class="dek">与 Non-thinking 报告使用同一逻辑骨架：先分开 representation 与 causal evidence，再沿 state formation、retrieval、write/control、terminal readout 组织证据。任何自然 no-index internal-counter / progress-controller 主张均严格限定于 Qwen3-8B 的自然 N=10 trace；Gemma 只作为显式-index、prompt-conditioned no-visible-index、targeted-retrieval 与 carrier 证据的跨模型参照。</p>
 <div class="meta"><span>Qwen3-8B · frozen Top-128</span><span>Gemma4-E4B · frozen Top-6</span><span>formal: 20 discovery / 10 confirmation</span><span>generated {esc(generated)}</span></div></header>
-<nav><a href="#definitions">定义</a><a href="#summary">结论</a><a href="#design">设计</a><a href="#task">任务</a><a href="#representation">表征</a><a href="#retrieval">检索</a><a href="#write">写入与循环</a><a href="#answer">终端</a><a href="#walkthrough">单 seed</a><a href="#appendix">Appendix</a></nav>
+<nav><a href="#summary">结论</a><a href="#baseline">1 基线</a><a href="#representation">2 表征</a><a href="#formation">3 State formation</a><a href="#retrieval">4 检索</a><a href="#write">5 写入与控制</a><a href="#answer">6 终端</a><a href="#ledger">7 证据表</a><a href="#extension-audit">8 扩展审计</a><a href="#limitations">9 边界</a><a href="#appendix">Appendix</a></nav>
 <main>
 
 <section id="definitions"><p class="eyebrow">00 · Definitions before claims</p><h2>先定义本文所有核心对象</h2>
@@ -2571,7 +3367,7 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 
 <h3>4.1 Heads 在哪里，attention 是否随 target 移动</h3>
 <div class="figure-primer"><div><strong>左图</strong>横轴是 transition <em>k</em>→<em>k</em>+1，纵轴是 prompt record ordinal；颜色是 Top-K 合计 raw attention mass。</div><div><strong>正确图样</strong>亮带应随 <em>k</em>+1 沿对角线移动，而不是永远固定在第一条。</div><div><strong>证据边界</strong>这两张图是 descriptive localization；因果必要性来自下面 selected-vs-random ablation。</div></div>
-<div class="attention-pair"><figure>{qwen_attention_sum_svg}<figcaption>图 2a · Qwen Top-128 在单条真实 trace 上的 bank-summed attention。横轴为 P0 transition，纵轴为真实 prompt record，颜色为 128 枚 heads 对 record span 的 raw attention mass 之和。跨模型不比较颜色绝对值。</figcaption></figure><figure>{gemma_attention_sum_svg}<figcaption>图 2b · Gemma Top-6 的同构图。横轴、纵轴和颜色定义与左图相同，但 bank 只有 6 枚 heads。对角 target pattern 说明少数 heads 可被多个 occurrence 重复使用。</figcaption></figure></div>
+<div class="attention-pair"><figure><h3 class="figure-title">图 2a · Qwen Top-128 单轨迹 targeted-attention map</h3>{qwen_attention_sum_svg}<figcaption>横轴为 P0 transition k→k+1，纵轴为真实 prompt record ordinal；颜色为 128 枚 heads 对该 record span 的 raw attention mass 之和，红框/红点标出正确 successor。跨模型不比较颜色绝对值。</figcaption></figure><figure><h3 class="figure-title">图 2b · Gemma Top-6 单轨迹 targeted-attention map</h3>{gemma_attention_sum_svg}<figcaption>横轴、纵轴、红色 target 标记与颜色定义同左图，但 bank 只有 6 枚 heads。对角 target pattern 说明少数 heads 可被多个 occurrence 重复使用；绝对色值不能与 Qwen Top-128 比较。</figcaption></figure></div>
 
 <h3>4.2 单头、整 bank 与跨-seed attention pattern</h3>
 <div class="figure-primer"><div><strong>单轨迹 panels</strong>横轴是 P0 transition；纵轴是带真实 city 名的 prompt records；红框或红点标出正确 <em>k</em>+1 target。</div><div><strong>跨-seed panel</strong>横轴是 discovery-ranked head；纵轴是正确 target ordinal；颜色是先在 seed 内平均、再对 20 discovery seeds 等权平均的 raw target mass。</div><div><strong>怎么使用</strong>用下拉框切换 Qwen/Gemma、单头/整 bank/跨-seed 版本。热图展示 routing 形状，不替代因果 ablation。</div></div>
@@ -2721,7 +3517,7 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 <figure><h3 class="figure-title">图 6b · 无 running-index trace 的 full-item state 是否推动 early-stop k</h3>{internal_counter_restoration_svg(unnumbered_occurrence)}<figcaption>横轴是被恢复的 occurrence k=2…9。Panel A 是 confirmation 中 candidate k 的 patch−scrub mean margin gain；Panel B 是 hard exact accuracy gain。每个点先在对应 k 的 10 seeds 内平均。零线表示 patch 没有帮助；Qwen/Gemma 各自使用冻结 L18/L16。连续 margin 在大多数 k 上为正，但 exact gain 很小，因此曲线显示 count-aligned signal，而不是旧 HTML 式强 diagonal recovery。</figcaption></figure>
 <p><strong>Confirmation 结果。</strong>Qwen 的 target-margin gain={ci(counter_margin['Qwen3-8B'])}，exact gain={ci(counter_exact['Qwen3-8B'])}，hard exact 从 {float(unnumbered_counter['Qwen3-8B']['selected_layer_metrics']['baseline_exact_accuracy']):.3f} 到 {float(unnumbered_counter['Qwen3-8B']['selected_layer_metrics']['patched_exact_accuracy']):.3f}；8/8 个 k 的 mean margin 都为正。Gemma margin gain={ci(counter_margin['Gemma4-E4B'])}，exact gain={ci(counter_exact['Gemma4-E4B'])}，hard exact 从 {float(unnumbered_counter['Gemma4-E4B']['selected_layer_metrics']['baseline_exact_accuracy']):.3f} 到 {float(unnumbered_counter['Gemma4-E4B']['selected_layer_metrics']['patched_exact_accuracy']):.3f}；7/8 个 k 为正。两模型都未达到预注册 old-HTML magnitude gate（patched exact≥0.50、gain≥0.25、mean margin&gt;0、至少 6/8 k 为正）。</p>
 <div class="scope-compare"><div><h4>可以得到的结论</h4><p>在没有显式 running-index label 的受控 trace 中，第 k 个 full-item hidden state 含有跨 seed 可复现、与 k 对齐的可转移信号；把它写入无 needle receiver，会提高候选 k 的分数。这个结果排除了“只是在复制 item-number token”这一最直接混淆。</p></div><div><h4>仍不能得到的结论</h4><p>单个 item state 并不足以重建完整 counter：hard argmax 很少直接变成 k，而且该 trace 是 teacher-forced counterfactual，不是自然生成样本。更合理的机制解释是 count state 分布在 recurrent trace dynamics 中，单 span 携带其中一部分，但后续 propagation/readout 仍是必要条件。</p></div></div>
-<div class="section-conclusion"><strong>Experiment 7 结论。</strong> 原单-seed natural-trace scrub 是 descriptive null；新的 20/10-seed no-running-index panel 给出两模型均可复现的 count-aligned margin gain，但强 old-HTML early-stop sufficiency 失败。因此最稳妥的 claim 是“存在受控可转移的 internal count signal”，而不是“一个 span 就是完整 internal counter”。</div></section>
+<div class="section-conclusion"><strong>Experiment 7 结论。</strong> 原单-seed natural-trace scrub 是 descriptive null；新的 20/10-seed、format-conditioned no-running-index panel 在两模型中给出 count-aligned margin gain，但强 old-HTML early-stop sufficiency 失败。它只说明受控 grammar 下存在可转移的 count-aligned signal，不构成 Gemma 的自然 no-index internal-counter 证据；本文的自然 no-index causal claim 仍仅来自 Qwen。</div></section>
 
 <section id="comparison"><p class="eyebrow">08 · Mechanism synthesis</p><h2>最终机制图景</h2>
 <div class="mechanism"><div class="stage"><span class="stage-no">01</span><h3>Retrieve</h3><p>Targeted heads 读取下一条 prompt city。Qwen 使用宽 Top-128；Gemma 使用窄 Top-6。</p><span class="evidence">causal necessity</span></div><div class="stage"><span class="stage-no">02</span><h3>Write & commit</h3><p>检索改变 grammar-specific carrier，carrier 将进度提交到 residual stream。</p><span class="evidence">deform + restore</span></div><div class="stage"><span class="stage-no">03</span><h3>Loop & read</h3><p>commit 改变下一次 targeted query；终端 state 再被 answer-time readout 使用。</p><span class="evidence">recurrent + conditional terminal</span></div></div>
@@ -2770,7 +3566,7 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 <section id="audit"><p class="eyebrow">09 · Boundaries and reproducibility</p><h2>边界、复现与底层文件</h2>
 <ul><li>本报告证明一条 pathway，不证明唯一性、排他性或所有 grammar 共用完全相同的 heads。</li><li>CI 与 p-value 保留用于审计；正文的“强/弱”判断同时考虑 effect size、控制组和跨 phase 复现。</li><li>单 seed walkthrough 不进入 discovery/confirmation gate；V2 是在 V1 暴露 trace-tail 泄露后修正的 exploratory control。</li><li>Qwen 与 Gemma 的状态几何、bank 宽度和最后一条边不同，不强行合并成完全同构 circuit。</li></ul>
 <details class="paper-appendix"><summary>底层报告与外部证据包</summary><div class="source-list"><a href="NiaH_Native-Thinking_P0_Targeted_Retrieval_Atlas.html">P0 targeted-retrieval atlas</a><br><a href="NiaH_Native-Thinking_Parser_and_Token_Sites.html">Parser / token sites</a><br><a href="NiaH_Geometry_Comparison.html">Representation geometry</a><br><span>逐 seed、逐 arm、claim-gate 与运行审计文件保存在外部实验归档，不随 Git 仓库分发。报告中的聚合值与输入哈希已冻结；复算时通过构建器参数挂载对应 evidence bundle。</span></div></details>
-<p class="audit">Generated UTC: {esc(generated)}<br>Schema: realistic_niah_v5_native_thinking_restructured_v7</p></section>
+<p class="audit">Generated UTC: {esc(generated)}<br>Schema: realistic_niah_v5_native_thinking_restructured_v11</p></section>
 
 </main></article><script>
 {point_cloud_script(geometry_3d)}
@@ -2786,6 +3582,609 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
 }});
 </script></body></html>"""
 
+    # Recompose the report around the same inferential spine as the
+    # Non-thinking report. The original sections remain useful evidence
+    # containers, but their previous order mixed primary claims, extensions,
+    # and negative controls.
+    sections = extract_top_level_sections(html_text)
+
+    baseline_section = f"""<section id="baseline"><p class="eyebrow">01 · Task and behavioral baseline</p>
+<h2>1. 任务与行为基线：解释对象是 first-pass trace 中逐项推进，而不只是最后的数字</h2>
+<div class="experiment-frame">
+  <div><span class="experiment-label">实验目的</span>固定本文要解释的行为单位：模型既要从约 10k-token passage 中依次找出 N 条 needle records，也要在 reasoning trace 中决定“下一条读谁”，最后输出 total N。</div>
+  <div><span class="experiment-label">任务设定</span>主因果 cohort 只使用 Qwen3-8B、N=10、自然生成的 first-pass no-index enumeration。<em>No-index</em> 指被分析的逐项枚举行不出现 <code>Count=k</code>、<code>Item k</code>、<code>Excerpt k</code>、ordinal 或 running subtotal；recap 与最终答案不进入 patch context。</div>
+  <div><span class="experiment-label">记号与单位</span><em>N</em> 是真实 needle 总数；<em>k</em> 是 donor 已完成的 occurrence；<em>j</em> 是 receiver occurrence。Donor successor 是 <em>k</em>+1，receiver successor 是 <em>j</em>+1。一个独立样本是一条 seed-level trace；同一 seed 内的多个 k、方向、层与条件只是配对读数。</div>
+  <div><span class="experiment-label">简单例子</span>若 N=10、receiver 当前完成 j=5，它自然应检索第 6 条；若把 donor k=6 的状态写入同一表面/绝对位置，因果问题是下一次检索是否跳过第 6 条、改读 donor successor 第 7 条。</div>
+</div>
+<div class="completion-note"><strong>计划内运行状态。</strong> Qwen 自然 no-index 主实验已经冻结 20 discovery + 10 disjoint confirmation seeds；服务器当前无遗留实验进程。Gemma 原 prompt 未形成足够的自然 no-index cohort，因此没有用改 prompt 的样本替换这一缺口。</div>
+<div class="reading-contract">
+  <div class="contract-row"><strong>Discovery</strong><span>{', '.join(map(str, qwen_noindex_discovery_seeds))}</span></div>
+  <div class="contract-row"><strong>Confirmation</strong><span>{', '.join(map(str, qwen_noindex_confirmation_seeds))}</span></div>
+  <div class="contract-row"><strong>完整样本内容</strong><span>30 条 prompt、first-pass enumeration、token sites 与逐 seed patch 结果保存在配套的 <a href="NiaH_Native-thinking_Internal-counter_report.html">Internal-counter seed browser</a>；本报告只保留机制所需的聚合与代表性例子。</span></div>
+</div>
+<p><strong>结果。</strong>这 30 条 trace 通过严格 no-index grammar 审计，并按 20/10 冻结；confirmation 不参与层、scope 或 head-bank 选择。</p>
+<p><strong>分析。</strong>这一筛选使“复制可见 running index”不再解释 Qwen 主结果；但 event 中仍含 city、score 与语法，因此后续必须用 endpoint、tail 与 item-span scope controls 区分完整事件内容和更窄的 progress signal。</p>
+<div class="section-conclusion"><strong>Experiment 1 结论。</strong>本文的自然 internal-progress 问题被限定为：在没有显式位置编号的 Qwen N=10 first-pass enumeration 中，内部 state 是否因果控制下一项 retrieval。它不是对所有 Native-thinking 模型或所有 prompt 的普适性估计。</div></section>"""
+    representation_section = sections["representation"].replace(
+        '<section id="representation"><p class="eyebrow">03 · Representation</p><h2>Trace commit 与 answer query 都含有可读的 count geometry</h2>',
+        '<section id="representation"><p class="eyebrow">02 · Measurement framework</p><h2>2. 通用测量框架：Representation 负责定位，Causal test 负责判定</h2>',
+        1,
+    )
+    representation_section = (
+        representation_section
+        .replace("<h3>3.1 ", "<h3>2.1 ")
+        .replace("<h3>3.2 ", "<h3>2.2 ")
+        .replace("<h3>3.3 ", "<h3>2.3 ")
+        .replace("图 1a", "图 2a")
+        .replace("图 1b", "图 2b")
+        .replace("图 1c", "图 2c")
+        .replace("图 1d", "图 2c")
+        .replace("Experiment 3 结论", "Experiment 2 结论")
+    )
+    representation_measurement = """
+<div class="experiment-frame">
+  <div><span class="experiment-label">因果量的目的</span>Probe 只问 state 中能否读出 k；state transplant 才问模型的后续计算是否使用 donor 所携带的信息。所有主因果量都先在同一 seed、同一 donor–receiver pair 内做 patch−self，再让 seeds 等权。</div>
+  <div><span class="experiment-label">Routing score</span>令 S(c) 为候选 successor c 的 teacher-forced完整 sequence log score。<span class="formula">R = S(donor successor) − S(receiver successor)<br>Δroute = R<sub>patch</sub> − R<sub>self</sub></span>Δroute&gt;0 表示 patch 使模型相对更偏好 donor 的下一项；它不是“增加了几个 count”。</div>
+  <div><span class="experiment-label">Attention score</span>对 discovery 冻结的 targeted head bank 与对应 record span 求和：<span class="formula">Q = log(A<sub>donor</sub>+ε) − log(A<sub>receiver</sub>+ε)<br>Δattention = Q<sub>patch</sub> − Q<sub>self</sub>, &nbsp; A=Σ<sub>h∈bank,t∈record</sub>α<sub>h</sub>(q,t)</span>bank-summed A 可以大于 1，且 Qwen Top-128 与 Gemma Top-6 的绝对量不能跨模型比较。</div>
+  <div><span class="experiment-label">行为读数</span><em>Donor argmax</em> 表示 donor successor 在十个候选中得分最高；<em>first-city transfer</em> 表示自由 continuation 中首个匹配 gold city 的 ordinal 等于 donor successor。人工审计只接受 recap 之前的 first-pass 命中。</div>
+  <div><span class="experiment-label">简单例子</span>Receiver 应读 N6，donor 应读 N7。若 self 时 S(N7)−S(N6)=−4，patch 后变为 +3，则 Δroute=+7；若首个生成 city 也从 N6 的 city 变成 N7 的 city，才得到行为层 transfer。</div>
+</div>
+<div class="subsection-conclusion"><strong>测量合同结论。</strong>下文始终把“可解码”“候选分数改变”“attention 改道”和“生成内容改变”分成四级证据；只有最后三者能贡献 causal routing claim。</div>
+"""
+    representation_section = representation_section.replace(
+        "</div>\n\n<h3>2.1 可解码性如何随层变化</h3>",
+        "</div>\n" + representation_measurement + "\n<h3>2.1 可解码性如何随层变化</h3>",
+        1,
+    )
+    representation_section = representation_section.replace(
+        "</figure>\n\n<h3>2.2 Count clouds 在低维中长什么样</h3>",
+        "</figure>\n<div class=\"subsection-conclusion\"><strong>Experiment 2.1 结论。</strong>Running commit 与 answer query 都出现高于 chance 的 held-out count readout，但层峰和模型差异明显；这一步只定位候选 state，不建立自然使用。</div>\n\n<h3>2.2 Count clouds 在低维中长什么样</h3>",
+        1,
+    )
+    representation_section = representation_section.replace(
+        "\n<h3>2.3 冻结层的数值结果</h3>",
+        "\n<div class=\"subsection-conclusion\"><strong>Experiment 2.2 结论。</strong>PCA3 提供 count clouds 的直观几何，但坐标轴是 discovery-fitted 方差方向而非预设 counter axes；正式数值仍来自 PCA16 held-out probe，因果解释留给后续 patching。</div>\n<h3>2.3 冻结层的数值结果</h3>",
+        1,
+    )
+    retrieval_section = sections["retrieval"].replace(
+        '<section id="retrieval"><p class="eyebrow">04 · Targeted retrieval</p><h2>下一条 city 由 model-specific targeted head banks 定向检索</h2>',
+        '<section id="retrieval"><p class="eyebrow">04 · Logical chain B</p><h2>4. 逻辑链 B — Targeted retrieval：下一条 city 由 model-specific head banks 定向读取</h2>',
+        1,
+    )
+    retrieval_section = (
+        retrieval_section
+        .replace("图 2a", "图 4a")
+        .replace("图 2b", "图 4b")
+        .replace("图 2c", "图 4c")
+        .replace("图 2d", "图 4d")
+        .replace("图 2e", "图 4e")
+        .replace("图 2f", "图 4f")
+    )
+    retrieval_section = retrieval_section.replace(
+        "\n<h3>4.2 单头、整 bank 与跨-seed attention pattern</h3>",
+        "\n<div class=\"subsection-conclusion\"><strong>Experiment 4.1 结论。</strong>两模型都存在随目标 ordinal 移动的 attention 对角带；这是 head-bank localization，不是必要性证据。</div>\n<h3>4.2 单头、整 bank 与跨-seed attention pattern</h3>",
+        1,
+    ).replace(
+        "\n<h3>4.3 Head bank 在 layer×head 空间中的位置</h3>",
+        "\n<div class=\"subsection-conclusion\"><strong>Experiment 4.2 结论。</strong>单头、整 bank 与跨-seed聚合都能看到 target-following pattern，但单头存在冗余，不能据图挑一个唯一 counting head。</div>\n<h3>4.3 Head bank 在 layer×head 空间中的位置</h3>",
+        1,
+    ).replace(
+        "\n<h3>4.4 关闭 bank 后，下一条 city 是否失败</h3>",
+        "\n<div class=\"subsection-conclusion\"><strong>Experiment 4.3 结论。</strong>冻结 bank 跨多个层分布；atlas 只解释 bank 的空间组成，真正的 selection specificity 由下一节 selected-vs-random ablation 判定。</div>\n<h3>4.4 关闭 bank 后，下一条 city 是否失败</h3>",
+        1,
+    )
+    answer_section = sections["answer"].replace(
+        '<section id="answer"><p class="eyebrow">06 · Terminal readout</p><h2>Answer query 自然依赖 trace source；terminal state 在 fixed-suffix 中能控制 count margin</h2>',
+        '<section id="answer"><p class="eyebrow">06 · Logical chain D</p><h2>6. 逻辑链 D — Terminal readout：trace state 被条件化地读成最终 count</h2>',
+        1,
+    )
+    answer_section = (
+        answer_section
+        .replace("图 5a", "图 6a")
+        .replace("图 5b", "图 6b")
+        .replace("图 5c", "图 6c")
+        .replace("<span class=\"experiment-label\">具体数字例子</span>", "<span class=\"experiment-label\">简单例子</span>")
+        .replace("见 Appendix C", "见 Appendix O")
+    )
+
+    original_write = sections["write"]
+    old_53_marker = "<h3>5.3 Commit state 是否决定下一次 targeted query 读向哪里</h3>"
+    require(old_53_marker in original_write, "Cannot isolate historical 5.3 section")
+    write_prefix, historical_commit = original_write.split(old_53_marker, 1)
+    historical_commit = old_53_marker + historical_commit.rsplit("</section>", 1)[0]
+    historical_commit = historical_commit.replace(
+        "若会，trace 中就形成 READ→WRITE→COMMIT→NEXT READ 的 recurrent loop。",
+        "该受控比较只检验完整 commit state 是否影响下一次 query；它不等同于自然 no-index trace 中的 arithmetic recurrence。",
+    ).replace(
+        "至此，targeted retrieval→carrier→commit→next targeted retrieval 的 trace 内循环已经接上。",
+        "该结果保留为历史的 indexed/controlled routing evidence；它不单独证明自然 no-index trace 中存在 memoryless +1。",
+    ).replace(
+        "直接 recurrent edge 已确认",
+        "受控 commit→query edge 已确认",
+    ).replace(
+        "支持强 recurrent routing",
+        "支持强 controlled routing",
+    ).replace(
+        "shared recurrent computation、不同 state geometry",
+        "shared state-dependent routing、不同 state geometry",
+    )
+    write_prefix = write_prefix.replace(
+        '<section id="write"><p class="eyebrow">05 · Write and recurrent propagation</p><h2>把 trace 内部的三条边分开检验</h2>',
+        '<section id="write"><p class="eyebrow">05 · Logical chain C</p><h2>5. 逻辑链 C — State write and progress control：从检索结果到下一项选择</h2>',
+        1,
+    ).replace(
+        '<div><span>5.3 · COMMIT → NEXT READ</span><strong>把“已完成 k”的 commit 换成“已完成 k+1”，下一次 query 会不会改读再下一条 record？</strong></div>',
+        '<div><span>5.3 · EVENT STATE → NEXT ITEM</span><strong>在自然 no-index trace 中移植 donor event state，后续 attention 与首个检索 city 会不会共同跟随 donor？</strong></div>',
+        1,
+    )
+    shared_write_marker = "<h3>5.1–5.2 共用什么样本与实验底座</h3>"
+    write_51_marker = "<h3>5.1 关闭 targeted bank 后，检索结果有没有写入 grammar carrier</h3>"
+    write_52_marker = "<h3>5.2 在同一 query damage 下，恢复 clean carrier 能否救回 item-end commit</h3>"
+    write_51_diagnostic_marker = "<h4>5.1b NCC：carrier 不只是“变了”，是否朝错误 count centroid 移动</h4>"
+    require(
+        all(
+            marker in write_prefix
+            for marker in (
+                shared_write_marker,
+                write_51_marker,
+                write_52_marker,
+                write_51_diagnostic_marker,
+            )
+        ),
+        "Cannot split the write section into main and diagnostic evidence",
+    )
+    write_header, write_after_header = write_prefix.split(shared_write_marker, 1)
+    write_shared_body, write_after_shared = write_after_header.split(write_51_marker, 1)
+    write_51_full, write_52_main = write_after_shared.split(write_52_marker, 1)
+    write_51_main, write_51_diagnostics = write_51_full.split(
+        write_51_diagnostic_marker, 1
+    )
+    old_51_conclusion = '<div class="section-conclusion"><strong>Experiment 5.1 结论。'
+    if old_51_conclusion in write_51_diagnostics:
+        write_51_diagnostics = write_51_diagnostics.split(old_51_conclusion, 1)[0]
+    write_header = write_header.replace(
+        "这一节不是一次复杂 patch 得出整条链，而是依次问三个较小的问题。每个问题的 treatment、control 和读数都不同：",
+        "这一节把同一个 counting loop 拆成三条可单独证伪的边。5.1–5.2 在两模型的受控 grammar family 中检验写入；5.3 只在 Qwen 的自然 no-index trace 中检验下一项 routing。三条边来自不同但相互衔接的干预，不能误读成单次 end-to-end mediation。",
+        1,
+    )
+    write_shared = shared_write_marker + write_shared_body
+    write_51_main = (
+        write_51_marker
+        + write_51_main.replace("图 3a", "图 5a")
+        .replace('<span class="experiment-label">要检验的箭头</span>', '<span class="experiment-label">实验目的</span>', 1)
+        .replace('<span class="experiment-label">具体例子 A</span>', '<span class="experiment-label">简单例子 A</span>', 1)
+        .replace('<span class="experiment-label">具体例子 B</span>', '<span class="experiment-label">简单例子 B</span>', 1)
+        + '<div class="section-conclusion"><strong>Experiment 5.1 结论。</strong>在两模型的固定 trace 上，关闭冻结 targeted bank 会使 query 之后的 grammar carrier 离开 clean state。Qwen 的 selected−random identity control 清楚为正；Gemma 只确认 direct damage，尚不能声称 Top-6 是排他的写入通路。NCC 与最终答案 margin 的附加诊断移至 Appendix H。</div>'
+    )
+    write_52_main = (
+        write_52_marker
+        + write_52_main.replace("图 3b", "图 5b")
+        .replace('<span class="experiment-label">要检验的箭头</span>', '<span class="experiment-label">实验目的</span>', 1)
+        .replace('<span class="experiment-label">完整例子</span>', '<span class="experiment-label">简单例子</span>', 1)
+    )
+    write_51_diagnostics = (
+        write_51_diagnostic_marker
+        + write_51_diagnostics.replace("图 3a-2", "图 H1").replace("图 3a-3", "图 H2")
+    )
+    indexed_discovery_table = table(
+        (
+            "Model / frozen grammar",
+            "Discovery sweep",
+            "Automatic / confirmation layer",
+            "Median paired Δ log-odds",
+            "Positive cells",
+            "Donor argmax",
+            "Mean width / exact full item",
+        ),
+        (
+            (
+                f"{SHORT[model]} · {indexed_cohort_manifest['models'][model]['surface_template']}",
+                f"k=6, two directions, {int(indexed_progress_active_discovery[model]['cell_count'])} cells",
+                (
+                    f"auto L{int(indexed_progress_selected[model]['selected_layer'])} / "
+                    f"confirm L{indexed_confirmation_layers[model]}"
+                ),
+                f"{float(indexed_progress_active_discovery[model]['median_paired_logodds_shift']):+.2f}",
+                f"{100*float(indexed_progress_active_discovery[model]['positive_shift_rate']):.1f}%",
+                f"{100*float(indexed_progress_active_discovery[model]['patched_donor_argmax_rate']):.1f}%",
+                (
+                    f"{float(indexed_progress_active_discovery[model]['mean_patch_width']):.1f} / "
+                    f"{100*float(indexed_progress_active_discovery[model]['equal_length_complete_item_rate']):.1f}%"
+                ),
+            )
+            for model in MODELS
+        ),
+        class_name="compact-table",
+    )
+    indexed_confirmation_table = table(
+        (
+            "Model / frozen layer",
+            "Median paired Δ log-odds",
+            "Positive log-odds",
+            "Mean attention Δ / positive",
+            "Donor argmax",
+            "First city: patch / receiver / gain",
+            "Seeds with ≥1 transfer",
+        ),
+        (
+            (
+                f"{SHORT[model]} · L{indexed_confirmation_layers[model]}",
+                f"{float(indexed_progress_summary[model]['median_paired_logodds_shift']):+.2f}",
+                f"{100*float(indexed_progress_summary[model]['positive_logodds_shift_rate']):.1f}%",
+                (
+                    f"{float(indexed_progress_summary[model]['mean_paired_attention_shift']):+.2f} / "
+                    f"{100*float(indexed_progress_summary[model]['positive_attention_shift_rate']):.1f}%"
+                ),
+                f"{int(round(60*float(indexed_progress_summary[model]['patched_donor_argmax_rate'])))}/60",
+                (
+                    f"{int(indexed_progress_summary[model]['patched_first_known_city_donor_adoption_count'])}/60 / "
+                    f"{int(indexed_progress_summary[model]['receiver_first_known_city_donor_adoption_count'])}/60 / "
+                    f"{100*float(indexed_progress_summary[model]['paired_first_known_city_donor_adoption_gain']):+.1f} pp"
+                ),
+                f"{int(indexed_progress_generation_audit['models'][model]['seed_with_any_incremental_adoption_count'])}/10",
+            )
+            for model in MODELS
+        ),
+        class_name="compact-table",
+    )
+    indexed_crossk_table = table(
+        (
+            "Model",
+            "Donor k",
+            "Direction",
+            "Median paired Δ log-odds",
+            "Donor argmax",
+            "First city: patch / receiver",
+            "Attention positive",
+        ),
+        (
+            (
+                SHORT[model],
+                str(int(row["donor_occurrence_k"])),
+                "forward skip" if row["direction"] == "forward_skip" else "backward rewind",
+                f"{float(row['median_paired_logodds_shift']):+.2f}",
+                f"{int(round(10*float(row['patched_donor_argmax_rate'])))}/10",
+                (
+                    f"{int(row['patched_first_known_city_donor_adoption_count'])}/10 / "
+                    f"{int(row['receiver_first_known_city_donor_adoption_count'])}/10"
+                ),
+                f"{int(round(10*float(row['positive_attention_shift_rate'])))}/10",
+            )
+            for model in MODELS
+            for row in indexed_progress_summary[model]["by_direction_k"]
+        ),
+        class_name="compact-table",
+    )
+    qwen_noindex_l16_k6_transfer = int(
+        item_span_l16_summary["patched_first_known_city_donor_adoption_count"]
+    )
+    qwen_indexed_transfer = int(
+        indexed_progress_summary["Qwen3-8B"][
+            "patched_first_known_city_donor_adoption_count"
+        ]
+    )
+    qwen_indexed_k6_rows = [
+        row
+        for row in indexed_progress_summary["Qwen3-8B"]["by_direction_k"]
+        if int(row["donor_occurrence_k"]) == 6
+    ]
+    require(len(qwen_indexed_k6_rows) == 2, "Qwen indexed k=6 support changed")
+    qwen_indexed_l16_k6_transfer = sum(
+        int(row["patched_first_known_city_donor_adoption_count"])
+        for row in qwen_indexed_k6_rows
+    )
+    qwen_indexed_l16_k6_receiver = sum(
+        int(row["receiver_first_known_city_donor_adoption_count"])
+        for row in qwen_indexed_k6_rows
+    )
+    if qwen_indexed_l16_k6_transfer > qwen_noindex_l16_k6_transfer:
+        indexed_qwen_comparison = (
+            "Qwen 的同层同 k 比较中，first-city transfer 从自然 no-index L16 k=6 的 "
+            f"{qwen_noindex_l16_k6_transfer}/20 升到显式 index 的 "
+            f"{qwen_indexed_l16_k6_transfer}/20（receiver baseline "
+            f"{qwen_indexed_l16_k6_receiver}/20）；方向与 positive-control 预期一致。"
+        )
+    elif qwen_indexed_l16_k6_transfer == qwen_noindex_l16_k6_transfer:
+        indexed_qwen_comparison = (
+            "Qwen 的同层同 k first-city transfer 在自然 no-index 与显式 index 中同为 "
+            f"{qwen_indexed_l16_k6_transfer}/20（indexed receiver baseline "
+            f"{qwen_indexed_l16_k6_receiver}/20）；显式 index 没有提供额外行为增益。"
+        )
+    else:
+        indexed_qwen_comparison = (
+            "Qwen 的同层同 k 显式-index first-city transfer 为 "
+            f"{qwen_indexed_l16_k6_transfer}/20（receiver baseline "
+            f"{qwen_indexed_l16_k6_receiver}/20），低于自然 no-index L16 k=6 的 "
+            f"{qwen_noindex_l16_k6_transfer}/20；因此“有 index 应更强”的预期没有得到行为读数支持。"
+        )
+    indexed_control_section = f"""
+<h3>J.1 显式 index positive control：可见 progress label 会不会让同一 assay 更容易转移？</h3>
+<p class="lead">这是对 5.3 的 assay calibration，不是扩大 internal-counter claim。Qwen 与 Gemma 各自使用一类预先冻结、逐条格式审计通过的 N=10 trace；item 中明确出现 <code>k</code>，所以任何成功效应都可能直接利用 visible position label。</p>
+<div class="experiment-frame">
+  <div><span class="experiment-label">实验目的</span>确认同一 donor→receiver transplant assay 在存在清楚 progress cue 时能够产生预期的 successor routing，并观察 Qwen/Gemma 的方向差异。</div>
+  <div><span class="experiment-label">Qwen grammar</span><code>k. City - score</code>；20 discovery + 10 held-out confirmation。</div>
+  <div><span class="experiment-label">Gemma grammar</span><code>Record k: (City, score)</code>；20 discovery + 10 held-out confirmation。</div>
+  <div><span class="experiment-label">Intervention</span>与 no-index 主实验相同：把 donor item k 的 endpoint-aligned maximal common span 写到绝对位置匹配的 receiver item j；候选是 receiver successor 与 donor successor。</div>
+  <div><span class="experiment-label">计算方法</span>使用第 2 节定义的 paired Δroute、paired Δattention、10-way donor argmax 与 first-city transfer；先在 discovery 冻结层，再一次性读取 confirmation。</div>
+  <div><span class="experiment-label">Pre-confirmation amendment</span>原自动规则（两方向为正且达到 peak 95% 的最早层）在两模型都返回 L0。为避免把最大 downstream recomputation 深度当作机制定位，在读取任何 indexed confirmation 前改冻外部锚定的 L16：Qwen 与 no-index L16 同层比较，Gemma 对齐既有 running-state L16。原 L0 结果不覆盖，完整保留为 early-layer upper bound。</div>
+  <div><span class="experiment-label">简单例子</span>Receiver 的可见 label 是 5，donor 是 6；若 patch 后下一项从 <code>6. ...</code> 改为 <code>7. ...</code>，这说明 assay 能复制带显式位置线索的 progress state，但不能证明无 label 时也存在同一内部变量。</div>
+</div>
+<figure><h3 class="figure-title">图 J1 · 显式-index positive control 的 discovery-only layer profile</h3><div class="scope-layer-figure">{indexed_progress_layer_svg}</div><figcaption>横轴是 zero-based post-block layer；纵轴是 paired donor-successor Δroute。深色线是每个 seed 两方向 effect 的 median；绿/紫分别是 forward/backward cell median。两 panel 使用独立 y scale，不能据线高比较模型。空心圆是原自动 L0，橙色菱形是 confirmation 前外部锚定的 L16；两者都在打开 confirmation 前写入冻结清单。</figcaption></figure>
+{indexed_discovery_table}
+<p><strong>Held-out cross-k confirmation。</strong>冻结层后只在新 10 seeds 上测试 k={{4,6,8}}、双方向共 60 cells，并同时读取 transition likelihood、frozen targeted-head attention、10-way successor argmax 与自由 continuation 的第一个已知 city。</p>
+{indexed_confirmation_table}
+<p>{indexed_qwen_comparison} Gemma 没有同口径的自然 no-index cohort，因此这里只能报告 positive-control 结果，不能计算 Gemma 的 indexed-vs-no-index 增益。</p>
+<p><strong>行为审计。</strong>Qwen 的 {int(indexed_progress_generation_audit['models']['Qwen3-8B']['patched_donor_adoption_count'])} 次、Gemma 的 {int(indexed_progress_generation_audit['models']['Gemma4-E4B']['patched_donor_adoption_count'])} 次 patched donor-first-city 命中都在 continuation 前 80 characters 内出现；没有一次依赖 reasoning close 后的 answer/recap。扣除同 cell receiver baseline 后，至少一次出现新增 transfer 的 seeds 为 Qwen {int(indexed_progress_generation_audit['models']['Qwen3-8B']['seed_with_any_incremental_adoption_count'])}/10、Gemma {int(indexed_progress_generation_audit['models']['Gemma4-E4B']['seed_with_any_incremental_adoption_count'])}/10。</p>
+<p><strong>模型差异。</strong>Qwen 是强 positive control：60/60 likelihood 正向、59/60 attention 正向、first-city 净增 +90.0 pp。Gemma 只形成 partial calibration：likelihood 45/60、attention 47/60、first-city 净增 +18.3 pp；其中 forward 是 13/30 patched vs 2/30 receiver，backward 是 2/30 vs 2/30。也就是说，可见 index 并没有自动消除 Gemma 的 direction/grammar integration 问题。</p>
+<p class="main-note"><strong>解释边界。</strong>显式序号既可能进入被移植的 span，也会通过上下文写进其 hidden states；item span 还保留 city、score 与语法。因而成功只表明 assay 能在有强 progress cue 时转移 state-dependent routing，不能证明模型在没有 index 时维护同一种 counter，也不能把 Qwen 的自然 no-index 结论外推到 Gemma。</p>
+<div class="section-conclusion"><strong>Appendix J 结论。</strong>Qwen 给出强 explicit-index positive control；Gemma 只给出 forward-dominant partial calibration，而不是完整跨模型复现。本文的 natural no-index internal-counter/progress-controller claim 仍严格只来自 Qwen 5.3。</div>"""
+    write_section = f"""{write_header}{write_shared}{write_51_main}{write_52_main}
+<h3>5.3 自然 no-index event/progress state 是否改写下一项 retrieval</h3>
+<p class="lead">这里不再把单个 endpoint 当作完整 counter。Qwen N=10 的 donor occurrence 与 receiver occurrence 在可见 token、绝对位置和后续 grammar 上对齐；只替换 frozen layer 上的 event state，然后同时读取 donor-successor 的相对 likelihood、targeted attention 与自由 continuation 中第一个已知 city。</p>
+<div class="experiment-frame">
+  <div><span class="experiment-label">实验目的</span>闭合 Native counting 通路中最关键的一条边：已经写入 trace 的 contextual event/progress state，是否真的决定下一轮应该检索哪条 record。</div>
+  <div><span class="experiment-label">设定</span>Qwen 自然 no-index N=10 confirmation 的同 10 seeds；固定 L16，donor k=6，分别做 forward 5←6 与 backward 7←6，共 20 个 pair。Patch 同层、同绝对位置的完整 item span；self-patch 控制 hook。</div>
+  <div><span class="experiment-label">计算方法</span>沿用第 2 节的 Δroute、Δattention、10-way donor argmax 与 first-city transfer。L16 没有重新扫 confirmation 层；它是对 L0 frozen scope confirmation 的预先指定中层 robustness comparator。</div>
+  <div><span class="experiment-label">简单例子</span>在 forward pair 中，receiver 已完成 N5、自然将读 N6；donor state 表示已完成 N6。若 patch 后 attention 与首个生成 city 都改指 N7，说明被移植 state 携带了足以推进下一项检索的功能信息。</div>
+</div>
+<figure><h3 class="figure-title">图 5c · 同一 L16 state intervention 从内部 routing 传播到自由 continuation</h3>{natural_progress_bridge}<figcaption>横轴按计算顺序列出四个 readout：paired Δroute&gt;0、paired Δattention&gt;0、donor successor 在十个候选中 argmax、以及自由 continuation 的首个已知 city 跟随 donor。纵轴是 20 个配对 cells 中满足该判据的比例；柱顶给出命中数。四柱来自同一批 10 seeds、k=6 双方向 L16 item-span patches，因此展示的是从内部连续量到行为结果的证据梯度，而不是四组独立实验。</figcaption></figure>
+<div class="evidence-ladder">
+  <div><span>LIKELIHOOD</span><strong>L16: 20/20 正向</strong><p>median donor-successor Δ log-odds = {float(item_span_l16_summary['median_paired_logodds_shift']):+.2f}。</p></div>
+  <div><span>ATTENTION</span><strong>L16: 20/20 正向</strong><p>mean targeted-attention shift = {float(item_span_l16_summary['mean_paired_attention_shift']):+.2f}。</p></div>
+  <div><span>DECISION</span><strong>17/20 donor argmax</strong><p>候选下一项的 ranking 跟随 donor progress state。</p></div>
+  <div><span>BEHAVIOR</span><strong>16/20 first-city transfer</strong><p>forward {l16_item_forward[0]}/{l16_item_forward[1]}，backward {l16_item_backward[0]}/{l16_item_backward[1]}；10/10 seeds 至少一次。</p></div>
+</div>
+<p class="main-note"><strong>证据等级。</strong> L16 是真正的中层 post-block state intervention，且所有 16 次命中都在 continuation 前 40 characters 内出现、0 次仅在 recap 中出现。但它使用与 L0 confirmation 相同的 10 seeds，并只复核 k=6，因此是 causal robustness comparator，而不是第二组独立 confirmation。</p>
+<p>冻结的四-token event tail 给出更窄的 routing carrier：系统 scope assay 在 held-out 60 cells 中 median Δ log-odds={float(patch_scope_confirmation['event_tail_w4']['median_paired_logodds_shift']):+.2f}、attention 58/60 朝 donor 移动、首个 city 15/60 跟随 donor，并覆盖 8/10 seeds。它不含 city 名，但仍含 score numeral；所以可以称为 <em>counter-like routing information</em>，不能称为 content-free counter register。</p>
+<div class="section-conclusion"><strong>Experiment 5.3 结论。</strong> 在 Qwen 的自然 no-index N=10 trace 中，中层分布式 event/progress state 对下一项 retrieval 具有行为层面的因果控制。这个结果支持 context-dependent progress controller；它不识别独立 count component，也不证明 state 按 <code>c ← c + 1</code> 更新。</div>
+</section>"""
+
+    mirror_table = table(
+        ("共同逻辑阶段", "Native-thinking 对应对象", "本报告的主证据", "证据边界"),
+        (
+            (
+                "State formation / localization",
+                "trace item 的 endpoint、event tail 与完整 item span",
+                "held-out probe + frozen scope transplant",
+                "表征可读不等于因果使用；L0 full span 是 upper bound",
+            ),
+            (
+                "Retrieval",
+                "每一步 exact query 对下一条 prompt record 的 targeted read",
+                "selected-vs-layer-matched-random head-bank ablation",
+                "bank-level necessity，不是唯一单头 circuit",
+            ),
+            (
+                "Write / progress control",
+                "retrieved event → grammar carrier → commit；event state → next item",
+                "carrier damage/rescue + Qwen L16 no-index transplant",
+                "两类实验来自衔接的受控 cohort，不是一次完整 mediation",
+            ),
+            (
+                "Terminal readout",
+                "answer query 读取 trace；terminal grammar state 推动 gold margin",
+                "trace-source blank + fixed-suffix semantic restoration",
+                "局部 bridge 成立，free-running single-state sufficiency 未成立",
+            ),
+        ),
+        class_name="mirror-table",
+    )
+    summary_section = f"""<section id="summary"><p class="eyebrow">Conclusion first</p>
+<h2>先说机制：Native-thinking 通过分布式 event/progress state 组织逐项检索</h2>
+<div class="core-claim"><strong>本文主张（仅限 Qwen3-8B 的自然 no-index trace）。</strong> Qwen 维护一个分布式、content-bound 的 event/progress state；该状态在中层即可因果控制下一项 retrieval。更窄的 event tail 含有 counter-like routing information，但单 endpoint 不充分，且尚无证据表明模型实现了 memoryless arithmetic <code>+1</code> recurrence。Gemma 尚无对应的自然 no-index 因果结果。</div>
+<p class="lead">最强证据来自 Qwen3-8B 的自然 first-pass、无显式 running index、N=10 trace。Discovery 只用 k=6 双向 patch 扫 36 层并冻结 scope/layer；held-out confirmation 再测试 k∈{{4,6,8}} 的 forward skip 与 backward rewind。完整 item span 在 60/60 cells 中把 donor successor 推到候选第一，实际 continuation 的首个已知 city 在 43/60 cells 跟随 donor；固定到更深的 L16、只复核 k=6，仍有 16/20 行为转移。</p>
+<div class="reading-contract">
+  <div class="contract-row"><strong>Event/progress state</strong><span>本文的操作性定义不是“某个神经元等于 k”，而是：一个 contextual event state 在同位置 transplant 后，能使后续计算系统性偏向 donor successor。它同时可能包含 event content、语法与 progress。</span></div>
+  <div class="contract-row"><strong>Event tail / item span</strong><span>Event tail 是 item 结束前冻结的四-token 窄窗口；item span 是 donor/receiver 的 endpoint-aligned 最大共同完整事件范围。Tail 不含 city，但仍含 score numeral；span 含 city、score 与 syntax。</span></div>
+  <div class="contract-row"><strong>证据标签</strong><span><em>Natural confirmed</em> 表示原始 prompt 的自然 no-index cohort 在 discovery 冻结后于独立 confirmation 复现；<em>simulatively confirmed†</em> 表示原始 prompt 下无法建立对应 cohort，但在 prompt-conditioned no-visible-index 与 explicit-index 两类受控 surrogate setting 中都观察到 state-guided successor transfer。后者确认的是可诱发的机制能力，不是自然使用；<em>controlled only</em> 表示固定后续 visible suffix 时有局部因果效应，但尚未证明单 state 在自由运行中足以决定最终输出。</span></div>
+</div>
+<p class="main-note"><strong>跨模型校准已另做，但不并入 claim。</strong>显式-index clean grammar positive control 在 L16 的 patched first-city transfer 为 Qwen {qwen_indexed_transfer}/60、Gemma {int(indexed_progress_summary['Gemma4-E4B']['patched_first_known_city_donor_adoption_count'])}/60；相对各自 receiver baseline 的配对净增为 Qwen {100*float(indexed_progress_summary['Qwen3-8B']['paired_first_known_city_donor_adoption_gain']):+.1f} pp、Gemma {100*float(indexed_progress_summary['Gemma4-E4B']['paired_first_known_city_donor_adoption_gain']):+.1f} pp。Gemma 在 Appendix K 的 prompt-conditioned no-visible-index auxiliary 中另有 22/30 first-city transfer。两类受控设置共同支持图 S1 的 <em>simulatively confirmed†</em> 标记；但前者明示 k，后者修改了输出格式 prompt，因此都不能作为 Gemma 的自然 no-index internal-counter 证据。</p>
+<h3>与 Non-thinking 报告如何对仗</h3>
+<p>两份报告使用同一推理顺序，但不强迫两类模型共享同一实现。Non-thinking 的核心单位更接近 prompt-side aggregation；Native-thinking 的核心单位是 trace 内反复生成、被下一次 query 读取的 contextual event state。</p>
+{mirror_table}
+<div class="figure-primer"><div><strong>主文回答什么</strong>状态在哪里形成、能否控制 retrieval、以及最终如何被读取。</div><div><strong>模型范围</strong>自然 no-index causal result 目前只有 Qwen；Gemma 的旧结果含显式 progress grammar 或属于受控 carrier/readout，不能并入该 claim。</div><div><strong>不做什么外推</strong>不把 full-span copying、score-bearing tail、显式-index positive control 或单 endpoint 当成已隔离的算术寄存器。</div></div>
+<figure><h3 class="figure-title">机制图 S1 · Native-thinking counting 通路与当前证据等级</h3><div class="chain-scroll">{chain_svg()}</div><figcaption>这是一张阶段图，没有数值坐标轴。横向箭头表示候选计算顺序：targeted retrieval 读取下一条 record，retrieved event 被写入 grammar carrier 与 commit/event state，该 state 再控制 next-item routing，最终 answer query 从 trace 读取 count。纵向两行分别是 Qwen 与 Gemma；每格文字是该阶段目前最高证据等级。Qwen 的 <em>natural confirmed</em> 来自原始 prompt 的自然 no-index confirmation；Gemma 的 <em>simulatively confirmed†</em> 只表示 prompt-conditioned no-visible-index 与 explicit-index 两类 auxiliary setting 均出现 successor transfer，不表示已经取得原始 prompt 的自然 no-index cohort 或因果结果。箭头由后文相互衔接的实验支持，不代表已在同一 cohort 完成一次完整 serial mediation。</figcaption></figure>
+<div class="claim-tier-grid">
+  <div><h3>Established</h3><p>Qwen 的分布式 event state 可因果改变下一项 likelihood、attention、candidate argmax 与生成内容；L16 comparator 表明这不只是 raw embedding copying。</p></div>
+  <div><h3>Supported, not isolated</h3><p>event tail 比 endpoint 稳定且更 norm-efficient，含有 progress-correlated routing information；但 tail 仍含 score，item span 仍含 city/score/syntax。</p></div>
+  <div><h3>Not established</h3><p>单一 counter cell、content-free count variable、memoryless <code>+1</code> transition、唯一 circuit，或 Qwen 结果对 Gemma 的直接外推。</p></div>
+</div>
+<div class="section-conclusion"><strong>Summary 结论。</strong>在 Qwen 的自然 no-index trace 中，这是一个分布式、依赖事件内容的 progress controller；它在功能上控制“下一项读什么”，但目前不是已定位的 arithmetic counter。该句不能外推到 Gemma。计划内结果均已落盘；第 9 节列的是升级更强 claim 所需的新实验，不是当前报告的未完成运行。</div></section>"""
+
+    formation_section = f"""<section id="formation"><p class="eyebrow">03 · Logical chain A</p>
+<h2>3. 逻辑链 A — Trace-side state localization：单 endpoint 很弱，event tail 与 item span 逐级增强</h2>
+<p class="lead">Representation 只能说明 count/progress 可读。这里用自然 donor→receiver transplant 问更强的问题：第 k 个 event 的 contextual state 是否足以把 receiver 的下一项选择改成 donor 所暗示的 successor？</p>
+<div class="experiment-frame">
+  <div><span class="experiment-label">实验目的</span>定位能承载 functional progress information 的最小语义范围：它集中在 item endpoint、较窄 event tail，还是必须依赖完整 event span。</div>
+  <div><span class="experiment-label">Cohort</span>Qwen3-8B，N=10；20 discovery + 10 held-out confirmation。全部是 first-pass no-index enumeration，recap 不进入 patch context。</div>
+  <div><span class="experiment-label">Discovery</span>只用 k=6 的 forward/backward 两个方向扫全部 36 层；三种 scope 预先固定为 endpoint w1、event tail w4、endpoint-aligned max-common item span。</div>
+  <div><span class="experiment-label">Freeze rule</span>只看 paired donor-successor log-odds，要求双向为正，并选 seed-median robust peak 95% 范围内的最早层。Attention 与 generation 对层选择不可见。</div>
+  <div><span class="experiment-label">Confirmation</span>冻结 endpoint L26、tail L0、item span L0；在 k={{4,6,8}}、双方向共 60 cells 上读取 likelihood、attention、10-way argmax 与自由 continuation。</div>
+  <div><span class="experiment-label">计算方法</span>主量是第 2 节定义的 paired Δroute；同时记录每个 scope 的 patch L2 norm 与 Δroute/norm。Confirmation 的 attention、argmax 与 first-city 都不参与 discovery selection。</div>
+  <div><span class="experiment-label">简单例子</span>把 donor k=6 写到 receiver j=5：endpoint 只替换 event 最后一个 token；tail 替换最后四个 tokens；item span 替换整条 event。若只有完整 span 让下一 city 从 N6 跳到 N7，说明单 endpoint 不足。</div>
+</div>
+<figure><h3 class="figure-title">图 3a · 三种 patch scope 的 36-layer discovery profile</h3><div class="scope-layer-figure">{patch_scope_layer_svg}</div><figcaption>横轴是 zero-based post-block layer；纵轴是 paired donor-successor Δroute（patch−self 的 log-score 差）。不同线/面板对应 endpoint w1、event tail w4 与完整 item span，并分别显示 forward/backward 或其稳健聚合。层只在 discovery 上选择。L0 指第一个 decoder block 的输出，不是 raw token embedding；早层 full-span patch 有最多 downstream computation，因此 L0 peak 是 causal upper bound，不能解释为“机制定位在 L0”。</figcaption></figure>
+<h3>3.1 Discovery：scope gradient 已经排除“单 endpoint 就是 counter”</h3>
+{patch_scope_discovery_table}
+<p>Endpoint 的 median shift 只有 +4.30，且 7/40 cells 方向错误；四-token tail 达 +23.61、40/40 正向，完整 item span 达 +58.03、40/40 正向。更窄的 tail 每单位 patch norm 最有效，但完整 span 最能越过实际决策边界。</p>
+<div class="subsection-conclusion"><strong>Experiment 3.1 结论。</strong>Discovery 中的 scope gradient 不支持“单 endpoint 是完整 counter”。Tail 含更高的单位范数 routing signal，完整 event state 则具有最大的总因果效应。</div>
+<h3>3.2 Frozen confirmation：ranking、attention 与实际 continuation 是否一起改变</h3>
+{patch_scope_confirmation_table}
+<p>完整 item-span L0 的实际 transfer 为 forward {l0_item_forward[0]}/{l0_item_forward[1]}、backward {l0_item_backward[0]}/{l0_item_backward[1]}；10/10 seeds 至少出现一次。人工审计显示 40 次 donor city 在前 40 characters 内出现，另 3 次在短 repair preamble 后出现，0 次仅在 recap 中出现。</p>
+<div class="scope-compare"><div><h4>L0 item span 是 causal upper bound</h4><p>它保留 city、score、syntax 与 progress，且有 35 个后续 blocks 可传播。它证明完整 contextual event state 足以控制 continuation，不隔离 count component，也不能定位最小机制层。</p></div><div><h4>L16 是 mid-layer robustness</h4><p>在同一 held-out seeds 的 k=6 双向 20 cells 中，median Δ log-odds={float(item_span_l16_summary['median_paired_logodds_shift']):+.2f}，argmax 17/20，first city 16/20；说明中层 event state 仍有因果效力，但不是 fresh confirmation。</p></div></div>
+<div class="section-conclusion"><strong>Experiment 3.2 / 逻辑链 A 结论。</strong>Causal sufficiency 随 patch scope 从 endpoint→tail→span 增强，并在 held-out k={{4,6,8}}、双方向上延伸到实际 continuation。最符合数据的对象是分布式、content-bound event/progress state，而不是单 endpoint 上的 context-invariant counter cell。</div></section>"""
+
+    integrated_section = f"""<section id="integrated-chain"><p class="eyebrow">Key causal bridge</p>
+<h2>关键闭环：中层 state 改变后，attention、候选排序与生成是否共同跟随？</h2>
+<p class="lead">L16 item-span comparator 把机制读数与行为读数放在同一个干预里：donor state 写入 receiver 后，目标不是只让某个 probe 更像 k，而是让后续计算真的选择 donor 所暗示的 successor。</p>
+<div class="evidence-ladder">
+  <div><span>STATE</span><strong>L16 donor item span</strong><p>同位置、同 grammar；patch width 6–11 tokens。</p></div>
+  <div><span>ROUTING</span><strong>attention +{float(item_span_l16_summary['mean_paired_attention_shift']):.2f}</strong><p>20/20 cells 朝 donor successor 增强。</p></div>
+  <div><span>RANKING</span><strong>17/20 donor argmax</strong><p>median Δ log-odds {float(item_span_l16_summary['median_paired_logodds_shift']):+.2f}。</p></div>
+  <div><span>CONTINUATION</span><strong>16/20 first city</strong><p>全部为 early continuation，0 recap-only。</p></div>
+</div>
+<div class="section-conclusion"><strong>闭环成立到什么程度。</strong> 对 Qwen 的自然 no-index trace，这条干预把 contextual event state 连到 next-item retrieval 和实际生成，足以支持 causal progress controller。它没有展示同一个 state 经固定 transition 变成下一 count state，因此不升级为 memoryless arithmetic recurrence；Gemma 尚未完成同口径 no-index 闭环。</div></section>"""
+
+    evidence_ledger_table = table(
+        ("Evidence", "Design / held-out result", "What it establishes", "Hard boundary"),
+        (
+            (
+                "Qwen L16 item-span causal bridge",
+                "k=6 bidirectional; log-odds 20/20+, attention 20/20+, argmax 17/20, first city 16/20",
+                "mid-layer distributed event state can control next retrieval and continuation",
+                "same 10 seeds as L0 confirmation; item content retained",
+            ),
+            (
+                "Qwen frozen scope confirmation",
+                "endpoint 10/60 vs tail 15/60 vs item span 43/60 first-city transfer",
+                "causal state is distributed; endpoint alone is insufficient",
+                "L0 tail/span are early-layer upper bounds, not mechanism localization",
+            ),
+            (
+                "Qwen four-token event tail",
+                "median Δ log-odds +21.98; attention 58/60; 8/10 seeds with transfer",
+                "narrow event tail contains counter-like routing information",
+                "tail retains score numeral; not content-free",
+            ),
+            (
+                "Explicit-index positive control",
+                (
+                    f"Qwen L{indexed_confirmation_layers['Qwen3-8B']}: "
+                    f"{qwen_indexed_transfer}/60 first city "
+                    f"({100*float(indexed_progress_summary['Qwen3-8B']['paired_first_known_city_donor_adoption_gain']):+.1f} pp vs receiver); Gemma "
+                    f"L{indexed_confirmation_layers['Gemma4-E4B']}: "
+                    f"{int(indexed_progress_summary['Gemma4-E4B']['patched_first_known_city_donor_adoption_count'])}/60 "
+                    f"({100*float(indexed_progress_summary['Gemma4-E4B']['paired_first_known_city_donor_adoption_gain']):+.1f} pp)"
+                ),
+                "the same transplant assay can be calibrated on clean indexed grammars",
+                "visible k is a direct progress confound; not no-index counter evidence",
+            ),
+            (
+                "Targeted retrieval banks",
+                f"Qwen Top-128 selected−random {100*float(q_primary['selected_minus_random_failure_rate']):+.1f} pp; Gemma Top-6 {100*float(g_primary['selected_minus_random_failure_rate']):+.1f} pp",
+                "model-specific heads are necessary for next-record retrieval",
+                "does not identify a unique or exclusive circuit",
+            ),
+            (
+                "Carrier → commit",
+                f"clean-carrier restoration: Qwen {ci(write_effects['Qwen3-8B']['clean_carrier_restoration'])}; Gemma {ci(write_effects['Gemma4-E4B']['clean_carrier_restoration'])}",
+                "retrieved information is written into later trace state",
+                "write evidence comes from controlled grammar families",
+            ),
+            (
+                "Terminal state restoration",
+                f"Qwen {ci(terminal_effects['Qwen3-8B']['restoration'])}; Gemma {ci(terminal_effects['Gemma4-E4B']['restoration'])}",
+                "terminal trace state can affect correct-count margin",
+                "fixed suffix only; free-running end-to-end sufficiency not shown",
+            ),
+        ),
+        class_name="evidence-ledger",
+    )
+    ledger_section = f"""<section id="ledger"><p class="eyebrow">07 · Evidence synthesis</p>
+<h2>7. Evidence synthesis：按 claim 贡献排序，而不是按实验时间排序</h2>
+{evidence_ledger_table}
+<div class="core-claim"><strong>综合结论。</strong> 主证据指向一个 distributed, content-bound event/progress state。它可在中层控制下一项 retrieval；event tail 提供更窄的 routing signal；single endpoint、continued counting 与 operator scan 都不支持把它描述为独立的 memoryless arithmetic register。</div>
+<div class="section-conclusion"><strong>Section 7 结论。</strong>证据强度排序是：Qwen 自然 no-index 行为级 transplant ＞ 两模型 targeted-retrieval necessity 与 carrier/terminal controlled edges ＞显式-index或改 prompt 校准 ＞ standalone decoder 与失败的算子扫描。论文 claim 应按这一顺序书写。</div></section>"""
+
+    extension_section = f"""<section id="extension-audit"><p class="eyebrow">08 · Native-thinking extension audit</p>
+<h2>8. 扩展问题审计：哪些实验强化主张，哪些实验只负责限定边界？</h2>
+<p class="lead">这些实验不再与主链平铺。它们的作用是区分“可读 geometry”“局部 steering”“完整 event-state sufficiency”和“真正的 memoryless recurrence”。完整定义与失败模式按同一顺序放在 Appendix B–G。</p>
+{extension_audit_table}
+<div class="section-conclusion"><strong>Extension audit 结论。</strong> CountScope 与 steering 说明 progress information 可读、可局部操纵；separator 与 K/V 说明历史是分布式 event memory；continued、maximum 与 operator scan 没有给出稳定 +1 算子。它们共同支持正文的保守机制名，而不是另起一条更强 claim。</div></section>"""
+
+    limitations_section = """<section id="limitations"><p class="eyebrow">09 · What remains</p>
+<h2>9. What remains：若要把 claim 再收窄到“counter component”，还缺哪些实验？</h2>
+<ol>
+  <li><strong>Same-progress / different-score tail control。</strong> 固定 k 与 grammar，只改变 score surface，或投影掉 score direction；检验四-token tail 的 routing 是否保留。</li>
+  <li><strong>Fixed-L16 matched item controls + fresh cohort。</strong> 加入 same-k cross-seed、shuffled item、within-item permutation 与等范数 span；预注册 L16 后在新 10 seeds 上复现，区分 progress 与可复制 event content。</li>
+  <li><strong>若要主张 memoryless +1，必须检验 donor-dependent transition。</strong> 在同一新 item 与相同 surface context 下，只改变进入 transition 前的 state/history；必要时联合 residual + exact K/V splice，并观察 offset 是否跨 hop 1、hop 2 保留。</li>
+  <li><strong>跨模型外推。</strong> 在 Gemma 上重新建立原 prompt 下的自然 no-index cohort 与同一 scope protocol；Appendix K 的 prompt-conditioned positive control 证明能力存在，但不能代替自然生成实验。</li>
+</ol>
+<div class="section-conclusion"><strong>当前论文并不依赖这些实验。</strong> Qwen 的现有自然 no-index 结果已经足以支持 model-scoped distributed content-bound progress controller；这些补充只在我们要进一步声称 content-free counter component、memoryless recurrence 或跨模型普适性时才是必要条件。</div></section>"""
+
+    legacy_appendices = section_body(sections["appendix"])
+    legacy_appendices = legacy_appendices[legacy_appendices.index("<details") :]
+    for old_label, new_label in (
+        ("Appendix A", "Appendix M"),
+        ("Appendix B", "Appendix N"),
+        ("Appendix C", "Appendix O"),
+        ("Appendix D", "Appendix P"),
+        ("Appendix E", "Appendix Q"),
+    ):
+        legacy_appendices = legacy_appendices.replace(old_label, new_label)
+    legacy_appendices = legacy_appendices.replace(
+        "我们确认一条可干预 recurrent pathway",
+        "我们确认若干可干预的 state-to-routing edges",
+    )
+    walkthrough_appendix = section_body(sections["walkthrough"]).replace(
+        "count state 分布在 recurrent trace dynamics 中",
+        "count-aligned information 分布在 trace dynamics 中",
+    )
+    audit_appendix = section_body(sections["audit"]).replace(
+        "本报告证明一条 pathway",
+        "本报告连接若干 causal edges",
+    )
+
+    appendix_section = f"""<section id="appendix"><p class="eyebrow">Appendix · Ordered auxiliary evidence</p>
+<h2>Appendix：辅助实验、失败实验与复现材料</h2>
+<p class="lead">附录按“定义 → standalone readout → recurrence → steering → structural alternatives → historical controls”的逻辑顺序排列。它们不改变正文 claim 层级。</p>
+<div class="appendix-sequence">
+<details><summary>Appendix A · 定义、实验合同与判据</summary><div>{section_body(sections['definitions'])}{section_body(sections['design'])}</div></details>
+<details><summary>Appendix B · CountScope：为什么高 NCC 不保证大 k transplant 成功</summary><div>
+<div class="appendix-method"><p><strong>实验目的。</strong>检验一个可跨 seed 解码的 count geometry，是否也是脱离原历史后可直接“翻译成数字”的 context-invariant state。</p><p><strong>设定与计算。</strong>把完整序列第 k 个 item hidden state 移植到仅有一个 matched placeholder item 的最小 receiver；对候选 1,…,N 做 sequence scoring，记录 candidate argmax 是否等于 k。NCC 只用 discovery centroids 判最近类别，衡量方向一致性而非 transplant compatibility。</p><p><strong>简单例子。</strong>Donor 在完整 trace 中已完成第 7 项；若它真是独立寄存器，把该 state 放到单 placeholder receiver 后仍应输出 7，而不依赖原 prefix/KV history。</p></div>
+<p><strong>结果。</strong>N=3 的 k=1/2/3 candidate accuracy 为 0.90/0.70/1.00；N=10 只在 k=1–4 尚可，k≥5 基本失效。</p><p><strong>分析。</strong>高 NCC 只说明多个 donor states 在某个表示空间中按 k 有序；充分性还要求 donor state 与 receiver 的 prefix history、绝对位置、KV memory 与 downstream readout 兼容，两者不矛盾。</p><div class="section-conclusion"><strong>Appendix B 结论。</strong>Count information 可读，但单 hidden state 不是跨上下文通用的数字寄存器。</div></div></details>
+<details><summary>Appendix C · Continued counting：没有观察到稳定 donor-dependent +1</summary><div>
+<div class="appendix-method"><p><strong>实验目的。</strong>直接检验 source 的最新 latent count 能否在 target suffix 上继续递推，而无需重新读取全部 source history。</p><p><strong>设定与计算。</strong>Source 含 N<sub>s</sub> 个 items，target 含 N<sub>t</sub> 个；把 source 最后 m 个 item states 写到 target 开头 m 个位置。若存在 memoryless continuation，紧接的 item 应编码 N<sub>s</sub>+1，最终应趋向 N<sub>s</sub>+N<sub>t</sub>−m。分别读取 hop 1、hop 2 与 final candidate。</p><p><strong>简单例子。</strong>Source=5、target=4、m=2；理想 counter 应让 target 的下一项从 6 开始，最终输出 7，而不是仍按 target 自己的局部位置继续。</p></div>
+<p><strong>结果。</strong>N=3 的 hop 1 仅有短暂 0.3–0.7 candidate；N=10 hop 1≤0.20，hop 2 与 final 约为 0。</p><p><strong>分析。</strong>Residual-only transplant 与 target-history mismatch 可能使真机制失配，因此 null 不是“模型绝无任何递推”；但它没有提供 donor-dependent +1 的正证据。</p><div class="section-conclusion"><strong>Appendix C 结论。</strong>当前 continued-counting assay 不支持 memoryless arithmetic <code>+1</code> recurrence。</div></div></details>
+<details><summary>Appendix D · Geometry steering：局部 count-like direction，不是全局算术轴</summary><div>
+<div class="appendix-method"><p><strong>实验目的。</strong>检验 count geometry 的局部 +1 方向是否能因果推动同层 state，而不只被 probe 被动读出。</p><p><strong>设定与计算。</strong>在每层用 discovery 拟合 <span class="formula">v<sub>ℓ</sub><sup>+1</sup>=mean<sub>k,seed</sub>(h<sub>ℓ,k+1</sub>−h<sub>ℓ,k</sub>)</span>，对单 endpoint 注入正向 steering，并减去 opposite / orthogonal control 的 decoded-count displacement。各层独立运行；“全层扫描”是寻找 effect 随深度的 profile，不是同时向所有层注入。</p><p><strong>简单例子。</strong>若原 state 被 decoder 读作 5，加入 L19 的 +1 direction 后期望更靠近 6；加入等范数 orthogonal direction不应产生同样移动。</p></div>
+<p><strong>结果。</strong>共同 peak 在 L19：N=3 的对照校正位移 +0.622 [0.471, 0.767]，N=10 为 +0.215 [0.107, 0.334]。</p><p><strong>分析。</strong>方向有局部因果相关性，但 effect 小于一个完整 count step，N=10 更弱，且没有行为级 successor adoption。</p><div class="section-conclusion"><strong>Appendix D 结论。</strong>存在局部 count-like geometry；尚未定位跨层稳定、可执行整数加法的全局算术轴。</div></div></details>
+<details><summary>Appendix E · Separator dose：full event 明显强于 marker</summary><div>
+<div class="appendix-method"><p><strong>实验目的。</strong>检验历史进度主要存于重复 separator/marker，还是分布在完整 event content 中。</p><p><strong>设定与计算。</strong>把 later events 的 marker、closing 或 full-event states 依次 collapse 到第一个可用 event state；以被 collapse 的 event 数为剂量，拟合 outcome 对剂量的 per-event slope β。更负的 β 表示删除每个历史 event 造成更大损伤。</p><p><strong>简单例子。</strong>若 trace 已有 8 个 events，只把后 4 个逗号状态改成第一个逗号；若逗号就是完整 counter，这应接近替换后 4 个完整 events 的损伤。</p></div>
+<p><strong>结果。</strong>N=10 的 per-event slopes 为 marker −0.125、closing −0.219、full-event −0.690。</p><p><strong>分析。</strong>Marker/closing 有贡献，但远弱于完整 event；这与 event-local state 和历史 KV memory 共同承载进度相容。</p><div class="section-conclusion"><strong>Appendix E 结论。</strong>Separator 不是充分的单点 counter，完整 event 是更主要的功能单位。</div></div></details>
+<details><summary>Appendix F · Maximum-count：没有一般化的 max operator</summary><div>
+<div class="appendix-method"><p><strong>实验目的。</strong>排查 transplant 后的输出是否只是取 donor 与 target history 中较大的 latent count，而非从 donor 继续。</p><p><strong>设定与计算。</strong>把 source last-m states 写到 target last-m，比较候选 <span class="formula">max(N<sub>s</sub>, N<sub>t</sub>−m)</span> 与 donor-continuation、target-retention 等读数。</p><p><strong>简单例子。</strong>N<sub>s</sub>=7、N<sub>t</sub>=10、m=2 时，max rule 预测 8；若 N<sub>s</sub>=9 则预测 9。两个分支都必须超出未干预 target baseline 才能说明存在 max operator。</p></div>
+<p><strong>结果。</strong>只有 donor-dominant cells 出现 0.13–0.30 candidate；target−m branch 与保留的 target history 完全重合。</p><p><strong>分析。</strong>后一个分支无法与普通 target retention 区分，因此不构成 max computation 的独立证据。</p><div class="section-conclusion"><strong>Appendix F 结论。</strong>没有观察到可一般化的 maximum-count operator；该实验只排除了一个简单替代解释。</div></div></details>
+<details><summary>Appendix G · Marker K/V 与递推算子扫描</summary><div>
+<div class="appendix-method"><p><strong>实验目的。</strong>区分 marker 的 key、value 与联合 KV 对历史读取的贡献，并穷举若干候选递推算子。</p><p><strong>设定与计算。</strong>在固定 marker attention edge 上分别 splice K-only、V-only、K/V，并扫描 layer bands；成功率是干预后目标 routing/候选满足预注册判据的 cell fraction。Operator scan 将结果分类为 reset、target +1 与其他。</p><p><strong>简单例子。</strong>若 marker key 只负责“去哪里找”、value 负责“读出什么”，V-only 应强于 K-only，而联合 K/V 可能最佳；若 state 真执行 +1，成功 local arm 的下一 hop 应持续落在 target+1 类。</p></div>
+<p><strong>结果。</strong>Marker K/V=0.835、V-only=0.500、K-only=0.276，L20–23 band=0.540；operator scan 中 reset 占 97.08%，target +1 仅 0.625%，成功 first-stage local arms 仍无 next +1。</p><p><strong>分析。</strong>K/V 结果说明 event-indexed memory 是合理 substrate；operator 分布却与稳定加法更新不相容。</p><div class="section-conclusion"><strong>Appendix G 结论。</strong>证据更支持 distributed event memory / late aggregation，而不是 residual endpoint 上的 arithmetic recurrence。</div></div></details>
+<details><summary>Appendix H · Carrier readout diagnostics：NCC 与最终 count margin</summary><div><p class="main-note">正文 5.1 只使用预注册 carrier RMS deformation。以下 NCC 与 final output margin 回答更下游、更依赖 readout 选择的问题，因此保留为诊断而不阻塞主边。</p>{write_51_diagnostics}<div class="section-conclusion"><strong>Appendix H 结论。</strong>Carrier hidden state 的 direct damage 清楚；但经 centroid geometry 或最终答案边际读取时，模型/grammar 的特异性不一致，不能据此升级为统一线性 counter code。</div></div></details>
+<details><summary>Appendix I · 单 endpoint、grammar stratification 与历史四-token tail</summary><div><div class="appendix-method"><p><strong>实验目的。</strong>检查窄位点效应是否跨 grammar、layer 与 seed 稳定，并区分 endpoint register 与 event-tail routing carrier。</p><p><strong>设定与计算。</strong>系统 scope confirmation 固定 endpoint L26；历史 assay 在 discovery 定位 L16 width-4 tail。两者都比较 donor-successor likelihood/attention 与自由 continuation。</p><p><strong>简单例子。</strong>只替换 item 最后一个句号若能稳定令 N6→N7，才支持 endpoint register；替换句号前四 tokens 成功则只说明更宽 tail 含 routing information。</p></div><p><strong>结果。</strong>Endpoint L26 只有 8/60 donor argmax、10/60 first-city transfer，并集中在 2/10 seeds。旧 L31 plain-period panel 的 11/16 与其他 grammar 的低命中说明 endpoint effect 很脆弱。历史 L16 width-4 tail 在 confirmation 中 60/60 likelihood 正向、59/60 attention 正向，但生成只有 {int(round(60*float(historical_event_tail_summary['patched_greedy_donor_adoption_rate'])))}/60。</p><p><strong>分析。</strong>Tail 是窄 routing evidence；它仍不是 content-free endpoint register。</p><div class="section-conclusion"><strong>Appendix I 结论。</strong>稳定作用需要超过单 endpoint 的 event-local范围，并受 grammar 与 seed 调节。</div></div></details>
+<details><summary>Appendix J · 显式-index与历史 controlled routing 校准</summary><div>{indexed_control_section}<h3>J.2 逐 k、逐方向 confirmation cells</h3><p>所有行都来自冻结 L16 的 10 confirmation seeds；没有使用这些结果反选层。First-city transfer 是自由 continuation 中第一个匹配 gold city 的 ordinal 是否等于 donor k+1。</p>{indexed_crossk_table}<h3>J.3 历史 controlled commit→query patch</h3><p class="main-note">以下实验保留其 direct causal routing 价值，但 trace grammar/控制条件不允许它承担 natural no-index recurrent counter 的主 claim。</p>{historical_commit}<div class="section-conclusion"><strong>Appendix J 总结。</strong>这些结果校准 state-transplant assay，并证明显式/受控条件下的 state-dependent routing；可见 index 与 grammar confounds 使它们不能替代 Qwen 自然 no-index 主实验。</div></div></details>
+<details><summary>Appendix K · Gemma prompt-conditioned no-visible-index forward transplant</summary><div>
+<div class="appendix-method"><p><strong>实验目的。</strong>在原 prompt 无法筛出足够 Gemma 自然 no-index traces 后，单独检验 Gemma 是否具备形成可 transplant 的 no-visible-index event state 的能力；它不是自然采用率实验。</p><p><strong>设定。</strong>只改 passage 后的任务尾：每条 event 使用同一个 <code>FOUND:</code> marker，禁止编号、ordinal、running subtotal、prose 与 recap；另加固定、无 count 信息的 assistant prefill <code>FOUND: </code>。Passage tokens 不变。</p><p><strong>冻结与计算。</strong>从 seed 1234 连续扫描 52 个 prompts，30 个通过逐行 gold city/score 与无显式 progress cue 审计；最早 20 个作 discovery、随后 10 个作 confirmation。筛选不读取 hidden states、patch outcome 或 terminal-total correctness。固定 L16 完整 event span、forward groups 3←4、5←6、7←8，并使用第 2 节四级读数。</p><p><strong>简单例子。</strong>Receiver 的第四条与 donor 的第五条都只以 <code>FOUND:</code> 开头，没有“4/5”表面 label；若把 donor event 写入 receiver 后首个 city 跟随 donor successor，说明 Gemma 能在这种受控 grammar 中形成有效 event state。</p></div>
+{gemma_prompt_k_table}
+<p><strong>与 Qwen 最可比的 forward 子集。</strong>Qwen 自然 no-index L0 item-span 在 k∈{{4,6,8}} 的 30 个 forward cells 中为 donor argmax {qwen_l0_forward_argmax}/30、greedy donor {l0_item_forward[0]}/30、self donor {qwen_l0_forward_self_donor}/30、attention Δ&gt;0 {qwen_l0_forward_attention}/30、log-odds Δ&gt;0 {qwen_l0_forward_logodds}/30。Gemma 对应为 donor argmax {int(gemma_prompt_noindex_confirm_pooled['donor_argmax_patch']['hits'])}/30、greedy donor {int(gemma_prompt_noindex_confirm_pooled['greedy_donor_adoption_patch']['hits'])}/30、self donor {int(gemma_prompt_noindex_confirm_pooled['greedy_donor_adoption_self']['hits'])}/30、attention Δ&gt;0 {int(gemma_prompt_noindex_confirm_pooled['positive_attention_gain']['hits'])}/30、log-odds Δ&gt;0 {int(gemma_prompt_noindex_confirm_pooled['positive_logodds_gain']['hits'])}/30。</p>
+<p><strong>分析。</strong>两模型的 candidate ranking 与自由 continuation 效应同量级：Qwen forward 为 25/30，Gemma 为 22/30；Gemma 的冻结 attention bank 则明显更不一致（12/30 vs Qwen 29/30）。由于 prompt、layer、span geometry 与模型不同，这不是正式 model×condition 比较，也不证明共享同一 head circuit。</p>
+<div class="section-conclusion"><strong>Appendix K 结论。</strong>Gemma 在 prompt-conditioned、无可见 index 的固定 grammar 中具备 event-state routing 能力；自然 no-index 主张仍严格限于 Qwen，不能用该能力参照外推。</div>
+<p class="audit-list">本地归档：<a href="../work/gemma_prompt_conditioned_noindex_20260827/README.md">实验说明</a> · <a href="../work/gemma_prompt_conditioned_noindex_20260827/cohort_full_20_10/manifest.json">cohort manifest</a> · <a href="../work/gemma_prompt_conditioned_noindex_20260827/forward_l16_item_span/analysis.json">causal analysis</a></p>
+</div></details>
+<details><summary>Appendix L · 单-seed walkthrough 与旧 no-running-index early-stop restoration</summary><div>{walkthrough_appendix}</div></details>
+{legacy_appendices}
+<details><summary>Appendix R · Reproducibility ledger</summary><div>{audit_appendix}<p><span class="audit-badge">Qwen no-index primary</span><span class="audit-badge">20 discovery / 10 confirmation</span><span class="audit-badge">Gemma prompt-conditioned auxiliary</span><span class="audit-badge">explicit-index positive control</span><span class="audit-badge">manual generation audit</span><span class="audit-badge">p-values secondary</span></p><p>Systematic scope selection never used attention or generation. L16 Qwen item-span is explicitly labeled post-hoc robustness on the same confirmation seeds. All no-index Qwen item-span generation hits were manually checked against recap-only false positives. The indexed Qwen/Gemma layers were independently frozen on discovery likelihood only; visible progress labels make those panels positive controls. Gemma prompt-conditioned cohort selection was patch-outcome blind and used a count-free marker/prefill, but the prompt intervention prevents treating it as natural-generation confirmation.</p><p>Companion seed browser and full internal-counter appendix: <a href="NiaH_Native-thinking_Internal-counter_report.html">NiaH_Native-thinking_Internal-counter_report.html</a>.</p></div></details>
+</div>
+<div class="section-conclusion"><strong>Appendix 结论。</strong> 对 Qwen 的自然 no-index 证据，辅助实验一致地把机制收敛到 distributed event/progress controller：单 endpoint、standalone CountScope 与 memoryless recurrence 都不够；event span、tail、KV history 与下游 routing 共同承担计算。Gemma 的 prompt-conditioned no-visible-index 结果复现了同量级的行为路由能力，但仍须标成受控参照，不能升级为自然 no-index claim。</div></section>"""
+
+    main_start = html_text.index("<main>") + len("<main>")
+    main_end = html_text.index("</main>", main_start)
+    new_main = "\n".join(
+        (
+            summary_section,
+            baseline_section,
+            representation_section,
+            formation_section,
+            retrieval_section,
+            write_section,
+            answer_section,
+            integrated_section,
+            ledger_section,
+            extension_section,
+            limitations_section,
+            appendix_section,
+        )
+    )
+    html_text = html_text[:main_start] + "\n" + new_main + "\n" + html_text[main_end:]
+
     # Keep secondary and null-result material available without expanding the
     # initial reading path. Readers can open each appendix independently.
     html_text = html_text.replace(
@@ -2795,6 +4194,30 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
 
     input_paths = [
         args.reference_report,
+        args.patch_scope_layer_sweep,
+        args.patch_scope_layer_plot,
+        args.patch_scope_frozen_confirmation,
+        args.patch_scope_generation_audit,
+        args.item_span_l16,
+        args.item_span_l16_generation_audit,
+        args.historical_event_tail_confirmation,
+        args.indexed_progress_cohort_manifest,
+        args.indexed_progress_freeze_manifest,
+        args.indexed_progress_generation_audit,
+        args.gemma_prompt_conditioned_noindex_cohort_manifest,
+        args.gemma_prompt_conditioned_noindex_analysis,
+        *(
+            args.indexed_progress_discovery_root
+            / model
+            / "layer_sweep_analysis.json"
+            for model in MODELS
+        ),
+        *(
+            args.indexed_progress_confirmation_root
+            / model
+            / "frozen_scope_analysis.json"
+            for model in MODELS
+        ),
         args.qwen_targeted_analysis,
         args.gemma_targeted_analysis,
         args.representation_root / "site_selected.csv",
@@ -2906,7 +4329,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
         *(Path(path) for evidence in token_evidence.values() for path in evidence["input_files"]),
     ]
     manifest = {
-        "schema_version": "realistic_niah_v5_native_thinking_restructured_v7",
+        "schema_version": "realistic_niah_v5_native_thinking_restructured_v11",
         "status": "PASS",
         "generated_at": generated,
         "output": str(args.output),
@@ -2917,9 +4340,42 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
             "selection_rank_used": False,
             "qwen_targeted_bank": 128,
             "gemma_targeted_bank": 6,
+            "qwen_no_index_primary_n": 10,
+            "qwen_scope_discovery_k": [6],
+            "qwen_scope_confirmation_k": [4, 6, 8],
+            "qwen_scope_layer_selection_hid_attention_and_generation": True,
+            "l16_item_span_is_posthoc_robustness_not_fresh_confirmation": True,
+            "indexed_positive_control_models": list(MODELS),
+            "indexed_positive_control_n": 10,
+            "indexed_positive_control_discovery_k": [6],
+            "indexed_positive_control_confirmation_k": [4, 6, 8],
+            "indexed_positive_control_seed_split": [20, 10],
+            "indexed_positive_control_selection_hid_attention_generation_and_confirmation": True,
+            "indexed_positive_control_visible_progress_confound": True,
+            "indexed_positive_control_automatic_discovery_layer": {
+                model: int(indexed_progress_selected[model]["selected_layer"])
+                for model in MODELS
+            },
+            "indexed_positive_control_active_confirmation_layer": indexed_confirmation_layers,
+            "indexed_positive_control_preconfirmation_protocol_amendment": True,
+            "indexed_positive_control_midlayer_anchor_is_external": True,
+            "gemma_prompt_conditioned_noindex_n": 10,
+            "gemma_prompt_conditioned_noindex_seed_split": [20, 10],
+            "gemma_prompt_conditioned_noindex_layer": 16,
+            "gemma_prompt_conditioned_noindex_k": [4, 6, 8],
+            "gemma_prompt_conditioned_noindex_direction": "forward_only",
+            "gemma_prompt_conditioned_noindex_marker_contains_count": False,
+            "gemma_prompt_conditioned_noindex_selection_patch_outcome_blind": True,
         },
         "claim_scope": {
-            "recurrent_pathway_supported": True,
+            "distributed_content_bound_event_progress_state_supported": True,
+            "midlayer_event_state_controls_next_retrieval_supported": True,
+            "narrow_event_tail_counter_like_routing_supported": True,
+            "single_endpoint_sufficient": False,
+            "memoryless_arithmetic_plus_one_recurrence_supported": False,
+            "content_free_counter_component_isolated": False,
+            "qwen_no_index_scope_result_extrapolated_to_gemma": False,
+            "functional_progress_controller_supported": True,
             "exclusive_circuit_claimed": False,
             "natural_end_to_end_single_state_sufficiency": False,
             "single_seed_walkthrough_inferential": False,
@@ -2950,13 +4406,76 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
             "direct_margin_confirmation_pristine_prospective": False,
             "direct_margin_model_by_mask_interaction_tested": False,
             "no_running_index_count_signal_confirmed": True,
-            "no_running_index_single_span_strong_sufficiency": False,
-            "no_running_index_panel_natural_generation": False,
+            "legacy_no_running_index_early_stop_single_span_strong_sufficiency": False,
+            "qwen_natural_no_index_item_span_candidate_argmax": "60/60",
+            "qwen_natural_no_index_item_span_first_city_transfer": "43/60",
+            "qwen_natural_no_index_l16_first_city_transfer": "16/20",
+            "qwen_natural_no_index_item_span_generation_audited": True,
+            "indexed_positive_control_complete": True,
+            "indexed_positive_control_supports_no_index_internal_counter": False,
+            "qwen_indexed_positive_control_strong": True,
+            "gemma_indexed_positive_control_directional_partial": True,
+            "gemma_indexed_positive_control_bidirectional_replication": False,
+            "explicit_index_uniformly_stronger_across_models": False,
+            "qwen_indexed_positive_control_first_city_transfer": f"{qwen_indexed_transfer}/60",
+            "qwen_indexed_positive_control_first_city_paired_gain": float(
+                indexed_progress_summary["Qwen3-8B"][
+                    "paired_first_known_city_donor_adoption_gain"
+                ]
+            ),
+            "gemma_indexed_positive_control_first_city_transfer": (
+                f"{int(indexed_progress_summary['Gemma4-E4B']['patched_first_known_city_donor_adoption_count'])}/60"
+            ),
+            "gemma_indexed_positive_control_first_city_paired_gain": float(
+                indexed_progress_summary["Gemma4-E4B"][
+                    "paired_first_known_city_donor_adoption_gain"
+                ]
+            ),
+            "qwen_indexed_positive_control_seed_any_incremental_transfer": (
+                f"{int(indexed_progress_generation_audit['models']['Qwen3-8B']['seed_with_any_incremental_adoption_count'])}/10"
+            ),
+            "gemma_indexed_positive_control_seed_any_incremental_transfer": (
+                f"{int(indexed_progress_generation_audit['models']['Gemma4-E4B']['seed_with_any_incremental_adoption_count'])}/10"
+            ),
+            "indexed_positive_control_all_adoptions_within_first_80_chars": True,
+            "gemma_natural_no_index_causal_result_available": False,
+            "gemma_next_item_routing_status": (
+                "simulatively confirmed under auxiliary settings"
+            ),
+            "gemma_simulative_support_sources": [
+                "prompt_conditioned_no_visible_index",
+                "explicit_index",
+            ],
+            "gemma_prompt_conditioned_no_index_auxiliary_complete": True,
+            "gemma_prompt_conditioned_no_index_candidate_argmax": "30/30",
+            "gemma_prompt_conditioned_no_index_first_city_transfer": "22/30",
+            "gemma_prompt_conditioned_no_index_attention_positive": "12/30",
+            "gemma_prompt_conditioned_supports_natural_no_index_claim": False,
+            "gemma_prompt_conditioned_supports_shared_head_circuit_claim": False,
             "all_layer_pca3_is_descriptive": True,
         },
         "derived_display_data_sha256": {
             "geometry_3d": hashlib.sha256(
                 json.dumps(geometry_3d, sort_keys=True).encode("utf-8")
+            ).hexdigest(),
+            "patch_scope_confirmation": hashlib.sha256(
+                json.dumps(
+                    patch_scope_confirmation, sort_keys=True
+                ).encode("utf-8")
+            ).hexdigest(),
+            "indexed_progress_discovery": hashlib.sha256(
+                json.dumps(indexed_progress_discovery, sort_keys=True).encode("utf-8")
+            ).hexdigest(),
+            "indexed_progress_confirmation": hashlib.sha256(
+                json.dumps(indexed_progress_confirmation, sort_keys=True).encode("utf-8")
+            ).hexdigest(),
+            "indexed_progress_generation_audit": hashlib.sha256(
+                json.dumps(
+                    indexed_progress_generation_audit, sort_keys=True
+                ).encode("utf-8")
+            ).hexdigest(),
+            "gemma_prompt_conditioned_noindex": hashlib.sha256(
+                json.dumps(gemma_prompt_noindex, sort_keys=True).encode("utf-8")
             ).hexdigest(),
         },
         "inputs_sha256": {str(path): sha256(path) for path in input_paths},
@@ -2966,7 +4485,119 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--reference-report", type=Path, default=Path("reports/former_report/NiaH_Non-thinking_report_frozen.html"))
+    parser.add_argument("--reference-report", type=Path, default=Path("reports/NiaH_Non-thinking_report.html"))
+    parser.add_argument(
+        "--patch-scope-layer-sweep",
+        type=Path,
+        default=Path(
+            "work/same_site_progress_transplant_20260827/"
+            "n10_patch_scope_layer_sweep_v2/layer_sweep_analysis.json"
+        ),
+    )
+    parser.add_argument(
+        "--patch-scope-layer-plot",
+        type=Path,
+        default=Path(
+            "work/same_site_progress_transplant_20260827/"
+            "n10_patch_scope_layer_sweep_v2/layer_sweep_effect_sizes.svg"
+        ),
+    )
+    parser.add_argument(
+        "--patch-scope-frozen-confirmation",
+        type=Path,
+        default=Path(
+            "work/same_site_progress_transplant_20260827/"
+            "n10_patch_scope_frozen_v2/frozen_scope_analysis.json"
+        ),
+    )
+    parser.add_argument(
+        "--patch-scope-generation-audit",
+        type=Path,
+        default=Path(
+            "work/same_site_progress_transplant_20260827/"
+            "n10_patch_scope_frozen_v2/item_span_generation_manual_audit.json"
+        ),
+    )
+    parser.add_argument(
+        "--item-span-l16",
+        type=Path,
+        default=Path(
+            "work/same_site_progress_transplant_20260827/"
+            "n10_item_span_contextual_l16_v1/frozen_scope_analysis.json"
+        ),
+    )
+    parser.add_argument(
+        "--item-span-l16-generation-audit",
+        type=Path,
+        default=Path(
+            "work/same_site_progress_transplant_20260827/"
+            "n10_item_span_contextual_l16_v1/item_span_generation_manual_audit.json"
+        ),
+    )
+    parser.add_argument(
+        "--historical-event-tail-confirmation",
+        type=Path,
+        default=Path(
+            "work/same_site_progress_transplant_20260827/"
+            "n10_natural_crossk_attention_generation_v1/"
+            "confirmation10_frozen_crossk_analysis.json"
+        ),
+    )
+    parser.add_argument(
+        "--indexed-progress-cohort-manifest",
+        type=Path,
+        default=Path(
+            "work/indexed_progress_control_20260827/cohorts/manifest.json"
+        ),
+    )
+    parser.add_argument(
+        "--indexed-progress-freeze-manifest",
+        type=Path,
+        default=Path(
+            "work/indexed_progress_control_20260827/"
+            "confirmation_freeze_manifest.json"
+        ),
+    )
+    parser.add_argument(
+        "--indexed-progress-discovery-root",
+        type=Path,
+        default=Path(
+            "work/indexed_progress_control_20260827/runs/"
+            "discovery_layer_sweep_v1"
+        ),
+    )
+    parser.add_argument(
+        "--indexed-progress-confirmation-root",
+        type=Path,
+        default=Path(
+            "work/indexed_progress_control_20260827/runs/"
+            "confirmation_crossk_v1"
+        ),
+    )
+    parser.add_argument(
+        "--indexed-progress-generation-audit",
+        type=Path,
+        default=Path(
+            "work/indexed_progress_control_20260827/runs/"
+            "confirmation_crossk_v1/generation_audit.json"
+        ),
+    )
+    parser.add_argument(
+        "--gemma-prompt-conditioned-noindex-cohort-manifest",
+        type=Path,
+        default=Path(
+            "work/gemma_prompt_conditioned_noindex_20260827/"
+            "cohort_full_20_10/manifest.json"
+        ),
+    )
+    parser.add_argument(
+        "--gemma-prompt-conditioned-noindex-analysis",
+        type=Path,
+        default=Path(
+            "work/gemma_prompt_conditioned_noindex_20260827/"
+            "forward_l16_item_span/analysis.json"
+        ),
+    )
     parser.add_argument("--qwen-targeted-analysis", type=Path, default=Path("reports/v5_native_final_localizers/analysis/qwen_final_merged_dose_grid.json"))
     parser.add_argument("--gemma-targeted-analysis", type=Path, default=Path("reports/v5_native_hybrid_supplement/Gemma4-E4B/analysis_hybrid_supplement_registered_v1/hybrid_dose_grid_complete.json"))
     parser.add_argument("--representation-root", type=Path, default=Path("reports/v5_native_causal_aligned_geometry"))
