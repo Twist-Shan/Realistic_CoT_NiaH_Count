@@ -58,6 +58,32 @@ def main() -> None:
         run_root / "dataset",
         expected_seal_sha256=args.expected_dataset_seal_sha256,
     )
+    prompt_audit_path = run_root / "orchestration" / "prompt_audit.json"
+    if not prompt_audit_path.is_file():
+        raise FileNotFoundError(f"Missing prompt audit: {prompt_audit_path}")
+    prompt_audit = json.loads(prompt_audit_path.read_text(encoding="utf-8"))
+    if (
+        prompt_audit.get("schema_version")
+        != "realistic_niah_prompt_audit_v3_3_long_context"
+        or prompt_audit.get("protocol_version") != PROTOCOL_VERSION
+        or prompt_audit.get("passed") is not True
+        or prompt_audit.get("dataset_seal_sha256") != dataset["seal_sha256"]
+        or int(prompt_audit.get("stimuli", -1)) != 3_780
+        or int(prompt_audit.get("requests", -1)) != 15_120
+        or int(prompt_audit.get("unique_request_ids", -1)) != 15_120
+    ):
+        raise RuntimeError("Formal preparation requires the exact prompt audit")
+    render_audits = prompt_audit.get("render_audits")
+    if (
+        not isinstance(render_audits, list)
+        or len(render_audits) != 4
+        or any(item.get("passed") is not True for item in render_audits)
+        or any(
+            int(item.get("maximum_total_budget", 10**9)) > 131_072
+            for item in render_audits
+        )
+    ):
+        raise RuntimeError("Maximum-context rendered-prompt audit is incomplete")
     config_path = repo / "configs" / "realistic_niah_v3_3_long_context.json"
     config_bytes = config_path.read_bytes()
     payload = {
@@ -69,6 +95,10 @@ def main() -> None:
         "config_path": str(config_path),
         "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
         "dataset": dataset,
+        "prompt_audit_path": str(prompt_audit_path),
+        "prompt_audit_sha256": hashlib.sha256(
+            prompt_audit_path.read_bytes()
+        ).hexdigest(),
     }
     _atomic_json(run_root / "orchestration" / "preparation.json", payload)
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))

@@ -63,6 +63,13 @@ The command performs a full tokenizer-level audit and then writes
 requires that exact digest and verifies every sealed file before allocating the
 model runtime.
 
+Before formal submission, also run the registered prompt audit (the supplied
+`v3_3_long_context_freeze.slurm` job does both steps). It checks all 15,120
+model-mode request IDs and exact one-message prompt contracts, then renders and
+tokenizes all 420 maximum-length stimuli in both modes for each checkpoint. The
+four model-mode maxima must each fit within `max_model_len=131072`. It saves the
+four exact 100k/N=20/seed=1234 rendered prompts separately for inspection.
+
 ## 2. Warm the model cache
 
 The following immutable assets must already be readable in the shared cache:
