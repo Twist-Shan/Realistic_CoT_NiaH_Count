@@ -512,6 +512,7 @@ def load_vllm_runtime(
     revision: str,
     engine_config: EngineConfig,
     cache_dir: str | Path | None = None,
+    additional_engine_overrides: dict[str, Any] | None = None,
 ) -> LoadedVLLMRuntime:
     """Load a registered model once for reuse across its logical shards."""
 
@@ -531,6 +532,13 @@ def load_vllm_runtime(
         cache_dir=cache_dir,
     )
     engine_overrides = model_engine_overrides(model_spec)
+    for key, value in (additional_engine_overrides or {}).items():
+        if key in engine_overrides and engine_overrides[key] != value:
+            raise ValueError(
+                f"Conflicting vLLM engine override for {key}: "
+                f"{engine_overrides[key]!r} != {value!r}"
+            )
+        engine_overrides[key] = value
     llm_kwargs: dict[str, Any] = {
         "model": model_spec.model_id,
         "revision": immutable_revision,
@@ -590,6 +598,7 @@ def run_vllm_experiment(
     registered_model_spec: ModelSpec | None = None,
     protocol: RunProtocol | None = None,
     loaded_runtime: LoadedVLLMRuntime | None = None,
+    additional_engine_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     resolved_protocol = protocol or V2_RUN_PROTOCOL
     model_spec = registered_model_spec or resolve_model_spec(model)
@@ -636,6 +645,13 @@ def run_vllm_experiment(
         raise RuntimeError("Formal run requires a clean Git worktree")
     engine = engine_config or EngineConfig()
     engine_overrides = model_engine_overrides(model_spec)
+    for key, value in (additional_engine_overrides or {}).items():
+        if key in engine_overrides and engine_overrides[key] != value:
+            raise ValueError(
+                f"Conflicting vLLM engine override for {key}: "
+                f"{engine_overrides[key]!r} != {value!r}"
+            )
+        engine_overrides[key] = value
     if loaded_runtime is not None and (
         loaded_runtime.model_label != model_spec.label
         or loaded_runtime.model_id != model_spec.model_id
@@ -822,6 +838,7 @@ def run_vllm_experiment(
         revision=immutable_revision,
         engine_config=engine,
         cache_dir=cache_dir,
+        additional_engine_overrides=additional_engine_overrides,
     )
     if (
         runtime.model_label != model_spec.label
