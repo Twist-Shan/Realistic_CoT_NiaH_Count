@@ -85,10 +85,24 @@ def main() -> None:
         raise ValueError("Grammar-span anchor panel violates the frozen contract")
     anchor_by_request = {str(anchor["request_id"]): anchor for anchor in anchors}
     rows = [row for row in rows if str(row["request_id"]) in anchor_by_request]
-    expected = 20 if args.seed_role == "development" else 10
+    is_cross_model_aligned = bool(manifest.get("exact_cross_model_key_equality"))
+    if is_cross_model_aligned:
+        expected_seeds = [
+            int(seed) for seed in manifest["phase_seeds"][str(args.seed_role)]
+        ]
+        expected = len(expected_seeds)
+    else:
+        expected = 20 if args.seed_role == "development" else 10
+        expected_seeds = list(
+            range(1234, 1254)
+            if args.seed_role == "development"
+            else range(1254, 1264)
+        )
     if len(rows) != expected or len({int(row["seed"]) for row in rows}) != expected:
         raise ValueError("Grammar-span trials changed the fixed seed contract")
     rows.sort(key=lambda row: int(row["seed"]))
+    if [int(row["seed"]) for row in rows] != expected_seeds:
+        raise ValueError("Grammar-span rows do not match the frozen phase seeds")
     timing_counts = {
         timing: sum(
             str(anchor_by_request[str(row["request_id"])]["grammar_span_timing_stratum"])
@@ -97,9 +111,19 @@ def main() -> None:
         )
         for timing in ("rank_after_city", "rank_before_city")
     }
-    expected_per_timing = 10 if args.seed_role == "development" else 5
-    if set(timing_counts.values()) != {expected_per_timing}:
-        raise ValueError("Grammar-span phase is not exactly timing-balanced")
+    if is_cross_model_aligned:
+        expected_timing_counts = {
+            str(key): int(value)
+            for key, value in manifest["timing_counts_by_phase"][
+                str(args.seed_role)
+            ].items()
+        }
+        if timing_counts != expected_timing_counts:
+            raise ValueError("Grammar-span timing counts changed from aligned manifest")
+    else:
+        expected_per_timing = 10 if args.seed_role == "development" else 5
+        if set(timing_counts.values()) != {expected_per_timing}:
+            raise ValueError("Grammar-span phase is not exactly timing-balanced")
     plan_core = {
         "schema_version": "realistic_niah_v5_grammar_span_row_plan_v1",
         "model_label": str(args.model),
@@ -112,6 +136,7 @@ def main() -> None:
         "timing_counts": timing_counts,
         "anchor_panel_sha256": str(manifest["panel_sha256"]),
         "anchor_manifest_sha256": str(manifest["manifest_sha256"]),
+        "cross_model_exact_sample_alignment": is_cross_model_aligned,
         "layer": int(args.layer),
         "layer_selection_rule": "historical_full_span_confirmation_layer_frozen",
         "conditions": list(REGISTERED_GRAMMAR_SPAN_DECOMPOSITION_CONDITIONS),

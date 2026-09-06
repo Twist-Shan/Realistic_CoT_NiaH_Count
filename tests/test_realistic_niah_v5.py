@@ -345,6 +345,28 @@ def test_parser_boundaries_define_fixed_city_transition_anchors() -> None:
     )
 
 
+def test_strict_progress_transition_uses_registered_transition_schema() -> None:
+    progress, excluded = mechanism_continuations(
+        _row(), CharacterTokenizer(), mechanism="progress_transition"
+    )
+    assert len(progress) == 1
+    assert not excluded
+    transition = progress[0]
+    assert transition["from_occurrence"] == 1
+    assert transition["to_occurrence"] == 2
+    assert transition["occurrence"] == 1
+    assert transition["query_output_token_index"] < transition[
+        "target_output_token_start"
+    ]
+    assert transition["target_output_token_start"] < transition[
+        "target_output_token_end"
+    ]
+    assert transition["target_token_ids"]
+    assert transition["target_city"] == "Baku"
+    assert transition["grammar_pair"]
+    assert "p0_item_end" in transition["anchor_roles"]
+
+
 def test_item_end_fallback_policy_is_explicit_and_audited(monkeypatch) -> None:
     import realistic_niah_v5.causal as causal_module
 

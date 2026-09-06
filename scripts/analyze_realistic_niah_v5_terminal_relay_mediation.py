@@ -341,15 +341,22 @@ def main(argv: Sequence[str] | None = None) -> None:
             raise ValueError("Relay analysis found an unregistered exclusion reason")
         if not (excluded.groupby("pair_sha256").size() == 6).all():
             raise ValueError("A relay N/A pair must contain all six factorial cells")
+    expected_seed_count = 20 if args.phase == "discovery" else 10
+    planned_seeds = sorted(set(int(seed) for seed in trials["seed"]))
+    if len(planned_seeds) != expected_seed_count:
+        raise ValueError("Relay analysis lost a canonical seed")
     planned_pairs = int(trials["pair_sha256"].nunique())
     excluded_pairs = int(excluded["pair_sha256"].nunique())
     trials = trials.loc[trials["status"].astype(str).eq("ok")].copy()
     expected_split = "development" if args.phase == "discovery" else "confirmation"
     if set(trials["mechanism_split"].astype(str)) != {expected_split}:
         raise ValueError("Relay analysis received the wrong split")
-    expected_seed_count = 20 if args.phase == "discovery" else 10
-    if trials["seed"].nunique() != expected_seed_count:
-        raise ValueError("Relay analysis lost a canonical seed")
+    eligible_seeds = sorted(set(int(seed) for seed in trials["seed"]))
+    if not eligible_seeds:
+        raise ValueError("Relay analysis has no geometry-eligible canonical seed")
+    geometry_not_applicable_full_seeds = sorted(
+        set(planned_seeds) - set(eligible_seeds)
+    )
     if "selection_rank" in trials.columns:
         raise ValueError("Formal relay trials must not use selection_rank")
     if set(trials["source_layer"].astype(int)) - {19, 16}:
@@ -377,7 +384,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             "eligible_pair_count": int(effects["pair_sha256"].nunique()),
             "geometry_not_applicable_pair_count": excluded_pairs,
             "geometry_not_applicable_reason": GEOMETRY_REASON,
+            "planned_seed_count": len(planned_seeds),
             "seed_count": int(effects["seed"].nunique()),
+            "geometry_not_applicable_full_seed_count": len(
+                geometry_not_applicable_full_seeds
+            ),
+            "geometry_not_applicable_full_seeds": geometry_not_applicable_full_seeds,
             "pairs_per_seed_min": int(per_seed.min()),
             "pairs_per_seed_max": int(per_seed.max()),
             "source_patch_stops_before_relay": True,

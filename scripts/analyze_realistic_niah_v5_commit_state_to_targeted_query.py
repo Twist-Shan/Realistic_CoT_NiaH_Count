@@ -167,12 +167,22 @@ def analyze(
             f"Commit-state panel lacks conditions: {sorted(required-observed_conditions)}"
         )
 
+    observed_offsets = {
+        int(value)
+        for value in pd.to_numeric(frame["donor_offset"], errors="raise")
+        .astype(int)
+        .unique()
+        if int(value) != 0
+    }
+    distances = sorted({abs(value) for value in observed_offsets})
+    if 1 not in distances:
+        raise ValueError("Commit-state panel must include donor offsets -1/+1")
+
     specs: list[tuple[str, str, str, str, tuple[int, ...]]] = []
-    for distance, offsets in (
-        (1, (-1, 1)),
-        (2, (-2, 2)),
-        (3, (-3, 3)),
-    ):
+    for distance in distances:
+        offsets = tuple(
+            value for value in (-distance, distance) if value in observed_offsets
+        )
         outcomes = [
             ("targeted_attention", DIRECT_OUTCOME),
             ("city_log_odds", CITY_OUTCOME),

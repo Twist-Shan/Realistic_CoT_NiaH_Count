@@ -7,7 +7,10 @@ import pandas as pd
 import torch
 from torch import nn
 
-from scripts.analyze_realistic_niah_v4_4_5_serial_mediation import unit_effects
+from scripts.analyze_realistic_niah_v4_4_5_serial_mediation import (
+    cluster_bootstrap_mean,
+    unit_effects,
+)
 from realistic_niah_v4.layerwise_removal import PromptRemovalGeometry
 from realistic_niah_v4_4_5.serial_mediation import (
     SERIAL_ARMS,
@@ -242,3 +245,34 @@ def test_serial_effect_definitions_match_preregistered_example() -> None:
     assert np.isclose(effects["joint_interaction"], -0.7)
     assert np.isclose(effects["source_broad_score_change"], 0.2)
     assert effects["late_to_retrieval_invariance_max_abs"] == 0.0
+
+
+def test_serial_inference_uses_equal_weight_seed_clusters() -> None:
+    summary = cluster_bootstrap_mean(
+        np.asarray([0.0, 0.0, 0.0, 0.0, 10.0, 20.0]),
+        np.asarray([1, 1, 1, 1, 2, 3]),
+        draws=2000,
+        seed=17,
+    )
+    assert summary["mean"] == 10.0
+    assert summary["mean"] != np.mean([0.0, 0.0, 0.0, 0.0, 10.0, 20.0])
+    assert summary["units"] == 3
+    assert summary["independent_seed_clusters"] == 3
+    assert summary["paired_seed_count_units"] == 6
+    assert summary["finite_rows_per_cluster_min"] == 1
+    assert summary["finite_rows_per_cluster_max"] == 4
+    assert summary["bootstrap_method"] == "seed-cluster percentile bootstrap"
+
+
+def test_serial_seed_sign_flip_is_exact_and_deterministic() -> None:
+    values = np.repeat(np.arange(1.0, 11.0), 10)
+    seeds = np.repeat(np.arange(1254, 1264), 10)
+    first = cluster_bootstrap_mean(values, seeds, draws=500, seed=20260829)
+    second = cluster_bootstrap_mean(values, seeds, draws=500, seed=20260829)
+    assert first == second
+    assert first["units"] == 10
+    assert first["paired_seed_count_units"] == 100
+    assert first["finite_rows_per_cluster_min"] == 10
+    assert first["finite_rows_per_cluster_max"] == 10
+    assert first["exact_sign_flip_permutations"] == 1024
+    assert first["exact_sign_flip_p_two_sided"] == 2 / 1024

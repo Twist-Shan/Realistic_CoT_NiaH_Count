@@ -14,6 +14,8 @@ from scripts.analyze_realistic_niah_v5_targeted_count_endpoint import (
 from scripts.build_realistic_niah_v5_targeted_count_plan import build_plan
 from scripts.freeze_realistic_niah_v5_targeted_default_plan import freeze
 from scripts.analyze_realistic_niah_v5_terminal_relay_mediation import (
+    GEOMETRY_REASON,
+    main as relay_analysis_main,
     relay_claim_gates,
     relay_pair_effects,
 )
@@ -355,6 +357,81 @@ def test_terminal_relay_factorial_passes_synthetic_nested_reset() -> None:
     assert claims["residual_relay_pass"] is True
     assert claims["gates"]["answer_query_only_mediation"]["pass"] is True
     assert claims["greedy_exact_count_support_pass"] is True
+
+
+def test_terminal_relay_keeps_planned_seed_that_is_fully_geometry_na(
+    tmp_path: Path,
+) -> None:
+    rows = []
+    for seed in range(1254, 1264):
+        pair_sha256 = f"pair-{seed}"
+        is_geometry_na = seed == 1259
+        for source_condition in ("self_patch", "full_donor_patch"):
+            for relay_condition in (
+                "natural_relay",
+                "answer_query_clean_reset",
+                "post_terminal_suffix_clean_reset",
+            ):
+                row = {
+                    "model_label": "Qwen3-8B",
+                    "seed": seed,
+                    "request_id": f"request-{seed}",
+                    "gold_count": 10,
+                    "mechanism_split": "confirmation",
+                    "pair_sha256": pair_sha256,
+                    "donor_offset": -1,
+                    "source_layer": 19,
+                    "relay_layer": 26,
+                    "source_condition": source_condition,
+                    "relay_condition": relay_condition,
+                    "status": "not_applicable" if is_geometry_na else "ok",
+                }
+                if is_geometry_na:
+                    row["exclusion_reason"] = GEOMETRY_REASON
+                else:
+                    self_value = 5.0
+                    donor_values = {
+                        "natural_relay": 1.0,
+                        "answer_query_clean_reset": 3.0,
+                        "post_terminal_suffix_clean_reset": 5.0,
+                    }
+                    row["correct_count_margin"] = (
+                        self_value
+                        if source_condition == "self_patch"
+                        else donor_values[relay_condition]
+                    )
+                    row["exact_count"] = float(
+                        source_condition == "self_patch"
+                        or relay_condition == "post_terminal_suffix_clean_reset"
+                    )
+                rows.append(row)
+    trials = tmp_path / "trials"
+    shards = trials / "shards"
+    shards.mkdir(parents=True)
+    (shards / "all.jsonl").write_text(
+        "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "analysis"
+    relay_analysis_main(
+        [
+            "--trials",
+            str(trials),
+            "--output",
+            str(output),
+            "--phase",
+            "confirmation",
+            "--bootstrap-samples",
+            "200",
+            "--random-seed",
+            "7",
+        ]
+    )
+    audit = json.loads((output / "audit.json").read_text(encoding="utf-8"))
+    assert audit["planned_seed_count"] == 10
+    assert audit["seed_count"] == 9
+    assert audit["geometry_not_applicable_full_seed_count"] == 1
+    assert audit["geometry_not_applicable_full_seeds"] == [1259]
 
 
 def test_complementary_readout_requires_both_qwen_routes_to_be_cut() -> None:

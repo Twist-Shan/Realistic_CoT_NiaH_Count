@@ -46,6 +46,25 @@ def _rms_distance(left: torch.Tensor, right: torch.Tensor) -> float:
     return float(torch.linalg.vector_norm(delta).cpu()) / math.sqrt(delta.numel())
 
 
+def _head_ablation_positions(
+    *,
+    query_position: int,
+    carrier_positions: Sequence[int],
+    scope: str,
+) -> tuple[int, ...]:
+    """Compile the exact teacher-forced support of a retrieval-head lesion."""
+
+    query = int(query_position)
+    carriers = tuple(sorted({int(value) for value in carrier_positions}))
+    if not carriers or carriers[0] <= query:
+        raise ValueError("Counter carrier must lie strictly after the query")
+    if scope == "query_local":
+        return (query,)
+    if scope == "query_through_carrier":
+        return tuple(range(query, carriers[-1] + 1))
+    raise ValueError(f"Unknown targeted-counter head-ablation scope: {scope}")
+
+
 @torch.inference_mode()
 def _capture_with_query_ablation_and_carrier_clamp(
     model: Any,
@@ -55,11 +74,11 @@ def _capture_with_query_ablation_and_carrier_clamp(
     capture_positions: Sequence[int],
     capture_layers: Sequence[int],
     heads: Sequence[tuple[int, int]],
-    query_position: int,
+    head_ablation_positions: Sequence[int],
     carrier_positions: Sequence[int],
     replacements: Mapping[int, torch.Tensor],
 ) -> tuple[dict[int, torch.Tensor], dict[str, Any]]:
-    """Apply exact query mask plus layerwise clean carrier replacement."""
+    """Apply the frozen head lesion plus a layerwise carrier replacement."""
 
     carriers = tuple(int(value) for value in carrier_positions)
     if not carriers:
@@ -101,7 +120,7 @@ def _capture_with_query_ablation_and_carrier_clamp(
             capture_positions=capture_positions,
             capture_layers=capture_layers,
             heads=heads,
-            hook_positions=int(query_position),
+            hook_positions=tuple(int(value) for value in head_ablation_positions),
         )
     finally:
         for handle in handles:
@@ -130,6 +149,7 @@ def run_targeted_counter_write_trials(
     banks: Sequence[Mapping[str, Any]],
     targeted_site: Mapping[str, Any],
     source_layer: int,
+    head_ablation_scope: str = "query_local",
     answer_site_id: str = "answer_query_v3",
 ) -> list[dict[str, Any]]:
     """Mask a targeted query and measure/restore its fixed-trace carrier state."""
@@ -167,6 +187,11 @@ def run_targeted_counter_write_trials(
     boundary_positions = geometries["boundary_commit"]
     if min(carrier_positions) <= int(targeted_query):
         raise ValueError("Counter carrier does not lie strictly after targeted query")
+    lesion_positions = _head_ablation_positions(
+        query_position=int(targeted_query),
+        carrier_positions=carrier_positions,
+        scope=str(head_ablation_scope),
+    )
     if max(boundary_positions) >= int(registry.query_position):
         raise ValueError("Counter boundary reaches the answer query")
     matched_positions = _matched_state_donor_positions(registry, carrier_positions)
@@ -223,7 +248,7 @@ def run_targeted_counter_write_trials(
             capture_positions=capture_positions,
             capture_layers=capture_layers,
             heads=bank["heads"],
-            hook_positions=int(targeted_query),
+            hook_positions=lesion_positions,
         )
         captures[bank["bank_id"]] = state
         audits[bank["bank_id"]] = audit
@@ -244,7 +269,7 @@ def run_targeted_counter_write_trials(
             capture_positions=capture_positions,
             capture_layers=capture_layers,
             heads=selected["heads"],
-            query_position=int(targeted_query),
+            head_ablation_positions=lesion_positions,
             carrier_positions=carrier_positions,
             replacements=clean_carrier,
         )
@@ -257,7 +282,7 @@ def run_targeted_counter_write_trials(
             capture_positions=capture_positions,
             capture_layers=capture_layers,
             heads=selected["heads"],
-            query_position=int(targeted_query),
+            head_ablation_positions=lesion_positions,
             carrier_positions=carrier_positions,
             replacements=matched_carrier,
         )
@@ -287,10 +312,18 @@ def run_targeted_counter_write_trials(
         "matched_position_token_count": len(matched_positions),
         "matched_positions_sha256": _sha256_json(matched_positions),
         "teacher_forced_trace_tokens": True,
-        "query_local_head_mask": True,
+        "query_local_head_mask": str(head_ablation_scope) == "query_local",
+        "head_ablation_scope": str(head_ablation_scope),
+        "head_ablation_positions": list(lesion_positions),
+        "head_ablation_position_count": len(lesion_positions),
+        "head_ablation_positions_sha256": _sha256_json(lesion_positions),
         "selection_rank_used": False,
         "outcome_blind": True,
-        "causal_claim_scope": "targeted_query_to_grammar_counter_carrier_to_commit_state",
+        "causal_claim_scope": (
+            "targeted_query_to_grammar_counter_carrier_to_commit_state"
+            if str(head_ablation_scope) == "query_local"
+            else "targeted_query_through_carrier_to_counter_carrier_to_commit_state"
+        ),
         "registry_sha256": registry.to_dict()["registry_sha256"],
         **grammar_audit,
     }

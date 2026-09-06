@@ -152,6 +152,49 @@ def test_native_loop_plan_is_rank_free_and_seed_complete():
     assert (nonterminal["receiver_occurrence"] == nonterminal["gold_count"]).all()
 
 
+def test_native_loop_aligned_rows_choose_same_structural_pairs_across_models():
+    def aligned_row(model: str, seed: int, count: int):
+        return {
+            "request_id": f"{model}/N{count}/seed{seed}",
+            "model_label": model,
+            "seed": seed,
+            "gold_count": count,
+            "alignment_pair_id": f"seed{seed}_N{count}",
+            "cross_model_exact_sample_alignment": True,
+            "gold_records": [
+                {"city": f"city-{index}", "score": index}
+                for index in range(1, count + 1)
+            ],
+        }
+
+    qwen = build_fixed_native_loop_plan(
+        [aligned_row("Qwen3-8B", 1234, 6), aligned_row("Qwen3-8B", 1235, 8)],
+        model_label="Qwen3-8B",
+        seeds=(1234, 1235),
+        seed_role="development",
+        donor_offsets=(-1, 1),
+    )
+    gemma = build_fixed_native_loop_plan(
+        [aligned_row("Gemma4-E4B", 1234, 6), aligned_row("Gemma4-E4B", 1235, 8)],
+        model_label="Gemma4-E4B",
+        seeds=(1234, 1235),
+        seed_role="development",
+        donor_offsets=(-1, 1),
+    )
+    columns = [
+        "panel_kind",
+        "seed",
+        "gold_count",
+        "receiver_occurrence",
+        "donor_occurrence",
+        "donor_offset",
+        "alignment_pair_id",
+    ]
+    assert qwen[columns].to_dict("records") == gemma[columns].to_dict("records")
+    assert qwen["cross_model_exact_sample_alignment"].all()
+    assert gemma["cross_model_exact_sample_alignment"].all()
+
+
 def test_native_loop_plan_uses_local_partial_fallback(monkeypatch):
     rows = [row for row in _rows(seeds=(1234,)) if row["gold_count"] <= 7]
     for row in rows:

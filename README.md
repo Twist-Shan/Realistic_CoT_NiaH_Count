@@ -10,7 +10,10 @@ but scientifically distinct, research tracks:
    answer-query attention, head ablation, and activation patching.
 3. **Realistic NIAH V5** translates the completed V4.4 non-thinking mechanism
    battery to parser-aligned native-thinking trace positions.
-4. **Dynamic NIAH mechanism experiments** generate tokenizer-aware controlled
+4. **Realistic NIAH V6** repeats the report-aligned V5 mechanism battery on
+   frozen index-enumeration and bullet-enumeration controls without modifying
+   V5 source or artifacts.
+5. **Dynamic NIAH mechanism experiments** generate tokenizer-aware controlled
    examples for hidden-state, Q/K attention, probing, steering, ablation, and
    activation-restoration analyses.
 
@@ -60,6 +63,7 @@ Remote: <https://github.com/Twist-Shan/Realistic_CoT_NiaH_Count.git>
 
 | Goal | Primary entry point | Detailed specification |
 | --- | --- | --- |
+| Run the isolated V6 index/bullet full-suite replication | `scripts/run_realistic_niah_v6.py`, `scripts/supervise_realistic_niah_v6_enumeration.sh`, `configs/realistic_niah_v6_enumeration_{index,bullet}.json` | [`docs/realistic_niah_v6_enumeration_suite.md`](docs/realistic_niah_v6_enumeration_suite.md) |
 | Run the V5 native-thinking representation + causal replication | `scripts/run_realistic_niah_v5.py`, `scripts/compare_realistic_niah_position_geometry.py`, `configs/realistic_niah_v5.json` | [`docs/realistic_niah_v5.md`](docs/realistic_niah_v5.md) |
 | Test native count state by intermediate trace-to-trace patching versus independent final prompt/trace broad-head ablation | `scripts/run_realistic_niah_v5_count_stream.py`, `configs/realistic_niah_v5_native_count_stream_dev.json` | [`docs/realistic_niah_v5_native_count_stream.md`](docs/realistic_niah_v5_native_count_stream.md) |
 | Rebuild the shared V4.4 geometry panel, mode contracts, and causal-extension registry | `scripts/build_realistic_niah_mechanism_dataset.py` | [Hugging Face dataset](https://huggingface.co/datasets/twistshan/realistic-niah-count-mechanism-analysis) |

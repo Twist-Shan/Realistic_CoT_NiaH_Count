@@ -38,11 +38,8 @@ from realistic_niah_v5.targeted_counter_logit_margin import (  # noqa: E402
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    with path.open("r", encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]
 
 
 def _sha256(path: Path) -> str:
@@ -102,7 +99,14 @@ def main() -> None:
     expected_seeds = {int(row["seed"]) for row in phase_panel}
     if len(expected_seeds) != len(phase_panel):
         raise ValueError("Logit-margin phase panel contains duplicate seeds")
-    minimum = 15 if args.seed_role == "development" else 8
+    exact_aligned = all(
+        bool(row.get("cross_model_exact_sample_alignment")) for row in panel_rows
+    )
+    minimum = (
+        (8 if args.seed_role == "development" else 4)
+        if exact_aligned
+        else (15 if args.seed_role == "development" else 8)
+    )
     if len(expected_seeds) < minimum:
         raise ValueError(
             f"Logit-margin {args.seed_role} branch has only {len(expected_seeds)} seeds"
@@ -148,6 +152,7 @@ def main() -> None:
         "confirmation_used_for_registration": False,
         "outcome_blind_panel": True,
         "selection_rank_used": False,
+        "cross_model_exact_sample_alignment": exact_aligned,
     }
     plan_path = args.output / "frozen_row_plan.json"
     if plan_path.exists():
@@ -205,6 +210,7 @@ def main() -> None:
                 "no_decoder_fit_or_layer_selection": True,
                 "outcome_blind_panel": True,
                 "selection_rank_used": False,
+                "cross_model_exact_sample_alignment": exact_aligned,
             },
         ),
     )

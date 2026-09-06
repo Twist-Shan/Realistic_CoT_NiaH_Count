@@ -52,6 +52,14 @@ from .spec import V5Config
 
 CAUSAL_SCHEMA_VERSION = "realistic_niah_v5_causal_v3"
 
+TARGET_CITY_HEAD_ABLATION_SCOPES = (
+    "registered_query_only",
+    "last_pre_city_only",
+    "registered_query_through_last_pre_city",
+    "city_predictor_chain",
+    "registered_query_through_city_prefix",
+)
+
 
 CAUSAL_HEAD_SELECTION_COLUMNS = (
     "target_source_attention_mass",
@@ -3372,10 +3380,17 @@ def mechanism_continuations(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Compile legacy or parser-registered causal continuations by estimand."""
 
-    if mechanism == "retrieval_anchor_localization":
+    if mechanism in {"retrieval_anchor_localization", "progress_transition"}:
         if boundary_policy != "strict_registered":
-            raise ValueError(
-                "retrieval_anchor_localization uses only registered boundaries"
+            if mechanism == "retrieval_anchor_localization":
+                raise ValueError(
+                    "retrieval_anchor_localization uses only registered boundaries"
+                )
+            return _legacy_mechanism_continuations(
+                row,
+                tokenizer,
+                mechanism=mechanism,
+                boundary_policy=boundary_policy,
             )
         return _registered_mechanism_continuations(
             row,
@@ -3998,6 +4013,80 @@ def _fixed_target_head_ablation_logits(
     )
 
 
+def target_city_head_ablation_geometry(
+    *,
+    prompt_token_count: int,
+    query_output_token_index: int,
+    target_output_token_start: int,
+    target_output_token_end: int,
+    scope: str,
+) -> dict[str, Any]:
+    """Compile the exact predictor-position support of a city-token lesion.
+
+    Full-sequence position ``p`` predicts token ``p + 1``.  The returned audit
+    therefore exposes when the registered query is exactly the predictor
+    immediately before the first city token instead of relabeling that equality
+    as an apparent site change.
+    """
+
+    requested = str(scope)
+    if requested not in TARGET_CITY_HEAD_ABLATION_SCOPES:
+        raise ValueError(f"Unknown target-city head-ablation scope: {requested}")
+    prompt = int(prompt_token_count)
+    query = prompt + int(query_output_token_index)
+    target_start = prompt + int(target_output_token_start)
+    target_end = prompt + int(target_output_token_end)
+    if target_end <= target_start:
+        raise ValueError("Target city must contain at least one token")
+    last_pre_city = target_start - 1
+    last_city_predictor = target_end - 2
+    if query > last_pre_city:
+        raise ValueError(
+            "Registered retrieval query lies after the first target-city predictor"
+        )
+    if requested == "registered_query_only":
+        hook_positions = (query,)
+    elif requested == "last_pre_city_only":
+        hook_positions = (last_pre_city,)
+    elif requested == "registered_query_through_last_pre_city":
+        hook_positions = tuple(range(query, last_pre_city + 1))
+    elif requested == "city_predictor_chain":
+        hook_positions = tuple(range(last_pre_city, last_city_predictor + 1))
+    else:
+        hook_positions = tuple(range(query, last_city_predictor + 1))
+    score_positions = tuple(range(last_pre_city, last_city_predictor + 1))
+    if not hook_positions or not score_positions:
+        raise RuntimeError("Compiled target-city support is empty")
+
+    def digest(values: Sequence[int]) -> str:
+        payload = json.dumps(
+            [int(value) for value in values], separators=(",", ":")
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+    return {
+        "head_ablation_scope": requested,
+        "head_ablation_positions": list(hook_positions),
+        "head_ablation_position_count": len(hook_positions),
+        "head_ablation_positions_sha256": digest(hook_positions),
+        "score_positions": list(score_positions),
+        "score_position_count": len(score_positions),
+        "score_positions_sha256": digest(score_positions),
+        "registered_query_full_sequence_token": query,
+        "last_pre_city_predictor_full_sequence_token": last_pre_city,
+        "last_city_predictor_full_sequence_token": last_city_predictor,
+        "registered_query_equals_last_pre_city_predictor": bool(
+            query == last_pre_city
+        ),
+        "registered_query_to_last_pre_city_distance": last_pre_city - query,
+        "target_city_full_sequence_token_start": target_start,
+        "target_city_full_sequence_token_end": target_end,
+        "autoregressive_position_definition": (
+            "full-sequence token position p predicts token p+1"
+        ),
+    }
+
+
 @torch.inference_mode()
 
 
@@ -4080,8 +4169,9 @@ def run_mechanism_head_ablation_trials(
     condition: str,
     boundary_policy: str = "strict_registered",
     anchor_equivalence_ids: Iterable[str] | None = None,
+    head_ablation_scope: str = "registered_query_only",
 ) -> list[dict[str, Any]]:
-    """Run position-local anchor interventions against one fixed city span."""
+    """Run an audited head lesion against one unchanged fixed city span."""
 
     specifications, excluded = mechanism_continuations(
         row,
@@ -4124,6 +4214,7 @@ def run_mechanism_head_ablation_trials(
                 "split": row.get("split"),
                 "gold_count": len(gold_records(row)),
                 "heads": [[int(layer), int(head)] for layer, head in heads],
+                "head_ablation_scope": str(head_ablation_scope),
                 **exclusion,
             }
         )
@@ -4147,15 +4238,35 @@ def run_mechanism_head_ablation_trials(
         hook_position = prompt_count + query_output_index
         target_full_start = prompt_count + target_output_start
         target_full_end = prompt_count + target_output_end
-        logits = _fixed_target_head_ablation_logits(
-            model,
-            adapter,
-            target_encoding,
-            heads,
-            hook_position=hook_position,
-            target_full_sequence_token_start=target_full_start,
-            target_full_sequence_token_end=target_full_end,
+        geometry = target_city_head_ablation_geometry(
+            prompt_token_count=prompt_count,
+            query_output_token_index=query_output_index,
+            target_output_token_start=target_output_start,
+            target_output_token_end=target_output_end,
+            scope=str(head_ablation_scope),
         )
+        if int(geometry["registered_query_full_sequence_token"]) != hook_position:
+            raise RuntimeError("Compiled target-city query position changed")
+        if str(head_ablation_scope) == "registered_query_only":
+            # Preserve the original query-local numerical path byte-for-byte.
+            logits = _fixed_target_head_ablation_logits(
+                model,
+                adapter,
+                target_encoding,
+                heads,
+                hook_position=hook_position,
+                target_full_sequence_token_start=target_full_start,
+                target_full_sequence_token_end=target_full_end,
+            )
+        else:
+            logits = _scheduled_head_ablation_logits(
+                model,
+                adapter,
+                target_encoding,
+                heads,
+                hook_positions=geometry["head_ablation_positions"],
+                score_positions=geometry["score_positions"],
+            )
         output.append(
             {
                 "schema_version": CAUSAL_SCHEMA_VERSION,
@@ -4173,6 +4284,7 @@ def run_mechanism_head_ablation_trials(
                 "teacher_forced_interstitial_token_count": (
                     target_output_start - query_output_index - 1
                 ),
+                **geometry,
                 "target_text": tokenizer.decode(
                     list(target_ids),
                     skip_special_tokens=False,
@@ -5190,67 +5302,122 @@ def run_projected_patch_trials_from_states(
     receiver_site_id: str,
     donor_site_id: str,
     layer: int,
-    basis: np.ndarray | torch.Tensor,
+    basis: np.ndarray | torch.Tensor | None,
     max_new_tokens: int = 16,
     self_patch_result: Mapping[str, Any] | None = None,
+    requested_conditions: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Run registered patch conditions from reusable captured site states."""
+    """Run requested answer-query patch conditions from reusable states.
+
+    The historical four-arm protocol remains the default.  A full-state-only
+    layer sweep may request just ``self_patch`` and ``full_donor_patch``; in
+    that case no fitted subspace is needed.  Keeping that path explicit avoids
+    spending two additional long-context generations per pair/layer on
+    projected and orthogonal controls that answer a different question.
+    """
 
     if receiver.model_label != donor.model_label:
         raise ValueError("Receiver and donor must use the same registered model")
     if receiver.count == donor.count:
         raise ValueError(
-            "Projected donor trials require different receiver/donor counts; "
-            "self patch is run internally as a control"
+            "Answer-query donor trials require different receiver/donor counts; "
+            "a self patch may be requested as the regeneration control"
         )
-    basis_tensor = torch.as_tensor(basis, dtype=torch.float32)
-    if basis_tensor.ndim != 2 or basis_tensor.shape[0] != receiver_state.numel():
-        raise ValueError("Patch basis must have shape [hidden, rank]")
+    allowed_conditions = {
+        "self_patch",
+        "full_donor_patch",
+        "projected_donor_patch",
+        "orthogonal_norm_matched",
+    }
+    requested = tuple(
+        requested_conditions
+        or (
+            "self_patch",
+            "full_donor_patch",
+            "projected_donor_patch",
+            "orthogonal_norm_matched",
+        )
+    )
+    if not requested or len(set(requested)) != len(requested):
+        raise ValueError("Patch conditions must be non-empty and unique")
+    unknown = sorted(set(requested) - allowed_conditions)
+    if unknown:
+        raise ValueError(f"Unknown answer-query patch conditions: {unknown}")
+    needs_subspace = bool(
+        {"projected_donor_patch", "orthogonal_norm_matched"} & set(requested)
+    )
+    basis_tensor: torch.Tensor | None = None
+    if needs_subspace:
+        if basis is None:
+            raise ValueError("Projected/orthogonal patch conditions require a basis")
+        basis_tensor = torch.as_tensor(basis, dtype=torch.float32)
+        if (
+            basis_tensor.ndim != 2
+            or basis_tensor.shape[0] != receiver_state.numel()
+        ):
+            raise ValueError("Patch basis must have shape [hidden, rank]")
     reused_self_patch = self_patch_result is not None
-    clean = (
-        dict(self_patch_result)
-        if self_patch_result is not None
-        else generate_with_residual_interventions(
+    results: dict[str, dict[str, Any]] = {}
+    if "self_patch" in requested:
+        results["self_patch"] = (
+            dict(self_patch_result)
+            if self_patch_result is not None
+            else generate_with_residual_interventions(
+                model,
+                tokenizer,
+                adapter,
+                receiver,
+                {int(layer): ([receiver.query_position], receiver_state)},
+                max_new_tokens=max_new_tokens,
+            )
+        )
+    if "full_donor_patch" in requested:
+        results["full_donor_patch"] = generate_with_residual_interventions(
             model,
             tokenizer,
             adapter,
             receiver,
-            {int(layer): ([receiver.query_position], receiver_state)},
+            {int(layer): ([receiver.query_position], donor_state)},
             max_new_tokens=max_new_tokens,
         )
-    )
-    full_donor = generate_with_residual_interventions(
-        model,
-        tokenizer,
-        adapter,
-        receiver,
-        {int(layer): ([receiver.query_position], donor_state)},
-        max_new_tokens=max_new_tokens,
-    )
-    conditions = run_counter_subspace_conditions(
-        model,
-        tokenizer,
-        adapter,
-        receiver,
-        source_layer=int(layer),
-        source_positions=[receiver.query_position],
-        receiver_source_state=receiver_state,
-        donor_source_state=donor_state,
-        source_basis=basis_tensor,
-        random_seed=_stable_seed(
-            f"v5-patch:{receiver.request_id}:{donor.request_id}:L{layer}"
+    audit: dict[str, Any] = {
+        "source_layer": int(layer),
+        "source_positions": [int(receiver.query_position)],
+        "full_delta_norm": float(
+            torch.linalg.vector_norm(
+                donor_state.detach().float() - receiver_state.detach().float()
+            )
+        ),
+        "requested_conditions": list(requested),
+    }
+    if needs_subspace:
+        assert basis_tensor is not None
+        subspace_results = run_counter_subspace_conditions(
+            model,
+            tokenizer,
+            adapter,
+            receiver,
+            source_layer=int(layer),
+            source_positions=[receiver.query_position],
+            receiver_source_state=receiver_state,
+            donor_source_state=donor_state,
+            source_basis=basis_tensor,
+            random_seed=_stable_seed(
+                f"v5-patch:{receiver.request_id}:{donor.request_id}:L{layer}"
+            )
+            % (2**31 - 1),
+            max_new_tokens=max_new_tokens,
         )
-        % (2**31 - 1),
-        max_new_tokens=max_new_tokens,
-    )
-    audit = dict(conditions.pop("_audit"))
+        audit.update(dict(subspace_results.pop("_audit")))
+        if "projected_donor_patch" in requested:
+            results["projected_donor_patch"] = subspace_results["projected_patch"]
+        if "orthogonal_norm_matched" in requested:
+            results["orthogonal_norm_matched"] = subspace_results[
+                "orthogonal_norm_matched"
+            ]
     result_rows: list[dict[str, Any]] = []
-    for condition, result in (
-        ("self_patch", clean),
-        ("full_donor_patch", full_donor),
-        ("projected_donor_patch", conditions["projected_patch"]),
-        ("orthogonal_norm_matched", conditions["orthogonal_norm_matched"]),
-    ):
+    for condition in requested:
+        result = results[condition]
         result_rows.append(
             {
                 "schema_version": CAUSAL_SCHEMA_VERSION,
@@ -5266,7 +5433,9 @@ def run_projected_patch_trials_from_states(
                 "receiver_site_id": receiver_site_id,
                 "donor_site_id": donor_site_id,
                 "layer": int(layer),
-                "rank": int(basis_tensor.shape[1]),
+                "rank": (
+                    None if basis_tensor is None else int(basis_tensor.shape[1])
+                ),
                 "captured_state_cache_audit": "PASS_REUSED_SITE_STATE",
                 "self_patch_cache_reused": bool(reused_self_patch),
                 **audit,

@@ -20,6 +20,7 @@ TARGETING_METRICS = (
     "bank_source_specific_ov_write_norm_sum",
     "target_city_log_probability",
     "target_mean_token_logit_margin",
+    "target_city_teacher_forced_exact",
     "target_city_retrieved",
 )
 

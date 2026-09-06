@@ -211,10 +211,26 @@ def test_registry_route_anchor_and_exact_localizer_join_by_transition() -> None:
         "to_occurrence": 10,
         "anchor_equivalence_id": "9->10@route-q267",
     }
-    assert _RUNNER._registry_event_matches(exact_localizer, routed_registry)
+    assert _RUNNER._registry_event_matches(
+        exact_localizer, routed_registry, match_mode="transition"
+    )
+    assert not _RUNNER._registry_event_matches(
+        exact_localizer, routed_registry, match_mode="exact"
+    )
+    assert _RUNNER._registry_event_matches(
+        {**exact_localizer, "anchor_equivalence_id": "9->10@route-q267"},
+        routed_registry,
+        match_mode="exact",
+    )
+    assert _RUNNER._registry_event_matches(
+        {**exact_localizer, "anchor_equivalence_id": "9->10@q267"},
+        routed_registry,
+        match_mode="exact",
+    )
     assert not _RUNNER._registry_event_matches(
         exact_localizer,
         {**routed_registry, "to_occurrence": 9},
+        match_mode="transition",
     )
 
 

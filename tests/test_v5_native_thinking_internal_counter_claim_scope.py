@@ -27,7 +27,7 @@ def test_shipped_report_keeps_natural_noindex_claim_qwen_only() -> None:
     assert "Gemma 尚无对应的自然 no-index 因果结果" in text
     assert "显式 index positive control" in text
     assert "Pre-confirmation amendment" in text
-    assert "auto L0 / confirm L16" in text
+    assert "Qwen L19、Gemma L16" in text
     assert (
         "Appendix K · Gemma prompt-conditioned no-visible-index forward transplant"
         in text
@@ -40,7 +40,7 @@ def test_shipped_report_keeps_natural_noindex_claim_qwen_only() -> None:
     assert "实验前置 · Parser 与因果设计合同" in text
     assert "strict_eligible_no_explicit_count_cue" in text
     assert manifest["schema_version"] == (
-        "realistic_niah_v5_native_thinking_restructured_v12"
+        "realistic_niah_v5_native_thinking_restructured_v14"
     )
     assert manifest["claim_scope"][
         "qwen_no_index_scope_result_extrapolated_to_gemma"
@@ -72,38 +72,35 @@ def test_shipped_report_keeps_natural_noindex_claim_qwen_only() -> None:
     ] == "12/30"
     assert manifest["claim_scope"][
         "qwen_indexed_positive_control_first_city_transfer"
-    ] == "54/60"
+    ] == "59/60"
     assert manifest["claim_scope"][
         "qwen_indexed_positive_control_first_city_paired_gain"
-    ] == 0.9
+    ] == 59 / 60
     assert manifest["claim_scope"][
         "gemma_indexed_positive_control_first_city_transfer"
-    ] == "15/60"
+    ] == "42/60"
     assert manifest["claim_scope"][
         "gemma_indexed_positive_control_first_city_paired_gain"
-    ] == 11 / 60
+    ] == 37 / 60
     assert manifest["scientific_contract"][
         "indexed_positive_control_active_confirmation_layer"
-    ] == {"Qwen3-8B": 16, "Gemma4-E4B": 16}
+    ] == {"Qwen3-8B": 19, "Gemma4-E4B": 16}
 
 
 def test_indexed_confirmation_freeze_precedes_confirmation() -> None:
-    root = REPO_ROOT / "work" / "indexed_progress_control_20260827"
+    root = REPO_ROOT / "work" / "v5_native_sample_aligned_20260829"
     freeze = json.loads(
-        (root / "confirmation_freeze_manifest.json").read_text(encoding="utf-8")
+        (root / "indexed_progress_control_freeze.json").read_text(encoding="utf-8")
     )
     assert freeze["status"] == "FROZEN_BEFORE_CONFIRMATION"
-    assert freeze["confirmation_results_observed"] is False
+    assert freeze["confirmation_outcomes_observed"] is False
     assert freeze["active_confirmation_layers"] == {
-        "Qwen3-8B": 16,
+        "Qwen3-8B": 19,
         "Gemma4-E4B": 16,
     }
-    for model in ("Qwen3-8B", "Gemma4-E4B"):
-        analysis = (
-            root
-            / "runs"
-            / "discovery_layer_sweep_v1"
-            / model
-            / "layer_sweep_analysis.json"
-        )
-        assert _sha256(analysis) == freeze["discovery_analysis_sha256"][model]
+    assert _sha256(root / "indexed_progress_control_panel" / "alignment_manifest.json") == (
+        freeze["aligned_cohort_manifest_sha256"]
+    )
+    assert _sha256(REPO_ROOT / freeze["representation_alignment_audit"]) == (
+        freeze["representation_alignment_audit_sha256"]
+    )

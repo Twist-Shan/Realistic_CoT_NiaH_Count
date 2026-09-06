@@ -1573,6 +1573,57 @@ def build(output: Path) -> None:
             or int(exp19_audit.get("hook_failures", -1)) != 0
         ):
             raise RuntimeError(f"Experiment 19 summary failed audit for {model}")
+        cluster_schema = (
+            exp19_payload.get("schema_version")
+            == "realistic_niah_v4_4_5_serial_mediation_summary_v2"
+            and exp19_audit.get("schema_version")
+            == "realistic_niah_v4_4_5_serial_mediation_analysis_audit_v2"
+        )
+        if cluster_schema:
+            inference = exp19_payload.get("inference", {})
+            if (
+                inference.get("independent_unit") != "seed"
+                or inference.get("bootstrap_method")
+                != "seed-cluster percentile bootstrap"
+                or int(inference.get("bootstrap_draws", -1)) != 10000
+                or exp19_audit.get("inference_unit") != "seed"
+                or int(exp19_audit.get("seed_clusters_per_model", -1)) != 10
+                or int(exp19_audit.get("counts_per_seed_cluster", -1)) != 10
+                or int(exp19_audit.get("independent_seed_clusters", -1)) != 10
+                or int(exp19_audit.get("paired_seed_count_units", -1)) != 100
+                or int(exp19_audit.get("bootstrap_draws", -1)) != 10000
+                or exp19_audit.get("bootstrap_method")
+                != "seed-cluster percentile bootstrap"
+                or exp19_audit.get("exact_sign_flip_unit") != "seed"
+                or not exp19_path.with_name("paired_serial_effects.csv").is_file()
+            ):
+                raise RuntimeError(
+                    f"Experiment 19 seed-cluster contract failed for {model}"
+                )
+            for metric_name, metric in exp19_payload["models"][model].items():
+                if metric_name == "ordered_criterion_diagnostics":
+                    continue
+                if (
+                    not isinstance(metric, dict)
+                    or int(metric.get("units", -1)) != 10
+                    or int(metric.get("independent_seed_clusters", -1)) != 10
+                    or int(metric.get("paired_seed_count_units", -1)) != 100
+                    or int(metric.get("bootstrap_draws", -1)) != 10000
+                    or metric.get("bootstrap_method")
+                    != "seed-cluster percentile bootstrap"
+                    or metric.get("cluster_column") != "seed"
+                    or int(metric.get("exact_sign_flip_permutations", -1)) != 1024
+                    or "exact_sign_flip_p_two_sided" not in metric
+                ):
+                    raise RuntimeError(
+                        f"Experiment 19 clustered metric failed for "
+                        f"{model}/{metric_name}"
+                    )
+        else:
+            raise RuntimeError(
+                f"Experiment 19 requires retained paired effects and valid "
+                f"seed-cluster inference for {model}"
+            )
         ordered = exp19_payload["models"][model][
             "ordered_criterion_diagnostics"
         ]
@@ -3567,13 +3618,21 @@ def build(output: Path) -> None:
         references=[(0.0, "matched-control difference = 0")],
         width=840,
     )
+    def exp19_metric_cell(values: dict[str, Any], metric: str) -> str:
+        result = values[metric]
+        return (
+            f"{f(result['mean'])} "
+            f"[{f(result['ci95_low'])}, {f(result['ci95_high'])}]; "
+            f"exact p={p_text(result['exact_sign_flip_p_two_sided'])}"
+        )
+
     exp19_rows = "".join(
         f"""<tr><td>{model}</td>
-        <td>{f(values['source_repair']['mean'])} [{f(values['source_repair']['ci95_low'])}, {f(values['source_repair']['ci95_high'])}]</td>
-        <td>{f(values['retrieval_mediation']['mean'])} [{f(values['retrieval_mediation']['ci95_low'])}, {f(values['retrieval_mediation']['ci95_high'])}]</td>
-        <td>{f(values['late_mediation']['mean'])} [{f(values['late_mediation']['ci95_low'])}, {f(values['late_mediation']['ci95_high'])}]</td>
-        <td>{f(values['joint_interaction']['mean'])} [{f(values['joint_interaction']['ci95_low'])}, {f(values['joint_interaction']['ci95_high'])}]</td>
-        <td>{f(values['remaining_repair']['mean'])} [{f(values['remaining_repair']['ci95_low'])}, {f(values['remaining_repair']['ci95_high'])}]</td></tr>"""
+        <td>{exp19_metric_cell(values, 'source_repair')}</td>
+        <td>{exp19_metric_cell(values, 'retrieval_mediation')}</td>
+        <td>{exp19_metric_cell(values, 'late_mediation')}</td>
+        <td>{exp19_metric_cell(values, 'joint_interaction')}</td>
+        <td>{exp19_metric_cell(values, 'remaining_repair')}</td></tr>"""
         for model, values in exp19.items()
     )
 
@@ -3984,7 +4043,8 @@ def build(output: Path) -> None:
                 "late "
                 f"{f(gemma_serial['late_mediation']['mean'])} "
                 f"[{ci(gemma_serial['late_mediation'], 'ci95_low', 'ci95_high')}]",
-                "三项 ordered criteria 均保留；正文/附录统一选 K6。",
+                "两列均按 seed-cluster inference 重算，三项 ordered criteria 均保留；"
+                "正文/附录统一采用该口径。",
             ),
             (
                 "Induction/noise auxiliary readouts",
@@ -4021,7 +4081,7 @@ def build(output: Path) -> None:
         (16, "Gemma 是否与 Qwen 一样有局部 OV head set", "falsified", "L35H2 与 {L29H4,L35H2} natural carrier/injection/removal package", "完整 localized-OV 判据未通过；L37 exact residual mediation +0.0864", "Gemma 的支持结论是分布式 residual mediator，而不是与 Qwen 同构的局部 OV writer。"),
         (17, "Prompt noise 的主要来源是什么", "partial", "count/seed-context/interaction decomposition + grouped cubic absolute-position control；与原 23 的 attention controls 联合解释", "代表层 count/seed/interaction 方差占比：Qwen 0.599/0.161/0.241，Gemma 0.385/0.228/0.386；position-count ρ≈0.965；去 position 后 3-PC R² Qwen {:.3f}、Gemma {:.3f}".format(float(counter_by_model['Qwen3-8B']['position_residual_pc3_grouped_ridge_r2']), float(counter_by_model['Gemma4-E4B']['position_residual_pc3_grouped_ridge_r2'])), "绝对位置解释 frozen 前三维的大部分 ordering；seed/context 与交互仍贡献噪声，但 token identity、context、attention 的独立因果份额尚未完全识别。当前论文无需继续细分。"),
         (18, "为什么 prompt manifold 浅层出现、answer manifold 深层出现", "partial", "跨层 prompt probe、answer classifier、dense restoration、restoration→attention response、answer patch/removal timing", "prompt 浅层已可读；source reuse 在 Qwen 约到 L20、Gemma约到 L16；answer 可执行性在中后层上升", "局部 occurrence 可早期记录；全局 answer query 需等待 retrieval 与 consolidation。时序与因果边界成立，但“架构为何必然如此”不是单一干预可证明的命题。"),
-        (19, "是否建立完整 distributed prompt evidence→retrieval→late answer→output 因果链", "verified", "canonical confirmation seeds 1254–1263×counts 1–10；同一 forward 的 11-arm source restoration、retrieval/late aligned-vs-orthogonal removal 与 2×2 joint block；每模型 1,100 rows、100 paired units、10,000 bootstrap draws；Gemma 按 Top-6 在 L29 的 H4/H2 完整重跑", f"source repair Qwen/Gemma +{f(qwen_serial['source_repair']['mean'])}/+{f(gemma_serial['source_repair']['mean'])} counts；retrieval mediation +{f(qwen_serial['retrieval_mediation']['mean'])}/+{f(gemma_serial['retrieval_mediation']['mean'])}；late mediation +{f(qwen_serial['late_mediation']['mean'])}/+{f(gemma_serial['late_mediation']['mean'])}；三项 ordered criteria 均 PASS，且更晚 block 对已计算的 retrieval readout 变化严格为 0", "同一试次内支持 ordered partial serial mediation：分布式 span evidence 会重配 retrieval，局部 count-aligned retrieval 会影响后续 late state，late state 再影响输出。负 interaction 与剩余 repair 表明路径有重叠和 bypass；不支持唯一通道或一枚固定 basis 原样跨层传递。详见三个机制步骤之后的 Q19 整链闭环。"),
+        (19, "是否建立完整 distributed prompt evidence→retrieval→late answer→output 因果链", "verified", "canonical confirmation seeds 1254–1263×counts 1–10；同一 forward 的 11-arm source restoration、retrieval/late aligned-vs-orthogonal removal 与 2×2 joint block；每模型 1,100 rows、100 paired seed–count units；正式推断先在 seed 内平均 10 counts，再以 10 seeds 为独立单位；两模型均使用 10,000-draw cluster bootstrap + exact seed sign-flip", f"source repair Qwen/Gemma +{f(qwen_serial['source_repair']['mean'])}/+{f(gemma_serial['source_repair']['mean'])} counts；retrieval +{f(qwen_serial['retrieval_mediation']['mean'])}/+{f(gemma_serial['retrieval_mediation']['mean'])}；late +{f(qwen_serial['late_mediation']['mean'])}/+{f(gemma_serial['late_mediation']['mean'])}。Retrieval cluster CI Qwen [{f(qwen_serial['retrieval_mediation']['ci95_low'])}, {f(qwen_serial['retrieval_mediation']['ci95_high'])}]、exact p={p_text(qwen_serial['retrieval_mediation']['exact_sign_flip_p_two_sided'])}；Gemma [{f(gemma_serial['retrieval_mediation']['ci95_low'])}, {f(gemma_serial['retrieval_mediation']['ci95_high'])}]、exact p={p_text(gemma_serial['retrieval_mediation']['exact_sign_flip_p_two_sided'])}", "两模型的 seed-level inference 均支持同一试次内的 ordered partial serial mediation。负 interaction 与剩余 repair 继续反对唯一、穷尽通路。"),
         (20, "是否需要对所有 non-needle token 做 frozen-PCA census", "partial", "all-token capture 已含 endpoint、interior、hard-negative 与确定性 ordinary-passage samples", "ordinary/hard-negative 的 ungated prefix curve ΔR² 为负，未显示与 endpoint 相同 trajectory", "已有足够多类负对照支持当前限定结论；逐 token 无遗漏 census 成本高且不会改变 span-level mechanism，故不再扩展。"),
         (22, "经典 induction-head micro-circuit 是否是 canonical running-index update 的特异机制", "falsified", "独立 30×4 synthetic relation-following assay 冻结一个 head/model；随后在 seeds 1254–1263×counts 1–10 对 previous-successor natural edges 做 pre-O αV subtraction，并与 layer/head/distance/edge-count/attention-mass matched ordinary edges 比较；counts 2–10 为主分析", "synthetic gate 保留 Qwen L5H13 与 Gemma L5H0；但 canonical candidate-minus-control expected-error 为 −0.02193 [−0.03311,−0.01076] 与 −0.01207 [−0.02499,0.00127]，两模型决策均 not_supported", "存在 induction-like relation-following head，但预注册的 canonical edge-specific necessity 不成立；因此不能把 earlier-span routing 定名为已验证的 classical induction-head mechanism。该否定不排除分布式 span evidence、其他 registry 或 fully renormalized QK counterfactual。详见 Appendix B。"),
         (23, "预注册的 identity/context/position nuisance model 与 selected outside-halo edge specificity 是否成立", "falsified", "冻结 Qwen L8/Gemma L9 rank-3 basis 做 30 seeds×8 cells factorial（160 discovery、80 confirmation、2,400 endpoint states/model）；另在 100 confirmation units 上阻断 natural-attention-ranked ordinary halo edges，并分别匹配 exact-distance random 与 attention-mass controls", "factorial held-out full R² 为 −0.0221/−0.0893；最大 factor ΔR² 仅 Qwen position +0.0175、Gemma identity +0.0031。candidate removal 对两个 controls 的 expected-error CI 在两模型均跨 0，candidate_exceeds_both_controls=false", "强解释包被否定：三类受控操作未形成稳定的 held-out nuisance model，选定 halo edges 也没有超出两个 matched controls 的特异必要性。该结果不把自然 prompt noise 唯一分解，也不否定广泛 outside context 与 needle span 的分布式协同。详见 Appendix C。"),
@@ -4342,7 +4402,7 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
   <p class="eyebrow">Realistic NIAH · Non-thinking V4.4/V4.4.5 · Mechanistic analysis</p>
   <h1>Non-thinking 模型如何计数：分布式证据、广域检索与晚层写入</h1>
   <p class="dek">正文按三步机制组织：浅层形成 noisy running-index evidence，中层由 answer query 广域取回，晚层将其整合为可执行 count state。每一步只保留最清楚的一项 representation 与一项 matched causal test；描述性诊断、失败实验、模型特定 writer 与完整注册审计均保留在 Appendix。</p>
-  <div class="meta"><span>模型：Qwen3-8B / Gemma4-E4B</span><span>计数范围：1–10</span><span>canonical seeds：1234–1263</span><span>位置：needle end / <code>Total:</code> 后首数字前</span><span>更新：2026-08-17</span></div>
+  <div class="meta"><span>模型：Qwen3-8B / Gemma4-E4B</span><span>计数范围：1–10</span><span>canonical seeds：1234–1263</span><span>位置：needle end / <code>Total:</code> 后首数字前</span><span>更新：2026-08-29</span></div>
 </header>
 <nav aria-label="report sections">
   <a href="#summary">三步机制</a><a href="#representation">核心表征图</a><a href="#formation">Step 1 · form</a>
@@ -4443,28 +4503,29 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
   </div>
 
   <div class="experiment"><div class="experiment-label">Experiment 19 · setting</div><div><h4>同一批 prompts、固定三处层位、逐段阻断</h4>
-    <p><strong>数据。</strong>每个模型使用 confirmation seeds 1254–1263 × gold counts 1–10，即 <strong>100 个 seed–count prompts</strong>。每个 prompt 运行 11 个固定 intervention conditions，因此是 <strong>1,100 rows/model</strong>；报告合并 Qwen 原始确认实验与 Gemma Top-6 consistency rerun，共 2,200 rows。</p>
+    <p><strong>数据与独立单位。</strong>每个模型使用 confirmation seeds 1254–1263 × gold counts 1–10，即 <strong>100 个配对 seed–count prompts</strong>。每个 prompt 运行 11 个固定 intervention conditions，因此是 <strong>1,100 rows/model</strong>；报告合并 Qwen 原始确认实验与 Gemma Top-6 consistency rerun，共 2,200 rows。Counts 1–10 是同一 seed 下的固定重复条件，不当作 100 个彼此独立样本；正式推断应先在 seed 内对 10 个 counts 等权平均，再以 <strong>10 个 seeds</strong> 为独立单位。</p>
     <p><strong>层位。</strong>Qwen 在 L8 恢复 spans、L23 检查 retrieval、L29 检查 late state；Gemma 对应 L9、L29、L37。Layers、rank-3 拟合协议、norm matching 与方向符号均沿用原实验；Gemma 只把 retrieval bank 换成 frozen global Top-6 在 L29 的精确子集 H4/H2，且不根据本次结果重新选 head。</p>
     <div class="formula"><strong>“一个预注册层上的 rank-3 retrieval subspace”具体指什么？</strong>
       <p><strong>冻结位置与 head bank。</strong>在查看 Q19 的 confirmation prompts 之前，retrieval 位置已固定为 Qwen L23 与 Gemma L29。Qwen 使用原冻结的 7 heads（H29/H13/H28/H12/H31/H30/H10）；Gemma consistency rerun 使用跨实验统一的 global Top-6 前缀落在 L29 的两个 heads（H4/H2）。Top-6 是论文统一口径下追加的 post-hoc extension，选择规则来自既有 discovery ranking，不使用本次 Q19 outcomes。</p>
       <p><strong>rank-3。</strong>对每个模型，在该层的 answer-query 位置，把这些 frozen heads 经 output projection 后写入 residual stream 的向量相加，得到一个 <span class="math">d</span> 维 broad-bank write <span class="math">b</span>。只用 discovery seeds 1234–1253 × counts 1–10 的 200 个 clean natural forwards，先减 discovery 均值 <span class="math">μ</span>，再做 PCA，冻结方差最大的三个正交方向 <span class="math">U∈R<sup>d×3</sup></span>。rank-3 因此表示 hidden space 中的一个三维子空间，<strong>不是三个神经元、三个 heads，也不是只研究三个 count</strong>。</p>
       <p><strong>为什么简称 count-aligned？</strong>PCA 拟合本身不使用 Q19 confirmation 结果，也不把 PC1、PC2、PC3 分别指定成某个 count。这个名称只表示：更早的 held-out geometry 检查发现，counts 1–10 的 centroid 变化和高于 chance 的 count readout 确实有相当部分落在这个三维 retrieval subspace 中。因此更精确的名称是“<strong>含有 count-related variation 的 frozen rank-3 retrieval subspace</strong>”，而不是“一根每移动一单位就加一的整数轴”。</p>
       <p><strong>Q19 实际删除什么。</strong>对某个 confirmation prompt 的 broad-bank write <span class="math">b</span>，候选干预删除 <span class="math">a=(b−μ)UU<sup>⊤</sup></span>；matched control 则删除一个与 <span class="math">U</span> 正交、但实际删除范数与 <span class="math">a</span> 相同的向量。两者的答案误差差值才是 retrieval mediation。因此 Qwen 的 {f(qwen_serial['retrieval_mediation']['mean'])} counts 问的是“删掉这一个冻结子空间，比删掉同样大的无关方向平均多造成多少误差”，<strong>不是 retrieval 总贡献、不是准确率，也不是百分比</strong>。</p>
-      <p class="example"><strong>简单例子。</strong>若正确答案为 8，删除等强度无关方向后 expected count=6.3（误差 1.7），删除 frozen rank-3 retrieval component 后 expected count=6.0（误差 2.0），则该 prompt 的方向特异 retrieval effect 为 <span class="math">2.0−1.7=0.3</span> count。图中的 Qwen {f(qwen_serial['retrieval_mediation']['mean'])} 是 10 counts × 10 seeds 共 100 个配对 prompts 的平均值。</p>
+      <p class="example"><strong>简单例子。</strong>若正确答案为 8，删除等强度无关方向后 expected count=6.3（误差 1.7），删除 frozen rank-3 retrieval component 后 expected count=6.0（误差 2.0），则该 prompt 的方向特异 retrieval effect 为 <span class="math">2.0−1.7=0.3</span> count。图中的 Qwen {f(qwen_serial['retrieval_mediation']['mean'])} 先对每个 seed 的 counts 1–10 求均值，再对 10 个 seeds 等权；由于面板完全平衡，点估计与直接平均 100 个配对 prompts 数值相同，但不确定性不能按 100 个独立样本计算。</p>
     </div>
     <p><strong>matched control。</strong>每次删除 count-aligned component，都与同层、同位置、实际删除范数相同但方向与 count 无关的 orthogonal component 比较。因此效应不能简单归因于“在这一层随便删掉了一段同样大的 hidden state”。</p>
+    <p><strong>推断与留存审计。</strong>两模型均保留 100-row paired-effects 文件，并按 10 个 seed means 做 10,000 次 percentile cluster bootstrap，枚举全部 <span class="math">2<sup>10</sup>=1,024</span> 个 two-sided exact seed sign flips。Qwen 的原始 1,100-row detail、7,700-row broad metrics 与 paired-effects 已从通过 persistence audit 的 Filestream 副本恢复；远端与本地 9 个 Qwen 文件逐文件 SHA-256 一致，重新生成的 paired CSV 也与原文件 byte-identical。旧 seed–count bootstrap 区间不再使用。</p>
   </div></div>
 
-  <div class="claim"><strong>怎样才算形成有序链？</strong>我们要求三个观察同时成立：第一，恢复早层 spans 后，后续 broad retrieval 确实改变；第二，特异删除 retrieval component 后，晚层 count state 和答案修复都减弱；第三，删除更晚的 count component 会伤答案，却不能反向改变已经计算完成的早期 retrieval readout。两个模型均满足这三条。</div>
+  <div class="claim"><strong>怎样才算形成有序链？</strong>我们要求三个观察同时成立：第一，恢复早层 spans 后，后续 broad retrieval 确实改变；第二，特异删除 retrieval component 后，晚层 count state 和答案修复都减弱；第三，删除更晚的 count component 会伤答案，却不能反向改变已经计算完成的早期 retrieval readout。两个模型的同一-forward诊断均满足三条，且按 seed 为独立单位的 cluster interval 与 exact test 均可复算。</div>
 
   <details class="collapsible-list"><summary>展开技术定义：11 个 arms 与效应公式</summary>
     <p><span class="math">C</span> 是 needle-corrupt reference，<span class="math">O</span> 是等 token-budget ordinary-span restoration，<span class="math">S</span> 是 clean full-needle-span restoration。其余 arms 是 <span class="math">S+R⊥/S+R∥</span>、<span class="math">S+T⊥/S+T∥</span>，以及四种 <span class="math">S+R<sub>a</sub>+T<sub>b</sub></span> 联合条件。每个 arm 都保存 counts 1–10 candidate logits、strict generation、broad attention mass/score、retrieval coordinate 与 late-answer coordinate。</p>
     <div class="formula"><strong>效应定义。</strong>令 <span class="math">e(X)=|E[c]<sub>X</sub>−N|</span>。Source repair 为 <span class="math">e(O)−e(S)</span>；retrieval mediation 为 <span class="math">e(S+R∥)−e(S+R⊥)</span>；late mediation 为 <span class="math">e(S+T∥)−e(S+T⊥)</span>。Joint interaction 比较存在与不存在 late block 时，retrieval block 的附加损伤是否改变；负值表示两次阻断作用有重叠，不能把两根柱直接相加。</div>
   </details>
-  <figure><h4 class="figure-title">机制图 M1 · 同一 forward 中的有序 partial serial mediation</h4>{exp19_chart}<figcaption>每根柱是 100 个 confirmation seed–count prompts 的平均效应，横轴单位为 counts。Source repair 问“恢复真实 needle spans 比恢复同样多的无关文本多救回多少”；retrieval 与 late mediation 分别问“删除 count-aligned component 比删除同样强度的无关方向多损失多少”。正值表示候选阶段确实承接信息。三种效应回答不同问题，不能把柱长直接相加。</figcaption></figure>
-  <details class="collapsible-list"><summary>展开 Q19 精确结果（均值 [95% bootstrap CI]，单位 counts）</summary><div class="table-wrap"><table><thead><tr><th>Model</th><th>Source repair</th><th>Retrieval mediation</th><th>Late mediation</th><th>Joint interaction</th><th>Remaining repair</th></tr></thead><tbody>{exp19_rows}</tbody></table></div></details>
-  <div class="conclusion-line"><strong>如何解释结果。</strong>完整 span restoration 相对 ordinary control 平均救回 Qwen/Gemma <strong>{f(qwen_serial['source_repair']['mean'])}/{f(gemma_serial['source_repair']['mean'])} counts</strong>。在已经恢复 source 的条件下，特异阻断 retrieval 会额外损失 <strong>{f(qwen_serial['retrieval_mediation']['mean'])}/{f(gemma_serial['retrieval_mediation']['mean'])} count</strong> 的修复，阻断 late state 会额外损失 <strong>{f(qwen_serial['late_mediation']['mean'])}/{f(gemma_serial['late_mediation']['mean'])} counts</strong>。Retrieval 的行为量级小于 source repair 和 late mediation，但其 Qwen/Gemma 95% CI 分别为 <strong>[{f(qwen_serial['retrieval_mediation']['ci95_low'])}, {f(qwen_serial['retrieval_mediation']['ci95_high'])}]/[{f(gemma_serial['retrieval_mediation']['ci95_low'])}, {f(gemma_serial['retrieval_mediation']['ci95_high'])}]</strong>，均排除 0；所以严谨结论是“这个冻结 retrieval subspace 有较小但可靠的部分中介作用”，而不是“它解释了全部 retrieval”或把效应量误读为百分比。</div>
-  <div class="claim boundary"><strong>Q19 能说明什么、不能说明什么。</strong>它支持“上游 span evidence 的一部分先经过 retrieval，再进入 late answer state，最后影响输出”。但 retrieval 与 late 两次阻断存在重叠，联合阻断后仍剩 Qwen/Gemma <strong>{f(qwen_serial['remaining_repair']['mean'])}/{f(gemma_serial['remaining_repair']['mean'])} counts</strong> repair；因此它们<strong>不是彼此独立的可加模块，也没有穷尽所有通路</strong>。最准确的结论是：存在一条有序、自然使用、但带有冗余和 bypass 的<strong>部分串联中介链</strong>。</div>
+  <figure><h4 class="figure-title">机制图 M1 · 同一 forward 中的有序 partial serial mediation</h4>{exp19_chart}<figcaption>每根柱的点估计先在同一 seed 内平均 counts 1–10，再对 10 seeds 等权；横轴单位为 counts。Source repair 问“恢复真实 needle spans 比恢复同样多的无关文本多救回多少”；retrieval 与 late mediation 分别问“删除 count-aligned component 比删除同样强度的无关方向多损失多少”。两模型均给出 seed-cluster CI 与 exact sign-flip；三种效应回答不同问题，不能把柱长直接相加。</figcaption></figure>
+  <details class="collapsible-list"><summary>展开 Q19 精确结果（seed-equal 均值、95% cluster CI 与 exact p，单位 counts）</summary><div class="table-wrap"><table><thead><tr><th>Model</th><th>Source repair</th><th>Retrieval mediation</th><th>Late mediation</th><th>Joint interaction</th><th>Remaining repair</th></tr></thead><tbody>{exp19_rows}</tbody></table></div></details>
+  <div class="conclusion-line"><strong>如何解释结果。</strong>完整 span restoration 相对 ordinary control 的 Qwen/Gemma 点估计为 <strong>{f(qwen_serial['source_repair']['mean'])}/{f(gemma_serial['source_repair']['mean'])} counts</strong>。在已经恢复 source 的条件下，特异阻断 retrieval 的点估计为 <strong>{f(qwen_serial['retrieval_mediation']['mean'])}/{f(gemma_serial['retrieval_mediation']['mean'])} count</strong>，阻断 late state 为 <strong>{f(qwen_serial['late_mediation']['mean'])}/{f(gemma_serial['late_mediation']['mean'])} counts</strong>。Retrieval 的 seed-cluster 95% CI 为 Qwen <strong>[{f(qwen_serial['retrieval_mediation']['ci95_low'])}, {f(qwen_serial['retrieval_mediation']['ci95_high'])}]</strong>、Gemma <strong>[{f(gemma_serial['retrieval_mediation']['ci95_low'])}, {f(gemma_serial['retrieval_mediation']['ci95_high'])}]</strong>，two-sided exact seed sign-flip 分别为 <strong>p={p_text(qwen_serial['retrieval_mediation']['exact_sign_flip_p_two_sided'])}</strong> 与 <strong>p={p_text(gemma_serial['retrieval_mediation']['exact_sign_flip_p_two_sided'])}</strong>；两模型的 source 与 late 指标也通过同一 seed-level 推断。因此双模型均支持较小但可靠的 retrieval 部分中介。</div>
+  <div class="claim boundary"><strong>Q19 能说明什么、不能说明什么。</strong>两模型的完整 seed-level 推断共同支持“上游 span evidence 的一部分先经过 retrieval，再进入 late answer state，最后影响输出”。Retrieval 与 late 两次阻断存在重叠，联合阻断后仍剩 Qwen/Gemma <strong>{f(qwen_serial['remaining_repair']['mean'])}/{f(gemma_serial['remaining_repair']['mean'])} counts</strong> repair；因此它们<strong>不是彼此独立的可加模块，也没有穷尽所有通路</strong>。最准确的结论仍是：存在一条有序、自然使用、但带有冗余和 bypass 的<strong>部分串联中介链</strong>。</div>
 </section>
 
 <section id="representation">
@@ -4974,7 +5035,7 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
     <tr><td>Transport</td><td>Adjacent-layer aligned 1× vs actual-norm-matched orthogonal</td><td>target-chord propagation coefficient F</td><td>Qwen contrast +0.9417 [0.9127, 0.9670]；Gemma +0.9759 [0.9639, 0.9884]</td><td>An injected count-aligned change is selectively relayed across one block; this is local transport capacity, not by itself proof of natural-axis use.</td></tr>
     <tr><td>OV write</td><td>Qwen L28 H16/H19 natural pre-O injection/removal</td><td>expected-count slope / error specificity</td><td>+0.0640 / +0.0732</td><td>A localized natural OV transporter writes signed count content in Qwen.</td></tr>
     <tr><td>OV / residual write</td><td>Gemma L29H4 natural-OV tests + L37 residual mediation</td><td>carrier / injection / removal error / exact residual mediation</td><td>+0.1360 / +0.0612 / +0.0628 / +0.0864</td><td>L29H4 participates in count-relevant writing, while matched-head controls prevent a unique localized-writer claim; L37 is the confirmed distributed mediator.</td></tr>
-    <tr><td>Integrated chain</td><td>Same-forward 11-arm source restoration × retrieval/late directional blocks</td><td>source / retrieval / late expected-count effects</td><td>Qwen +{f(qwen_serial['source_repair']['mean'])} / +{f(qwen_serial['retrieval_mediation']['mean'])} / +{f(qwen_serial['late_mediation']['mean'])}；Gemma Top-6 +{f(gemma_serial['source_repair']['mean'])} / +{f(gemma_serial['retrieval_mediation']['mean'])} / +{f(gemma_serial['late_mediation']['mean'])} counts；all ordered criteria PASS</td><td>The three stages form an ordered partial serial mediation in each model; negative interaction and remaining repair rule out an exhaustive unique path.</td></tr>
+    <tr><td>Integrated chain</td><td>Same-forward 11-arm source restoration × retrieval/late directional blocks；counts averaged within seed</td><td>source / retrieval / late expected-count effects；10-seed cluster CI + exact sign-flip</td><td>Qwen +{f(qwen_serial['source_repair']['mean'])} / +{f(qwen_serial['retrieval_mediation']['mean'])} / +{f(qwen_serial['late_mediation']['mean'])} counts，retrieval CI [{f(qwen_serial['retrieval_mediation']['ci95_low'])}, {f(qwen_serial['retrieval_mediation']['ci95_high'])}]；Gemma Top-6 +{f(gemma_serial['source_repair']['mean'])} / +{f(gemma_serial['retrieval_mediation']['mean'])} / +{f(gemma_serial['late_mediation']['mean'])} counts，retrieval CI [{f(gemma_serial['retrieval_mediation']['ci95_low'])}, {f(gemma_serial['retrieval_mediation']['ci95_high'])}]</td><td>Both models support ordered partial serial mediation at the seed level. Negative interaction and remaining repair rule out an exhaustive unique path.</td></tr>
     <tr><td>Formation micro-circuit</td><td>Independent induction assay + canonical previous-successor edge removal vs matched ordinary edge</td><td>candidate-minus-control expected-error damage</td><td>Qwen −0.02193 [−0.03311,−0.01076]；Gemma −0.01207 [−0.02499,0.00127]</td><td>Induction-like heads exist in the synthetic assay, but the registered classical-induction edge specificity is not supported in canonical counting.</td></tr>
     <tr><td>Prompt-noise attribution</td><td>I×C×P factorial + selected outside-halo edge removal vs two matched controls</td><td>held-out full R² / candidate specificity gate</td><td>full R² −0.0221/−0.0893；candidate_exceeds_both_controls=false in both models</td><td>The registered factor model does not stably explain held-out scatter, and the selected halo edges are not specifically necessary beyond matched controls.</td></tr>
   </tbody></table></div>
@@ -4988,7 +5049,7 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
     <li><span class="pill">Established</span> 完整 needle span 的早层 state 可强力修复 corrupt behavior；endpoint-only restoration 近零。State deformation 与 restoration 必须并读：前者问 forward 是否不同，后者问差异是否仍能被后续 computation 使用。</li>
     <li><span class="pill">Established</span> 晚层相邻 answer-query boundaries 的局部三维 centroid maps 在 held-out seeds 上可预测、对 seed bootstrap 稳定；连续 ambient operators 的 cosine 较高但低于 1，表示方向更连续但并非固定不变。</li>
     <li><span class="pill">Established</span> broad-ranked answer-query heads、局部 retrieval rank-3、late answer residual state 与最终数字之间存在 matched-control causal effects；retrieval rank-3 effect 只在 Qwen L21–23 / Gemma L29 出现。</li>
-    <li><span class="pill">Established</span> 同一 forward 的 nested intervention 在两模型均满足 source→retrieval→late→output 的三项有序判据；这是 partial serial mediation，而非把独立实验事后拼接。</li>
+    <li><span class="pill">Established with qualification</span> 同一 forward 的 nested intervention 在两模型均给出 source→retrieval→late→output 的三项正向诊断；两模型的 100-row paired-effects 表均已保留，并以 10 个 seed means 为独立单位完成 10,000 次 cluster bootstrap 与 1,024 种 exact sign-flip。该结果支持 ordered partial serial mediation；负 interaction 与剩余 repair 限制了唯一、穷尽通路的主张。</li>
     <li><span class="pill">Falsified strong version</span> Synthetic relation-following head 的存在不足以建立 canonical classical-induction mechanism；冻结 previous-successor edge removal 未超过 attention/distance-matched ordinary-edge control。</li>
     <li><span class="pill">Falsified registered attribution</span> Identity/context/position factorial 的 held-out full model 为负 R²，selected outside-halo edges 也未同时超过两个 matched controls；因此不能把 prompt scatter 归因于这套简单受控分解。</li>
     <li><span class="pill">Not established</span> running-index direction与answer count direction是同一轴；事实上两者可近正交，因为位置、basis、局部 computation 与写入坐标系不同。</li>
@@ -5018,7 +5079,7 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
     <li><code>v4_4_5_followup/span_restoration/attention_response_canonical.csv</code> 保留 Qwen L0–35 Top-32；<code>v4_4_5_top6_followup/attention_response/attention_response_topk.csv</code> 从同一 Filestream-audited broad summary 重新汇总 Gemma L0–41 exact Top-6。两者均覆盖 canonical 30 seeds×counts 1–10，并保存 needle/ordinary response 与 specificity。</li>
     <li><code>v4_4_5_followup/span_state_deformation/{{layerwise_state_deformation.csv,summary.json,analysis_audit.json}}</code>：100 confirmation prompts/model 的 clean/needle-corrupt/ordinary-corrupt full-vector capture；Qwen L0–35 共 3,600 rows、Gemma L0–41 共 4,200 rows，50,000 seed-bootstrap 与 exact 2<sup>10</sup> sign-flip。完整 versioned run、代码快照与 162-file persistence audit 保存在 Filestream <code>runs/nonthinking_v445_span_state_deformation_20260817</code>；manifest SHA-256 <code>77032e1e…a3c240</code>。</li>
     <li><code>v4_4_5_followup/state_retention/analysis/{{layerwise_state_retention,window_state_retention,window_condition_levels}}.csv</code> 与 <code>{{summary,selection,analysis_audit}}.json</code>：final N=10 的 20 discovery clean seeds + 10 held-out 三臂 confirmation seeds；endpoint/span-mean、Qwen L0–35 与 Gemma L0–41，50,000 seed-bootstrap、exact 2<sup>10</sup> sign-flip 与 within-family Holm。完整 187-file run/代码/centroid banks 保存在 Filestream <code>runs/nonthinking_v445_state_retention_20260817</code>；source/destination path-size manifest 均为 <code>673338d1…bf767d</code>，per-file content-SHA aggregate 均为 <code>b6bb5acd…e916351</code>。</li>
-    <li><code>v4_4_5_followup/exp19/Qwen3-8B/serial_summary.json</code> 与 <code>v4_4_5_top6_followup/serial_mediation/Gemma4-E4B/serial_summary.json</code>：每模型 1,100-row same-forward partial serial mediation 与 10,000-draw paired audit；Gemma rerun 的 L29 retrieval bank 为 H4/H2。</li>
+    <li><code>v4_4_5_followup/exp19/Qwen3-8B/{{paired_serial_effects.csv,serial_summary.json,analysis_audit.json,seed_cluster_reanalysis_audit.json}}</code> 与 <code>v4_4_5_top6_followup/serial_mediation/Gemma4-E4B/serial_summary.json</code>：每模型 1,100-row same-forward partial serial mediation 与 100-row paired-effects 表；两模型均以 10 个 seed means 为独立单位运行 10,000 次 cluster bootstrap 和 1,024 种 exact sign-flip。Qwen 的恢复审计同时记录原始远端/本地逐文件 SHA-256、重新生成 paired CSV 与原文件的 byte-identical 校验，以及旧 seed–count 区间停用。</li>
     <li><code>v4_4_5_followup/exp22_v3/Qwen3-8B</code> 与 <code>v4_4_5_top6_followup/induction_v3/Gemma4-E4B</code>：独立 induction-like gate、300-row canonical matched-edge confirmation 与限定性 negative verdict。Gemma 的行为干预未变，只将 auxiliary broad-bank readout 改为 Top-6，并通过逐行 invariance audit。</li>
     <li><code>v4_4_5_followup/exp23_v2/Qwen3-8B</code> 与 <code>v4_4_5_top6_followup/noise_factorial_v2/Gemma4-E4B</code>：240-row factorial、2,400 endpoint states、400-row outside-context panel、100 exact edge audits与双 control decision。Gemma 的非 broad-bank 字段与原 run 逐行完全一致。</li>
     <li><code>v4_4_5_top6_followup/{{config_diff_audit,FINAL_AUDIT,behavior_invariance_audit,original_preservation_audit}}.json</code>：确认 extension configs 只改变 Gemma retrieval membership 与透明 metadata，冻结 global Top-6 及各层实际 subset，审计 Q22/Q23 非-bank 行为字段的 exact equality，并以 bytes、mtime 与 SHA-256 三重一致性确认 14 个历史 Top-8 source artifacts 未被覆盖。</li>
@@ -5042,7 +5103,7 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
   <details class="collapsible-list"><summary>展开 25 项实验设置—结果—结论对照表</summary>
     <div class="table-wrap"><table class="extension-audit"><thead><tr><th>#</th><th>原问题 / 可判定命题</th><th>状态</th><th>实验设置与 control</th><th>具体结果</th><th>目前结论</th></tr></thead><tbody>{extension_audit_rows}</tbody></table></div>
   </details>
-  <div class="claim"><strong>Q19 已作为正文最终闭环。</strong>整链实验的直观设计、三项顺序判据、结果图与精确区间均集中在 Step 3 之后的“整链闭环 · Q19”一节；本审计区只保留第 19 行的状态和结论，避免同一组结果重复出现两次。</div>
+  <div class="claim"><strong>Q19 已作为正文最终闭环。</strong>整链实验的直观设计、三项顺序判据、两模型 seed-cluster 结果与 Qwen 数据恢复审计均集中在 Step 3 之后的“整链闭环 · Q19”一节；本审计区只保留第 19 行的状态和结论，避免重复结果或误用旧 seed–count 区间。</div>
   <div class="claim boundary"><strong>审计结论。</strong>25 项中，12 项限定后的正命题已有直接支持，9 个过强机制版本被 matched-control 或 paired robustness experiments 否定，3 项已有实质约束但仍属部分回答，没有仍待运行的预注册机制实验，另有 1 项因当前论文不提出相应强主张而关闭。Q21 只证伪“opening definition cue 必要”，并未删除计数问题与输出指令。尤其不能把“position-confounded counter-like geometry”升级为抽象计数器，也不能把“partial serial mediation”升级为唯一通道。</div>
 </section>
 
@@ -5059,7 +5120,7 @@ figcaption {{ max-width:940px; margin:10px auto 0; color:#586579; font-size:13px
 
 <section id="appendix">
   <h2>Appendix · Q21、Q22、Q23 的完整实验定义与审计结果</h2>
-  <p class="lead">Q19 的整链因果实验已放在正文三个机制步骤之后，作为最终闭环。本附录保留主文不宜展开的 robustness、微电路与负结果：Appendix A–C 均已完成并通过 coverage/audit；A 证伪 opening-cue necessity 的强版本，B 与 C 分别否定 classical-induction specificity 与简单 prompt-noise attribution package，同时保留清楚的解释边界。模型特定的 Qwen/Gemma writer 分解紧随其后作为 Appendix D。</p>
+  <p class="lead">Q19 的整链因果实验已放在正文三个机制步骤之后；Qwen 与 Gemma 的 seed-level 推断均已闭合，Qwen 的数据恢复与哈希核验记录在同节。本附录保留主文不宜展开的 robustness、微电路与负结果：Appendix A–C 均已完成并通过 coverage/audit；A 证伪 opening-cue necessity 的强版本，B 与 C 分别否定 classical-induction specificity 与简单 prompt-noise attribution package，同时保留清楚的解释边界。模型特定的 Qwen/Gemma writer 分解紧随其后作为 Appendix D。</p>
 
   <details class="paper-appendix"><summary>Appendix A · Q21：opening counting-definition cue 的必要性被证伪</summary>
   <h3>Q21 完整实验</h3>

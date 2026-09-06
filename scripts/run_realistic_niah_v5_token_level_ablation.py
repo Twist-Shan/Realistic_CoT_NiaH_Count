@@ -231,23 +231,39 @@ def _registry_rows(
 def _registry_event_matches(
     specification: Mapping[str, Any],
     registry_row: Mapping[str, Any],
+    *,
+    match_mode: str,
 ) -> bool:
-    """Join a routed registry event to an exact within-event query site.
+    """Join a routed registry event to a continuation specification.
 
     Formal causal registries store the persistent-intervention route anchor
     (for example ``1->2@route-q192``), whereas a frozen head bank may have
     been ranked at a later exact localizer such as ``city_pre_d1``.  The
-    stable scientific identity is therefore request + transition k->k+1;
-    query position/role is selected separately and must not be joined by the
-    route-anchor string.
+    In legacy ``transition`` mode, the stable identity is request + transition
+    k->k+1 and every compatible localizer is retained.  ``exact`` mode is the
+    fail-closed option for aligned panels: it additionally requires the frozen
+    route-anchor string, yielding one preregistered query site per transition.
     """
 
-    return (
+    transition_matches = (
         int(specification.get("from_occurrence", -1))
         == int(registry_row.get("from_occurrence", -2))
         and int(specification.get("to_occurrence", -1))
         == int(registry_row.get("to_occurrence", -2))
     )
+    if not transition_matches:
+        return False
+    if match_mode == "transition":
+        return True
+    if match_mode == "exact":
+        specification_anchor = str(
+            specification.get("anchor_equivalence_id", "")
+        ).replace("@route-q", "@q")
+        registry_anchor = str(
+            registry_row.get("anchor_equivalence_id", "")
+        ).replace("@route-q", "@q")
+        return bool(specification_anchor) and specification_anchor == registry_anchor
+    raise ValueError(f"Unsupported registry anchor match mode: {match_mode}")
 
 
 def _build_tasks(
@@ -293,7 +309,11 @@ def _build_tasks(
                     matched_events = tuple(
                         event
                         for event in registry_events
-                        if _registry_event_matches(specification, event)
+                        if _registry_event_matches(
+                            specification,
+                            event,
+                            match_mode=str(args.registry_anchor_match),
+                        )
                     )
                 for registry_event in matched_events:
                     grammar = str(
@@ -399,6 +419,16 @@ def main() -> None:
     parser.add_argument("--anchor-role")
     parser.add_argument("--target-grammar-class")
     parser.add_argument("--anchor-registry", type=Path)
+    parser.add_argument(
+        "--registry-anchor-match",
+        choices=("transition", "exact"),
+        default="transition",
+        help=(
+            "When an anchor registry is supplied, join either every localizer "
+            "for the registered transition (legacy) or only the exact registered "
+            "anchor_equivalence_id."
+        ),
+    )
     parser.add_argument("--split", choices=["discovery", "confirmation", "all"], default="confirmation")
     parser.add_argument("--seeds", type=int, nargs="+")
     parser.add_argument("--counts", type=int, nargs="+")

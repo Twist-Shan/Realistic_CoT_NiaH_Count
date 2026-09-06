@@ -1,0 +1,225 @@
+{
+  "date": "2026-09-05",
+  "requested_host": "ubuntu@68.209.74.143",
+  "requested_port": 22,
+  "task_status": "SMOKE_RUNNING",
+  "connection_attempts": [
+    {
+      "configuration": "Default OpenSSH configuration; BatchMode=yes; ConnectTimeout=15",
+      "result": "Connection timed out before authentication"
+    },
+    {
+      "configuration": "OpenSSH -F NUL; verbose; BatchMode=yes; ConnectTimeout=15; ConnectionAttempts=1",
+      "result": "TCP connection to 68.209.74.111:22 timed out before authentication"
+    },
+    {
+      "configuration": "OpenSSH -F NUL; BatchMode=yes; ConnectTimeout=15; ConnectionAttempts=1",
+      "result": "Connection timed out before authentication"
+    },
+    {
+      "checked_at_utc": "2026-09-05T11:32:19Z",
+      "configuration": "User-requested retry; default OpenSSH configuration; BatchMode=yes; ConnectTimeout=20; ConnectionAttempts=1",
+      "result": "Connection timed out before authentication"
+    },
+    {
+      "checked_at_utc": "2026-09-05T11:34:21Z",
+      "configuration": "User-requested retry after restart; default OpenSSH configuration; BatchMode=yes; ConnectTimeout=20; ConnectionAttempts=1",
+      "result": "Connection timed out before authentication"
+    },
+    {
+      "checked_at_utc": "2026-09-05T13:35:03.413659+00:00",
+      "host": "68.209.74.112",
+      "configuration": "Default OpenSSH configuration; BatchMode=yes; ConnectTimeout=15; ConnectionAttempts=1",
+      "result": "TCP connection timed out before authentication"
+    },
+    {
+      "checked_at_utc": "2026-09-05T13:35:42.080865+00:00",
+      "host": "68.209.74.112",
+      "configuration": "OpenSSH -F NUL, BatchMode=yes, ConnectTimeout=20",
+      "result": "TCP connected; host key verification failed for an unknown host"
+    },
+    {
+      "checked_at_utc": "2026-09-05T13:35:42.080865+00:00",
+      "host": "68.209.74.112",
+      "configuration": "OpenSSH -F NUL; accept-new; isolated workspace known_hosts; BatchMode=yes",
+      "result": "Host key recorded; Permission denied (publickey)"
+    }
+  ],
+  "browser_diagnostics": {
+    "date_utc": "2026-09-05",
+    "console_access": "Existing signed-in Chrome session accessible",
+    "initial_instance_state": "NiaH_Addition, gpu_1x_h100_sxm5, 68.209.74.111, us-southeast-1, Running",
+    "global_firewall_observation": "TCP port 22 allowed from 0.0.0.0/0; no firewall changes made",
+    "notebook_access": "Notebook Launch succeeded; Jupyter file browser showed CoT-Native-thinking-v5",
+    "observed_filestream": "/lambda/nfs/CoT-Native-thinking-v5",
+    "terminal_created": true,
+    "terminal_commands_executed": false,
+    "interruption": "Notebook tab disappeared before terminal commands could be sent; a fresh browser tab inventory contained only the Lambda console",
+    "last_console_check_utc": "2026-09-05T11:45:59Z",
+    "last_console_observation": "NiaH_Addition no longer listed; only the A100 and NiaH_Synthetic instances remain",
+    "cause_of_instance_removal": "Not determined",
+    "instance_restart_or_termination_performed_by_assistant": false
+  },
+  "last_tcp_check": {
+    "checked_at_utc": "2026-09-05T13:35:42.080865+00:00",
+    "host": "68.209.74.112",
+    "port": 22,
+    "connected": true,
+    "ssh_authentication": "Permission denied (publickey)"
+  },
+  "remote_filestream_directory_created": true,
+  "remote_upload_completed": true,
+  "gpu_jobs_started": 1,
+  "gpu_results_available": true,
+  "pending_user_information": null,
+  "canonical_pilot_inputs": "runs/task_transfer_20260905_v2/frozen",
+  "canonical_smoke_inputs": "runs/task_transfer_smoke_20260905_v2/frozen",
+  "superseded_inputs": "v1 was never used for model inference; v2 states the target topic before the passage.",
+  "validation": {
+    "new_cpu_unit_tests": {
+      "passed": 15,
+      "failed": 0
+    },
+    "legacy_cpu_intervention_regressions": {
+      "passed": 2,
+      "failed": 0
+    },
+    "legacy_test_names": [
+      "test_decoder_hooks_ablation_and_residual_patch",
+      "test_complete_generation_intervention_hooks"
+    ],
+    "legacy_pytest_warning": "Pytest cache could not write nodeids because of existing cache-directory permissions; both tests passed.",
+    "python_compileall": "PASS",
+    "run_cli_import_and_help": "PASS",
+    "analyzer_cli_import_and_help": "PASS",
+    "bash_launcher_syntax": "PASS",
+    "frozen_sources_bases_prompts_hash_audit": "PASS",
+    "pilot_cases": 96,
+    "pilot_user_prompts": 192,
+    "smoke_cases": 12,
+    "smoke_user_prompts": 24,
+    "real_gpu_model_and_tokenizer_validation": "BOTH TOKENIZERS PASS; GPU MODEL INFERENCE BLOCKED BEFORE LOAD BY CUDA 802",
+    "remote_frozen_hashes": "PASS: smoke and pilot, including frozen legacy source and bases",
+    "remote_cached_model_files": "PASS: all expected nonempty weight files exist; Qwen 5 shards, Gemma 1 unsharded file. No full weight hash audit was run.",
+    "remote_rendered_prompts": "PASS: 432 model/mode prompt renderings across separate smoke and pilot input sets",
+    "remote_preflight_report": "runs/connectivity/remote_deployment_20260905/preflight_20260905_v2.json"
+  },
+  "local_environment": {
+    "torch": "2.13.0+cpu",
+    "numpy": "1.26.4",
+    "transformers_installed": false,
+    "cuda_available": false
+  },
+  "implemented_mechanism_scope": [
+    "prompt/native-item representation readouts",
+    "frozen nonthinking broad-bank transfer with layer-matched random controls",
+    "terminal donor-state patch with self and norm-matched orthogonal controls"
+  ],
+  "unimplemented_mechanism_scope": [
+    "native intermediate item-to-item causal rollout",
+    "full original span-restoration and serial-mediation battery"
+  ],
+  "next_actions": [
+    "Complete and audit the two-model smoke suite, including native endpoints and self-patch controls.",
+    "Use actual runtime and causal-site coverage to choose the small pilot run.",
+    "Analyze held-out representation transfer and paired intervention controls; preserve exact prompts, traces and failures."
+  ],
+  "updated_at_utc": "2026-09-06T00:38:37.462788+00:00",
+  "prior_instance_verified": {
+    "host": "68.209.74.39",
+    "access": "Jupyter web terminal",
+    "hostname": "68-209-74-39",
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "gpu_memory_mib": 81559,
+    "gpu_used_memory_mib": 0,
+    "filestream_mount": "/lambda/nfs/CoT-Native-thinking-v5",
+    "filestream_type": "nfs4",
+    "ssh_service": "active; listening on 0.0.0.0:22 and [::]:22",
+    "python": "/lambda/nfs/CoT-Native-thinking-v5/venv_v6_20260828/bin/python",
+    "torch": "2.7.0",
+    "transformers": "5.14.1",
+    "cuda_available": true,
+    "note": "Verified on prior instance only. User subsequently replaced the instance with 68.209.74.112; current host environment is unverified."
+  },
+  "current_browser_block": {
+    "site": "https://auth.lambdalabs.com",
+    "result": "Browser security policy reported user-denied permission; navigation blocked",
+    "workaround_attempted": false
+  },
+  "bundle": {
+    "path": "bundles/task_transfer_20260905_v2.tgz",
+    "sha256": "19db1895cb979a535a3974b9c0d802fa12cb0337deaa89caa76145b1415d7bda",
+    "bytes": 7326015,
+    "upload_completed": true,
+    "remote_sha256_verified": true
+  },
+  "local_authentication_block": {
+    "directory": "C:/Users/HP/.ssh",
+    "result": "After user explicitly authorized access, directory listing and config access still returned Access denied; runtime permission has not taken effect.",
+    "secret_contents_read": false,
+    "resolved": true
+  },
+  "user_authorized_ssh_directory_access": true,
+  "expected_instance_public_key_file": "runs/connectivity/expected_instance_key.pub",
+  "expected_instance_public_key_comment": "lambda-vscode",
+  "ssh_authentication": {
+    "status": "PASS",
+    "host": "ubuntu@68.209.74.143",
+    "key_file": "C:/Users/HP/.ssh/lambda_ed25519",
+    "public_key_fingerprint": "SHA256:PKCkVoKVLBwL7YVfJh2kB6sELEv4MDPrqJleTTZrZrw",
+    "private_key_contents_exposed": false,
+    "access_method": "User-authorized sandbox escalation"
+  },
+  "remote_experiment_root": "/lambda/nfs/CoT-Native-thinking-v5/additional_experiments/task_transfer_20260905_v2",
+  "current_instance_verified": {
+    "host": "68.209.74.143",
+    "hostname": "68-209-74-143",
+    "gpu": "NVIDIA H100 80GB HBM3",
+    "driver": "580.105.08",
+    "gpu_memory_mib": 81559,
+    "gpu_used_memory_mib_before_checks": 0,
+    "virtualization_mode": "Pass-Through",
+    "mount": "/lambda/nfs/CoT-Native-thinking-v5",
+    "mount_type": "nfs4",
+    "python": "/lambda/nfs/CoT-Native-thinking-v5/venv_v6_20260828/bin/python",
+    "torch": "2.7.0",
+    "transformers": "5.14.1",
+    "cache": "/lambda/nfs/CoT-Native-thinking-v5/hf_cache",
+    "cuda_available": true,
+    "cuda_tensor_sum": 8.0
+  },
+  "last_progress_request": {
+    "checked_at_utc": "2026-09-05T15:13:26.099742+00:00",
+    "host": "68.209.74.112",
+    "outcome": "Two read-only SSH probes returned no output and were cancelled. No fresh remote GPU or experiment-state observation was obtained.",
+    "last_verified_gpu_state": "CUDA driver cuInit returned 802; Fabric In Progress",
+    "model_experiments_started_by_assistant": 0,
+    "automatic_background_monitoring": false
+  },
+  "previous_cuda_block_68_209_74_112": {
+    "direct_driver_cuInit_return_code": 802,
+    "torch_cuda_available": false,
+    "torch_tensor_allocation": "FAIL: Error 802, system not yet initialized",
+    "fabric_state": "In Progress",
+    "fabric_manager_start": "Failed: NVSwitch query returned NV_WARN_NOTHING_TO_DO; guest exposes no NVSwitch devices",
+    "single_idle_gpu_reset": "Successfully reset GPU 0; Fabric remained In Progress and cuInit remained 802",
+    "root_cause": "Undetermined from guest. Provider-side fabric/partition initialization is a hypothesis, not established."
+  },
+  "current_run": {
+    "root": "/lambda/nfs/CoT-Native-thinking-v5/additional_experiments/task_transfer_20260905_v2/smoke_outputs_v2_a",
+    "supervisor_pid": 3447,
+    "initial_qwen_pid": 3536,
+    "models": [
+      "Qwen3-8B",
+      "Gemma4-E4B"
+    ],
+    "launch_order": "sequential",
+    "last_verified_capture_progress": {
+      "Qwen3-8B": {
+        "nonthinking": 12,
+        "native_thinking": 3
+      }
+    },
+    "scientific_results_status": "Partial execution output only; no mechanism conclusion yet."
+  }
+}

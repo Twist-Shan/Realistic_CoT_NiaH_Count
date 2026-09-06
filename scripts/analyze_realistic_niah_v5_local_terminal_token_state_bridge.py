@@ -59,6 +59,15 @@ PRIMARY = (
 )
 
 
+def _optional_constant_string(frame: pd.DataFrame, column: str) -> str | None:
+    if column not in frame.columns:
+        return None
+    values = {str(value) for value in frame[column].dropna().tolist() if str(value)}
+    if len(values) != 1:
+        raise ValueError(f"Expected one constant {column}, observed {sorted(values)}")
+    return next(iter(values))
+
+
 def _atomic_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -114,6 +123,7 @@ def analyze(
         raise ValueError("Local terminal token-state seed count changed")
     if set(frame["row_plan_sha256"].astype(str)) != {str(plan["plan_sha256"])}:
         raise ValueError("Local terminal token-state plan hash changed")
+    analysis_status = _optional_constant_string(frame, "analysis_status")
 
     seed_rows: list[dict[str, Any]] = []
     summaries: list[dict[str, Any]] = []
@@ -180,6 +190,8 @@ def analyze(
             and all(value["positive_95pct_ci"] for value in primary)
         ),
     }
+    if analysis_status is not None:
+        claims["analysis_status"] = analysis_status
     audit = {
         "status": "PASS",
         "phase": phase,
@@ -189,6 +201,8 @@ def analyze(
         "selection_rank_used": False,
         "outcome_blind": True,
     }
+    if analysis_status is not None:
+        audit["analysis_status"] = analysis_status
     return pd.DataFrame(seed_rows), claims, audit
 
 

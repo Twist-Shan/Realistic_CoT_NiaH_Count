@@ -97,8 +97,8 @@ def main() -> int:
     for required in (
         "本文主张（仅限 Qwen3-8B 的自然 no-index trace）",
         "J.1 显式 index positive control",
-        "auto L0 / confirm L16",
-        "Gemma 只形成 partial calibration",
+        "Qwen L19、Gemma L16",
+        "Gemma 尚无对应的自然 no-index 因果结果",
         "图 5c · 同一 L16 state intervention",
         "simulatively confirmed†",
         "可诱发的机制能力，不是自然使用",
@@ -106,7 +106,10 @@ def main() -> int:
         "strict_eligible_no_explicit_count_cue",
         "first_generated_known_city_ordinal",
         "计划内结果均已落盘",
-        "realistic_niah_v5_native_thinking_restructured_v12",
+        "图 6d · Answer-query full-state patch 的逐层 donor-count adoption",
+        "registered existing-split extension",
+        "answer_query_v3",
+        "realistic_niah_v5_native_thinking_restructured_v14",
     ):
         if required not in text:
             raise ValueError(f"Required report statement is absent: {required}")

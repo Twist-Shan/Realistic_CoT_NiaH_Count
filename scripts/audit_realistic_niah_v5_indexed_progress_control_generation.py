@@ -48,14 +48,21 @@ def main() -> int:
     for model in MODELS:
         cohort_rows = _read_jsonl(args.cohort_root / f"{model}.jsonl")
         cohort = {int(row["seed"]): row for row in cohort_rows}
-        trial_paths = sorted(
-            (
-                args.confirmation_root
-                / model
-                / "confirmation10"
-                / "item_span"
-            ).glob("*/trials.jsonl")
+        legacy_trial_root = (
+            args.confirmation_root / model / "confirmation10" / "item_span"
         )
+        aligned_trial_root = (
+            args.confirmation_root
+            / model
+            / "indexed_progress_control"
+            / "confirmation_runs"
+            / "confirmation"
+            / "item_span"
+        )
+        trial_root = (
+            aligned_trial_root if aligned_trial_root.is_dir() else legacy_trial_root
+        )
+        trial_paths = sorted(trial_root.glob("*/trials.jsonl"))
         if len(trial_paths) != 6:
             raise ValueError(f"{model}: expected six k-by-direction trial files")
 

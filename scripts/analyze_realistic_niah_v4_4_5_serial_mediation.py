@@ -3,12 +3,25 @@ from __future__ import annotations
 """Audit and summarize V4.4.5 same-forward serial mediation outputs."""
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import numpy as np
 import pandas as pd
+
+
+def file_record(path: Path) -> dict[str, Any]:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {
+        "path": str(path.resolve()),
+        "bytes": int(path.stat().st_size),
+        "sha256": digest.hexdigest(),
+    }
 
 
 def csv_ints(value: str) -> tuple[int, ...]:
@@ -46,25 +59,95 @@ def as_vector(value: Any) -> np.ndarray:
     return array
 
 
-def bootstrap_mean(
-    values: np.ndarray, *, draws: int, seed: int
-) -> dict[str, float]:
+def exact_sign_flip_p_two_sided(values: np.ndarray) -> tuple[float, int]:
+    """Return the exact paired sign-flip p-value over independent units."""
+
+    sample = np.asarray(values, dtype=float)
+    if sample.ndim != 1 or not len(sample) or not np.isfinite(sample).all():
+        raise ValueError("Sign-flip input must be a non-empty finite vector")
+    if len(sample) > 20:
+        raise ValueError("Exact sign-flip enumeration is limited to 20 units")
+    permutations = 1 << len(sample)
+    masks = np.arange(permutations, dtype=np.uint64)[:, None]
+    bits = (masks >> np.arange(len(sample), dtype=np.uint64)) & 1
+    signs = np.where(bits == 1, 1.0, -1.0)
+    null_statistics = np.abs((signs @ sample) / len(sample))
+    observed = abs(float(sample.mean()))
+    p_value = float(np.mean(null_statistics >= observed - 1e-12))
+    return p_value, permutations
+
+
+def cluster_bootstrap_mean(
+    values: np.ndarray,
+    clusters: np.ndarray,
+    *,
+    draws: int,
+    seed: int,
+) -> dict[str, Any]:
+    """Summarize seed-equal means and resample only independent seed clusters.
+
+    Counts are registered repeated conditions within a seed.  They are averaged
+    inside each seed before any uncertainty calculation; bootstrap and exact
+    sign-flip inference then operate on the resulting seed means.
+    """
+
     raw = np.asarray(values, dtype=float)
-    if raw.ndim != 1:
-        raise ValueError("Bootstrap input must be a vector")
-    sample = raw[np.isfinite(raw)]
+    cluster_values = np.asarray(clusters)
+    if raw.ndim != 1 or cluster_values.ndim != 1:
+        raise ValueError("Cluster bootstrap inputs must be vectors")
+    if len(raw) != len(cluster_values):
+        raise ValueError("Values and clusters must have equal length")
+    if int(draws) <= 0:
+        raise ValueError("Bootstrap draws must be positive")
+
+    grouped: dict[Any, list[float]] = {}
+    for value, cluster in zip(raw, cluster_values, strict=True):
+        if pd.isna(cluster):
+            raise ValueError("Cluster identifiers must be defined")
+        cluster_key = cluster.item() if hasattr(cluster, "item") else cluster
+        grouped.setdefault(cluster_key, []).append(float(value))
+    if not grouped:
+        raise ValueError("Cluster bootstrap input has no clusters")
+
+    means: list[float] = []
+    finite_cluster_sizes: list[int] = []
+    undefined_clusters = 0
+    for cluster_rows in grouped.values():
+        finite = np.asarray(cluster_rows, dtype=float)
+        finite = finite[np.isfinite(finite)]
+        if not len(finite):
+            undefined_clusters += 1
+            continue
+        means.append(float(finite.mean()))
+        finite_cluster_sizes.append(int(len(finite)))
+    sample = np.asarray(means, dtype=float)
     if not len(sample):
-        raise ValueError("Bootstrap input has no finite values")
+        raise ValueError("Cluster bootstrap input has no finite cluster means")
+
     generator = np.random.default_rng(int(seed))
     indices = generator.integers(0, len(sample), size=(int(draws), len(sample)))
-    means = sample[indices].mean(axis=1)
+    bootstrap_means = sample[indices].mean(axis=1)
+    sign_flip_p, sign_flip_permutations = exact_sign_flip_p_two_sided(sample)
+    finite_raw = int(np.isfinite(raw).sum())
     return {
         "mean": float(sample.mean()),
         "median": float(np.median(sample)),
-        "ci95_low": float(np.quantile(means, 0.025)),
-        "ci95_high": float(np.quantile(means, 0.975)),
+        "ci95_low": float(np.quantile(bootstrap_means, 0.025)),
+        "ci95_high": float(np.quantile(bootstrap_means, 0.975)),
         "units": int(len(sample)),
-        "undefined_units": int(len(raw) - len(sample)),
+        "independent_seed_clusters": int(len(sample)),
+        "registered_seed_clusters": int(len(grouped)),
+        "paired_seed_count_units": int(len(raw)),
+        "finite_paired_seed_count_units": finite_raw,
+        "undefined_units": int(len(raw) - finite_raw),
+        "undefined_clusters": int(undefined_clusters),
+        "finite_rows_per_cluster_min": int(min(finite_cluster_sizes)),
+        "finite_rows_per_cluster_max": int(max(finite_cluster_sizes)),
+        "bootstrap_draws": int(draws),
+        "bootstrap_method": "seed-cluster percentile bootstrap",
+        "cluster_column": "seed",
+        "exact_sign_flip_p_two_sided": sign_flip_p,
+        "exact_sign_flip_permutations": int(sign_flip_permutations),
     }
 
 
@@ -168,7 +251,8 @@ def main() -> None:
     parser.add_argument("--bootstrap-draws", type=int, default=10000)
     args = parser.parse_args()
 
-    config = json.loads(args.experiment_config.read_text(encoding="utf-8"))
+    config_path = args.experiment_config.resolve()
+    config = json.loads(config_path.read_text(encoding="utf-8"))
     arms = tuple(str(value) for value in config["arms"])
     seeds = tuple(args.seeds or tuple(int(value) for value in config["confirmation_seeds"]))
     counts = tuple(args.counts or tuple(int(value) for value in config["counts"]))
@@ -240,8 +324,12 @@ def main() -> None:
     effects = pd.DataFrame(unit_rows)
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    effects.to_csv(output / "paired_serial_effects.csv", index=False)
-    details.to_csv(output / "detail_flat.csv", index=False)
+    # Pin LF so retained CSV hashes are stable across Linux analysis nodes and
+    # Windows recovery/reanalysis hosts.
+    paired_path = output / "paired_serial_effects.csv"
+    detail_flat_path = output / "detail_flat.csv"
+    effects.to_csv(paired_path, index=False, lineterminator="\n")
+    details.to_csv(detail_flat_path, index=False, lineterminator="\n")
 
     metric_names = [
         "source_repair",
@@ -260,16 +348,25 @@ def main() -> None:
         "downstream_to_broad_invariance_max_abs",
     ]
     summary: dict[str, Any] = {
-        "schema_version": "realistic_niah_v4_4_5_serial_mediation_summary_v1",
+        "schema_version": "realistic_niah_v4_4_5_serial_mediation_summary_v2",
         "status": "PASS",
         "claim_scope": config["claim_scope"],
+        "inference": {
+            "independent_unit": "seed",
+            "within_seed_aggregation": "equal-weight mean over registered counts",
+            "between_seed_aggregation": "equal-weight mean over seeds",
+            "bootstrap_method": "seed-cluster percentile bootstrap",
+            "bootstrap_draws": int(args.bootstrap_draws),
+            "secondary_test": "two-sided exact sign-flip over seed means",
+        },
         "models": {},
     }
     for model_index, model in enumerate(args.models):
         selected = effects[effects["model_label"] == model]
         model_summary = {
-            name: bootstrap_mean(
+            name: cluster_bootstrap_mean(
                 selected[name].to_numpy(dtype=float),
+                selected["seed"].to_numpy(),
                 draws=int(args.bootstrap_draws),
                 seed=20260814 + model_index * 100 + index,
             )
@@ -300,11 +397,12 @@ def main() -> None:
             "note": "These are preregistered directional diagnostics, not a unique-pathway test.",
         }
         summary["models"][model] = model_summary
-    (output / "serial_summary.json").write_text(
+    summary_path = output / "serial_summary.json"
+    summary_path.write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     audit = {
-        "schema_version": "realistic_niah_v4_4_5_serial_mediation_analysis_audit_v1",
+        "schema_version": "realistic_niah_v4_4_5_serial_mediation_analysis_audit_v2",
         "status": "PASS",
         "detail_files": [str(path) for path in detail_files],
         "broad_files": [str(path) for path in broad_files],
@@ -313,6 +411,26 @@ def main() -> None:
         "broad_rows": int(len(broad)),
         "expected_broad_rows": int(expected_broad_rows),
         "paired_units": int(len(effects)),
+        "paired_seed_count_units": int(len(effects)),
+        "inference_unit": "seed",
+        "independent_seed_clusters": int(len(args.models) * len(seeds)),
+        "seed_clusters_per_model": int(len(seeds)),
+        "counts_per_seed_cluster": int(len(counts)),
+        "within_seed_aggregation": "equal-weight mean over registered counts",
+        "between_seed_aggregation": "equal-weight mean over seeds",
+        "bootstrap_method": "seed-cluster percentile bootstrap",
+        "bootstrap_draws": int(args.bootstrap_draws),
+        "exact_sign_flip_unit": "seed",
+        "input_files": {
+            "experiment_config": file_record(config_path),
+            "detail": [file_record(path) for path in detail_files],
+            "broad": [file_record(path) for path in broad_files],
+        },
+        "output_files": {
+            "paired_serial_effects": file_record(paired_path),
+            "detail_flat": file_record(detail_flat_path),
+            "serial_summary": file_record(summary_path),
+        },
         "hook_failures": 0,
         "models": list(args.models),
         "seeds": list(seeds),

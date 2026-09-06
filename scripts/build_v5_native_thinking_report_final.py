@@ -747,9 +747,19 @@ def token_source_ablation_svg(evidence: Mapping[str, Mapping[str, Any]]) -> str:
         f'<svg class="chart token-source-chart" viewBox="0 0 {width} {height}" role="img" aria-label="Token-source ablation confirmation success rates">',
         '<title>Which token states trigger targeted retrieval and support the final count?</title>',
     ]
+    retrieval_panel_title = (
+        "A · Teacher-forced next-city exact"
+        if evidence
+        and all(
+            row.get("target_exact_endpoint")
+            == "target_city_teacher_forced_exact"
+            for row in evidence.values()
+        )
+        else "A · Next-city retrieval success"
+    )
     for x0, title in zip(
         panel_x,
-        ("A · Next-city retrieval success", "B · Final exact-count accuracy"),
+        (retrieval_panel_title, "B · Final exact-count accuracy"),
     ):
         parts.append(f'<text x="{x0}" y="25" class="chart-title">{title}</text>')
         for tick in range(0, 101, 25):

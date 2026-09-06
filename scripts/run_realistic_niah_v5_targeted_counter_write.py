@@ -71,6 +71,11 @@ def main() -> None:
     parser.add_argument("--targeted-registry", type=Path, required=True)
     parser.add_argument("--bank-plan", type=Path, required=True)
     parser.add_argument("--source-layer", type=int, required=True)
+    parser.add_argument(
+        "--head-ablation-scope",
+        choices=("query_local", "query_through_carrier"),
+        default="query_local",
+    )
     parser.add_argument("--answer-site-id", default="answer_query_v3")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--resume", action="store_true")
@@ -120,7 +125,8 @@ def main() -> None:
         "selected_bank_sha256": str(selected["bank_sha256"]),
         "source_layer": int(args.source_layer),
         "teacher_forced_trace_tokens": True,
-        "query_local_head_mask": True,
+        "query_local_head_mask": str(args.head_ablation_scope) == "query_local",
+        "head_ablation_scope": str(args.head_ablation_scope),
         "carrier_rule": "rank_after_marker_core_else_rank_before_city_to_commit_tail",
         "carrier_clamp": "clean_cumulative_source_through_penultimate_layer",
         "matched_position_control": "equal_token_near_depth_nonitem_clean_state",
@@ -153,6 +159,7 @@ def main() -> None:
             banks=banks,
             targeted_site=targeted[request_id],
             source_layer=int(args.source_layer),
+            head_ablation_scope=str(args.head_ablation_scope),
             answer_site_id=str(args.answer_site_id),
         )
         for result in results:
@@ -183,6 +190,7 @@ def main() -> None:
                 "selected_bank_size": len(selected["heads"]),
                 "selected_bank_sha256": str(selected["bank_sha256"]),
                 "source_layer": int(args.source_layer),
+                "head_ablation_scope": str(args.head_ablation_scope),
                 "teacher_forced_trace_tokens": True,
                 "selection_rank_used": False,
                 "outcome_blind": True,

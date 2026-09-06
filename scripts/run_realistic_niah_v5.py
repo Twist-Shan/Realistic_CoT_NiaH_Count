@@ -11,7 +11,7 @@ import socket
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1107,6 +1107,10 @@ def _causal_manifest(
             getattr(args, "behavior_all_routed_grammars", False)
         ),
         "selection_metric": getattr(args, "selection_metric", None),
+        "head_ablation_scope": getattr(args, "head_ablation_scope", None),
+        "final_transition_only": bool(
+            getattr(args, "final_transition_only", False)
+        ),
         "minimum_layer": getattr(args, "minimum_layer", None),
         "maximum_layer": getattr(args, "maximum_layer", None),
         "layers": (
@@ -1148,6 +1152,8 @@ def _assert_resume_manifest_compatible(
         "anchor_sampling",
         "behavior_all_routed_grammars",
         "selection_metric",
+        "head_ablation_scope",
+        "final_transition_only",
         "anchor_routing_sha256",
         "anchor_routing_policy_id",
         "minimum_layer",
@@ -1183,6 +1189,15 @@ def _load_layer_bases(path: Path) -> dict[int, Any]:
     if not result:
         raise ValueError(f"No basis_L<layer> arrays found in {path}")
     return result
+
+
+def causal_patch_conditions_need_basis(conditions: Sequence[str]) -> bool:
+    """Only projected/orthogonal patch arms consume a learned basis archive."""
+
+    return bool(
+        {"projected_donor_patch", "orthogonal_norm_matched"}
+        & {str(value) for value in conditions}
+    )
 
 
 def _load_layer_directions(path: Path) -> dict[int, Any]:
@@ -1234,6 +1249,14 @@ def command_causal_source_writes(args: argparse.Namespace) -> None:
         )
         if int(row["seed"]) in development
     ]
+    requested_counts = {
+        int(value) for value in (args.counts or tuple(config.counts))
+    }
+    rows = [row for row in rows if int(row["gold_count"]) in requested_counts]
+    if not rows:
+        raise ValueError(
+            f"No source-write rows remain for counts {sorted(requested_counts)}"
+        )
     tasks: list[tuple[dict[str, Any], dict[str, Any]]] = []
     excluded_rows: list[dict[str, Any]] = []
     for row in rows:
@@ -1282,6 +1305,15 @@ def command_causal_source_writes(args: argparse.Namespace) -> None:
                 specification,
                 include_secondary=args.include_secondary,
                 include_block_pre=args.include_block_pre,
+            )
+            if (
+                not args.final_transition_only
+                or (
+                    int(specification["from_occurrence"])
+                    == int(row["gold_count"]) - 1
+                    and int(specification["to_occurrence"])
+                    == int(row["gold_count"])
+                )
             )
         )
     tasks = (
@@ -1377,6 +1409,8 @@ def command_causal_source_writes(args: argparse.Namespace) -> None:
             ),
             "attention_audit_scope": "all_registered_gold_prompt_records",
             "target_policy": "fixed_next_city_token_span",
+            "requested_counts": sorted(requested_counts),
+            "final_transition_only": bool(args.final_transition_only),
         }
     )
     _atomic_json(output_dir / "manifest.json", manifest)
@@ -1584,6 +1618,7 @@ def command_causal_heads(args: argparse.Namespace) -> None:
             condition,
             repeat,
             bank_sha256,
+            args.head_ablation_scope,
         )
         shard_path = shard_dir / f"{trial_id}.jsonl"
         if args.resume and shard_path.exists():
@@ -1598,6 +1633,7 @@ def command_causal_heads(args: argparse.Namespace) -> None:
             heads=heads,
             condition=condition,
             anchor_equivalence_ids=[specification["anchor_equivalence_id"]],
+            head_ablation_scope=str(args.head_ablation_scope),
         )
         if len(results) != 1 or results[0].get("status") != "ok":
             raise RuntimeError(
@@ -1650,6 +1686,7 @@ def command_causal_heads(args: argparse.Namespace) -> None:
             "plan": str(args.plan.resolve()),
             "plan_sha256": hashlib.sha256(args.plan.read_bytes()).hexdigest(),
             "target_policy": "fixed_next_city_token_span",
+            "head_ablation_scope": str(args.head_ablation_scope),
             "plan_validation_seeds": plan_validation_seeds,
         }
     )
@@ -4018,7 +4055,22 @@ def command_causal_patch(args: argparse.Namespace) -> None:
     row_by_id = {
         str(row.get("request_id", row.get("stimulus_id"))): row for row in rows
     }
-    bases = _load_layer_bases(args.basis)
+    requested_conditions = tuple(args.conditions)
+    needs_basis = causal_patch_conditions_need_basis(requested_conditions)
+    if needs_basis and args.basis is None:
+        raise ValueError(
+            "--basis is required when projected or orthogonal conditions are requested"
+        )
+    bases = _load_layer_bases(args.basis) if args.basis is not None else {}
+    explicit_layers = (
+        tuple(sorted({int(value) for value in args.layers}))
+        if args.layers is not None
+        else None
+    )
+    if explicit_layers is not None and args.layer is not None:
+        raise ValueError("Use either --layer or --layers, not both")
+    if explicit_layers is not None and not explicit_layers:
+        raise ValueError("--layers must contain at least one layer")
     output_rows = []
     pairs = read_jsonl(args.pairs)
     shard_root = args.output.parent / f"{args.output.stem}_shards"
@@ -4044,15 +4096,14 @@ def command_causal_patch(args: argparse.Namespace) -> None:
             )
         return state_cache[key]
 
+    total_cells = sum(
+        len(explicit_layers)
+        if explicit_layers is not None
+        else 1
+        for _pair in pairs
+    )
+    completed_cells = 0
     for pair_index, pair in enumerate(pairs, start=1):
-        shard_path = shard_root / f"{pair_index:05d}.jsonl"
-        if args.restartable and shard_path.exists() and not args.overwrite:
-            output_rows.extend(read_jsonl(shard_path))
-            print(
-                f"[v5 causal-patch] {pair_index}/{len(pairs)} reused",
-                flush=True,
-            )
-            continue
         receiver_id = str(pair["receiver_request_id"])
         donor_id = str(pair["donor_request_id"])
         if not bool(pair.get("receiver_exact_count")) or not bool(
@@ -4081,61 +4132,96 @@ def command_causal_patch(args: argparse.Namespace) -> None:
             raise ValueError(f"Receiver count mismatch for {receiver_id}")
         if int(donor_parsed["gold_count"]) != int(pair["donor_count"]):
             raise ValueError(f"Donor count mismatch for {donor_id}")
-        layer = int(pair.get("layer", args.layer))
-        if layer not in bases:
-            raise ValueError(f"Patch basis has no layer {layer}")
         receiver_site = str(pair.get("receiver_site_id", args.receiver_site_id))
         donor_site = str(pair.get("donor_site_id", args.donor_site_id))
-        receiver, receiver_state = cached_state(
-            receiver_id,
-            receiver_site,
-            layer,
+        pair_layers = (
+            explicit_layers
+            if explicit_layers is not None
+            else (int(pair.get("layer", args.layer)),)
+            if pair.get("layer", args.layer) is not None
+            else ()
         )
-        donor, donor_state = cached_state(
-            donor_id,
-            donor_site,
-            layer,
-        )
-        self_key = (receiver_id, receiver_site, int(layer))
-        if self_key not in self_patch_cache:
-            self_patch_cache[self_key] = generate_with_residual_interventions(
+        if not pair_layers:
+            raise ValueError(
+                "Every patch pair needs a layer unless --layer/--layers is supplied"
+            )
+        for layer in pair_layers:
+            if needs_basis and layer not in bases:
+                raise ValueError(f"Patch basis has no layer {layer}")
+            shard_path = (
+                shard_root / f"L{layer:03d}" / f"{pair_index:05d}.jsonl"
+                if explicit_layers is not None
+                else shard_root / f"{pair_index:05d}.jsonl"
+            )
+            if args.restartable and shard_path.exists() and not args.overwrite:
+                output_rows.extend(read_jsonl(shard_path))
+                completed_cells += 1
+                print(
+                    f"[v5 causal-patch] {completed_cells}/{total_cells} "
+                    f"L{layer} pair={pair_index} reused",
+                    flush=True,
+                )
+                continue
+            receiver, receiver_state = cached_state(
+                receiver_id,
+                receiver_site,
+                layer,
+            )
+            donor, donor_state = cached_state(
+                donor_id,
+                donor_site,
+                layer,
+            )
+            self_key = (receiver_id, receiver_site, int(layer))
+            if (
+                "self_patch" in requested_conditions
+                and self_key not in self_patch_cache
+            ):
+                self_patch_cache[self_key] = generate_with_residual_interventions(
+                    model,
+                    tokenizer,
+                    adapter,
+                    receiver,
+                    {int(layer): ([receiver.query_position], receiver_state)},
+                    max_new_tokens=args.max_new_tokens,
+                )
+            trial_rows = run_projected_patch_trials_from_states(
                 model,
                 tokenizer,
                 adapter,
                 receiver,
-                {int(layer): ([receiver.query_position], receiver_state)},
+                receiver_state,
+                donor,
+                donor_state,
+                receiver_site_id=receiver_site,
+                donor_site_id=donor_site,
+                layer=layer,
+                basis=bases.get(layer),
                 max_new_tokens=args.max_new_tokens,
+                self_patch_result=self_patch_cache.get(self_key),
+                requested_conditions=requested_conditions,
             )
-        trial_rows = run_projected_patch_trials_from_states(
-            model,
-            tokenizer,
-            adapter,
-            receiver,
-            receiver_state,
-            donor,
-            donor_state,
-            receiver_site_id=receiver_site,
-            donor_site_id=donor_site,
-            layer=layer,
-            basis=bases[layer],
-            max_new_tokens=args.max_new_tokens,
-            self_patch_result=self_patch_cache[self_key],
-        )
-        for result in trial_rows:
-            result["pair_id"] = pair.get("pair_id", pair_index)
-            result["donor_role"] = pair.get("donor_role", "registered")
-            for field in (
-                "pair_direction",
-                "receiver_exact_count",
-                "donor_exact_count",
-                "pair_eligibility",
-            ):
-                if field in pair:
-                    result[field] = pair[field]
-        if args.restartable:
-            write_jsonl(shard_path, trial_rows)
-        output_rows.extend(trial_rows)
-        print(f"[v5 causal-patch] {pair_index}/{len(pairs)}", flush=True)
+            for result in trial_rows:
+                result["pair_id"] = pair.get("pair_id", pair_index)
+                result["donor_role"] = pair.get("donor_role", "registered")
+                for field in (
+                    "pair_direction",
+                    "receiver_exact_count",
+                    "donor_exact_count",
+                    "pair_eligibility",
+                ):
+                    if field in pair:
+                        result[field] = pair[field]
+            if args.restartable:
+                shard_path.parent.mkdir(parents=True, exist_ok=True)
+                write_jsonl(shard_path, trial_rows)
+            output_rows.extend(trial_rows)
+            completed_cells += 1
+            print(
+                f"[v5 causal-patch] {completed_cells}/{total_cells} "
+                f"L{layer} pair={pair_index}",
+                flush=True,
+            )
     write_jsonl(args.output, output_rows)
     print(
         f"[v5 causal-patch] wrote {len(output_rows)} trials to {args.output}; "
@@ -4498,6 +4584,17 @@ def build_parser() -> argparse.ArgumentParser:
     source_writes.add_argument("--output", type=Path, required=True)
     source_writes.add_argument("--layers", type=int, nargs="+")
     source_writes.add_argument(
+        "--counts",
+        type=int,
+        nargs="+",
+        help="Restrict source-write capture to these registered gold counts.",
+    )
+    source_writes.add_argument(
+        "--final-transition-only",
+        action="store_true",
+        help="Capture only the registered N-1 to N transition for each row.",
+    )
+    source_writes.add_argument(
         "--anchor-role",
         help=(
             "Capture one eligible anchor per seed for this expanded parser "
@@ -4545,6 +4642,21 @@ def build_parser() -> argparse.ArgumentParser:
     causal_heads.add_argument("--plan", type=Path, required=True)
     causal_heads.add_argument("--output", type=Path, required=True)
     causal_heads.add_argument("--plan-rows", type=int, nargs="+")
+    causal_heads.add_argument(
+        "--head-ablation-scope",
+        choices=(
+            "registered_query_only",
+            "last_pre_city_only",
+            "registered_query_through_last_pre_city",
+            "city_predictor_chain",
+            "registered_query_through_city_prefix",
+        ),
+        default="registered_query_only",
+        help=(
+            "Teacher-forced predictor positions at which to lesion the frozen "
+            "head bank while scoring the unchanged next-city token span."
+        ),
+    )
     causal_heads.add_argument(
         "--include-secondary",
         action="store_true",
@@ -5068,9 +5180,26 @@ def build_parser() -> argparse.ArgumentParser:
     _add_model(causal_patch)
     causal_patch.add_argument("--generations", type=Path, required=True)
     causal_patch.add_argument("--pairs", type=Path, required=True)
-    causal_patch.add_argument("--basis", type=Path, required=True)
+    causal_patch.add_argument("--basis", type=Path)
     causal_patch.add_argument("--output", type=Path, required=True)
-    causal_patch.add_argument("--layer", type=int, required=True)
+    causal_patch.add_argument("--layer", type=int)
+    causal_patch.add_argument("--layers", type=int, nargs="+")
+    causal_patch.add_argument(
+        "--conditions",
+        nargs="+",
+        choices=[
+            "self_patch",
+            "full_donor_patch",
+            "projected_donor_patch",
+            "orthogonal_norm_matched",
+        ],
+        default=[
+            "self_patch",
+            "full_donor_patch",
+            "projected_donor_patch",
+            "orthogonal_norm_matched",
+        ],
+    )
     causal_patch.add_argument("--receiver-site-id", default="answer_query")
     causal_patch.add_argument("--donor-site-id", default="answer_query")
     causal_patch.add_argument("--max-new-tokens", type=int, default=16)

@@ -462,6 +462,10 @@ def build_fixed_native_loop_plan(
             "request_id": str(raw["request_id"]),
             "seed": seed,
             "gold_count": count,
+            "alignment_pair_id": raw.get("alignment_pair_id"),
+            "cross_model_exact_sample_alignment": bool(
+                raw.get("cross_model_exact_sample_alignment", False)
+            ),
             "observed_item_count": observed_item_count,
             "trace_one_to_one": trace_one_to_one,
             "trace_category": trace_category,
@@ -477,17 +481,31 @@ def build_fixed_native_loop_plan(
     def priority(
         row: Mapping[str, Any], panel: str, offset: int, receiver: int
     ) -> str:
-        payload = {
-            "sampling_seed": int(sampling_seed),
-            "model_label": label,
-            "seed_role": role,
-            "panel_kind": str(panel),
-            "seed": int(row["seed"]),
-            "gold_count": int(row["gold_count"]),
-            "donor_offset": int(offset),
-            "receiver_occurrence": int(receiver),
-            "request_id": str(row["request_id"]),
-        }
+        if bool(row.get("cross_model_exact_sample_alignment")):
+            if not row.get("alignment_pair_id"):
+                raise ValueError("Aligned native-loop row lacks alignment_pair_id")
+            payload = {
+                "sampling_seed": int(sampling_seed),
+                "seed_role": role,
+                "panel_kind": str(panel),
+                "seed": int(row["seed"]),
+                "gold_count": int(row["gold_count"]),
+                "donor_offset": int(offset),
+                "receiver_occurrence": int(receiver),
+                "alignment_pair_id": str(row["alignment_pair_id"]),
+            }
+        else:
+            payload = {
+                "sampling_seed": int(sampling_seed),
+                "model_label": label,
+                "seed_role": role,
+                "panel_kind": str(panel),
+                "seed": int(row["seed"]),
+                "gold_count": int(row["gold_count"]),
+                "donor_offset": int(offset),
+                "receiver_occurrence": int(receiver),
+                "request_id": str(row["request_id"]),
+            }
         return _sha256_json(payload)
 
     def append_pair(
@@ -527,8 +545,15 @@ def build_fixed_native_loop_plan(
                 ),
                 "outcome_blind_priority_sha256": str(digest),
                 "selection_input_fields": (
-                    "sampling_seed,model_label,seed_role,panel_kind,seed,"
+                    "sampling_seed,seed_role,panel_kind,seed,gold_count,"
+                    "donor_offset,alignment_pair_id"
+                    if bool(row.get("cross_model_exact_sample_alignment"))
+                    else "sampling_seed,model_label,seed_role,panel_kind,seed,"
                     "gold_count,donor_offset,request_id"
+                ),
+                "alignment_pair_id": row.get("alignment_pair_id"),
+                "cross_model_exact_sample_alignment": bool(
+                    row.get("cross_model_exact_sample_alignment", False)
                 ),
                 "sampling_seed": int(sampling_seed),
                 "selection_rank_used": False,

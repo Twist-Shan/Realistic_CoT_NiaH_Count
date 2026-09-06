@@ -33,6 +33,11 @@ from build_v5_native_thinking_report_final import (
 MODELS = ("Qwen3-8B", "Gemma4-E4B")
 SHORT = {"Qwen3-8B": "Qwen", "Gemma4-E4B": "Gemma"}
 COLORS = {"Qwen3-8B": "#0f766e", "Gemma4-E4B": "#7c3aed"}
+ANSWER_QUERY_LAYER_GRID = {
+    "Qwen3-8B": [0, 5, 10, 15, 20, 25, 30, 35],
+    "Gemma4-E4B": [0, 6, 12, 18, 23, 29, 35, 41],
+}
+ANSWER_QUERY_PAIR_COUNT = {"Qwen3-8B": 40, "Gemma4-E4B": 40}
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -47,6 +52,120 @@ def read_csv(path: Path) -> list[dict[str, str]]:
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+
+
+def _csv_truth(value: Any) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes"}
+
+
+def _seed_equal_csv_mean(
+    rows: Sequence[Mapping[str, Any]], column: str
+) -> float:
+    grouped: dict[int, list[float]] = {}
+    for row in rows:
+        raw = row.get(column)
+        if raw in {None, ""}:
+            continue
+        text = str(raw).strip().lower()
+        value = float(_csv_truth(raw)) if text in {"true", "false"} else float(raw)
+        grouped.setdefault(int(row["seed"]), []).append(value)
+    require(grouped, f"No confirmation rows for {column}")
+    return float(
+        np.mean([float(np.mean(values)) for values in grouped.values()])
+    )
+
+
+def replace_with_aligned_targeting(
+    evidence: dict[str, Any], aligned_run_root: Path, model: str
+) -> dict[str, Any]:
+    """Replace the legacy asymmetric targeting panel with exact-common support."""
+
+    analysis = aligned_run_root / model / "next_city_token_blank" / "analysis"
+    audit = read_json(analysis / "analysis_audit.json")
+    require(audit.get("status") == "PASS", f"{model} aligned token audit failed")
+    confirmation_seeds = set(range(1254, 1264))
+    detail = [
+        row
+        for row in read_csv(analysis / "token_level_detail.csv")
+        if int(row["seed"]) in confirmation_seeds and row.get("status") == "ok"
+    ]
+    matched = [
+        row
+        for row in read_csv(analysis / "matched_control_specificity.csv")
+        if int(row["seed"]) in confirmation_seeds
+    ]
+    direct_conditions = (
+        "clean",
+        "early_half_trace_blank",
+        "cumulative_trace_blank",
+        "recent_transition_blank",
+        "full_trace_blank",
+    )
+    retrieval_metric = (
+        "target_city_retrieved"
+        if detail and "target_city_retrieved" in detail[0]
+        else "target_city_teacher_forced_exact"
+    )
+    require(
+        detail and retrieval_metric in detail[0],
+        f"{model} aligned targeting lacks a registered exact-city endpoint",
+    )
+    specificity_retrieval_metric = f"specificity__{retrieval_metric}"
+    require(
+        matched and specificity_retrieval_metric in matched[0],
+        f"{model} aligned targeting lacks matched-control exact-city specificity",
+    )
+    targeting: dict[str, dict[str, Any]] = {}
+    for condition in direct_conditions:
+        rows = [row for row in detail if row["condition"] == condition]
+        require(
+            len(rows) == 10 and {int(row["seed"]) for row in rows} == confirmation_seeds,
+            f"{model} aligned targeting {condition} is not exact 10-seed support",
+        )
+        targeting[condition] = {
+            "rows": len(rows),
+            "retrieved": sum(_csv_truth(row[retrieval_metric]) for row in rows),
+            "retrieval_rate": _seed_equal_csv_mean(rows, retrieval_metric),
+            "target_share": _seed_equal_csv_mean(
+                rows, "bank_target_attention_share_of_gold_mass"
+            ),
+            "target_top1": _seed_equal_csv_mean(rows, "bank_target_top1_fraction"),
+            "target_city_logp": _seed_equal_csv_mean(
+                rows, "target_city_log_probability"
+            ),
+        }
+    specificity: dict[str, dict[str, float]] = {}
+    for condition in direct_conditions[1:]:
+        rows = [row for row in matched if row["treatment"] == condition]
+        require(
+            {int(row["seed"]) for row in rows} == confirmation_seeds,
+            f"{model} aligned matched control {condition} lost a seed",
+        )
+        specificity[condition] = {
+            "retrieval": _seed_equal_csv_mean(
+                rows, specificity_retrieval_metric
+            ),
+            "target_share": _seed_equal_csv_mean(
+                rows,
+                "specificity__bank_target_attention_share_of_gold_mass",
+            ),
+            "target_city_logp": _seed_equal_csv_mean(
+                rows, "specificity__target_city_log_probability"
+            ),
+        }
+    evidence = dict(evidence)
+    evidence["target_registered_seed_count"] = 10
+    evidence["target_request_count"] = 10
+    evidence["target_exact_endpoint"] = retrieval_metric
+    evidence["targeting"] = targeting
+    evidence["specificity"] = specificity
+    evidence["input_files"] = [
+        *evidence["input_files"],
+        analysis / "analysis_audit.json",
+        analysis / "token_level_detail.csv",
+        analysis / "matched_control_specificity.csv",
+    ]
+    return evidence
 
 
 def load_all_layer_native_geometry(
@@ -128,6 +247,13 @@ def load_all_layer_native_geometry(
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def sha256_json(value: Any) -> str:
+    payload = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def esc(value: Any) -> str:
@@ -958,6 +1084,85 @@ def grouped_bars_svg(
     return "".join(parts)
 
 
+def answer_query_layer_sweep_svg(
+    curves: Mapping[str, Sequence[Mapping[str, str]]],
+) -> str:
+    """Draw confirmation donor-answer adoption over preregistered layer grids."""
+
+    width, height = 1040, 360
+    panel_w, plot_h = 420, 220
+    parts = [
+        f'<svg class="paper-chart" viewBox="0 0 {width} {height}" role="img" '
+        'aria-labelledby="answer-patch-title answer-patch-desc">',
+        '<title id="answer-patch-title">Native answer-query donor-state adoption by layer</title>',
+        '<desc id="answer-patch-desc">Two panels show seed-equal donor-count adoption after replacing the receiver answer-query residual with a clean donor state. Error bars are seed-cluster bootstrap 95 percent intervals.</desc>',
+    ]
+    for panel_index, model in enumerate(MODELS):
+        rows = sorted(curves[model], key=lambda row: int(row["layer"]))
+        require(rows, f"Missing answer-query layer rows for {model}")
+        ox, oy = 62 + panel_index * 500, 58
+        max_layer = max(int(row["layer"]) for row in rows)
+
+        def sx(layer: int) -> float:
+            return ox + layer / max(max_layer, 1) * panel_w
+
+        def sy(value: float) -> float:
+            return oy + (1.0 - max(0.0, min(1.0, value))) * plot_h
+
+        parts.extend(
+            [
+                f'<text x="{ox}" y="{oy-20}" class="heat-title">{esc(SHORT[model])} · full answer-state patch</text>',
+                f'<rect x="{ox}" y="{oy}" width="{panel_w}" height="{plot_h}" class="plot-bg"/>',
+            ]
+        )
+        for tick in (0.0, 0.25, 0.5, 0.75, 1.0):
+            y = sy(tick)
+            parts.extend(
+                [
+                    f'<line x1="{ox}" y1="{y:.1f}" x2="{ox+panel_w}" y2="{y:.1f}" class="grid"/>',
+                    f'<text x="{ox-8}" y="{y+4:.1f}" text-anchor="end" class="tick">{tick:.2f}</text>',
+                ]
+            )
+        points = " ".join(
+            f'{sx(int(row["layer"])):.1f},{sy(float(row["full_donor_adoption"])):.1f}'
+            for row in rows
+        )
+        parts.append(
+            f'<polyline points="{points}" class="series-line" stroke="{COLORS[model]}"/>'
+        )
+        for row in rows:
+            layer = int(row["layer"])
+            mean = float(row["full_donor_adoption"])
+            low = float(row["full_donor_adoption_ci95_low"])
+            high = float(row["full_donor_adoption_ci95_high"])
+            x = sx(layer)
+            parts.extend(
+                [
+                    f'<line x1="{x:.1f}" y1="{sy(high):.1f}" x2="{x:.1f}" y2="{sy(low):.1f}" stroke="#475467" stroke-width="1.5"/>',
+                    f'<line x1="{x-4:.1f}" y1="{sy(high):.1f}" x2="{x+4:.1f}" y2="{sy(high):.1f}" stroke="#475467"/>',
+                    f'<line x1="{x-4:.1f}" y1="{sy(low):.1f}" x2="{x+4:.1f}" y2="{sy(low):.1f}" stroke="#475467"/>',
+                    f'<circle cx="{x:.1f}" cy="{sy(mean):.1f}" r="4.5" fill="{COLORS[model]}"><title>L{layer}: donor adoption={mean:.3f}; seed-bootstrap 95% CI [{low:.3f}, {high:.3f}]</title></circle>',
+                    f'<text x="{x:.1f}" y="{oy+plot_h+19}" text-anchor="middle" class="tick">{layer}</text>',
+                ]
+            )
+        parts.extend(
+            [
+                f'<text x="{ox+panel_w/2}" y="{oy+plot_h+42}" text-anchor="middle" class="axis-label">zero-based post-block layer</text>',
+                f'<text transform="translate({ox-43} {oy+plot_h/2}) rotate(-90)" text-anchor="middle" class="axis-label">donor-count adoption</text>',
+            ]
+        )
+    parts.extend(
+        [
+            f'<line x1="360" y1="338" x2="388" y2="338" stroke="{COLORS[MODELS[0]]}" stroke-width="3"/>',
+            '<text x="396" y="342" class="legend-label">seed-equal mean</text>',
+            '<line x1="545" y1="329" x2="545" y2="347" stroke="#475467" stroke-width="1.5"/>',
+            '<text x="557" y="342" class="legend-label">seed-cluster bootstrap 95% CI</text>',
+            "</svg>",
+        ]
+    )
+    return "".join(parts)
+
+
 def walkthrough_svg(walkthrough: Mapping[str, Mapping[str, Any]]) -> str:
     width, height = 980, 380
     parts = [
@@ -1256,7 +1461,12 @@ def chain_svg() -> str:
         ("Grammar carrier", "write retrieved event", "controlled", "controlled"),
         ("Commit / event state", "content + progress", "controlled", "controlled"),
         ("Next-item routing", "state-guided successor", "natural", "simulated"),
-        ("Terminal readout", "fixed-suffix bridge", "conditional", "conditional"),
+        (
+            "Terminal readout",
+            "trace bridge + answer execution",
+            "split",
+            "split",
+        ),
     )
     width, height, box_w, gap = 1080, 260, 170, 28
     x0 = 80
@@ -1282,6 +1492,7 @@ def chain_svg() -> str:
                 "latent": "#9a4b00",
                 "simulated": "#9a4b00",
                 "conditional": "#7c3aed",
+                "split": "#7c3aed",
                 "not_run": "#667085",
             }[status]
             label = {
@@ -1292,6 +1503,7 @@ def chain_svg() -> str:
                 "latent": "latent score only",
                 "simulated": "simulatively confirmed†",
                 "conditional": "controlled only",
+                "split": "partial relay + answer exec.",
                 "not_run": "not run",
             }[status]
             x = x0 + idx * (box_w + gap)
@@ -1415,6 +1627,26 @@ def section_body(section: str) -> str:
 
 
 def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
+    sample_alignment_audit = read_json(args.sample_alignment_audit)
+    require(
+        sample_alignment_audit.get("status") == "PASS"
+        and sample_alignment_audit.get("evidence")
+        and all(
+            row.get("status") == "PASS"
+            for row in sample_alignment_audit["evidence"].values()
+        ),
+        "Cross-model sample-alignment audit must pass before report construction",
+    )
+    output_alignment_audit = read_json(args.output_alignment_audit)
+    require(
+        output_alignment_audit.get("status") == "PASS"
+        and output_alignment_audit.get("evidence")
+        and all(
+            row.get("status") == "PASS"
+            for row in output_alignment_audit["evidence"].values()
+        ),
+        "Realized cross-model output-alignment audit must pass before report construction",
+    )
     q_analysis = read_json(args.qwen_targeted_analysis)
     g_analysis = read_json(args.gemma_targeted_analysis)
     q_primary = selected_row(q_analysis, 128)
@@ -1425,12 +1657,48 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     layerwise_representation = load_layerwise_representation(
         args.representation_root, args.dual_endpoint_root
     )
+    terminal_relay_summary = read_json(
+        args.terminal_relay_common_support / "summary.json"
+    )
+    terminal_relay_pairs = read_csv(
+        args.terminal_relay_common_support / "common_support_pairs.csv"
+    )
+    require(
+        terminal_relay_summary.get("status") == "PASS"
+        and terminal_relay_summary.get("phase") == "confirmation"
+        and terminal_relay_summary.get("matching_keys")
+        == ["seed", "gold_count", "donor_offset"]
+        and int(terminal_relay_summary.get("common_pair_count_per_model", -1))
+        == 86
+        and int(terminal_relay_summary.get("common_seed_count", -1)) == 10
+        and terminal_relay_summary.get("selection_uses_outcomes") is False
+        and len(terminal_relay_pairs) == 86,
+        "Terminal-relay common-support contract changed",
+    )
+    for model in MODELS:
+        relay_model = terminal_relay_summary["models"][model]
+        require(
+            int(relay_model.get("common_pair_count", -1)) == 86
+            and int(relay_model.get("seed_count", -1)) == 10
+            and relay_model.get("pathway_primary_pass") is True
+            and relay_model.get("answer_query_secondary_pass") is True,
+            f"{model}: terminal-relay common-support gate changed",
+        )
+        for effect_name in (
+            "patch_damage_natural",
+            "specific_mediation__post_terminal_suffix",
+            "specific_mediation__answer_query",
+        ):
+            require(
+                float(relay_model["effects"][effect_name]["ci_low"]) > 0.0,
+                f"{model}: terminal-relay {effect_name} no longer supports the path",
+            )
     band_diagnostics = {
         model: read_json(args.band_diagnostic_root / model / "band_diagnostic.json")
         for model in MODELS
     }
     running_display_layers = {
-        model: int(band_diagnostics[model]["layer"])
+        model: int(representation[model]["running"]["layer"])
         for model in MODELS
     }
     final_display_layers = {
@@ -1441,8 +1709,25 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         running_display_layers,
         final_display_layers,
     )
+    aligned_running_3d = read_json(args.running_pca3_coordinates)
+    require(
+        aligned_running_3d.get("status") == "PASS"
+        and aligned_running_3d.get("exact_cross_model_sample_alignment") is True
+        and aligned_running_3d.get("common_key_sha256")
+        == sample_alignment_audit["evidence"][
+            "running_representation_common_support"
+        ]["key_multiset_sha256"],
+        "Aligned running PCA3 payload does not match the frozen common support",
+    )
+    geometry_3d["running"] = {
+        model: aligned_running_3d["models"][model] for model in MODELS
+    }
     token_evidence = {
-        model: load_token_ablation_evidence(args.token_ablation_root / model, model)
+        model: replace_with_aligned_targeting(
+            load_token_ablation_evidence(args.token_ablation_root / model, model),
+            args.aligned_run_root,
+            model,
+        )
         for model in MODELS
     }
     attention_examples = load_attention_examples(args.atlas_root)
@@ -1501,24 +1786,230 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     gemma_head_map = split_gemma_current_head_map_svg(
         load_p0_head_score_rows(args.atlas_root, "Gemma4-E4B")
     )
-    write = {
-        model: read_json(args.snapshot_root / "targeted_counter_write_20260822" / model / "complete.json")
+    aligned_targeted = {
+        model: {
+            phase: read_json(
+                args.aligned_run_root
+                / model
+                / "targeted_retrieval"
+                / f"analysis_{phase}"
+                / "claim_gates.json"
+            )
+            for phase in ("discovery", "confirmation")
+        }
         for model in MODELS
     }
+    write = {}
+    for model in MODELS:
+        phases = {
+            phase: read_json(
+                args.aligned_run_root
+                / model
+                / "targeted_counter_write"
+                / f"analysis_{phase}"
+                / "claim_gates.json"
+            )
+            for phase in ("discovery", "confirmation")
+        }
+        write[model] = {
+            "status": "PASS",
+            "discovery_seed_count": int(phases["discovery"]["seed_count"]),
+            "confirmation_seed_count": int(phases["confirmation"]["seed_count"]),
+            "outcome_blind": bool(
+                phases["discovery"]["outcome_blind"]
+                and phases["confirmation"]["outcome_blind"]
+            ),
+            "selection_rank_used": bool(
+                phases["discovery"]["selection_rank_used"]
+                or phases["confirmation"]["selection_rank_used"]
+            ),
+            **phases,
+        }
     grammar_anchor_paths = {
-        "Qwen3-8B": args.snapshot_root / "qwen_grammar_span_anchor_panel.jsonl",
-        "Gemma4-E4B": args.snapshot_root / "gemma_grammar_span_anchor_panel.jsonl",
+        model: args.aligned_grammar_panel_root / f"{model}_anchor_panel.jsonl"
+        for model in MODELS
     }
     grammar_anchors = {
         model: read_jsonl(path) for model, path in grammar_anchor_paths.items()
     }
-    commit_query = {
-        model: read_json(args.snapshot_root / "commit_state_query_20260822" / model / "commit_to_query_complete.json")
+    routed_anchors = {
+        model: read_jsonl(
+            args.aligned_routed_panel_root / f"{model}_anchor_panel.jsonl"
+        )
         for model in MODELS
     }
-    grammar_span = {
-        "Qwen3-8B": read_json(args.snapshot_root / "qwen_grammar_span_decomposition_complete.json"),
-        "Gemma4-E4B": read_json(args.snapshot_root / "gemma_grammar_span_decomposition_complete.json"),
+    commit_query = {}
+    grammar_span = {}
+    for model in MODELS:
+        commit_phases = {
+            phase: read_json(
+                args.aligned_run_root
+                / model
+                / "commit_state_to_targeted_query"
+                / f"analysis_{phase}"
+                / "claim_gates.json"
+            )
+            for phase in ("discovery", "confirmation")
+        }
+        commit_query[model] = {
+            "status": "PASS",
+            "discovery_seed_count": int(commit_phases["discovery"]["seed_count"]),
+            "confirmation_seed_count": int(
+                commit_phases["confirmation"]["seed_count"]
+            ),
+            "outcome_blind": bool(
+                commit_phases["discovery"]["outcome_blind"]
+                and commit_phases["confirmation"]["outcome_blind"]
+            ),
+            "selection_rank_used": bool(
+                commit_phases["discovery"]["selection_rank_used"]
+                or commit_phases["confirmation"]["selection_rank_used"]
+            ),
+            **commit_phases,
+        }
+        grammar_phases = {
+            phase: read_json(
+                args.aligned_run_root
+                / model
+                / "grammar_span"
+                / f"analysis_{phase}"
+                / "claim_gates.json"
+            )
+            for phase in ("discovery", "confirmation")
+        }
+        grammar_span[model] = {
+            "status": "PASS",
+            "discovery_seed_count": int(grammar_phases["discovery"]["seed_count"]),
+            "confirmation_seed_count": int(
+                grammar_phases["confirmation"]["seed_count"]
+            ),
+            "outcome_blind": bool(
+                grammar_phases["discovery"]["outcome_blind"]
+                and grammar_phases["confirmation"]["outcome_blind"]
+            ),
+            "selection_rank_used": bool(
+                grammar_phases["discovery"]["selection_rank_used"]
+                or grammar_phases["confirmation"]["selection_rank_used"]
+            ),
+            **grammar_phases,
+        }
+    answer_query_layer_rows: dict[str, list[dict[str, str]]] = {}
+    answer_query_layer_audits: dict[str, dict[str, Any]] = {}
+    answer_query_plan_audits: dict[str, dict[str, Any]] = {}
+    answer_query_alignment_manifest = read_json(
+        args.answer_query_plan_root / "alignment_manifest.json"
+    )
+    require(
+        answer_query_alignment_manifest.get("status")
+        == "FROZEN_OUTCOME_BLIND_EXACT_ALIGNMENT"
+        and answer_query_alignment_manifest.get("exact_cross_model_key_equality")
+        is True
+        and int(
+            answer_query_alignment_manifest.get("directed_pairs_per_model", -1)
+        )
+        == 40
+        and answer_query_alignment_manifest.get(
+            "pair_selection_uses_patch_outcome"
+        )
+        is False,
+        "Answer-query common pair plan is not frozen and exactly aligned",
+    )
+    for model in MODELS:
+        model_root = (
+            args.answer_query_layer_root / model / "answer_query_layer_sweep"
+        )
+        pair_path = args.answer_query_plan_root / f"{model}_pairs.jsonl"
+        trials_path = model_root / "trials.jsonl"
+        rows = read_csv(model_root / "analysis" / "layer_effects.csv")
+        analysis_audit = read_json(model_root / "analysis" / "audit.json")
+        plan_audit = answer_query_alignment_manifest
+        require(
+            analysis_audit.get("status") == "passed"
+            and plan_audit.get("status")
+            == "FROZEN_OUTCOME_BLIND_EXACT_ALIGNMENT",
+            f"{model}: answer-query layer sweep audit failed",
+        )
+        pair_digest = sha256(pair_path)
+        pair_registry_digest = sha256_json(read_jsonl(pair_path))
+        trials_digest = sha256(trials_path)
+        require(
+            plan_audit.get(
+                "qwen_pairs_sha256"
+                if model == "Qwen3-8B"
+                else "gemma_pairs_sha256"
+            )
+            == pair_registry_digest
+            and analysis_audit.get("pairs_sha256") == pair_digest,
+            f"{model}: answer-query pair registry hash changed",
+        )
+        require(
+            analysis_audit.get("trials_sha256") == trials_digest,
+            f"{model}: answer-query trial file hash changed",
+        )
+        require(
+            analysis_audit.get("conditions")
+            == ["self_patch", "full_donor_patch"],
+            f"{model}: answer-query layer conditions changed",
+        )
+        require(
+            [int(value) for value in analysis_audit.get("layers", [])]
+            == ANSWER_QUERY_LAYER_GRID[model]
+            and [int(value) for value in plan_audit["layers"][model]]
+            == ANSWER_QUERY_LAYER_GRID[model],
+            f"{model}: answer-query layer grid changed",
+        )
+        require(
+            int(analysis_audit.get("registered_pairs", -1))
+            == ANSWER_QUERY_PAIR_COUNT[model]
+            and int(plan_audit.get("directed_pairs_per_model", -1))
+            == ANSWER_QUERY_PAIR_COUNT[model],
+            f"{model}: answer-query pair count changed",
+        )
+        require(
+            int(analysis_audit.get("completed_pair_layer_cells", -1))
+            == ANSWER_QUERY_PAIR_COUNT[model] * len(ANSWER_QUERY_LAYER_GRID[model])
+            and int(analysis_audit.get("completed_trials", -1))
+            == 2 * ANSWER_QUERY_PAIR_COUNT[model] * len(ANSWER_QUERY_LAYER_GRID[model]),
+            f"{model}: answer-query trial grid is incomplete",
+        )
+        eligible_seeds = [
+            int(value)
+            for value in plan_audit.get("confirmation_seeds", [])
+        ]
+        require(
+            eligible_seeds == list(range(1254, 1264)),
+            f"{model}: answer-query confirmation seed registry changed",
+        )
+        require(
+            [int(row["layer"]) for row in rows]
+            == ANSWER_QUERY_LAYER_GRID[model],
+            f"{model}: answer-query layer table is not complete and ordered",
+        )
+        answer_query_layer_rows[model] = rows
+        answer_query_layer_audits[model] = analysis_audit
+        answer_query_plan_audits[model] = plan_audit
+
+    historical_answer_rows = [
+        row
+        for row in read_csv(args.historical_causal_chain_statistics)
+        if row.get("stage") == "answer_hidden_state_patch"
+        and row.get("mechanism") == "answer_state_transport"
+        and row.get("scope") == "overall"
+    ]
+    historical_answer_controls = {
+        model: {
+            metric: next(
+                row
+                for row in historical_answer_rows
+                if row["model_label"] == model and row["metric"] == metric
+            )
+            for metric in (
+                "full_donor_adoption",
+                "projected_donor_adoption",
+                "projected_adoption_specificity",
+            )
+        }
+        for model in MODELS
     }
     q_free = read_json(args.snapshot_root / "targeted_counter_20260822" / "Qwen3-8B" / "targeted_counter_complete.json")
     gemma_query_mediation = {
@@ -1551,8 +2042,9 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     stratified_ncc = {
         model: {
             timing: read_json(
-                args.stratified_ncc_root
+                args.aligned_run_root
                 / model
+                / "stratified_ncc"
                 / timing
                 / "analysis"
                 / "claim_gates.json"
@@ -1584,8 +2076,9 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     targeted_logit_margin = {
         model: {
             timing: read_json(
-                args.logit_margin_root
+                args.aligned_run_root
                 / model
+                / "direct_count_logit_margin"
                 / timing
                 / "analysis"
                 / "claim_gates.json"
@@ -1629,6 +2122,8 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         model: read_json(
             args.indexed_progress_discovery_root
             / model
+            / "indexed_progress_control"
+            / "discovery_layer_sweep"
             / "layer_sweep_analysis.json"
         )
         for model in MODELS
@@ -1637,7 +2132,8 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         model: read_json(
             args.indexed_progress_confirmation_root
             / model
-            / "frozen_scope_analysis.json"
+            / "indexed_progress_control"
+            / "confirmation_analysis.json"
         )
         for model in MODELS
     }
@@ -1702,7 +2198,8 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         model: next(
             row
             for row in indexed_progress_confirmation[model]["summaries"]
-            if row["split"] == "confirmation10" and row["scope"] == "item_span"
+            if row["split"] in {"confirmation", "confirmation10"}
+            and row["scope"] == "item_span"
         )
         for model in MODELS
     }
@@ -1785,9 +2282,15 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         "Gemma prompt-conditioned confirmation result changed",
     )
     require(
-        indexed_cohort_manifest.get("status") == "PASS"
+        indexed_cohort_manifest.get("status")
+        == "FROZEN_OUTCOME_BLIND_EXACT_ALIGNMENT"
+        and indexed_cohort_manifest.get("exact_cross_model_key_equality") is True
+        and indexed_cohort_manifest.get(
+            "inner_enumeration_surface_matched_across_models"
+        )
+        is True
         and indexed_cohort_manifest.get("claim_role")
-        == "explicit-index positive control only"
+        == "controlled explicit-index positive control only"
         and indexed_cohort_manifest.get(
             "internal_counter_without_visible_index_claim_allowed"
         )
@@ -1796,19 +2299,29 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     )
     require(
         indexed_progress_freeze.get("status") == "FROZEN_BEFORE_CONFIRMATION"
-        and indexed_progress_freeze.get("confirmation_results_observed") is False
+        and indexed_progress_freeze.get("confirmation_outcomes_observed") is False
         and indexed_confirmation_layers
-        == {"Qwen3-8B": 16, "Gemma4-E4B": 16},
-        "Indexed confirmation must retain the pre-confirmation L16 amendment",
+        == {"Qwen3-8B": 19, "Gemma4-E4B": 16}
+        and indexed_progress_freeze.get("layer_rule")
+        == (
+            "use the model-specific item_end layer selected only from "
+            "exact-common-support discovery representation geometry; do not "
+            "select a layer from indexed-control outcomes"
+        ),
+        "Indexed confirmation must retain the representation-frozen layers",
+    )
+    require(
+        len(indexed_cohort_manifest["discovery_seeds"]) == 20
+        and len(indexed_cohort_manifest["confirmation_seeds"]) == 10
+        and not set(indexed_cohort_manifest["discovery_seeds"])
+        & set(indexed_cohort_manifest["confirmation_seeds"]),
+        "Indexed exact-alignment 20/10 split changed",
     )
     for model in MODELS:
         cohort = indexed_cohort_manifest["models"][model]
         require(
-            len(cohort["discovery_seeds"]) == 20
-            and len(cohort["confirmation_seeds"]) == 10
-            and not set(cohort["discovery_seeds"])
-            & set(cohort["confirmation_seeds"]),
-            f"{model}: indexed 20/10 split changed",
+            int(cohort["sample_count"]) == 30,
+            f"{model}: indexed aligned sample count changed",
         )
         require(
             int(indexed_progress_selected[model]["selected_layer_summary"]["cell_count"])
@@ -1819,17 +2332,8 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         )
         require(
             int(indexed_progress_active_discovery[model]["cell_count"]) == 40
-            and float(
-                indexed_progress_active_discovery[model]["directions"]
-                ["forward_skip"]["median_paired_logodds_shift"]
-            )
-            > 0.0
-            and float(
-                indexed_progress_active_discovery[model]["directions"]
-                ["backward_rewind"]["median_paired_logodds_shift"]
-            )
-            > 0.0,
-            f"{model}: L16 indexed discovery sanity check changed",
+            and int(indexed_progress_active_discovery[model]["seed_count"]) == 20,
+            f"{model}: representation-frozen indexed discovery support changed",
         )
         require(
             int(indexed_progress_summary[model]["cell_count"]) == 60
@@ -1863,15 +2367,10 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             == {indexed_confirmation_layers[model]},
             f"{model}: indexed confirmation layer changed",
         )
-        discovery_path = (
-            args.indexed_progress_discovery_root
-            / model
-            / "layer_sweep_analysis.json"
-        )
         require(
-            sha256(discovery_path)
-            == indexed_progress_freeze["discovery_analysis_sha256"][model],
-            f"{model}: indexed discovery changed after the L16 freeze",
+            int(indexed_progress_freeze["layer_selection_source"][model]["layer"])
+            == int(representation[model]["running"]["layer"]),
+            f"{model}: indexed control layer no longer matches aligned representation freeze",
         )
     require(float(g_primary["selected_minus_random_failure_rate"]) > float(selected_row(g_analysis, 8)["selected_minus_random_failure_rate"]), "Gemma K6 must remain the frozen primary over K8")
     require(
@@ -1956,11 +2455,41 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             require(evidence.get("confirmation_seed_count") == 10, f"{model} {evidence_name} confirmation seed drift")
             require(evidence.get("outcome_blind") is True, f"{model} {evidence_name} not outcome blind")
             require(evidence.get("selection_rank_used") is False, f"{model} {evidence_name} uses selection_rank")
-        anchors = grammar_anchors[model]
-        require(len(anchors) == 30, f"{model} grammar anchor panel must contain 30 traces")
         require(
-            {int(row["seed"]) for row in anchors} == set(range(1234, 1264)),
-            f"{model} grammar anchor seed contract changed",
+            aligned_targeted[model]["discovery"].get("targeted_to_count_pass")
+            is True
+            and aligned_targeted[model]["confirmation"].get(
+                "targeted_to_count_pass"
+            )
+            is True,
+            f"{model} targeted-retrieval propagation gate failed",
+        )
+        require(
+            write[model]["discovery"].get(
+                "targeted_counter_write_directional_pass"
+            )
+            is True
+            and write[model]["confirmation"].get(
+                "targeted_counter_write_strong_gate_pass"
+            )
+            is True,
+            f"{model} targeted-retrieval-to-write gate failed",
+        )
+        require(
+            commit_query[model]["discovery"].get("confirmation_eligible")
+            is True
+            and commit_query[model]["confirmation"].get("analysis_status")
+            == "PROSPECTIVE_CONFIRMATION"
+            and commit_query[model]["confirmation"].get(
+                "strong_direct_gate_pass"
+            )
+            is True,
+            f"{model} commit-to-next-query confirmation gate failed",
+        )
+        anchors = grammar_anchors[model]
+        require(
+            len(anchors) == 28,
+            f"{model} exact-common grammar anchor panel must contain 28 traces",
         )
         require(
             all(bool(row["grammar_span_outcome_blind"]) for row in anchors),
@@ -1970,24 +2499,38 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             not any(bool(row["grammar_span_selection_rank_used"]) for row in anchors),
             f"{model} grammar anchor panel uses selection rank",
         )
-        for phase, seeds, expected_per_timing in (
-            ("discovery", set(range(1234, 1254)), 10),
-            ("confirmation", set(range(1254, 1264)), 5),
+        for phase, role, expected_total, expected_by_timing in (
+            (
+                "discovery",
+                "development",
+                19,
+                {"rank_after_city": 9, "rank_before_city": 10},
+            ),
+            (
+                "confirmation",
+                "confirmation",
+                9,
+                {"rank_after_city": 4, "rank_before_city": 5},
+            ),
         ):
-            active = [row for row in anchors if int(row["seed"]) in seeds]
+            active = [
+                row
+                for row in anchors
+                if str(row["stratified_ncc_seed_role"]) == role
+            ]
             require(
-                len(active) == len(seeds),
+                len(active) == expected_total,
                 f"{model} {phase} grammar anchor count changed",
             )
-            for timing in ("rank_after_city", "rank_before_city"):
+            for timing, expected_count in expected_by_timing.items():
                 require(
                     sum(row["grammar_span_timing_stratum"] == timing for row in active)
-                    == expected_per_timing,
+                    == expected_count,
                     f"{model} {phase} grammar timing balance changed",
                 )
         require(grammar_span[model].get("status") == "PASS", f"{model} grammar span not PASS")
-        require(grammar_span[model].get("discovery_seed_count") == 20, f"{model} grammar span discovery drift")
-        require(grammar_span[model].get("confirmation_seed_count") == 10, f"{model} grammar span confirmation drift")
+        require(grammar_span[model].get("discovery_seed_count") == 19, f"{model} grammar span discovery drift")
+        require(grammar_span[model].get("confirmation_seed_count") == 9, f"{model} grammar span confirmation drift")
         require(walkthrough[model].get("status") == "PASS", f"{model} walkthrough not PASS")
         require(walkthrough[model].get("case_study_not_inferential") is True, f"{model} walkthrough scope drift")
         require(walkthrough[model].get("case_selected_by_outcome") is False, f"{model} walkthrough selected by outcome")
@@ -2021,34 +2564,17 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             diagnostic["interpretation"]["cross_model_effect_size_comparison_allowed"] is False,
             f"{model} NCC diagnostic overclaims cross-model comparability",
         )
-    require(
-        stratified_ncc_synthesis.get("status") == "PASS"
-        and stratified_ncc_synthesis.get("raw_margins_pooled") is False
-        and stratified_ncc_synthesis.get(
-            "directional_specific_support_requires_valid_clean_readout"
-        )
-        is True,
-        "Timing-stratified NCC synthesis contract changed",
-    )
     expected_stratified_counts = {
         "Qwen3-8B": {
-            "rank_after_city": (19, 10),
-            "rank_before_city": (19, 9),
+            "rank_after_city": (9, 4),
+            "rank_before_city": (10, 5),
         },
         "Gemma4-E4B": {
-            "rank_after_city": (18, 9),
-            "rank_before_city": (19, 10),
+            "rank_after_city": (9, 4),
+            "rank_before_city": (10, 5),
         },
     }
-    expected_capture_start = {"Qwen3-8B": 35, "Gemma4-E4B": 30}
     for model in MODELS:
-        inputs = stratified_ncc_inputs[model]
-        require(inputs.get("status") == "FROZEN", f"{model} stratified NCC inputs not frozen")
-        require(
-            inputs.get("confirmation_used_for_bank_selection") is False
-            and inputs.get("panel_selection_uses_model_outcomes") is False,
-            f"{model} stratified NCC selection leakage",
-        )
         for timing in ("rank_after_city", "rank_before_city"):
             result = stratified_ncc[model][timing]
             expected_dev, expected_confirmation = expected_stratified_counts[model][timing]
@@ -2074,53 +2600,6 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
                 == "strictly_above_all_ablated_head_layers",
                 f"{model}/{timing} stratified NCC causal reach changed",
             )
-            require(
-                int(inputs["banks"][timing]["capture_start_layer"])
-                == expected_capture_start[model],
-                f"{model}/{timing} capture start changed",
-            )
-            site_audit = stratified_ncc_site_audits[model][timing]
-            require(
-                site_audit.get("status") == "PASS"
-                and site_audit.get("all_final_endpoints_downstream_of_targeted_query")
-                is True,
-                f"{model}/{timing} site audit failed",
-            )
-            if timing == "rank_after_city":
-                require(
-                    site_audit.get("city_to_rank_marker_tokens_excluded") is True,
-                    f"{model} City→rank marker leakage",
-                )
-    require(
-        targeted_logit_margin_synthesis.get("status") == "PASS"
-        and targeted_logit_margin_synthesis.get("all_four_clean_readouts_valid")
-        is True
-        and targeted_logit_margin_synthesis.get(
-            "all_four_clean_candidate_accuracies_one"
-        )
-        is True
-        and targeted_logit_margin_synthesis.get(
-            "any_branch_passes_both_interval_gates"
-        )
-        is False
-        and targeted_logit_margin_synthesis.get(
-            "gemma_both_branches_positive_in_discovery_and_confirmation"
-        )
-        is True
-        and targeted_logit_margin_synthesis.get(
-            "gemma_both_specificity_bootstrap_intervals_exclude_zero"
-        )
-        is True
-        and targeted_logit_margin_synthesis.get(
-            "gemma_selected_loss_intervals_exclude_zero"
-        )
-        is False
-        and targeted_logit_margin_synthesis.get(
-            "qwen_has_no_directional_specific_branch"
-        )
-        is True,
-        "Direct count-output margin synthesis contract changed",
-    )
     for model in MODELS:
         for timing in ("rank_after_city", "rank_before_city"):
             result = targeted_logit_margin[model][timing]
@@ -2193,6 +2672,7 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     write_effects: dict[str, dict[str, Mapping[str, Any]]] = {}
     query_effects: dict[str, dict[str, Mapping[str, Any]]] = {}
     terminal_effects: dict[str, dict[str, Mapping[str, Any]]] = {}
+    terminal_selected_geometry: dict[str, str] = {}
     for model in MODELS:
         write_rows = write[model]["confirmation"]["all_estimands"]
         write_effects[model] = {
@@ -2210,16 +2690,21 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         query_effects[model] = {
             "self": effect(query_rows, "full_commit_targeted_attention_vs_self_distance_1"),
             "orthogonal": effect(query_rows, "full_commit_targeted_attention_vs_orthogonal_distance_1"),
-            "orthogonal_d2": effect(query_rows, "full_commit_targeted_attention_vs_orthogonal_distance_2"),
-            "orthogonal_d3": effect(query_rows, "full_commit_targeted_attention_vs_orthogonal_distance_3"),
         }
+        terminal_selected_geometry[model] = str(
+            grammar_span[model]["discovery"]["largest_split_geometry"]
+        )
         terminal_rows = grammar_span[model]["confirmation"]["primary_estimands"]
         terminal_effects[model] = {
             row["contrast"]: row
             for row in terminal_rows
-            if row["geometry"] == "marker_core"
+            if row["geometry"] == terminal_selected_geometry[model]
         }
-        require(set(terminal_effects[model]) == {"restoration", "matched_random_specificity"}, f"{model} missing marker terminal effects")
+        require(
+            set(terminal_effects[model])
+            == {"restoration", "matched_random_specificity"},
+            f"{model} missing confirmation effects for discovery-selected terminal geometry",
+        )
 
     rep_groups = [
         (
@@ -2353,7 +2838,7 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             "margin shift 为正，但 clean readout validity 失败"
         ),
         "VALID_READOUT_DIRECTIONAL_SPECIFIC_EVIDENCE": (
-            "readout 有效；方向与 specificity 为正，但区间跨 0"
+            "readout 有效；方向与 specificity 为正，但至少一条主区间跨 0"
         ),
         "VALID_READOUT_INTERVAL_DIRECTIONAL_SPECIFIC_SUPPORT": (
             "readout 有效且两个区间均高于 0"
@@ -2494,6 +2979,9 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     direct_margin_status_text = {
         "NO_DIRECTIONAL_SPECIFIC_EVIDENCE": "无 specificity",
         "VALID_READOUT_DIRECTIONAL_SPECIFIC_EVIDENCE": "directional-specific†",
+        "INTERVAL_CONFIRMED_DIRECTIONAL_SPECIFIC_SUPPORT": (
+            "interval-confirmed"
+        ),
         "VALID_READOUT_INTERVAL_DIRECTIONAL_SPECIFIC_SUPPORT": (
             "interval-confirmed"
         ),
@@ -2784,20 +3272,6 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         ("full commit vs self patch", {model: float(query_effects[model]["self"]["mean_effect"]) for model in MODELS}),
         ("full commit vs orthogonal", {model: float(query_effects[model]["orthogonal"]["mean_effect"]) for model in MODELS}),
     ]
-    query_distance_groups = [
-        (
-            "|donor−receiver| = 1",
-            {model: float(query_effects[model]["orthogonal"]["mean_effect"]) for model in MODELS},
-        ),
-        (
-            "|donor−receiver| = 2",
-            {model: float(query_effects[model]["orthogonal_d2"]["mean_effect"]) for model in MODELS},
-        ),
-        (
-            "|donor−receiver| = 3",
-            {model: float(query_effects[model]["orthogonal_d3"]["mean_effect"]) for model in MODELS},
-        ),
-    ]
     source_groups = [
         (
             "clean exact count",
@@ -2810,14 +3284,14 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     ]
     terminal_groups = [
         (
-            "marker-core restoration vs corrupt",
+            "discovery-selected semantic restoration vs corrupt",
             {
                 model: float(terminal_effects[model]["restoration"]["mean_effect"])
                 for model in MODELS
             },
         ),
         (
-            "marker-core vs equal-token ordinary state",
+            "selected semantic state vs equal-token ordinary state",
             {
                 model: float(
                     terminal_effects[model]["matched_random_specificity"]["mean_effect"]
@@ -2826,6 +3300,124 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             },
         ),
     ]
+    answer_query_layer_plot = answer_query_layer_sweep_svg(answer_query_layer_rows)
+
+    def probability_ci(row: Mapping[str, Any], metric: str) -> str:
+        return (
+            f"{float(row[metric]):.3f} "
+            f"[{float(row[f'{metric}_ci95_low']):.3f}, "
+            f"{float(row[f'{metric}_ci95_high']):.3f}]"
+        )
+
+    answer_query_final_rows = {
+        model: answer_query_layer_rows[model][-1] for model in MODELS
+    }
+    answer_query_onsets = {
+        model: answer_query_layer_audits[model]["descriptive_onset_layer"].get(model)
+        for model in MODELS
+    }
+    answer_query_layer_table = table(
+        ("Model", "Frozen layer grid", "Pairs / seed clusters", "Descriptive onset", "Final sampled layer"),
+        (
+            (
+                SHORT[model],
+                ", ".join(f"L{layer}" for layer in ANSWER_QUERY_LAYER_GRID[model]),
+                f"{ANSWER_QUERY_PAIR_COUNT[model]} / 10",
+                (
+                    "none"
+                    if answer_query_onsets[model] is None
+                    else f"L{int(answer_query_onsets[model])}"
+                ),
+                probability_ci(answer_query_final_rows[model], "full_donor_adoption"),
+            )
+            for model in MODELS
+        ),
+        class_name="compact-table",
+    )
+
+    def relay_effect(model: str, effect_name: str) -> dict[str, Any]:
+        row = terminal_relay_summary["models"][model]["effects"][effect_name]
+        return {
+            "mean_effect": float(row["estimate"]),
+            "ci_low": float(row["ci_low"]),
+            "ci_high": float(row["ci_high"]),
+            "gate_pass": float(row["ci_low"]) > 0.0,
+        }
+
+    terminal_relay_panels = [
+        (
+            "A · Earlier-state patch damage and remaining damage",
+            "correct-count sequence-margin difference",
+            [
+                (
+                    f"{SHORT[model]} · natural damage",
+                    relay_effect(model, "patch_damage_natural"),
+                )
+                for model in MODELS
+            ]
+            + [
+                (
+                    f"{SHORT[model]} · after clean suffix reset",
+                    relay_effect(model, "patch_damage__post_terminal_suffix"),
+                )
+                for model in MODELS
+            ],
+            0.25,
+        ),
+        (
+            "B · Specific mediation by downstream relay state",
+            "patch-by-clean-reset interaction",
+            [
+                (
+                    f"{SHORT[model]} · post-terminal suffix",
+                    relay_effect(model, "specific_mediation__post_terminal_suffix"),
+                )
+                for model in MODELS
+            ]
+            + [
+                (
+                    f"{SHORT[model]} · answer query only",
+                    relay_effect(model, "specific_mediation__answer_query"),
+                )
+                for model in MODELS
+            ],
+            0.25,
+        ),
+    ]
+
+    def relay_ci(model: str, effect_name: str) -> str:
+        row = terminal_relay_summary["models"][model]["effects"][effect_name]
+        return (
+            f"{float(row['estimate']):+.3f} "
+            f"[{float(row['ci_low']):+.3f}, {float(row['ci_high']):+.3f}]"
+        )
+
+    terminal_relay_table = table(
+        (
+            "Model",
+            "Natural patch damage",
+            "Suffix-specific mediation",
+            "Answer-query-specific mediation",
+            "Suffix explained fraction",
+            "Residual after suffix reset",
+        ),
+        (
+            (
+                SHORT[model],
+                relay_ci(model, "patch_damage_natural"),
+                relay_ci(model, "specific_mediation__post_terminal_suffix"),
+                relay_ci(model, "specific_mediation__answer_query"),
+                (
+                    f"{100 * float(terminal_relay_summary['models'][model]['effects']['post_terminal_suffix_explained_fraction']['estimate']):.1f}% "
+                    f"[{100 * float(terminal_relay_summary['models'][model]['effects']['post_terminal_suffix_explained_fraction']['ci_low']):.1f}%, "
+                    f"{100 * float(terminal_relay_summary['models'][model]['effects']['post_terminal_suffix_explained_fraction']['ci_high']):.1f}%]"
+                ),
+                relay_ci(model, "patch_damage__post_terminal_suffix"),
+            )
+            for model in MODELS
+        ),
+        class_name="compact-table",
+    )
     mediation_panels = []
     for panel_title, estimand, floor in (
         ("A · Full-state city-log-odds effect", "full_state_effect_intact", 1.0),
@@ -2902,23 +3494,89 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 .parser-contract{margin:30px 0 8px;padding-top:22px;border-top:1px solid var(--line);scroll-margin-top:72px}.parser-contract-head{display:grid;grid-template-columns:190px minmax(0,1fr);gap:22px;align-items:start;margin-bottom:14px}.parser-contract-kicker{color:#0f766e;font:850 11px/1.35 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase}.parser-contract-head h3{margin:4px 0 8px;font-size:22px}.parser-contract-head p{margin:0;color:#475467;font-size:13px;line-height:1.68}.parser-disclosure{margin:0;border-top:1px solid var(--line);background:#fff}.parser-disclosure:last-child{border-bottom:1px solid var(--line)}.parser-disclosure summary{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;padding:15px 3px;cursor:pointer;color:#172033;font-weight:800;list-style:none}.parser-disclosure summary::-webkit-details-marker{display:none}.parser-disclosure summary::after{content:"+";display:grid;width:24px;height:24px;place-items:center;border:1px solid #b8c1cf;border-radius:50%;color:#0f766e;font:700 16px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.parser-disclosure[open] summary::after{content:"−"}.parser-disclosure-body{padding:1px 3px 20px;color:#344054}.parser-disclosure-body>p:first-child{margin-top:2px}.parser-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 22px;margin:14px 0;border-top:1px solid var(--line)}.parser-grid>div{padding:13px 0;border-bottom:1px solid var(--line);font-size:13px;line-height:1.62}.parser-grid strong{display:block;margin-bottom:4px;color:#172033}.parser-flow{display:flex;align-items:stretch;gap:0;margin:15px 0;overflow-x:auto}.parser-flow>div{min-width:150px;flex:1;padding:13px 14px;border:1px solid var(--line);background:#f8fafc;font-size:12px;line-height:1.55}.parser-flow>span{display:grid;min-width:30px;place-items:center;color:#667085}.parser-code{display:block;margin:11px 0;padding:12px 14px;border-left:3px solid #46758f;background:#f5f8fb;font:12px/1.62 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-x:auto}.parser-warning{margin:14px 0 0;padding:13px 15px;border-left:3px solid var(--amber);background:#fff8eb;color:#7a3d00;font-size:12px;line-height:1.62}.parser-table td,.parser-table th{padding:8px 9px;font-size:12px;vertical-align:top}.parser-table td:first-child{font-weight:800;color:#172033}.parser-table code{white-space:normal}.parser-tag{display:inline-block;margin:2px 5px 2px 0;padding:3px 7px;border:1px solid #b8d7d1;background:#f4fbf9;color:#075e58;font:750 10px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 @media print{.attention-pair{display:block}.attention-pair figure{break-inside:avoid-page;margin:0 0 20px}.attention-pair figure .head-map{width:auto;max-width:100%;max-height:620px;margin:0 auto}.attention-atlas-stack figure{break-inside:avoid-page}.attention-atlas-frame .head-map{min-width:0}.three-d{break-inside:avoid-page}.three-d canvas{height:430px}.formula{white-space:normal}.attention-switcher{break-inside:avoid-page}}
 @media(max-width:900px){.manifold-grid{grid-template-columns:1fr}}
-@media(max-width:760px){.status-grid,.walkthrough-callout,.metric-strip,.definition-grid,.attention-pair,.figure-primer,.edge-roadmap,.scope-compare,.appendix-e-index,.claim-tier-grid,.evidence-ladder{grid-template-columns:1fr}.contract-row{grid-template-columns:1fr;gap:4px}.condition-row{grid-template-columns:1fr;gap:4px}.three-d-head{align-items:flex-start;flex-direction:column}.three-d-controls{justify-content:flex-start}.three-d canvas{height:430px}.chain-figure{min-width:850px}.chain-scroll{overflow-x:auto}}
-@media(max-width:760px){.parser-contract-head,.parser-grid{grid-template-columns:1fr}.parser-contract-head{gap:4px}.parser-flow{flex-direction:column;overflow-x:visible}.parser-flow>div{min-width:0}.parser-flow>span{min-width:0;min-height:26px;transform:rotate(90deg)}.parser-disclosure summary{padding:14px 0}.parser-disclosure-body{padding-left:0;padding-right:0}}
+@media(max-width:820px){.status-grid,.walkthrough-callout,.metric-strip,.definition-grid,.attention-pair,.figure-primer,.edge-roadmap,.scope-compare,.appendix-e-index,.claim-tier-grid,.evidence-ladder{grid-template-columns:1fr}.contract-row{grid-template-columns:1fr;gap:4px}.condition-row{grid-template-columns:1fr;gap:4px}.three-d-head{align-items:flex-start;flex-direction:column}.three-d-controls{justify-content:flex-start}.three-d canvas{height:430px}.chain-figure{min-width:850px}.chain-scroll{overflow-x:auto}}
+@media(max-width:820px){.parser-contract-head,.parser-grid{grid-template-columns:1fr}.parser-contract-head{gap:4px}.parser-flow{flex-direction:column;overflow-x:visible}.parser-flow>div{min-width:0}.parser-flow>span{min-width:0;min-height:26px;transform:rotate(90deg)}.parser-disclosure summary{padding:14px 0}.parser-disclosure-body{padding-left:0;padding-right:0}}
 """
     css = extract_css(args.reference_report) + custom_css
     generated = datetime.now(timezone.utc).isoformat()
 
+    def targeted_gate_effect(model: str, gate_id: str) -> dict[str, Any]:
+        gate = aligned_targeted[model]["confirmation"]["gates"][gate_id]
+        require(
+            int(gate["seed_count"]) == 10,
+            f"{model}: aligned targeted-retrieval {gate_id} must use 10 confirmation seeds",
+        )
+        return {
+            "mean_effect": float(gate["estimate"]),
+            "ci_low": float(gate["ci_low"]),
+            "ci_high": float(gate["ci_high"]),
+            "gate_pass": bool(gate["pass"]),
+        }
+
+    targeted_effects = {
+        model: {
+            gate_id: targeted_gate_effect(model, gate_id)
+            for gate_id in (
+                "targeted_bank_changes_final_count",
+                "retrieval_failure_propagates_to_count",
+            )
+        }
+        for model in MODELS
+    }
+    targeted_panels = [
+        (
+            "A · Final-count failure",
+            "selected − random probability",
+            [
+                (SHORT[model], targeted_effects[model]["targeted_bank_changes_final_count"])
+                for model in MODELS
+            ],
+            0.1,
+        ),
+        (
+            "B · Joint retrieval + count failure",
+            "selected − random probability",
+            [
+                (SHORT[model], targeted_effects[model]["retrieval_failure_propagates_to_count"])
+                for model in MODELS
+            ],
+            0.1,
+        ),
+    ]
+
+    def probability_effect_ci(row: Mapping[str, Any]) -> str:
+        return (
+            f"{100 * float(row['mean_effect']):+.1f} pp "
+            f"[{100 * float(row['ci_low']):+.1f}, {100 * float(row['ci_high']):+.1f}]"
+        )
+
     targeted_table = table(
-        ("Model", "Frozen bank", "Selected failure", "Random failure", "Selected − random"),
+        (
+            "Model",
+            "Frozen bank",
+            "Δ final-count failure",
+            "Δ joint retrieval+count failure",
+            "Clean final-count accuracy",
+        ),
         (
             (
                 SHORT[model],
                 "Top-128" if model == "Qwen3-8B" else "Top-6",
-                pct(float(row["selected_failure_rate"])),
-                pct(float(row["random_failure_rate"])),
-                f"{100*float(row['selected_minus_random_failure_rate']):+.1f} pp",
+                probability_effect_ci(
+                    targeted_effects[model]["targeted_bank_changes_final_count"]
+                ),
+                probability_effect_ci(
+                    targeted_effects[model]["retrieval_failure_propagates_to_count"]
+                ),
+                pct(
+                    float(
+                        aligned_targeted[model]["confirmation"]["gates"][
+                            "clean_endpoint_adequacy"
+                        ]["estimate"]
+                    )
+                ),
             )
-            for model, row in (("Qwen3-8B", q_primary), ("Gemma4-E4B", g_primary))
+            for model in MODELS
         ),
     )
     write_table = table(
@@ -2967,8 +3625,8 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             (
                 f"{SHORT[model]} · {phase}",
                 f"{20 if phase == 'discovery' else 10} seeds × 1 trace/seed",
-                "d = −3, −2, −1, +1, +2, +3（每个 signed offset 1 pair）",
-                str((20 if phase == "discovery" else 10) * 6),
+                "d = −1, +1（每个 signed offset 1 pair）",
+                str((20 if phase == "discovery" else 10) * 2),
                 (
                     "L19 / frozen Top-128"
                     if model == "Qwen3-8B"
@@ -2989,13 +3647,21 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             ("Norm-matched orthogonal patch", "写入与上述 count 投影等范数、但对该 subspace 正交的扰动", "同尺度的一般 state 扰动能否解释结果"),
         ),
     )
-    def anchor_phase(model: str, phase: str) -> list[dict[str, Any]]:
-        seeds = (
-            set(range(1234, 1254))
-            if phase == "discovery"
-            else set(range(1254, 1264))
-        )
-        return [row for row in grammar_anchors[model] if int(row["seed"]) in seeds]
+    def grammar_anchor_phase(model: str, phase: str) -> list[dict[str, Any]]:
+        role = "development" if phase == "discovery" else "confirmation"
+        return [
+            row
+            for row in grammar_anchors[model]
+            if str(row["stratified_ncc_seed_role"]) == role
+        ]
+
+    def routed_anchor_phase(model: str, phase: str) -> list[dict[str, Any]]:
+        role = "development" if phase == "discovery" else "confirmation"
+        return [
+            row
+            for row in routed_anchors[model]
+            if str(row["alignment_phase"]) == role
+        ]
 
     def count_composition(rows: Sequence[Mapping[str, Any]]) -> str:
         counts = sorted({int(row["gold_count"]) for row in rows})
@@ -3009,12 +3675,13 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         (
             (
                 f"{SHORT[model]} · {phase}",
-                f"{len(anchor_phase(model, phase))} seeds × 1 trace/seed",
-                count_composition(anchor_phase(model, phase)),
-                (
-                    "city→rank 10；rank→city 10"
-                    if phase == "discovery"
-                    else "city→rank 5；rank→city 5"
+                f"{len(routed_anchor_phase(model, phase))} seeds × 1 trace/seed",
+                count_composition(routed_anchor_phase(model, phase)),
+                "; ".join(
+                    f"{name} {int(count)}"
+                    for name, count in sorted(
+                        write[model][phase]["grammar_timing_counts"].items()
+                    )
                 ),
             )
             for model in MODELS
@@ -3046,16 +3713,16 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         (
             (
                 f"{SHORT[model]} · {phase}",
-                f"{len(anchor_phase(model, phase))} seeds × 1 trace/seed",
-                count_composition(anchor_phase(model, phase)),
+                f"{len(grammar_anchor_phase(model, phase))} seeds × 1 trace/seed",
+                count_composition(grammar_anchor_phase(model, phase)),
                 (
-                    "city→rank 10；rank→city 10"
+                    "city→rank 9；rank→city 10"
                     if phase == "discovery"
-                    else "city→rank 5；rank→city 5"
+                    else "city→rank 4；rank→city 5"
                 ),
                 (
                     f"L{19 if model == 'Qwen3-8B' else 16}→final block / "
-                    f"{len(anchor_phase(model, phase)) * 12} rows"
+                    f"{len(grammar_anchor_phase(model, phase)) * 12} rows"
                 ),
             )
             for model in MODELS
@@ -3094,12 +3761,11 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         ("Distance |d|", "Qwen: full−orthogonal", "Gemma: full−orthogonal", "Registered role"),
         (
             (
-                str(distance),
-                ci(query_effects["Qwen3-8B"][key]),
-                ci(query_effects["Gemma4-E4B"][key]),
-                "primary" if distance == 1 else "secondary dose robustness",
-            )
-            for distance, key in ((1, "orthogonal"), (2, "orthogonal_d2"), (3, "orthogonal_d3"))
+                "1",
+                ci(query_effects["Qwen3-8B"]["orthogonal"]),
+                ci(query_effects["Gemma4-E4B"]["orthogonal"]),
+                "exact-common-support primary",
+            ),
         ),
     )
     walkthrough_table = table(
@@ -3296,9 +3962,9 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 
     html_text = f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Native-thinking 计数机制：分布式事件状态与检索控制</title><link rel="icon" href="data:,"><style>{css}</style></head>
+<title>Native-thinking 计数机制：Internal counter 与定向检索</title><link rel="icon" href="data:,"><style>{css}</style></head>
 <body><article class="page"><header><p class="eyebrow">Realistic CoT NiaH · Native-thinking mechanism</p>
-<h1>Native-thinking 如何计数：分布式事件状态与定向检索</h1>
+<h1>Native-thinking 如何计数：Internal counter 驱动定向检索</h1>
 <p class="dek">与 Non-thinking 报告使用同一逻辑骨架：先分开 representation 与 causal evidence，再沿 state formation、retrieval、write/control、terminal readout 组织证据。任何自然 no-index internal-counter / progress-controller 主张均严格限定于 Qwen3-8B 的自然 N=10 trace；Gemma 只作为显式-index、prompt-conditioned no-visible-index、targeted-retrieval 与 carrier 证据的跨模型参照。</p>
 <div class="meta"><span>Qwen3-8B · frozen Top-128</span><span>Gemma4-E4B · frozen Top-6</span><span>formal: 20 discovery / 10 confirmation</span><span>generated {esc(generated)}</span></div></header>
 <nav><a href="#summary">结论</a><a href="#baseline">1 基线</a><a href="#representation">2 表征</a><a href="#formation">3 State formation</a><a href="#retrieval">4 检索</a><a href="#write">5 写入与控制</a><a href="#answer">6 终端</a><a href="#ledger">7 证据表</a><a href="#extension-audit">8 扩展审计</a><a href="#limitations">9 边界</a><a href="#appendix">Appendix</a></nav>
@@ -3317,7 +3983,7 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 <div class="definition"><dt>Ablation、self control 与 matched control</dt><dd>Ablation 在指定 query 清零 selected heads 的 pre-O output。Self-patch 把 receiver 自己写回，控制 hook 本身。Layer-matched random 使用同层同数随机 heads。Orthogonal control 与 <em>donor−receiver 差向量在 frozen count 子空间中的投影</em>等范数，但其方向与该子空间正交；它并不与完整 donor−receiver 差向量等范数。</dd></div>
 <div class="definition"><dt>Representation、probe 与 PCA manifold</dt><dd>Representation 问 hidden state 中是否可读出 count。Probe 是只在 discovery 拟合的简单分类器。PCA manifold 是 discovery-fitted 主成分上的可视化；confirmation 只被投影，不参与定轴。</dd></div>
 <div class="definition"><dt>Effect、95% CI 与 distance <em>d</em></dt><dd>Effect 是同 seed、同 pair 内 treatment−control 的均值。95% CI 是 seed-level bootstrap 区间，作为稳定性记录。<em>d</em>=donor occurrence−receiver occurrence；正文主检验使用 |<em>d</em>|=1。</dd></div>
-<div class="definition"><dt>Confirmed、confirmed† 与 controlled only</dt><dd><strong>Confirmed</strong>：冻结干预在 20-seed discovery 后，又在独立 10-seed confirmation 上复现。<strong>Confirmed†</strong>：直接因果边复现了，但某个更严格的局部控制较弱；† 后会逐项写明限制。<strong>Controlled only</strong>：在所有后续可见 tokens 都固定相同的受控比较中，patch 会改变答案分数；但让模型自由继续生成时，还没有证明这一个 state 单独足以改变最终答案。它不是“没有效果”，而是“效果适用范围较窄”。</dd></div>
+<div class="definition"><dt>Confirmed、confirmed† 与 controlled only</dt><dd><strong>Confirmed</strong>：冻结干预在 20-seed discovery 后，又在独立 10-seed confirmation 上复现。<strong>Confirmed†</strong>：正结果只来自受控 surrogate，或直接边虽复现但另一个更严格的局部控制仍未闭合；† 后会逐项写明限制。<strong>Controlled only</strong>：在所有后续可见 tokens 都固定相同的受控比较中，patch 会改变答案分数；但让模型自由继续生成时，还没有证明这一个 state 单独足以改变最终答案。它不是“没有效果”，而是“效果适用范围较窄”。Gemma 的自然 no-index surrogate 使用 †；其 exact-common commit→next-query 边在本版不再使用 †。</dd></div>
 </dl>
 <div class="section-conclusion"><strong>定义层面的结论。</strong> 后文的“confirmed”不意味唯一回路；“可解码”也不自动意味模型必须使用该线性方向。</div></section>
 
@@ -3326,7 +3992,7 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 <div class="figure-primer"><div><strong>图中画什么</strong>五个框是一次循环计数从检索到答案的候选阶段。</div><div><strong>怎么读</strong>每一列分别给 Qwen 与 Gemma 的最高证据级别；紫色表示仅在受控终端成立。</div><div><strong>简单例子</strong>完成第 3 条后，commit state 改变“下一次应读第 4 条”的 query routing。</div></div>
 <div class="chain-scroll">{chain_svg()}</div>
 <div class="status-grid"><div class="status-card"><h3>Qwen3-8B</h3><p class="status-good">recurrent loop：强 confirmation</p><p>Top-128 retrieval、carrier→commit、commit→next query 都有大效应。terminal grammar state 的局部受控 restoration 为正。</p><p class="status-open">仍开放：free-running answer count-margin 与全上下文擦除后的单点 sufficiency。</p></div>
-<div class="status-card"><h3>Gemma4-E4B</h3><p class="status-good">recurrent direct edge：confirmed†</p><p>Top-6 retrieval、carrier→commit 成立；commit→next query 在 prospective confirmation 相对 self patch 为 +0.491。</p><p class="status-open">† 局部 |d|=1 的 orthogonal specificity 只有 +0.126，但 |d|=2/3 按 +0.175/+0.244 增强；这是已确认直接边的限制，不是强 selection-specific bottleneck。</p></div></div>
+<div class="status-card"><h3>Gemma4-E4B</h3><p class="status-good">recurrent direct edge：exact-common confirmation</p><p>Top-6 retrieval、carrier→commit 与 commit→next query 都使用和 Qwen 相同的 semantic pair multiset；full donor−self 为 {ci(query_effects['Gemma4-E4B']['self'])}，|d|=1 full−orthogonal 为 {ci(query_effects['Gemma4-E4B']['orthogonal'])}，两项 confirmation 区间都在 0 以上。</p><p class="status-open">边界：orthogonal 扰动只匹配 frozen count 投影的范数，不匹配完整 donor−receiver 差向量；因此仍未隔离唯一、低维或排他的 count component。</p></div></div>
 <div class="claim"><strong>允许的主张。</strong> Native-thinking trace 中存在一条可重复干预的 recurrent counting pathway；它不是已证明唯一或排他的 counting circuit。</div></section>
 
 <section id="design"><p class="eyebrow">01 · Experimental contract</p><h2>设计与判据</h2>
@@ -3360,7 +4026,7 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 <p><strong>替代解释与左右比较边界。</strong> Running endpoint 的 marker kind、boundary token、trace grammar 和 token identity 会共同改变 residual state，冻结诊断中也出现 grammar/token 相关双 band；因此左侧分簇不能单独证明“纯 count axis”。左右两侧使用不同 endpoint、不同 state 数和独立 PCA basis，只能比较有无有序结构，不能逐轴对齐 PC1 或比较 centroid 距离。更可靠的 evidence 是跨-seed PCA-16 readout 与后续配对 patching。</p>
 
 <h3>3.3 冻结层的数值结果</h3>
-<figure><h3 class="figure-title">图 1c · Frozen report layers 的 confirmation balanced accuracy</h3>{grouped_bars_svg('Frozen-decoder balanced accuracy', rep_groups, maximum=1.0)}<figcaption>Qwen running commit L18={float(representation['Qwen3-8B']['running']['confirmation_logistic_balanced_accuracy']):.3f}，answer query L26={float(representation['Qwen3-8B']['final']['confirmation_logistic_balanced_accuracy']):.3f}。Gemma running commit L16={float(representation['Gemma4-E4B']['running']['confirmation_logistic_balanced_accuracy']):.3f}，answer query L34={float(representation['Gemma4-E4B']['final']['confirmation_logistic_balanced_accuracy']):.3f}。横向条长是 balanced accuracy，从 0 到 1；同一行的两颜色分别是 Qwen 与 Gemma。数值来自 PCA-16 probe，而不是前三 PC 的视觉可分性。</figcaption></figure>
+<figure><h3 class="figure-title">图 1c · Frozen report layers 的 confirmation balanced accuracy</h3>{grouped_bars_svg('Frozen-decoder balanced accuracy', rep_groups, maximum=1.0)}<figcaption>Qwen running commit L{int(representation['Qwen3-8B']['running']['layer'])}={float(representation['Qwen3-8B']['running']['confirmation_logistic_balanced_accuracy']):.3f}，answer query L{int(representation['Qwen3-8B']['final']['layer'])}={float(representation['Qwen3-8B']['final']['confirmation_logistic_balanced_accuracy']):.3f}。Gemma running commit L{int(representation['Gemma4-E4B']['running']['layer'])}={float(representation['Gemma4-E4B']['running']['confirmation_logistic_balanced_accuracy']):.3f}，answer query L{int(representation['Gemma4-E4B']['final']['layer'])}={float(representation['Gemma4-E4B']['final']['confirmation_logistic_balanced_accuracy']):.3f}。Running commit 的层由 exact common-support discovery rows 冻结；横向条长是 balanced accuracy，从 0 到 1。数值来自 PCA-16 held-out probe，而不是前三 PC 的视觉可分性。</figcaption></figure>
 <p><strong>结果分析。</strong> Qwen 的 answer-query count 几乎完全可读，Gemma 的 running commit 反而比 answer query 更强。这说明两模型不必在相同层或同一维度上保留 count；但两者都有可供后续因果实验锁定的 state。三维图补充的是几何直觉，图 1a/1d 的 held-out 数值才是 representation 主证据。</p>
 <div class="section-conclusion"><strong>Experiment 3 结论。</strong> Count information 同时存在于循环中的 commit state 与末端 answer state；本节只建立 representation，后续 ablation/patching 再判断这些状态是否被实际使用。</div></section>
 
@@ -3381,12 +4047,12 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 <div class="attention-atlas-stack"><figure><h3 class="figure-title">图 2d · Qwen Top-128 layer×head atlas（全宽）</h3><div class="attention-atlas-frame">{qwen_head_map}</div><figcaption>横轴=H0–H31，纵轴=L0–L35；每个格子是一枚 Qwen attention head。颜色是 20 discovery seeds 的 seed-equal exact-P0 target-record raw mass，经 Qwen 内部 99th-percentile 截断后显示；红框=冻结 Top-128。全宽图显示 selected bank 跨多个中后层分布，因此“Top-128”是宽 bank-level necessity，不表示 128 枚 heads 各自同等必要，也不表示一个单层 module。</figcaption></figure><figure><h3 class="figure-title">图 2e · Gemma Top-6 layer×head atlas（L0–20 / L21–41 分栏放大）</h3><div class="attention-atlas-frame">{gemma_head_map}</div><figcaption>左右 panel 分别是 L0–L20 与 L21–L41；每个 panel 横轴=H0–H7，纵轴=逐层 Lℓ，红框仅标当前冻结 Top-6，而非历史 Top-8。颜色在 Gemma 内独立按同一规则缩放。分栏只是版式变换，未改变 layer/head 坐标、分数、rank 或 bank membership；因此可读性提高但科研对象不变。</figcaption></figure></div>
 <p><strong>Atlas 的证据边界。</strong> 高 attention mass 是 localization 指标，不等于该 head 因果必要；红框本身也可能包含冗余 heads。真正的 selection specificity 来自下一节把 selected bank 与同层、同 K random bank 做配对 ablation。反过来，random bank 也可能偶然包含有用 heads，所以 selected−random 是比 selected−clean 更严格、通常也更小的效应。</p>
 
-<h3>4.4 关闭 bank 后，下一条 city 是否失败</h3>
-<div class="figure-primer"><div><strong>图中画什么</strong>不同冻结 K 下的 selected 与 random failure rate。</div><div><strong>坐标</strong>横轴=bank size K；纵轴=0–1 retrieval failure rate。绿线高于灰线才是 selection specificity。</div><div><strong>为何 K 不同</strong>Qwen 的 routing 分布得更宽，Gemma 的效应集中于窄 bank；K 不是跨架构同一容量单位。</div></div>
-<figure><h3 class="figure-title">图 2f · Targeted-bank confirmation dose response</h3>{line_chart((('Qwen3-8B', q_dose), ('Gemma4-E4B', g_dose)))}<figcaption>横轴是各模型的 frozen bank size K；纵轴是首个 semantic city 的 failure rate。绿色=selected bank，灰色=layer-matched random。Qwen 在 K=128 的 selected/random 为 {float(q_primary['selected_failure_rate']):.3f}/{float(q_primary['random_failure_rate']):.3f}；Gemma 在 K=6 为 {float(g_primary['selected_failure_rate']):.3f}/{float(g_primary['random_failure_rate']):.3f}。</figcaption></figure>
+<h3>4.4 关闭 frozen bank 后，retrieval failure 是否传播到最终计数</h3>
+<div class="figure-primer"><div><strong>Panel A</strong>selected bank 相对同层、同 K random bank 增加多少 final-count failure。</div><div><strong>Panel B</strong>同一 trial 中同时出现 retrieval failure 与 count failure 的概率差；它检验干预是否传播到任务输出，但不是 formal natural-effects mediation。</div><div><strong>完全对齐</strong>两模型各使用完全相同的 10 个 confirmation seeds 与 semantic trial-key multiset；每个模型只做内部 selected−random 对比，不用横条绝对长度排序模型强弱。</div></div>
+<figure><h3 class="figure-title">图 2f · Exact-aligned targeted-retrieval necessity 与输出传播</h3>{effect_small_multiples_svg('Experiment 4.4 · aligned targeted-retrieval confirmation', targeted_panels)}<figcaption>横轴是 selected−random 的 paired probability difference，点为 10 个 seed 等权的均值，线为 seed-cluster bootstrap 95% CI；纵直零线表示没有 selection specificity。两个 panel 独立缩放。Qwen/Gemma 的 bank size 分别为 Top-128/Top-6，故这里只读各模型内的 treatment−control effect；不能把 raw magnitude 当作同一 circuit 容量的跨模型比较。</figcaption></figure>
 {targeted_table}
-<p><strong>结果分析。</strong> Qwen 需要宽 Top-128 才超过旁路冗余，Gemma 的少数 heads 已能强烈破坏 next-city retrieval。这个结果只支持 bank-level necessity；它不说 Top-128 中每枚 Qwen head 都同等重要。</p>
-<div class="section-conclusion"><strong>Experiment 4 结论。</strong> Targeted retrieval 是两模型的强必要边：Qwen Top-128 的 selected−random failure={100*float(q_primary['selected_minus_random_failure_rate']):+.1f} pp；Gemma Top-6={100*float(g_primary['selected_minus_random_failure_rate']):+.1f} pp。</div></section>
+<p><strong>结果分析。</strong>两模型的 clean final-count accuracy 都是 100%。相对 layer-matched random bank，Qwen 的 final-count failure 增加 {probability_effect_ci(targeted_effects['Qwen3-8B']['targeted_bank_changes_final_count'])}，joint retrieval+count failure 增加 {probability_effect_ci(targeted_effects['Qwen3-8B']['retrieval_failure_propagates_to_count'])}；Gemma 分别为 {probability_effect_ci(targeted_effects['Gemma4-E4B']['targeted_bank_changes_final_count'])} 与 {probability_effect_ci(targeted_effects['Gemma4-E4B']['retrieval_failure_propagates_to_count'])}。这支持 bank-level necessity 及其向 final task 的传播；它不说明 bank 内每枚 head 同等必要，也不把 joint endpoint 当作完整中介估计。</p>
+<div class="section-conclusion"><strong>Experiment 4 结论。</strong>在 exact-aligned confirmation support 上，关闭模型内冻结的 targeted-retrieval bank 会特异性增加最终计数失败，并在同一 trials 中增加 retrieval+count 的联合失败。因此 targeted retrieval 是两模型 counting pathway 的一条必要边；现有证据不要求它是唯一边或唯一 head set。</div></section>
 
 <section id="write"><p class="eyebrow">05 · Write and recurrent propagation</p><h2>把 trace 内部的三条边分开检验</h2>
 <p class="lead">这一节不是一次复杂 patch 得出整条链，而是依次问三个较小的问题。每个问题的 treatment、control 和读数都不同：</p>
@@ -3405,30 +4071,30 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 <div class="experiment-frame"><div><span class="experiment-label">要检验的箭头</span><strong>Targeted retrieval query → grammar carrier state。</strong>Experiment 4 已证明 bank mask 会使自由生成的 next city 检索失败；这里进一步问，即使把可见 trace 固定不让它分叉，关闭同一 bank 是否仍会改变检索之后的内部 state。</div><div><span class="experiment-label">Token 固定</span>把这条完整 clean trace 作为 teacher-forced token sequence，所有 arms 输入完全相同。Head mask 只发生在最后一次注册的 <em>N−1</em>→<em>N</em> query；所以不同 arm 不会因为生成了不同 city 或不同句子而落到不同 token positions。</div><div><span class="experiment-label">Carrier 怎么定</span>按 grammar outcome-blind 地注册。对于 <em>city→rank</em>，检索到 city 后才出现的新进度信息是 rank-marker core，因此读取该 marker 的全部 tokens；对于 <em>rank→city</em>，rank 已经先出现，检索后的新信息从 retrieved-city 第一个 token 延续到 item-end commit，因此读取整个 city-to-commit tail。Carrier 可以是多个 tokens，不要求固定长度。</div><div><span class="experiment-label">读取哪些层</span>Qwen 在 post-block L19–L35 读取 carrier，共 17 层；Gemma 在 L16–L41 读取，共 26 层。Source layers L19/L16 与 frozen targeted-counter protocol 一起预注册，没有按本实验 effect 重选。</div><div><span class="experiment-label">每 seed 的读数</span><span class="formula">D<sup>a</sup><sub>carrier</sub> = (1/|L|) Σ<sub>ℓ∈L</sub> ||H<sup>a,ℓ</sup><sub>carrier</sub> − H<sup>clean,ℓ</sup><sub>carrier</sub>||<sub>F</sub> / √(m·d)<br>Primary = D<sup>selected</sup><sub>carrier</sub><br>Selected-vs-random = D<sup>selected</sup><sub>carrier</sub> − (1/3)Σ<sub>r=1</sub><sup>3</sup>D<sup>random-r</sup><sub>carrier</sub></span><em>m</em> 是该 trace 的 carrier token 数，<em>d</em> 是 hidden width。先对 token×hidden dimensions 做 RMS，再对已注册 layers 平均，最后才跨 seeds 平均。</div><div><span class="experiment-label">具体例子 A</span><em>City→rank，N=6：</em>固定 trace 中出现“... Paris received a score ... That is the sixth record.”。5→6 query 位于检索 Paris 之前；我们只 mask 该 query 的 targeted heads，仍强制喂入完全相同的 Paris 和后续文字。读数取 “sixth” 这一 marker core 的 hidden states。如果它偏离 clean，说明 retrieval computation 会影响随后写出的进度 carrier。</div><div><span class="experiment-label">具体例子 B</span><em>Rank→city，N=6：</em>固定 trace 类似“Sixth, Paris ...”。Rank “Sixth” 在 query 前已可见，因此不能把它当作检索之后才写入的结果；这里 carrier 改取 Paris 第一个 token 到该 item commit 的 tail。这样两个 grammar 都遵守同一原则：只测 query 之后出现的状态。</div></div>
 <div class="condition-list"><div class="condition-row"><strong>Primary：selected vs clean</strong><span>同一 seed、同一 token sequence、同一 carrier positions</span><span>回答 frozen bank 是否会改变 carrier；clean distance 按定义为 0</span></div><div class="condition-row"><strong>Secondary：selected vs 3×random</strong><span>random bank 逐层匹配 head 数，先在 seed 内取三者平均</span><span>回答变化是否特别归因于 selected identity，而不只是“关一批 heads 都会扰动”</span></div></div>
 <div class="figure-primer"><div><strong>Panel A · 直接 damage</strong>selected-mask carrier 离 clean carrier 多远；回答“关 bank 有没有传到 carrier”。</div><div><strong>Panel B · head-identity control</strong>selected 的距离减去三套 layer-matched random 的平均距离；回答“是否特别是这组 heads”。</div><div><strong>每个 panel 独立缩放</strong>横轴都是 RMS distance，但 panel 自己定标；点=均值，线=95% CI。</div></div>
-<figure><h3 class="figure-title">图 3a · 关掉 targeted heads 后 carrier hidden state 如何变化</h3>{effect_small_multiples_svg('Experiment 5.1 · targeted-head mask and carrier-state deformation', write_damage_panels)}<figcaption>两个 panel 都只属于 Experiment 5.1，不是 5.2 的 restoration。A 是 selected-mask 相对 clean 的总形变；B 是 selected 相对三套 random masks 的附加形变。Qwen 的 A/B 都稳定为正；Gemma 的 A 为正，但 B 接近 0，因此 Gemma 的 state damage 存在、bank identity specificity 较弱。</figcaption></figure>
+<figure><h3 class="figure-title">图 3a · 关掉 targeted heads 后 carrier hidden state 如何变化</h3>{effect_small_multiples_svg('Experiment 5.1 · targeted-head mask and carrier-state deformation', write_damage_panels)}<figcaption>两个 panel 都只属于 Experiment 5.1，不是 5.2 的 restoration。A 是 selected-mask 相对 clean 的总形变；B 是 selected 相对三套 random masks 的附加形变。在 exact-aligned 10-seed confirmation 中，两模型的 A/B 区间都完全高于 0。不同模型的 residual 尺度、bank width 与累计读取层数不同，不能用点的绝对距离排序机制强弱。</figcaption></figure>
 <p><strong>Confirmation 结果。</strong> Selected mask 的 carrier deformation 为 Qwen {ci(write_effects['Qwen3-8B']['selected_carrier_deformation'])}、Gemma {ci(write_effects['Gemma4-E4B']['selected_carrier_deformation'])}。Selected 相对三套 layer-matched random 的附加 deformation 为 Qwen {ci(write_effects['Qwen3-8B']['selected_carrier_deformation_specificity'])}、Gemma {ci(write_effects['Gemma4-E4B']['selected_carrier_deformation_specificity'])}。</p>
-<p><strong>如何读结果。</strong> 两模型的 selected→clean 数值都为正，所以 targeted-bank intervention 确实传到了 query 之后的 carrier。Qwen 的 selected−random 也清楚为正；Gemma 的均值只有 +0.009，区间跨 0，因此 Gemma 只能支持“这 6 枚 heads 被关掉时 carrier 会改变”，不能支持“只有这 6 枚 heads 才能写 carrier”。</p>
+<p><strong>如何读结果。</strong>两模型的 selected→clean 与 selected−random 都为正，所以冻结 targeted-bank intervention 会传到 query 之后的 carrier，而且该形变大于三套逐层 head-count matched random lesions。这个 identity specificity 支持“选中的 bank 与写入功能有关”，但不支持“只有这组 heads 能写入”或“其他 heads 完全冗余”。</p>
 <h4>5.1b NCC：carrier 不只是“变了”，是否朝错误 count centroid 移动</h4>
-<div class="experiment-frame"><div><span class="experiment-label">为什么重新分支运行</span>旧 NCC 虽然在拟合时区分 City→rank 与 Rank→city，却把两种 timing 放进同一个 20/10 panel、用二者平均 OOF 共同选层，并在最后汇总两个不可直接比较的 raw squared-distance margins。更重要的是，旧 City→rank carrier 直接读取 teacher-forced rank/count marker，本身已经包含要解码的显式 count token。新实验把 row panel、head bank、endpoint、layer selection 和 confirmation 统计全部按 timing 分开。</div><div><span class="experiment-label">City→rank 主 endpoint</span>使用 discovery atlas 中与 <code>adjacent_rank_after_city</code> 匹配的 P0 Top-K bank；读出点改为 <code>pre_marker_state</code>，即 rank marker 第一个 token 之前的精确 post-block state。注册的 secondary endpoint 是以该位置结尾的四-token suffix。全量 tokenizer audit 已验证两者均位于 retrieved city 之后、rank marker 之前，不含任何 marker/count token。</div><div><span class="experiment-label">Rank→city 主 endpoint</span>保留原冻结 rank-before bank 与 query anchor：Qwen 为 adjacent-rank-before / post-marker Top-128，Gemma 为 same-unit-rank-before / P0 Top-6；carrier 仍是 retrieved city 第一个 token 到 item commit 的 tail。</div><div><span class="experiment-label">Bank 与因果层</span>每个 timing 使用自己的 selected bank 与三套 selected-excluded、逐层 head 数完全匹配的 random banks。query head 在 L<em>h</em> 的输出最早只能影响更晚 token 的 L<em>h</em>+1 state，因此只在完整 bank 最高层之后读出：Qwen 两支均为 L35；Gemma 在 L30–L41 内对每个 endpoint 单独用 discovery grouped-OOF BA 选层。</div><div><span class="experiment-label">样本与冻结</span>仍使用固定 discovery seeds 1234–1253 与 confirmation seeds 1254–1263，但每支采用该 timing 下的 maximal eligible panel，所以 cohort 不强行配对：Qwen City→rank 19/10、Rank→city 19/9；Gemma 18/9、19/10。panel 与 bank 均不读取 outcome；confirmation 不参与 PCA、centroid 或 layer selection。由于旧 NCC 的 confirmation 已经被看过，本轮准确标为 registered-split retrospective extension，而不是新的 pristine prospective confirmation。</div><div><span class="experiment-label">可比较效应</span>每个 endpoint 仍用 <span class="formula">loss=m(clean,c)−m(mask,c)</span>；raw margin 只在该模型×timing 坐标系内报告。跨分支汇报时再除以 discovery grouped-OOF correct-centroid margin 的标准差，得到 SD units。即便 intervention contrast 为正，若 clean confirmation 的平均 correct-centroid margin 不为正，则不能把它解释为“损伤了正确 count geometry”；这个 readout-validity 是看到初始 contrast 后增加的解释资格审计，不冒充预注册 gate。</div></div>
+<div class="experiment-frame"><div><span class="experiment-label">为什么重新分支运行</span>旧 NCC 虽然在拟合时区分 City→rank 与 Rank→city，却把两种 timing 放进同一个 20/10 panel、用二者平均 OOF 共同选层，并在最后汇总两个不可直接比较的 raw squared-distance margins。更重要的是，旧 City→rank carrier 直接读取 teacher-forced rank/count marker，本身已经包含要解码的显式 count token。新实验把 row panel、head bank、endpoint、layer selection 和 confirmation 统计全部按 timing 分开。</div><div><span class="experiment-label">City→rank 主 endpoint</span>使用 discovery atlas 中与 <code>adjacent_rank_after_city</code> 匹配的 P0 Top-K bank；读出点改为 <code>pre_marker_state</code>，即 rank marker 第一个 token 之前的精确 post-block state。注册的 secondary endpoint 是以该位置结尾的四-token suffix。全量 tokenizer audit 已验证两者均位于 retrieved city 之后、rank marker 之前，不含任何 marker/count token。</div><div><span class="experiment-label">Rank→city 主 endpoint</span>保留原冻结 rank-before bank 与 query anchor：Qwen 为 adjacent-rank-before / post-marker Top-128，Gemma 为 same-unit-rank-before / P0 Top-6；carrier 仍是 retrieved city 第一个 token 到 item commit 的 tail。</div><div><span class="experiment-label">Bank 与因果层</span>每个 timing 使用自己的 selected bank 与三套 selected-excluded、逐层 head 数完全匹配的 random banks。query head 在 L<em>h</em> 的输出最早只能影响更晚 token 的 L<em>h</em>+1 state，因此只在完整 bank 最高层之后读出；layer/head identity 是允许的架构特异参数。</div><div><span class="experiment-label">样本与冻结</span>本版先取两模型自然 trace 的 exact intersection，再运行同一 semantic multiset：City→rank 为 9 discovery / 4 confirmation，Rank→city 为 10 / 5；Qwen 与 Gemma 的 <code>(phase, seed, N, timing, condition)</code> 完全相同。缺少的 seed 不用 outcome 补齐。panel 与 bank 均不读取本实验 outcome；confirmation 不参与 PCA、centroid 或 layer selection。由于旧 NCC 变体已被看过，本轮仍标为 registered-split retrospective extension，而不是 pristine prospective confirmation。</div><div><span class="experiment-label">可比较效应</span>每个 endpoint 仍用 <span class="formula">loss=m(clean,c)−m(mask,c)</span>；raw margin 只在该模型×timing 坐标系内报告。跨分支汇报时再除以 discovery grouped-OOF correct-centroid margin 的标准差，得到 SD units。即便 intervention contrast 为正，若 clean confirmation 的平均 correct-centroid margin 不为正，则不能把它解释为“损伤了正确 count geometry”；这个 readout-validity 是看到初始 contrast 后增加的解释资格审计，不冒充预注册 gate。</div></div>
 {stratified_ncc_bank_table}
 {stratified_ncc_result_table}
 <figure><h3 class="figure-title">图 3a-2 · Targeted-head mask 对 NCC count geometry 的影响</h3>{effect_small_multiples_svg('Experiment 5.1b · timing-stratified NCC carrier corruption', stratified_ncc_panels)}<figcaption>四行是模型×timing 的独立 primary estimand。Panel A 为 selected margin loss，Panel B 为 selected−三套 random mean；均以各自 discovery OOF margin SD 标准化。点=confirmation seed mean，线=95% seed-bootstrap CI。raw margins 不跨行合并。绿色需要同时满足有效 clean readout 与支持方向的完整区间；橙色表示区间触零、方向不支持或 readout validity 失败。</figcaption></figure>
-<p><strong>City→rank：更好的位置已经找到，但结果仍是 null。</strong>Qwen 的 exact pre-marker clean decoder 在 discovery/confirmation 为 1.000/0.800；Gemma 为 0.560/0.556，说明该位置并非“早到尚无 count 信息”。然而 Qwen selected loss / specificity 为 {ci(stratified_primary['Qwen3-8B']['rank_after_city']['standardized_primary_estimand'], 4)} / {ci(stratified_primary['Qwen3-8B']['rank_after_city']['standardized_specificity_estimand'], 4)} SD，Gemma 为 {ci(stratified_primary['Gemma4-E4B']['rank_after_city']['standardized_primary_estimand'], 4)} / {ci(stratified_primary['Gemma4-E4B']['rank_after_city']['standardized_specificity_estimand'], 4)} SD，均为负方向且区间跨 0。四-token suffix secondary 在两模型也同样不支持 damage。因此旧 City→rank 负项不能再归因于“marker endpoint 泄露导致符号被冲掉”；在无 marker 的预测 state 上仍未观察到 selected-bank-specific NCC 损伤。</p>
-<p><strong>Rank→city：两模型都出现正方向，但证据资格不同。</strong>Qwen raw loss / specificity 为 {float(stratified_primary['Qwen3-8B']['rank_before_city']['raw_primary_estimand']['mean_effect']):+.2f} / {float(stratified_primary['Qwen3-8B']['rank_before_city']['raw_specificity_estimand']['mean_effect']):+.2f}，标准化后为 {ci(stratified_primary['Qwen3-8B']['rank_before_city']['standardized_primary_estimand'], 4)} / {ci(stratified_primary['Qwen3-8B']['rank_before_city']['standardized_specificity_estimand'], 4)} SD；但 clean confirmation 仅 1/9 exact、mean correct-centroid margin={float(stratified_primary['Qwen3-8B']['rank_before_city']['readout_validity']['clean_confirmation_mean_correct_centroid_margin']):+.1f}。因此 Qwen 的 clean confirmation readout 无效，该正 shift 不能解释成已确认的 correct-count damage。Gemma raw 为 {float(stratified_primary['Gemma4-E4B']['rank_before_city']['raw_primary_estimand']['mean_effect']):+.2f} / {float(stratified_primary['Gemma4-E4B']['rank_before_city']['raw_specificity_estimand']['mean_effect']):+.2f}，标准化后只有 {ci(stratified_primary['Gemma4-E4B']['rank_before_city']['standardized_primary_estimand'], 4)} / {ci(stratified_primary['Gemma4-E4B']['rank_before_city']['standardized_specificity_estimand'], 4)} SD；clean 4/10 exact、mean margin={float(stratified_primary['Gemma4-E4B']['rank_before_city']['readout_validity']['clean_confirmation_mean_correct_centroid_margin']):+.1f}，readout 有效，但两个区间均跨 0，只是 directional-specific evidence，尚非 interval-confirmed result。</p>
-<p><strong>Qwen/Gemma 对应性审计。</strong>两模型现在在设计上真正对应：各 timing 独立 panel、独立匹配 bank、独立 discovery 选层、完整 bank 均已因果可达、同一五臂 clean/selected/3×random factorial，并用同一 discovery-only SD 规则标准化。它们也在 City→rank 上一致为 null，在 Rank→city 上一致呈正 raw 方向。它们仍不是同剂量或 paired-cohort 的模型比较：Qwen/Gemma bank 分别为 128/6 heads，confirmation seed 集不同，且没有 model×mask interaction。值得注意的是，两个 timing bank 仍重合 Qwen {int(stratified_ncc_inputs['Qwen3-8B']['selected_bank_overlap']['head_count'])}/128、Gemma {int(stratified_ncc_inputs['Gemma4-E4B']['selected_bank_overlap']['head_count'])}/6；Gemma 的弱效应不能简单归因于“选了完全错误的一组 heads”。</p>
+<p><strong>City→rank：Qwen 得到小的 directional-specific geometry damage；Gemma clean readout 失效。</strong>Qwen 的 exact pre-marker endpoint 在 L{int(stratified_primary['Qwen3-8B']['rank_after_city']['selected_layer'])} 上有有效 clean confirmation readout（balanced accuracy={float(stratified_primary['Qwen3-8B']['rank_after_city']['readout_validity']['clean_confirmation_balanced_accuracy']):.3f}，mean correct-centroid margin={float(stratified_primary['Qwen3-8B']['rank_after_city']['readout_validity']['clean_confirmation_mean_correct_centroid_margin']):+.1f}）。Selected loss / specificity 为 {ci(stratified_primary['Qwen3-8B']['rank_after_city']['standardized_primary_estimand'], 4)} / {ci(stratified_primary['Qwen3-8B']['rank_after_city']['standardized_specificity_estimand'], 4)} SD：specificity interval 为正，但 selected-loss interval 跨 0，所以只能称 directional-specific，不能称两道 interval gate 均确认。Gemma 在 L{int(stratified_primary['Gemma4-E4B']['rank_after_city']['selected_layer'])} 的 clean balanced accuracy={float(stratified_primary['Gemma4-E4B']['rank_after_city']['readout_validity']['clean_confirmation_balanced_accuracy']):.3f}，但 mean correct-centroid margin={float(stratified_primary['Gemma4-E4B']['rank_after_city']['readout_validity']['clean_confirmation_mean_correct_centroid_margin']):+.1f}&lt;0；其 {ci(stratified_primary['Gemma4-E4B']['rank_after_city']['standardized_primary_estimand'], 4)} / {ci(stratified_primary['Gemma4-E4B']['rank_after_city']['standardized_specificity_estimand'], 4)} SD shift 不能解释成正确 count geometry 被损伤。四-token suffix secondary 没有提供比这更强的 two-gate 结论。</p>
+<p><strong>Rank→city：两模型的 confirmation correct-centroid readout 都不具解释资格。</strong>Qwen L{int(stratified_primary['Qwen3-8B']['rank_before_city']['selected_layer'])} 的 standardized loss / specificity 为 {ci(stratified_primary['Qwen3-8B']['rank_before_city']['standardized_primary_estimand'], 4)} / {ci(stratified_primary['Qwen3-8B']['rank_before_city']['standardized_specificity_estimand'], 4)} SD，两个 interval 虽都为正，但 clean balanced accuracy={float(stratified_primary['Qwen3-8B']['rank_before_city']['readout_validity']['clean_confirmation_balanced_accuracy']):.3f}、mean margin={float(stratified_primary['Qwen3-8B']['rank_before_city']['readout_validity']['clean_confirmation_mean_correct_centroid_margin']):+.1f}，readout validity 失败。Gemma L{int(stratified_primary['Gemma4-E4B']['rank_before_city']['selected_layer'])} 的 shift 为 {ci(stratified_primary['Gemma4-E4B']['rank_before_city']['standardized_primary_estimand'], 4)} / {ci(stratified_primary['Gemma4-E4B']['rank_before_city']['standardized_specificity_estimand'], 4)} SD；clean balanced accuracy={float(stratified_primary['Gemma4-E4B']['rank_before_city']['readout_validity']['clean_confirmation_balanced_accuracy']):.3f} 但 mean margin={float(stratified_primary['Gemma4-E4B']['rank_before_city']['readout_validity']['clean_confirmation_mean_correct_centroid_margin']):+.1f}&lt;0，同样不能把正均值写成 confirmed geometry damage。</p>
+<p><strong>Qwen/Gemma 对应性审计。</strong>两模型现在在设计上真正对应：各 timing 独立 exact-common panel、独立匹配 bank、独立 discovery 选层、完整 bank 均已因果可达、同一五臂 clean/selected/3×random factorial，并用同一 discovery-only SD 规则标准化。结果并不要求两模型或两种 grammar 同号：四支中只有 Qwen City→rank 同时通过 clean-readout validity 并出现 positive specificity interval；其余三支因 clean correct-centroid margin 为负而不可作 NCC damage 解释。这种异质性说明 NCC 是依赖 endpoint/层/坐标系的诊断，不是跨模型统一 counter code。两模型仍不是同剂量比较：Qwen/Gemma bank 分别为 128/6 heads，且没有 model×mask interaction；两个 timing bank 的历史重合度为 Qwen {int(stratified_ncc_inputs['Qwen3-8B']['selected_bank_overlap']['head_count'])}/128、Gemma {int(stratified_ncc_inputs['Gemma4-E4B']['selected_bank_overlap']['head_count'])}/6，该元数据只描述 bank overlap，不改变本轮 exact-common outcome。</p>
 <h4>5.1c 直接 count-output margin：绕过 NCC centroid，检验最终答案分布</h4>
 <div class="experiment-frame"><div><span class="experiment-label">为什么再加一个 margin</span>NCC 要先假设某层 hidden state 的欧氏 centroid geometry 是模型实际使用的 count code；clean decoder 若无效，或有效信息位于非线性/非欧氏方向，真实的输出变化也可能被 NCC 漏掉。直接 output margin 不拟合 PCA、decoder、centroid，也不再选择读出层，而是直接问局部 retrieval lesion 是否持续到最终 count distribution。</div><div><span class="experiment-label">Primary endpoint</span>在冻结 trace 的最终 <code>Total:</code> answer query 上，对候选答案字符串 1,…,10 计算完整 autoregressive sequence log probability：<span class="formula">M<sub>out</sub>=log p(y=c|prefix)−max<sub>j≠c</sub> log p(y=j|prefix)<br>Selected loss=M<sub>clean</sub>−M<sub>selected</sub><br>Specificity=Selected loss−mean<sub>r=1..3</sub>(Random-r loss)</span>正 margin 表示正确 count 的完整序列分数高于最强错误候选；正 loss 表示 intervention 削弱这一优势。</div><div><span class="experiment-label">干预仍然局部</span>五个 arms 与 timing-matched NCC 完全对应：clean、selected bank、三套逐层匹配 random banks。Mask 只在冻结的最后一次 <em>N−1</em>→<em>N</em> retrieval query 执行；随后 answer-candidate tokens 在没有 hook 的状态下计分。因此测到的是该精确 lesion 是否持久影响最终答案，不是直接在 answer token 上动手。</div><div><span class="experiment-label">三个判据</span>先要求 clean mean margin&gt;0 且 candidate accuracy&gt;chance；方向性证据再要求 selected loss&gt;0 且 specificity&gt;0；最强的 interval-confirmed 判据要求这两个 confirmation seed-bootstrap 95% CI 的下界都&gt;0。四个模型×timing 分支分别报告，不合并 raw margins。</div><div><span class="experiment-label">注册边界</span>endpoint、五臂 contrast 与 gate 都在查看本轮 logit-margin outcome 前冻结；但沿用的 confirmation split 已在 NCC 分析中看过，所以这是 <em>registered existing-split retrospective extension</em>，不是 pristine prospective confirmation。模型间也没有 model×mask interaction，不能把 Gemma 与 Qwen 的数值差直接当作已检验的模型差异。</div></div>
 <p class="term-note"><strong>证据层级。</strong>5.1a 的 carrier RMS deformation 才是“局部 hidden state 是否被改变”的主终点；5.1c 是更下游的 secondary functional diagnostic，不是确认 state change 的必要条件。最终答案还会受后续层重算、冗余通路、answer-time retrieval、候选 tokenization 与输出校准影响，所以 output-margin null 不能否定 hidden-state change，output-margin positive 也不能把全部效应归因于一个局部 count code。</p>
 {direct_margin_result_table}
-<p class="term-note">† <em>Directional-specific</em> 表示 development/confirmation 中 loss 与 specificity 方向均为正，且 confirmation specificity CI&gt;0；两支 Gemma 的 selected-loss CI 仍跨 0，因此不是 two-gate interval confirmation。</p>
-<figure><h3 class="figure-title">图 3a-3 · Retrieval-query mask 对最终 count-output margin 的影响</h3>{effect_small_multiples_svg('Experiment 5.1c · direct final count-output margin', direct_margin_panels)}<figcaption>四行仍是模型×timing 的独立 primary estimands。Panel A 是 clean−selected 的最终答案 sequence-log-prob margin loss；Panel B 再减去三套 random-mask losses 的均值。点=confirmation seed mean，线=95% seed-bootstrap CI。绿色只表示该单项 CI 完全高于 0；完整 interval-confirmed 结论要求同一行 A/B 两项同时为绿，本次没有任何一行满足。</figcaption></figure>
+<p class="term-note">† <em>Directional-specific</em> 表示 clean readout 有效，且 confirmation 的 selected loss 与 selected−random specificity 均值都为正；它不自动要求 discovery 同号或两条 confirmation CI 都排除 0。<em>Interval-confirmed</em> 才要求同一行的两条 confirmation CI 下界都大于 0。各 timing 的 discovery/confirmation 值在表内分开显示。</p>
+<figure><h3 class="figure-title">图 3a-3 · Retrieval-query mask 对最终 count-output margin 的影响</h3>{effect_small_multiples_svg('Experiment 5.1c · direct final count-output margin', direct_margin_panels)}<figcaption>四行仍是模型×timing 的独立 primary estimands。Panel A 是 clean−selected 的最终答案 sequence-log-prob margin loss；Panel B 再减去三套 random-mask losses 的均值。点=confirmation seed mean，线=95% seed-bootstrap CI。绿色只表示该单项 CI 完全高于 0；只有 Gemma City→rank 同时通过 A/B 两条 interval gate。其余行必须按方向、区间与 discovery 对照分别解释。</figcaption></figure>
 <p><strong>先看 readout 是否可信。</strong>四支 clean candidate accuracy 都是 1.000，confirmation clean mean margin 为 Qwen City→rank {float(direct_margin_primary['Qwen3-8B']['rank_after_city']['confirmation']['clean_mean_margin']):+.3f}、Rank→city {float(direct_margin_primary['Qwen3-8B']['rank_before_city']['confirmation']['clean_mean_margin']):+.3f}，Gemma 分别为 {float(direct_margin_primary['Gemma4-E4B']['rank_after_city']['confirmation']['clean_mean_margin']):+.3f} 与 {float(direct_margin_primary['Gemma4-E4B']['rank_before_city']['confirmation']['clean_mean_margin']):+.3f}。因此四个 primary 都通过 readout-validity gate；这里不存在 Qwen Rank→city NCC 那种 clean geometry 已经把正确 count 放在错误侧的问题。</p>
-<p><strong>Qwen：直接答案读出有效，但没有 selected-bank-specific damage。</strong>City→rank 的 confirmation selected loss / specificity 为 {ci(direct_margin_primary['Qwen3-8B']['rank_after_city']['confirmation']['selected_margin_loss'])} / {ci(direct_margin_primary['Qwen3-8B']['rank_after_city']['confirmation']['selected_vs_random_specificity'])}；Rank→city 为 {ci(direct_margin_primary['Qwen3-8B']['rank_before_city']['confirmation']['selected_margin_loss'])} / {ci(direct_margin_primary['Qwen3-8B']['rank_before_city']['confirmation']['selected_vs_random_specificity'])}。两支 selected loss 均值虽略为正，但 confirmation specificity 都为负；Rank→city 的 discovery specificity 还是正值，到了 confirmation 反向，因而不能称为复现。</p>
-<p><strong>Gemma：最终答案 margin 出现小的 selected-specific signal。</strong>City→rank 的 selected loss / specificity 为 {ci(direct_margin_primary['Gemma4-E4B']['rank_after_city']['confirmation']['selected_margin_loss'])} / {ci(direct_margin_primary['Gemma4-E4B']['rank_after_city']['confirmation']['selected_vs_random_specificity'])}；Rank→city 为 {ci(direct_margin_primary['Gemma4-E4B']['rank_before_city']['confirmation']['selected_margin_loss'])} / {ci(direct_margin_primary['Gemma4-E4B']['rank_before_city']['confirmation']['selected_vs_random_specificity'])}。两支在 discovery 与 confirmation 都保持 selected loss&gt;0、specificity&gt;0，而且 specificity 的 confirmation CI 均完全高于 0；但 selected-loss CI 都跨 0。因此可写成“跨 split 的 directional-specific evidence”，不能升级成“两道 interval gate 均确认”。按 clean margin 归一化，selected loss 约为 {100*float(direct_margin_primary['Gemma4-E4B']['rank_after_city']['confirmation']['selected_margin_loss']['mean_effect'])/float(direct_margin_primary['Gemma4-E4B']['rank_after_city']['confirmation']['clean_mean_margin']):.1f}% 与 {100*float(direct_margin_primary['Gemma4-E4B']['rank_before_city']['confirmation']['selected_margin_loss']['mean_effect'])/float(direct_margin_primary['Gemma4-E4B']['rank_before_city']['confirmation']['clean_mean_margin']):.1f}%，效应很小但方向与最终任务对齐。</p>
+<p><strong>Qwen：City→rank 只有 confirmation 方向性，Rank→city 没有 specificity。</strong>City→rank 的 confirmation selected loss / specificity 为 {ci(direct_margin_primary['Qwen3-8B']['rank_after_city']['confirmation']['selected_margin_loss'])} / {ci(direct_margin_primary['Qwen3-8B']['rank_after_city']['confirmation']['selected_vs_random_specificity'])}；两者均值为正但区间都跨 0，而且 discovery specificity 为 {float(direct_margin_primary['Qwen3-8B']['rank_after_city']['development']['selected_vs_random_specificity']['mean_effect']):+.3f}，并未跨 split 同号。Rank→city 为 {ci(direct_margin_primary['Qwen3-8B']['rank_before_city']['confirmation']['selected_margin_loss'])} / {ci(direct_margin_primary['Qwen3-8B']['rank_before_city']['confirmation']['selected_vs_random_specificity'])}，confirmation specificity 为负。因此 Qwen 的这项 downstream diagnostic 不能承担稳定 selected-specific output effect 的主张。</p>
+<p><strong>Gemma：City→rank 通过两条 interval gate；Rank→city 只有 directional-specific support。</strong>City→rank 的 selected loss / specificity 为 {ci(direct_margin_primary['Gemma4-E4B']['rank_after_city']['confirmation']['selected_margin_loss'])} / {ci(direct_margin_primary['Gemma4-E4B']['rank_after_city']['confirmation']['selected_vs_random_specificity'])}，两条 CI 下界都大于 0，是本轮唯一 interval-confirmed 分支。Rank→city 为 {ci(direct_margin_primary['Gemma4-E4B']['rank_before_city']['confirmation']['selected_margin_loss'])} / {ci(direct_margin_primary['Gemma4-E4B']['rank_before_city']['confirmation']['selected_vs_random_specificity'])}：specificity interval 为正，但 selected-loss CI 仍跨 0。按 clean margin 归一化，两支 selected loss 约为 {100*float(direct_margin_primary['Gemma4-E4B']['rank_after_city']['confirmation']['selected_margin_loss']['mean_effect'])/float(direct_margin_primary['Gemma4-E4B']['rank_after_city']['confirmation']['clean_mean_margin']):.1f}% 与 {100*float(direct_margin_primary['Gemma4-E4B']['rank_before_city']['confirmation']['selected_margin_loss']['mean_effect'])/float(direct_margin_primary['Gemma4-E4B']['rank_before_city']['confirmation']['clean_mean_margin']):.1f}%。这说明局部 retrieval lesion 可在 Gemma 的最终答案分布中留下小而可测的净效应；由于沿用已看过 NCC 的 split，它仍是 registered existing-split extension，不是 pristine prospective confirmation。</p>
 <p><strong>City→rank 的局部 marker secondary 没有提供更强结论。</strong>Qwen 的 clean local sequence margin={float(direct_margin_local['Qwen3-8B']['confirmation']['clean_mean_margin']):+.3f}、accuracy={float(direct_margin_local['Qwen3-8B']['confirmation']['clean_accuracy']):.3f}，readout validity 失败；marker 候选的表面 tokenization/长度差使其正 specificity 不可解释。Gemma 的 local readout 有效（clean margin={float(direct_margin_local['Gemma4-E4B']['confirmation']['clean_mean_margin']):+.3f}、accuracy={float(direct_margin_local['Gemma4-E4B']['confirmation']['clean_accuracy']):.3f}），但 selected loss / specificity 为 {ci(direct_margin_local['Gemma4-E4B']['confirmation']['selected_margin_loss'])} / {ci(direct_margin_local['Gemma4-E4B']['confirmation']['selected_vs_random_specificity'])}，均不支持 damage。也就是说，Gemma 的阳性更明确地出现在最终答案 margin，而不是紧邻 City→rank marker 的这个特定表面读出；这不等于已经定位了中间的完整中介路径。</p>
 <div class="qualification"><strong>NCC 与 output margin 并不矛盾。</strong>RMS norm 证明 hidden state 被 intervention 改变；NCC 问它是否沿一个 discovery-fitted centroid geometry 移动；output margin 则记录经过全部后续计算后的净答案效应。Gemma 的组合结果至少说明 state change 与弱 downstream signal 可以并存；但仅凭当前实验无法区分“NCC 没捕获到模型使用的方向”“count code 在后层被重新编码”与“其他通路补偿后只留下小净效应”，更不能据此宣称一个唯一 count code。</div>
 <details class="paper-appendix"><summary>历史 frozen pooled NCC 与事后 layer×timing 诊断（仅用于复现旧 headline）</summary>
-<div class="experiment-frame"><div><span class="experiment-label">为什么补 NCC</span>RMS distance 只回答 masked state 离 clean state 多远；它不知道移动方向是否与 running count 有关。Nearest-centroid classifier（NCC）把 discovery clean carrier 的 count geometry 冻结下来，再问 confirmation state 更靠近哪个 count centroid。</div><div><span class="experiment-label">训练样本</span>对 20 discovery seeds 的每个已完成 occurrence 都取 grammar carrier vector。City→rank 与 rank→city 分开拟合；每个 stratum 内先 standardize，再 PCA-16，最后计算每个 count 的 centroid。五折按 seed 分组，任何同一 seed 的 occurrence 都不会同时出现在 train/test。</div><div><span class="experiment-label">冻结的层选择</span>原协议在每层分别计算两个 grammar strata 的 grouped-OOF balanced accuracy，再取两者平均。Discovery 最大层被冻结：Qwen L{int(ncc_supplement['Qwen3-8B']['selected_layer'])}，Gemma L{int(ncc_supplement['Gemma4-E4B']['selected_layer'])}。10 confirmation seeds 没有参与原 PCA、centroid 或 layer selection；下面新增的逐层检查明确标为事后诊断，不能替换这项 frozen primary。</div><div><span class="experiment-label">Confirmation 条件</span>每条 confirmation trace 在同一 frozen carrier 上比较 clean、selected bank mask 与三套逐层匹配 head 数的 random masks。所有条件共享完全相同的 teacher-forced tokens 与 positions；区别只在注册 retrieval query 的 pre-O head output 是否被清零。</div><div><span class="experiment-label">Correct-centroid margin</span><span class="formula">m(z,c)=min<sub>j≠c</sub>||z−μ<sub>j</sub>||²−||z−μ<sub>c</sub>||²<br>Margin loss = m(clean,c)−m(mask,c)</span>正 margin 表示正确 centroid 比任何错误 centroid 更近；正 loss 表示 mask 把 state 推离正确 count geometry。Specificity 再减去三套 random-mask loss 的 seed 内平均。</div><div><span class="experiment-label">重要尺度限制</span>City→rank 与 rank→city 使用各自独立的 standardization、PCA 与 centroids，因此 raw squared-distance margins 不具有天然相同的尺度。原 pooled mean 保留用于复现冻结分析，但应把分层结果作为主要诊断，不能把 pooled 数值当作跨 timing 或跨模型的校准 effect size。</div></div>
+<div class="experiment-frame"><div><span class="experiment-label">为什么补 NCC</span>RMS distance 只回答 masked state 离 clean state 多远；它不知道移动方向是否与 running count 有关。Nearest-centroid classifier（NCC）把 discovery clean carrier 的 count geometry 冻结下来，再问 confirmation state 更靠近哪个 count centroid。</div><div><span class="experiment-label">训练样本</span>City→rank 使用两模型共同可用的 9 discovery seeds，Rank→city 使用共同可用的 10 seeds；每个已完成 occurrence 都取 grammar carrier vector。每个 stratum 内先 standardize，再 PCA-16，最后计算各 count centroid。交叉验证按 seed 分组，任何同一 seed 的 occurrence 都不会同时出现在 train/test。</div><div><span class="experiment-label">冻结的层选择</span>每个模型×timing×endpoint 只在对应 discovery common support 上计算 grouped-OOF balanced accuracy并冻结层；4/5 个 confirmation seeds 不参与 PCA、centroid 或 layer selection。旧 pooled NCC 与逐层诊断只留在 appendix，不替换本版 exact-common primary。</div><div><span class="experiment-label">Confirmation 条件</span>每条 confirmation trace 在同一 frozen carrier 上比较 clean、selected bank mask 与三套逐层匹配 head 数的 random masks。所有条件共享完全相同的 teacher-forced tokens 与 positions；区别只在注册 retrieval query 的 pre-O head output 是否被清零。</div><div><span class="experiment-label">Correct-centroid margin</span><span class="formula">m(z,c)=min<sub>j≠c</sub>||z−μ<sub>j</sub>||²−||z−μ<sub>c</sub>||²<br>Margin loss = m(clean,c)−m(mask,c)</span>正 margin 表示正确 centroid 比任何错误 centroid 更近；正 loss 表示 mask 把 state 推离正确 count geometry。Specificity 再减去三套 random-mask loss 的 seed 内平均。</div><div><span class="experiment-label">重要尺度限制</span>City→rank 与 Rank→city 使用各自独立的 standardization、PCA 与 centroids，因此 raw squared-distance margins 不具有天然相同尺度；不同模型的 bank size 也不同。正文只作模型内 treatment−control 推断，不按条长比较模型强弱。</div></div>
 <h4>冻结主分析：保留结果，但收窄解释</h4>
 {ncc_result_table}
 <figure><h3 class="figure-title">历史图 H5.1 · 原 pooled NCC margin</h3>{effect_small_multiples_svg('Historical Experiment 5.1b · pooled NCC carrier corruption', ncc_panels)}<figcaption>这是原冻结层与原 pooled estimand，只用于复现旧 headline。Panel A 是 clean→mask correct-centroid margin loss；Panel B 再减去三套 layer-matched random masks 的平均 loss。它不提供 Qwen–Gemma interaction test，也不校准两个 grammar-specific NCC 坐标系的 margin 尺度。</figcaption></figure>
@@ -3453,7 +4119,7 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 <p><strong>为什么最终变成 −16.58。</strong>在 frozen L34，rank→city selected loss 仍是 {float(gemma_ncc_l34_before['selected_margin_loss_mean']):+.2f}、specificity {float(gemma_ncc_l34_before['selected_vs_random_specificity_mean']):+.2f}；city→rank 却是 selected loss {float(gemma_ncc_l34_after['selected_margin_loss_mean']):+.2f}、specificity {float(gemma_ncc_l34_after['selected_vs_random_specificity_mean']):+.2f}。后者的 clean margin 均值约 {float(gemma_ncc_l34_after['clean_margin_mean']):.0f}，前者约 {float(gemma_ncc_l34_before['clean_margin_mean']):.0f}。两个独立 NCC 坐标系被等权汇总后，高尺度、晚层、可完美解码的 city→rank 项把 pooled mean 拉成负值。这更像显式 marker/grammar readout 与 layer pooling 的组合，而不是“Gemma 没有 count state”。</p>
 <div class="plain-language"><strong>最简单的读法：</strong>Gemma 的 frozen L34 pooled NCC 没有确认 full Top-6 会损伤 late count geometry；但原始逐层数据也不支持“Gemma 完全没有 NCC effect”。更精确的定位是：L17 targeted heads 对 L18–L28 的 rank→city geometry 有探索性的选择性损伤，随后该 geometry 在 L29 附近被重写、修复或换成晚层 marker-dominated representation。</div>
 </details>
-<div class="section-conclusion"><strong>Experiment 5.1 结论。</strong>主结论来自 RMS hidden-state distance：retrieval lesion 会改变 query 之后的 carrier；这个结论不依赖最终 count 是否翻转。修复 marker 泄露、timing pooling 与因果层可达性后，完整 frozen bank→late correct-count NCC chain 在两模型仍未确认。更下游的 final count-output margin 中，四支 clean readout 全部有效，Qwen 两支没有 selected-bank specificity；Gemma 两支出现小幅、跨 discovery/confirmation 同方向的 selected-specific reduction，且 specificity CI 高于 0，但 selected-loss CI 仍跨 0，所以没有任何分支通过两道 interval gate。它说明局部 state change 在 Gemma 的最终分布中留下弱净效应，不把该净效应等同于局部 state 的全部功能。原 pooled headline 的符号差异来自 timing/layer/scale mixture，只保留为历史复现。</div>
+<div class="section-conclusion"><strong>Experiment 5.1 结论。</strong>主结论来自 RMS hidden-state distance：retrieval lesion 会改变 query 之后的 carrier；这个结论不依赖最终 count 是否翻转。修复 marker 泄露、timing pooling 与因果层可达性后，完整 frozen bank→late correct-count NCC chain 仍受 readout validity/interval 稳定性限制。更下游的 final count-output margin 中，四支 clean readout 全部有效：Qwen 未得到跨 split 稳定的 selected-specific output effect；Gemma City→rank 通过两条 confirmation interval gate，Rank→city 只得到 directional-specific support。这个小净效应支持局部 lesion 可传播到最终分布，但不把它等同于局部 state 的全部功能或唯一通路。原 pooled headline 只保留为历史复现。</div>
 
 <h3>5.2 在同一 query damage 下，恢复 clean carrier 能否救回 item-end commit</h3>
 <div class="experiment-frame"><div><span class="experiment-label">要检验的箭头</span><strong>Grammar carrier state → later commit state。</strong>5.1 只说明 carrier 会随 retrieval damage 改变，仍可能只是旁观者。5.2 保持 selected head mask 不变，只操纵 carrier，观察更晚的 commit 是否被救回。</div><div><span class="experiment-label">三个必要条件</span>Clean forward 提供 clean carrier 与 clean commit；selected-mask forward 提供 damaged baseline；selected-mask + clean-carrier clamp 是主 restoration。后两臂使用同一 query mask、visible tokens 和 carrier positions，唯一改变是否把 clean carrier hidden vectors 写回。</div><div><span class="experiment-label">Clamp 的位置和层</span>Qwen 在 L19–L34、Gemma 在 L16–L40，把 clean carrier vectors 写回相同 carrier token positions；即从 source layer 一直 clamp 到倒数第二个 block。最后一层不再 clamp，而是在 Qwen L35 / Gemma L41 读取 boundary commit。逐层 cumulative clamp 回答“在 head damage 已存在时，维持正确 carrier 是否足以让下游 commit 恢复”，不回答“只 patch 哪一层就足够”。</div><div><span class="experiment-label">Commit 怎么读</span>Boundary commit 是 parser/causal compiler 注册的 <code>post_update_commit_state</code> tokens，严格位于 terminal item 内、answer query 之前。只在最后一个 post-block layer 计算它到 clean boundary 的 full-vector RMS distance。</div><div><span class="experiment-label">每 seed 的读数</span><span class="formula">D<sup>a</sup><sub>commit</sub> = ||H<sup>a,last</sup><sub>boundary</sub> − H<sup>clean,last</sup><sub>boundary</sub>||<sub>F</sub> / √(b·d)<br>Clean-carrier recovery = D<sup>selected</sup><sub>commit</sub> − D<sup>selected+clean-carrier</sup><sub>commit</sub></span><em>b</em> 是 boundary token 数。正的 recovery 表示：在同一 selected-head damage 下，补回 clean carrier 使 commit 更接近 clean reference。</div><div><span class="experiment-label">完整例子</span>仍用 <em>city→rank, N=6</em>。先运行 clean arm，保存 “sixth” carrier 在各层的 vectors 和句末 commit。第二个 arm 在 5→6 query 关闭 selected heads，得到偏离 clean 的 commit。第三个 arm 保持同一 mask，但在每一层把 clean “sixth” vectors 写回 “sixth” positions。若 selected commit distance=0.80，restored distance=0.30，则 recovery=0.50。</div></div>
@@ -3468,25 +4134,25 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 
 <h3>5.3 Commit state 是否决定下一次 targeted query 读向哪里</h3>
 <p class="lead">5.1–5.2 已经说明一次 retrieval 会写出 carrier，再提交成 item-end state；5.3 换一个问题：<strong>这个 item-end state 会不会成为下一轮 retrieval 的控制输入？</strong> 若会，trace 中就形成 READ→WRITE→COMMIT→NEXT READ 的 recurrent loop。</p>
-<div class="experiment-frame"><div><span class="experiment-label">实验目的</span>只改“已完成 item <em>k</em>”处的 commit hidden state，随后观察紧接着的 targeted query 是否改读另一个 prompt record。下一 query 的 token、prompt records 和 targeted head bank 均不改。</div><div><span class="experiment-label">什么是一个样本</span>一个 seed 的完整 trace 是一个独立样本。每个 seed 内预先编译 6 个 same-trajectory donor–receiver pairs：signed offset <em>d</em>=−3,−2,−1,+1,+2,+3；这些 pairs 和五个 conditions 都是同一 seed 内的配对重复，不当作新的独立 seeds。</div><div><span class="experiment-label">角色</span>Receiver 是要被改写的 completed-item commit；donor 是同一 trace 中相隔 <em>d</em> 个 occurrences 的 commit。Qwen 在 L19、Gemma 在 L16 读取 donor 的 single-token post-block state并写到 receiver 的同层位置。正文 primary 只用 outcome-blind 冻结的 <em>d</em>=±1；±2/±3 是预注册 dose robustness。</div><div><span class="experiment-label">五个条件</span>Clean 保留自然轨迹；self patch 控制 hook；full donor patch 移植完整 commit vector；count-subspace transplant 只移植 frozen linear count component；orthogonal patch 提供同范数的非该 subspace 扰动。下表把每个 arm 的因果问题逐项列出。</div><div><span class="experiment-label">主终点</span><span class="formula">Y = Σ<sub>h∈bank</sub>A<sub>h</sub>(donor-successor record) − Σ<sub>h∈bank</sub>A<sub>h</sub>(receiver-successor record)<br>Direct effect = Y<sub>full donor</sub> − Y<sub>self</sub><br>Local specificity = Y<sub>full donor</sub> − Y<sub>orthogonal</sub></span>Y&gt;0 表示下一 query 的 bank-level attention 更偏向 donor 所对应的下一条 record。</div><div><span class="experiment-label">简单例子</span>Receiver 表示“刚完成第 4 条”，自然下一 query 应读 record 5；donor 表示“刚完成第 5 条”，其 successor 是 record 6。若只把 donor 的 commit hidden state 写到 receiver，下一 query 对 record 6 相对 record 5 的 attention 增加，就说明 commit 在控制下一轮 routing。可见文本中没有额外写入数字 5，也没有 patch query 本身。</div></div>
+<div class="experiment-frame"><div><span class="experiment-label">实验目的</span>只改“已完成 item <em>k</em>”处的 commit hidden state，随后观察紧接着的 targeted query 是否改读另一个 prompt record。下一 query 的 token、prompt records 和 targeted head bank 均不改。</div><div><span class="experiment-label">什么是一个样本</span>一个 seed 的完整 trace 是一个独立样本。每个 seed 内 outcome-blind 地编译两个 same-trajectory 相邻 pairs：signed offset <em>d</em>=−1 与 +1；五个 conditions 都是 seed 内配对重复，不当作新的独立 seeds。Discovery 为 20 seeds×2 pairs，confirmation 为 10 seeds×2 pairs；Qwen/Gemma 的 <code>(phase, seed, gold_count, receiver, donor, d, condition)</code> 多重集完全相同。</div><div><span class="experiment-label">角色</span>Receiver 是要被改写的 completed-item commit；donor 是同一 trace 中相邻 occurrence 的 commit。Qwen 在 L19、Gemma 在 L16 读取 donor 的 single-token post-block state并写到 receiver 的同层位置。层是架构特异参数；semantic pairs 不是。</div><div><span class="experiment-label">五个条件</span>Clean 保留自然轨迹；self patch 控制 hook；full donor patch 移植完整 commit vector；count-subspace transplant 只移植 frozen linear count component；orthogonal patch 提供同范数的非该 subspace 扰动。下表把每个 arm 的因果问题逐项列出。</div><div><span class="experiment-label">主终点</span><span class="formula">Y = Σ<sub>h∈bank</sub>A<sub>h</sub>(donor-successor record) − Σ<sub>h∈bank</sub>A<sub>h</sub>(receiver-successor record)<br>Direct effect = Y<sub>full donor</sub> − Y<sub>self</sub><br>Local specificity = Y<sub>full donor</sub> − Y<sub>orthogonal</sub></span>Y&gt;0 表示下一 query 的 bank-level attention 更偏向 donor 所对应的下一条 record。</div><div><span class="experiment-label">简单例子</span>Receiver 表示“刚完成第 4 条”，自然下一 query 应读 record 5；donor 表示“刚完成第 5 条”，其 successor 是 record 6。若只把 donor 的 commit hidden state 写到 receiver，下一 query 对 record 6 相对 record 5 的 attention 增加，就说明 commit 在控制下一轮 routing。可见文本中没有额外写入数字 5，也没有 patch query 本身。</div></div>
 {query_sample_table}
 <p class="term-note"><strong>实验规模。</strong> Discovery 每模型 20×6=120 pairs，confirmation 每模型 10×6=60 pairs；每 pair 注册 5 个 conditions。因此协议对应每模型 600 个 discovery condition rows 与 300 个 confirmation condition rows。正式统计先在相同 seed、相同 pair 内求 treatment−control，再对 seeds 等权。</p>
 {query_arm_table}
 <div class="figure-primer"><div><strong>第一行</strong>full donor−self：回答“完整 commit 换过去，下一 query 是否真的转向 donor successor”。这是直接边。</div><div><strong>第二行</strong>full donor−orthogonal：回答“完整 donor state 是否优于一个同等 count-component 范数、但不在 frozen count subspace 内的一般扰动”。这是更严格的局部 specificity。</div><div><strong>读数单位</strong>两行都是 frozen-bank-summed raw attention mass。Qwen bank 有 128 heads，Gemma 只有 6 heads，因此<strong>不能用条长绝对值跨模型比较机制强弱</strong>；应在各模型内比较 treatment 与 control。</div></div>
 <figure><h3 class="figure-title">图 4a · Commit patch 是否把下一次 query 转向 donor-successor record</h3>{grouped_bars_svg('Confirmation mean effects', query_groups)}<figcaption>每个横条是 10 confirmation seeds 的 paired mean effect。Qwen full-vs-self / full-vs-orthogonal 分别为 {float(query_effects['Qwen3-8B']['self']['mean_effect']):+.3f} / {float(query_effects['Qwen3-8B']['orthogonal']['mean_effect']):+.3f}；Gemma 为 {float(query_effects['Gemma4-E4B']['self']['mean_effect']):+.3f} / {float(query_effects['Gemma4-E4B']['orthogonal']['mean_effect']):+.3f}。正值表示 full donor commit 更能让下一 query 偏向 donor 的下一条 record。</figcaption></figure>
 {query_table}
-<figure><h3 class="figure-title">图 4b · Full commit 相对 orthogonal control 的 donor-distance robustness</h3>{grouped_bars_svg('Full commit − orthogonal targeted-attention effect', query_distance_groups)}<figcaption>纵向三行是 |donor−receiver|=1,2,3；横条仍是 full-donor patch 相对 orthogonal patch 的 targeted-attention effect。|d|=1 是冻结 primary；|d|=2/3 是预注册 secondary dose robustness，不能事后代替 primary。Orthogonal 扰动只与 count-projected delta 等范数，不与完整 donor−receiver delta 等范数。</figcaption></figure>
+<figure><h3 class="figure-title">图 4b · Exact-common 相邻 pair 的 local specificity</h3>{grouped_bars_svg('Full commit − orthogonal targeted-attention effect', [('|donor−receiver| = 1', {model: float(query_effects[model]['orthogonal']['mean_effect']) for model in MODELS})])}<figcaption>唯一正式距离为 |donor−receiver|=1；Qwen/Gemma 使用完全相同的 20+10 seeds 与相邻 pair keys。横条是 full-donor patch 相对 orthogonal patch 的 targeted-attention effect。Orthogonal 扰动只与 count-projected delta 等范数，不与完整 donor−receiver delta 等范数，因此它是局部线性-subspace control，不是对完整 state 的等范数 placebo。</figcaption></figure>
 {query_distance_table}
-<div class="qualification"><strong>为什么 Gemma 标 confirmed†，而不是含糊的 directional。</strong> 最直接的 full donor−self 对比在独立 confirmation 上是 {ci(query_effects['Gemma4-E4B']['self'])}，所以“完整 commit 会改变下一 query”已经复现。† 只提醒更严格的 |d|=1 full−orthogonal 对比为 {ci(query_effects['Gemma4-E4B']['orthogonal'])}，均值为正但跨 seed 不够稳定。换句话说：<strong>直接边成立；当前窄线性 count control 下的排他 specificity 较弱。</strong></div>
-<div class="scope-compare"><div><h4>Gemma 看起来较小，但不是主效应失败</h4><p>图的 outcome 对 bank heads 求和；Qwen 是 Top-128，Gemma 是 Top-6。Gemma 的 +0.491 与 Qwen 的 +4.749 不是同一容量尺度，不能直接说前者只有后者的十分之一。Gemma 的 full−self CI 全为正，直接 recurrent edge 已确认。</p></div><div><h4>真正偏弱的是 full−orthogonal</h4><p>Gemma 在 |d|=1 只有 +0.126，说明 orthogonal arm 自己也能推动一部分 routing。可能原因是 Gemma commit 的功能信息分布在 frozen count subspace 之外，或这个 6-head bank 对一般 query-state 扰动更敏感；这两种解释当前实验不能区分。|d|=3 时效应升到 {float(query_effects['Gemma4-E4B']['orthogonal_d3']['mean_effect']):+.3f}，与 state separation 增大后 signal/control 更易区分相容，但只是 secondary diagnostic。</p></div></div>
+<div class="qualification"><strong>为什么 Gemma 的 commit→next-query 现在标 confirmed。</strong> 最直接的 full donor−self 对比在独立 confirmation 上是 {ci(query_effects['Gemma4-E4B']['self'])}；更严格的 |d|=1 full−orthogonal 对比是 {ci(query_effects['Gemma4-E4B']['orthogonal'])}，区间同样完全高于 0。因此 exact-common panel 同时确认“完整 commit 会改变下一 query”和“它优于当前冻结的 norm-matched orthogonal placebo”。限定仍然重要：该 placebo 只匹配 count-projected component 的范数，并不匹配完整 donor−receiver state difference；所以结果确认一条受控因果边，不确认唯一低维 counter 或排他回路。</div>
+<div class="scope-compare"><div><h4>不能用跨模型条长排序机制强弱</h4><p>图的 outcome 对 bank heads 求和；Qwen 是 Top-128，Gemma 是 Top-6，所以 raw attention-mass effect 不在同一容量尺度。结论只读取每个模型内 treatment−control 的方向与区间。</p></div><div><h4>Full−orthogonal 回答的是较窄问题</h4><p>若该对比弱，可能因为 commit 的功能信息分布在 frozen count subspace 之外，也可能因为 bank 对一般 query-state 扰动敏感；当前实验不能区分。它不应被改写成“完整 commit state 没有作用”。</p></div></div>
 <p><strong>结果分析。</strong> Qwen 的 direct effect 与 local specificity 都大，支持强 recurrent routing。Gemma 的完整 commit 同样会重定向下一 query，但“这条作用只来自一个狭窄线性 counter direction”没有得到同等强度的支持。因而合理 claim 是 shared recurrent computation、不同 state geometry，而不是两模型都实现同一条线性 counter axis。</p>
 <div class="section-conclusion"><strong>Experiment 5.3 结论。</strong> 两模型的 commit state 都会因果改变下一次 targeted query：Qwen 是强且控制特异的边；Gemma 是已复现的 direct edge，但 local matched-control specificity 有 † 限制。至此，targeted retrieval→carrier→commit→next targeted retrieval 的 trace 内循环已经接上。</div></section>
 
 <section id="answer"><p class="eyebrow">06 · Terminal readout</p><h2>Answer query 自然依赖 trace source；terminal state 在 fixed-suffix 中能控制 count margin</h2>
 <h3>6.1 Answer 到底在读 trace，还是回 prompt 重数</h3>
-<div class="experiment-frame"><div><span class="experiment-label">实验目的</span>区分两种 answer-time 路径：（1）从已写好的 trace states 读 count；（2）在 answer query 再对 prompt records 做一次 broad retrieval。</div><div><span class="experiment-label">干预如何实现</span>“Blank”不是删除 token，也不是缩短序列：目标 token 的 embedding 与每一层 post-block residual state 都置零，绝对位置、序列长度和 query token 保持不变。左 panel 的 matched control 置零等数量的 ordinary prompt tokens。</div><div><span class="experiment-label">样本与加权</span>左侧 next-city localization：Qwen 10 confirmation seeds / 45 requests，Gemma 9 seeds / 30 requests；在 request 内配对、seed 内平均、最后 seeds 等权。右侧 answer source：每模型 10 confirmation seeds / 100 prompts per condition，同样 seed-equal。Gemma 左侧少一个 seed 是 frozen exact-P0 可用事件集合的审计结果，不用 outcome 补样本。</div><div><span class="experiment-label">两套 answer banks</span>Discovery seeds 1234–1253 分别按 answer query 对 trace-item source 和 prompt-record source 的 attention 排名，冻结各自 Top-32；confirmation 不重新选 heads。图 5a 的 exact generation 不依赖选择哪套 bank 来“读数”，两套 instrumentation 得到相同生成结果。</div><div><span class="experiment-label">主终点</span><span class="formula">Exact = 1[greedy parsed answer = gold N]<br>Trace necessity = Exact<sub>clean</sub> − Exact<sub>trace blank</sub></span></div><div><span class="experiment-label">简单例子</span>如果保留 trace 而擦除 prompt records 后仍答对 6，但保留 prompt 而擦除 trace 后答错，则此时 answer 主要使用 trace 已写入的状态；这不排除 prompt 在其他样本中提供并行补充。</div></div>
+<div class="experiment-frame"><div><span class="experiment-label">实验目的</span>区分两种 answer-time 路径：（1）从已写好的 trace states 读 count；（2）在 answer query 再对 prompt records 做一次 broad retrieval。</div><div><span class="experiment-label">干预如何实现</span>“Blank”不是删除 token，也不是缩短序列：目标 token 的 embedding 与每一层 post-block residual state 都置零，绝对位置、序列长度和 query token 保持不变。左 panel 的 matched control 置零等数量的 ordinary prompt tokens。</div><div><span class="experiment-label">样本与加权</span>左侧 next-city localization 只报告两模型完全相同的 10 confirmation seeds、每 seed 一条注册 transition；<code>(seed,N,from,to,condition,repeat)</code> 多重集一致。右侧 answer source 为每模型同一 10 seeds、100 prompts per condition；输入审计确认两模型各 500 rows 的 <code>(seed,N,condition)</code> 多重集一致。所有汇总先在 seed 内平均，再让 seeds 等权。</div><div><span class="experiment-label">两套 answer banks</span>Discovery seeds 1234–1253 分别按 answer query 对 trace-item source 和 prompt-record source 的 attention 排名，冻结各自 Top-32；confirmation 不重新选 heads。图 5a 的 exact generation 不依赖选择哪套 bank 来“读数”，两套 instrumentation 得到相同生成结果。</div><div><span class="experiment-label">主终点</span><span class="formula">Exact = 1[greedy parsed answer = gold N]<br>Trace necessity = Exact<sub>clean</sub> − Exact<sub>trace blank</sub></span></div><div><span class="experiment-label">简单例子</span>如果保留 trace 而擦除 prompt records 后仍答对 6，但保留 prompt 而擦除 trace 后答错，则此时 answer 主要使用 trace 已写入的状态；这不排除 prompt 在其他样本中提供并行补充。</div></div>
 <div class="figure-primer"><div><strong>左图/上图</strong>比较 clean、prompt-record blank 和 full-trace blank 的 greedy exact accuracy。</div><div><strong>Head-bank 图</strong>展示 answer query 在 prompt-record 与 trace-context 两类 source 上的 attention composition。</div><div><strong>不能过度解释</strong>Source blank 证明内容必要性，不证明某个 Top-32 bank 是唯一 readout。</div></div>
-<figure><h3 class="figure-title">图 5a · Token-source ablation 对局部检索与最终 count 的影响</h3>{token_source_ablation_svg(token_evidence)}<figcaption>左 panel 纵轴是 next-city retrieval success rate；柱是 trace-source treatment，黑色短横线是置零等数量 ordinary prompt tokens 的 matched control。横轴从左到右逐步区分远期历史、最近 transition 与全 trace 的作用。右 panel 纵轴是 greedy exact-count accuracy，横轴依次比较自然输入、只擦原 prompt records、只擦完整 trace、以及擦完整 prompt+trace。左侧样本为 Qwen 10 seeds/45 requests、Gemma 9 seeds/30 requests；右侧为两模型各 10 seeds/100 prompts per condition。右 panel 中 Qwen clean 0.97→trace blank 0.01，Gemma 0.70→0.12；prompt-record blank 的损伤远小于 trace blank。</figcaption></figure>
+<figure><h3 class="figure-title">图 5a · Token-source ablation 对局部检索与最终 count 的影响</h3>{token_source_ablation_svg(token_evidence)}<figcaption>左 panel 纵轴是 teacher-forced next-city full-span exact rate：给定同一可见后续 token 序列，目标 city 的完整 token span 是否逐 token 预测正确；它不是 free-generation retrieval rate。柱是 trace-source treatment，黑色短横线是置零等数量 ordinary prompt tokens 的 matched control。横轴从左到右逐步区分远期历史、最近 transition 与全 trace 的作用；两模型均为完全相同的 10 confirmation transitions。右 panel 纵轴是 greedy exact-count accuracy，横轴依次比较自然输入、只擦原 prompt records、只擦完整 trace、以及擦完整 prompt+trace；两模型各 10 seeds/100 prompts per condition。右 panel 中 Qwen clean 0.97→trace blank 0.01，Gemma 0.70→0.12；prompt-record blank 的损伤远小于 trace blank。</figcaption></figure>
 {token_condition_table}
 <p class="term-note"><strong>横轴为何不是一条简单的“擦得越来越多”剂量轴。</strong> Early half、cumulative 与 recent 是三个有语义的 source partitions：前两者定位远期累计历史，recent 定位最后一次局部更新；full trace 才是它们的联合必要性。右侧 prompt-record blank 与 trace blank 则是两个互补信息源，不代表相同 token 数。因此应比较每个 condition 回答的机制问题，而不是只按 blank token 数解释柱高。</p>
 <figure><h3 class="figure-title">图 5b · Answer-query head banks 的 source composition</h3><div class="figure-scroll">{answer_source_rerouting_svg(token_evidence)}</div><figcaption>每行是一个冻结 answer bank 在一种 token condition 下的 source composition。横向堆叠条在 prompt-record 与 trace-context 两个互斥 source groups 内归一；右侧 Σ 是两组 raw bank-summed mass 之和。颜色说明 attention 来源，不是 accuracy。</figcaption></figure>
@@ -3495,17 +4161,17 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 
 <h3>6.2 最后一条 trace 的 grammar state 能否推动正确答案</h3>
 <p class="lead">6.1 证明“整段 trace content 对自然答案很重要”，但还没有定位最后是谁把 count 交给 answer query。6.2 因此构造一个受损 trace，再只恢复最后一个 item 中特定语义位置的 hidden states，检验 terminal grammar-state→answer-score 的局部因果边。</p>
-<div class="experiment-frame"><div><span class="experiment-label">实验目的</span>把 6.1 的 whole-trace necessity 缩小成一个可定位、可做 matched control 的 terminal bridge：最后一个 item 的哪类 state 能让正确 count candidate 的分数恢复？</div><div><span class="experiment-label">什么是一个样本</span>一条 outcome-blind 冻结的完整 trace/seed 是一个独立样本。每模型 discovery 20 seeds、confirmation 10 个完全不重叠 seeds；每 phase 恰好一半 city→rank、一半 rank→city。12 个 arms、多个 tokens 和多层 clamp 都是 seed 内配对条件，不增加独立样本量。</div><div><span class="experiment-label">损坏基线</span>对每个 parsed trace item，用 prompt 中不属于 needle records 的 background tokens 作等长替换；不重分词、不 padding、不移动 answer query。这样保留语法长度与绝对位置，但移除原 trace item 内容，得到 uninformative arm。</div><div><span class="experiment-label">五种位点</span>在最后一个 item 内预注册 full item、marker core、retrieved city、grammar-timed tail、boundary commit 五种位置。每种都从 clean run 捕获 same-position post-block states，再写入 uninformative run 的相同 positions。Discovery 仅用 mean restoration 冻结最大的非-full geometry；两模型都选到 marker core，随后在独立 10-seed confirmation 上复验。</div><div><span class="experiment-label">层与时序</span>Qwen 从 L19、Gemma 从 L16 开始，在每个后续 decoder block 的同一 terminal positions 重施 clean state（cumulative clamp）。Answer query hidden state从未直接 patch；它只能通过正常 attention 读取这些 terminal positions。三个正式对比 arms（uninformative、semantic restore、matched-random restore）的 visible token prefix 完全相同；clean arm只作自然参考，不进入这两个差分。</div><div><span class="experiment-label">两个正式差分</span><span class="formula">Restoration = Margin<sub>semantic restore</sub> − Margin<sub>uninformative</sub><br>Specificity = Margin<sub>semantic restore</sub> − Margin<sub>matched ordinary state</sub></span>第一个问“补回语义 state 能否救回分数”；第二个问“相同 token 预算、相近深度的一般 clean state 是否也能做到”。</div><div><span class="experiment-label">计分</span>对候选答案字符串 1,…,10 做 teacher-forced sequence scoring，记 S(j) 为候选 <em>j</em> 的完整 sequence log score：<span class="formula">Margin(N)=S(N)−max<sub>j≠N</sub>S(j), &nbsp; j∈{{1,…,10}}</span>Margin&gt;0 才表示 gold N 在十个候选中排名第一；这里的单位是 log-score margin，不是“恢复了几个 counts”或 accuracy 百分点。</div><div><span class="experiment-label">具体数字例子</span>Gold N=6。若 uninformative 的 margin=−1.2，marker restore 后=+0.8，则 restoration=+2.0；若 matched ordinary state 后仍为−0.9，则 specificity=+1.7。这个结果说明“正确 marker state”在固定 pre-answer context 中有功能，不等于单独一个 marker 就能让自由生成必然输出 6。</div></div>
+<div class="experiment-frame"><div><span class="experiment-label">实验目的</span>把 6.1 的 whole-trace necessity 缩小成一个可定位、可做 matched control 的 terminal bridge：最后一个 item 的哪类 state 能让正确 count candidate 的分数恢复？</div><div><span class="experiment-label">什么是一个样本</span>一条 outcome-blind 冻结的完整 trace/seed 是一个独立样本。本版先取两模型自然 grammar trace 的 exact intersection：19 discovery seeds、9 个不重叠 confirmation seeds；timing 为 discovery 9 city→rank / 10 rank→city、confirmation 4 / 5。12 个 arms、多个 tokens 和多层 clamp 都是 seed 内配对条件，不增加独立样本量。</div><div><span class="experiment-label">损坏基线</span>对每个 parsed trace item，用 prompt 中不属于 needle records 的 background tokens 作等长替换；不重分词、不 padding、不移动 answer query。这样保留语法长度与绝对位置，但移除原 trace item 内容，得到 uninformative arm。</div><div><span class="experiment-label">五种位点</span>在最后一个 item 内注册 full item、marker core、retrieved city、grammar-timed tail、boundary commit 五种位置。每种都从 clean run 捕获 same-position post-block states，再写入 uninformative run 的相同 positions。Discovery 只用于描述性选择 restoration 最大的非-full geometry；Qwen 选到 <code>{terminal_selected_geometry['Qwen3-8B']}</code>，Gemma 选到 <code>{terminal_selected_geometry['Gemma4-E4B']}</code>，随后在共同的 9-seed confirmation 上复验各自冻结 geometry。若两模型 geometry 不同，只能称功能对应的模型内 replication。</div><div><span class="experiment-label">层与时序</span>Qwen 从 L19、Gemma 从 L16 开始，在每个后续 decoder block 的同一 terminal positions 重施 clean state（cumulative clamp）。Answer query hidden state从未直接 patch；它只能通过正常 attention 读取这些 terminal positions。三个正式对比 arms（uninformative、semantic restore、matched-random restore）的 visible token prefix 完全相同；clean arm只作自然参考，不进入这两个差分。</div><div><span class="experiment-label">两个正式差分</span><span class="formula">Restoration = Margin<sub>semantic restore</sub> − Margin<sub>uninformative</sub><br>Specificity = Margin<sub>semantic restore</sub> − Margin<sub>matched ordinary state</sub></span>第一个问“补回语义 state 能否救回分数”；第二个问“相同 token 预算、相近深度的一般 clean state 是否也能做到”。</div><div><span class="experiment-label">计分</span>对候选答案字符串 1,…,10 做 teacher-forced sequence scoring，记 S(j) 为候选 <em>j</em> 的完整 sequence log score：<span class="formula">Margin(N)=S(N)−max<sub>j≠N</sub>S(j), &nbsp; j∈{{1,…,10}}</span>Margin&gt;0 才表示 gold N 在十个候选中排名第一；这里的单位是 log-score margin，不是“恢复了几个 counts”或 accuracy 百分点。</div><div><span class="experiment-label">具体数字例子</span>Gold N=6。若 uninformative 的 margin=−1.2，semantic restore 后=+0.8，则 restoration=+2.0；若 matched ordinary state 后仍为−0.9，则 specificity=+1.7。这个结果说明“正确 terminal semantic state”在固定 pre-answer context 中有功能，不等于单独一个 token 就能让自由生成必然输出 6。</div></div>
 {terminal_sample_table}
-<p class="term-note"><strong>实际规模。</strong> 每条 trace 有 clean + uninformative + 5 semantic restores + 5 matched-random restores = 12 arms。因而每模型 discovery 是 20×12=240 condition rows，confirmation 是 10×12=120 rows；两模型合计 720 rows。统计仍先在 seed 内求差，再让 seeds 等权。</p>
+<p class="term-note"><strong>实际规模。</strong> 每条 trace 有 clean + uninformative + 5 semantic restores + 5 matched-random restores = 12 arms。因而每模型 discovery 是 19×12=228 condition rows，confirmation 是 9×12=108 rows；两模型合计 672 rows。统计仍先在 seed 内求差，再让 seeds 等权。</p>
 {terminal_geometry_table}
 {terminal_arm_table}
 <div class="figure-primer"><div><strong>第一行</strong>正确 terminal state 相对 uninformative trace，让 gold-number margin 上升多少。</div><div><strong>第二行</strong>正确 terminal state 相对 equal-token ordinary-state patch，多提供多少恢复。</div><div><strong>坐标</strong>横轴单位是 log-probability margin，不是正确率；绿=Qwen，紫=Gemma。</div></div>
-<figure><h3 class="figure-title">图 5c · Terminal grammar-state 对 correct-count margin 的受控恢复</h3>{grouped_bars_svg('Fixed-suffix terminal-state confirmation effects', terminal_groups)}<figcaption>两行均为 10 confirmation seeds 的 seed-level paired mean effect。Qwen restoration / ordinary-state specificity 为 {float(terminal_effects['Qwen3-8B']['restoration']['mean_effect']):+.3f} / {float(terminal_effects['Qwen3-8B']['matched_random_specificity']['mean_effect']):+.3f}；Gemma 为 {float(terminal_effects['Gemma4-E4B']['restoration']['mean_effect']):+.3f} / {float(terminal_effects['Gemma4-E4B']['matched_random_specificity']['mean_effect']):+.3f}。正值表示正确 grammar state 比受损基线或普通 state 更有利于 gold count。</figcaption></figure>
-<p><strong>受控结果。</strong> Terminal-state restoration 为 Qwen {ci(terminal_effects['Qwen3-8B']['restoration'])}、Gemma {ci(terminal_effects['Gemma4-E4B']['restoration'])}；相对 ordinary-state control 的 specificity 分别为 {ci(terminal_effects['Qwen3-8B']['matched_random_specificity'])} 与 {ci(terminal_effects['Gemma4-E4B']['matched_random_specificity'])}。所以这条局部边在两模型中都有实质数值效应。</p>
+<figure><h3 class="figure-title">图 5c · Terminal grammar-state 对 correct-count margin 的受控恢复</h3>{grouped_bars_svg('Fixed-suffix terminal-state confirmation effects', terminal_groups)}<figcaption>两行均为两模型完全相同的 9 confirmation seeds 的 seed-level paired mean effect。Qwen（<code>{terminal_selected_geometry['Qwen3-8B']}</code>）restoration / ordinary-state specificity 为 {float(terminal_effects['Qwen3-8B']['restoration']['mean_effect']):+.3f} / {float(terminal_effects['Qwen3-8B']['matched_random_specificity']['mean_effect']):+.3f}；Gemma（<code>{terminal_selected_geometry['Gemma4-E4B']}</code>）为 {float(terminal_effects['Gemma4-E4B']['restoration']['mean_effect']):+.3f} / {float(terminal_effects['Gemma4-E4B']['matched_random_specificity']['mean_effect']):+.3f}。正值表示正确 grammar state 比受损基线或普通 state 更有利于 gold count；跨模型条长不用于强弱排序。</figcaption></figure>
+<p><strong>受控结果。</strong> Terminal-state restoration 为 Qwen {ci(terminal_effects['Qwen3-8B']['restoration'])}、Gemma {ci(terminal_effects['Gemma4-E4B']['restoration'])}；相对 ordinary-state control 的 specificity 分别为 {ci(terminal_effects['Qwen3-8B']['matched_random_specificity'])} 与 {ci(terminal_effects['Gemma4-E4B']['matched_random_specificity'])}。是否达到 interval-level support 只按各自 CI 是否完全高于 0 判断，不因另一模型的结果升级。</p>
 <div class="scope-compare"><div><h4>本实验已经确认：controlled local effect</h4><p>三个正式差分 arms 使用相同 pre-answer visible tokens、相同 answer query 与相同 candidate scorer；唯一关键差别是 terminal semantic hidden state 是否写回。因此 paired margin 变化可归因于当前 state intervention。Clean arm只提供自然参照。</p><p><strong>对应标签：</strong>controlled only。</p></div><div><h4>本实验没有确认：free-running sufficiency</h4><p>更强命题是：只补这一处 state 后，让模型自由继续运行，它是否必然改变最终 greedy 数字。自由运行可同时读取其他 trace states、回 prompt、或在生成后续 token 时自我修正，所以局部 log-score 效应不自动推出全局输出改变。</p><p>Qwen 的 free-running extension 在 distribution、expected count、margin 和 exact answer 上没有稳定恢复，见 Appendix C。</p></div></div>
-<div class="plain-language"><strong>为什么总览只写 controlled only？</strong> “Confirmed”若不加限定，读者很容易理解成“marker state 单独足以决定最终自然答案”。我们实际确认的是更窄也更严谨的命题：<strong>在一个位置与后续输入都受控的 counterfactual context 中，恢复正确 terminal marker state 会提高 gold count 的 candidate margin，而且优于等预算 ordinary-state patch。</strong> 这个局部因果结果可靠；只是它没有覆盖自由生成的全部旁路与自我修正，因此不升级成全局 sufficiency。</div>
-<div class="section-conclusion"><strong>Experiment 6.2 结论。</strong> 两模型的 terminal grammar state 都能在严格配对、固定 answer prefix 的条件下显著推动 correct-count margin；但它尚未被证明在 free-running 中单独足以决定最终答案。因此主链最后一条边保留为 controlled local bridge。</div></section>
+<div class="plain-language"><strong>为什么总览只写 controlled local bridge？</strong> “Confirmed”若不加限定，读者很容易理解成“一个 terminal token 单独足以决定最终自然答案”。本实验实际检验的是更窄的命题：<strong>在位置与后续输入都受控的 counterfactual context 中，恢复 discovery-frozen terminal semantic state 是否提高 gold-count candidate margin，并优于等预算 ordinary-state patch。</strong> 它没有覆盖自由生成的全部旁路与自我修正，因此即使两项对比都通过，也不升级成全局 sufficiency。</div>
+<div class="section-conclusion"><strong>Experiment 6.2 结论。</strong>严格结论按上面的 restoration 与 specificity 数值/区间分别读取；它检验的是固定 answer prefix 下的 controlled local bridge。即使两个模型都为正，也不能据此声称该 terminal state 在 free-running 中单独决定最终答案，或两模型使用同一 token-level carrier。</div></section>
 
 <section id="walkthrough"><p class="eyebrow">07 · Non-thinking-style case study</p><h2>一个 outcome-blind seed 从 item 1 走到 item 10</h2>
 <div class="experiment-frame"><div><span class="experiment-label">实验目的</span>复制 Non-thinking 报告里最直观的“一条轨迹走到底”展示，检查 Native 的单个 item/carrier state 在丧失其余上下文后是否足以指定答案 <em>k</em>。</div><div><span class="experiment-label">设定</span>用 identity hash outcome-blind 冻结一个 N=10 confirmation case。Prompt records 与完整 trace context 都被等长 ordinary text 擦除；随后只恢复第 <em>k</em> 个 full item、grammar carrier，或等 token ordinary state。Answer query 始终不 patch。</div><div><span class="experiment-label">计算方法</span><span class="formula">E[count | condition,k] = Σ<sub>n=1</sub><sup>10</sup> n · P(answer=n | condition,k)</span>横轴为被恢复的 occurrence <em>k</em>，理想充分状态应产生 y=<em>k</em> 对角线。</div><div><span class="experiment-label">简单例子</span>当只恢复第 4 个 item 时，若该 state 是独立 counter，则 expected count 应靠近 4；若仍靠近 scrub baseline，则它需要其他 trace dynamics 才能被读出。</div></div>
@@ -3525,12 +4191,12 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 <div class="mechanism"><div class="stage"><span class="stage-no">01</span><h3>Retrieve</h3><p>Targeted heads 读取下一条 prompt city。Qwen 使用宽 Top-128；Gemma 使用窄 Top-6。</p><span class="evidence">causal necessity</span></div><div class="stage"><span class="stage-no">02</span><h3>Write & commit</h3><p>检索改变 grammar-specific carrier，carrier 将进度提交到 residual stream。</p><span class="evidence">deform + restore</span></div><div class="stage"><span class="stage-no">03</span><h3>Loop & read</h3><p>commit 改变下一次 targeted query；终端 state 再被 answer-time readout 使用。</p><span class="evidence">recurrent + conditional terminal</span></div></div>
 {table(('Model','Strongest connected path','Remaining confound'),((
     'Qwen','Top-128 retrieval → carrier → commit → next query','terminal readout 只在固定 suffix 局部成立；free-running recovery 与 single-seed walk 不成立'),(
-    'Gemma','Top-6 retrieval → carrier → commit → next query','|d|=1 orthogonal specificity 衰减；terminal 仅 controlled bridge；single-seed walk 不成立')))}
+    'Gemma','Top-6 retrieval → carrier → commit → next query','orthogonal placebo 不匹配完整 state-delta 范数；terminal relay 为部分中介；single-seed walk 不成立')))}
 <p><strong>整体分析。</strong> 两模型共享同一计算抽象，但实现宽度不同：Qwen 使用宽 retrieval bank 和大效应 full commit；Gemma 使用窄 retrieval bank，commit→query 效应较小且对 local control 更敏感。这不要求两模型共享同一组 heads 或同一线性 counter。</p>
 <div class="section-conclusion"><strong>与 Non-thinking 的核心差异。</strong> Non-thinking 更接近 answer-time broad aggregation + late write；Native-thinking 的主链先在 trace 内部做 targeted retrieval 与 recurrent state update，到 terminal 才由 answer readout 使用。两种模式都可在 answer query 表征 count，但 count 的形成和传递路径不同。</div></section>
 
 <section id="appendix"><p class="eyebrow">Appendix · Negative and secondary evidence</p><h2>不改变主链、但必须保留的结果</h2>
-<details class="appendix-block" open><summary>Appendix A · Gemma next-query 边的历史 directional 标签</summary><p>旧标签由 |d|=1 的 strong-direct gate 未满足引起。本版不删除该事实，而是把状态改为 confirmed†：直接效应在 prospective confirmation 成立，但 local matched-control specificity 衰减。正文图 4b 给出完整 dose 图：|d|=1 是冻结 primary，|d|=2/3 只是预注册 robustness，不能事后替换 primary。</p><div class="section-conclusion"><strong>Appendix A 结论。</strong> “†”限制的是局部 specificity 强度，不是否定 full commit state 对 next query 的直接因果效应。</div></details>
+<details class="appendix-block" open><summary>Appendix A · Gemma next-query 边：历史 directional 标签如何被 exact-common confirmation 取代</summary><p>旧标签来自模型各自 cohort 与更宽 donor-distance panel，不能直接与 Qwen 比较。本版改用两模型完全相同的 semantic pair multiset，只报告预注册相邻 primary |d|=1。Full−self 与 full−orthogonal 分别回答“完整 state 是否有直接作用”和“作用是否优于 frozen count-subspace 的等投影范数扰动”；二者在 Gemma confirmation 中都取得区间正效应。Orthogonal control 仍不与完整 donor−receiver delta 等范数，因此不能把 positive contrast 解释成已经隔离出唯一 count component。</p><div class="section-conclusion"><strong>Appendix A 结论。</strong>历史 directional/confirmed† 标签已由 exact-common confirmed edge 取代；保留的限制属于 control 几何与排他性，而不是该局部边未复现。</div></details>
 
 <details class="appendix-block" open><summary>Appendix B · Gemma query-mediation geometry ladder：full state 有效，但狭窄 Top-6 output mediation 未闭合</summary><p><strong>实验目的。</strong> 检验 commit state 的作用是否必须经由冻结 Top-6 targeted heads 的 pre-O outputs 传到 donor-successor city log-odds。按 outcome-blind 顺序检查 endpoint、suffix4、suffix8；每个 geometry 只跑 20 discovery seeds，只有 geometry_pass 才允许 confirmation。</p><p><strong>四个 estimands。</strong> A 是 full donor state 相对 self patch 的 intact 效应；B 是 selected-mask 对该 full-state 效应的削弱；C 在 selected-mask 条件下只恢复 selected-head pre-O outputs，看能否把 city log-odds救回；D 比较 selected mask 与同层同 K random mask。完整中介 gate 要求 A/B/C 的 95% CI 下界都大于 0；D 是 specificity diagnostic。</p>
 <figure><h3 class="figure-title">图 B1 · Gemma endpoint→suffix4→suffix8 query-mediation ladder</h3>{effect_small_multiples_svg('Gemma query-mediation discovery ladder', mediation_panels)}<figcaption>每个 panel 横轴都是 donor−receiver query city log-odds effect，但四个 panel 为了显示数量级而使用独立对称尺度；点=20 discovery seeds 的 mean，线=95% CI，绿=该单项 gate 支持，橙=未满足。三行依次为 endpoint、suffix4、suffix8。Full-state effect 在三种 geometry 都大；selected-mask interaction 在较宽 suffix 上为正；关键的 selected-head pre-O restoration 仍触零，selected-vs-random specificity 也不稳定。</figcaption></figure>
@@ -3568,7 +4234,7 @@ def build_report(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
 <section id="audit"><p class="eyebrow">09 · Boundaries and reproducibility</p><h2>边界、复现与底层文件</h2>
 <ul><li>本报告证明一条 pathway，不证明唯一性、排他性或所有 grammar 共用完全相同的 heads。</li><li>CI 与 p-value 保留用于审计；正文的“强/弱”判断同时考虑 effect size、控制组和跨 phase 复现。</li><li>单 seed walkthrough 不进入 discovery/confirmation gate；V2 是在 V1 暴露 trace-tail 泄露后修正的 exploratory control。</li><li>Qwen 与 Gemma 的状态几何、bank 宽度和最后一条边不同，不强行合并成完全同构 circuit。</li></ul>
 <details class="paper-appendix"><summary>底层报告与外部证据包</summary><div class="source-list"><a href="NiaH_Native-Thinking_P0_Targeted_Retrieval_Atlas.html">P0 targeted-retrieval atlas</a><br><a href="NiaH_Native-Thinking_Parser_and_Token_Sites.html">Parser / token sites</a><br><a href="NiaH_Geometry_Comparison.html">Representation geometry</a><br><span>逐 seed、逐 arm、claim-gate 与运行审计文件保存在外部实验归档，不随 Git 仓库分发。报告中的聚合值与输入哈希已冻结；复算时通过构建器参数挂载对应 evidence bundle。</span></div></details>
-<p class="audit">Generated UTC: {esc(generated)}<br>Schema: realistic_niah_v5_native_thinking_restructured_v12</p></section>
+<p class="audit">Generated UTC: {esc(generated)}<br>Schema: realistic_niah_v5_native_thinking_restructured_v14</p></section>
 
 </main></article><script>
 {point_cloud_script(geometry_3d)}
@@ -3596,7 +4262,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
   <div><span class="experiment-label">实验目的</span>固定本文要解释的行为单位：模型既要从约 10k-token passage 中依次找出 N 条 needle records，也要在 reasoning trace 中决定“下一条读谁”，最后输出 total N。</div>
   <div><span class="experiment-label">任务设定</span>主因果 cohort 只使用 Qwen3-8B、N=10、自然生成的 first-pass no-index enumeration。<em>No-index</em> 指被分析的逐项枚举行不出现 <code>Count=k</code>、<code>Item k</code>、<code>Excerpt k</code>、ordinal 或 running subtotal；recap 与最终答案不进入 patch context。</div>
   <div><span class="experiment-label">记号与单位</span><em>N</em> 是真实 needle 总数；<em>k</em> 是 donor 已完成的 occurrence；<em>j</em> 是 receiver occurrence。Donor successor 是 <em>k</em>+1，receiver successor 是 <em>j</em>+1。一个独立样本是一条 seed-level trace；同一 seed 内的多个 k、方向、层与条件只是配对读数。</div>
-  <div><span class="experiment-label">简单例子</span>若 N=10、receiver 当前完成 j=5，它自然应检索第 6 条；若把 donor k=6 的状态写入同一表面/绝对位置，因果问题是下一次检索是否跳过第 6 条、改读 donor successor 第 7 条。</div>
+  <div><span class="experiment-label">简单例子</span>若 N=10、receiver 当前完成 j=5，它自然应检索第 6 条；将 donor k=6 的状态写入 receiver 的同一绝对目标位置后，因果问题是下一次检索是否跳过第 6 条、改读 donor successor 第 7 条。Donor/receiver patch token 的字面文本不要求相同，<code>surface_token_matched</code> 逐 cell 记录。</div>
 </div>
 <div class="completion-note"><strong>计划内运行状态。</strong> Qwen 自然 no-index 主实验已经冻结 20 discovery + 10 disjoint confirmation seeds；服务器当前无遗留实验进程。Gemma 原 prompt 未形成足够的自然 no-index cohort，因此没有用改 prompt 的样本替换这一缺口。</div>
 <div class="reading-contract">
@@ -3606,7 +4272,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
 </div>
 <p><strong>结果。</strong>这 30 条 trace 通过严格 no-index grammar 审计，并按 20/10 冻结；confirmation 不参与层、scope 或 head-bank 选择。</p>
 <p><strong>分析。</strong>这一筛选使“复制可见 running index”不再解释 Qwen 主结果；但 event 中仍含 city、score 与语法，因此后续必须用 endpoint、tail 与 item-span scope controls 区分完整事件内容和更窄的 progress signal。</p>
-<div class="section-conclusion"><strong>Experiment 1 结论。</strong>本文的自然 internal-progress 问题被限定为：在没有显式位置编号的 Qwen N=10 first-pass enumeration 中，内部 state 是否因果控制下一项 retrieval。它不是对所有 Native-thinking 模型或所有 prompt 的普适性估计。</div></section>"""
+<div class="section-conclusion"><strong>Experiment 1 结论。</strong>本文的 internal-counter 问题被限定为：在没有显式位置编号的 Qwen N=10 first-pass enumeration 中，内部 state 是否记录当前进度并因果控制从哪里继续。它不是对所有 Native-thinking 模型或所有 prompt 的普适性估计。</div></section>"""
     representation_section = sections["representation"].replace(
         '<section id="representation"><p class="eyebrow">03 · Representation</p><h2>Trace commit 与 answer query 都含有可读的 count geometry</h2>',
         '<section id="representation"><p class="eyebrow">02 · Measurement framework</p><h2>2. 通用测量框架：Representation 负责定位，Causal test 负责判定</h2>',
@@ -3623,12 +4289,13 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
         .replace("图 1d", "图 2c")
         .replace("Experiment 3 结论", "Experiment 2 结论")
     )
-    representation_measurement = """
+    representation_measurement = f"""
 <div class="experiment-frame">
   <div><span class="experiment-label">因果量的目的</span>Probe 只问 state 中能否读出 k；state transplant 才问模型的后续计算是否使用 donor 所携带的信息。所有主因果量都先在同一 seed、同一 donor–receiver pair 内做 patch−self，再让 seeds 等权。</div>
   <div><span class="experiment-label">Routing score</span>令 S(c) 为候选 successor c 的 teacher-forced完整 sequence log score。<span class="formula">R = S(donor successor) − S(receiver successor)<br>Δroute = R<sub>patch</sub> − R<sub>self</sub></span>Δroute&gt;0 表示 patch 使模型相对更偏好 donor 的下一项；它不是“增加了几个 count”。</div>
   <div><span class="experiment-label">Attention score</span>对 discovery 冻结的 targeted head bank 与对应 record span 求和：<span class="formula">Q = log(A<sub>donor</sub>+ε) − log(A<sub>receiver</sub>+ε)<br>Δattention = Q<sub>patch</sub> − Q<sub>self</sub>, &nbsp; A=Σ<sub>h∈bank,t∈record</sub>α<sub>h</sub>(q,t)</span>bank-summed A 可以大于 1，且 Qwen Top-128 与 Gemma Top-6 的绝对量不能跨模型比较。</div>
   <div><span class="experiment-label">行为读数</span><em>Donor argmax</em> 表示 donor successor 在十个候选中得分最高；<em>first-city transfer</em> 表示自由 continuation 中首个匹配 gold city 的 ordinal 等于 donor successor。人工审计只接受 recap 之前的 first-pass 命中。</div>
+  <div><span class="experiment-label">Representation common support</span>Running item-end geometry 只使用两模型 exact intersection：{int(sample_alignment_audit['evidence']['running_representation_common_support']['common_trajectory_cells'])} 条 trajectory cells、每模型 {int(sample_alignment_audit['evidence']['running_representation_common_support']['aligned_cells'])} 个 <code>(split, seed, N, k)</code> states；Qwen 与 Gemma 的 key-multiset hash 完全一致。层选择只看该 common support 的 discovery rows。</div>
   <div><span class="experiment-label">简单例子</span>Receiver 应读 N6，donor 应读 N7。若 self 时 S(N7)−S(N6)=−4，patch 后变为 +3，则 Δroute=+7；若首个生成 city 也从 N6 的 city 变成 N7 的 city，才得到行为层 transfer。</div>
 </div>
 <div class="subsection-conclusion"><strong>测量合同结论。</strong>下文始终把“可解码”“候选分数改变”“attention 改道”和“生成内容改变”分成四级证据；只有最后三者能贡献 causal routing claim。</div>
@@ -3688,6 +4355,46 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
         .replace("<span class=\"experiment-label\">具体数字例子</span>", "<span class=\"experiment-label\">简单例子</span>")
         .replace("见 Appendix C", "见 Appendix O")
     )
+    answer_query_execution_section = f"""
+<h3>6.3 Answer-query residual 本身是否已经是可执行的 count state</h3>
+<p class="lead">6.2 只 patch trace 末端，并让未干预的 answer query 自行读取；因此它检验 terminal trace→answer 的局部 bridge。这里补上与 Non-thinking <em>Consolidate</em> 完全对称的另一半：直接把 donor 的完整 answer-query residual 写入 receiver，观察实际 greedy 数字是否采用 donor count。</p>
+<div class="experiment-frame">
+  <div><span class="experiment-label">实验目的</span>区分“answer query 上可以线性解码 count”与“该 state 真能被后续层执行”。若完整 donor state 在某层写入后使 receiver 直接输出 donor 的数字，则该层之后的网络能把这份 state 当作可执行 readout 使用。</div>
+  <div><span class="experiment-label">精确 token site</span><code>answer_query_v3</code> 定义为<strong>第一个数字答案 token 之前，trace 中最后一个字面 token</strong>。Donor 与 receiver 使用同一个注册语义/字面 site，但不强求绝对 token index 相等；因此这是 surface-site matched，不是 absolute-position matched。</div>
+  <div><span class="experiment-label">Cohort 与配对</span>只使用 seeds 1254–1263 的 confirmation traces，并同时要求两模型都满足 strict one-to-one、baseline final answer exact。先对每个 seed 取两模型可用 count 的交集，再选靠近低端与高端的两条 common-grid edges，并各自双向运行；因此<strong>两模型完全共享同一 40 个有向 <code>(seed, receiver count, donor count)</code> keys</strong>，每 seed 恰好 4 pairs。Pair selection 不读取 patch outcome。</div>
+  <div><span class="experiment-label">层网格</span>在查看本轮 patch outcome 前，按架构深度近似均匀固定 Qwen L0/5/10/15/20/25/30/35 与 Gemma L0/6/12/18/23/29/35/41。没有按 confirmation 峰值重新选层。由于这些 confirmation seeds 早已用于报告其他分析，本实验准确标签是 <em>registered existing-split extension</em>，不是 pristine 新 cohort。</div>
+  <div><span class="experiment-label">两个 arms</span><strong>Self patch</strong> 把 receiver 自己的 residual 写回同一位置，必须逐 cell 重新生成 receiver gold；<strong>full donor patch</strong> 把 donor 的完整单-token residual 写到 receiver query position。每次只 patch 一个 post-block layer，之后自由 greedy 生成最多 16 tokens。</div>
+  <div><span class="experiment-label">主终点与统计</span><span class="formula">Adopt<sub>i,l</sub> = 1[ŷ<sup>full donor</sup><sub>i,l</sub> = N<sup>donor</sup><sub>i</sub>]<br>Layer effect<sub>l</sub> = (1 / S) Σ<sub>s=1</sub><sup>S</sup> mean<sub>i∈seed s</sub> Adopt<sub>i,l</sub></span>输出必须是实际 deterministic greedy continuation 解析出的 1,…,10；不可解析或越界输出保留在分母中，按 adoption failure 计。95% CI 对 seed cluster bootstrap。</div>
+  <div><span class="experiment-label">简单例子</span>Receiver 的 clean answer 是 3，same-seed donor 的 clean answer 是 4。若在 L25 把 donor answer-query residual 写到 receiver 后，实际 continuation 从“3”变成“4”，该 cell 记 donor adoption；只让某个 probe 更接近 4 不算。</div>
+</div>
+{answer_query_layer_table}
+<div class="figure-primer"><div><strong>横轴</strong>zero-based post-block layer；两个模型各用预先固定的八层网格。</div><div><strong>纵轴</strong>pair 内 donor-count adoption，再先 seed 内平均、最后 10 seeds 等权。</div><div><strong>误差线</strong>seed-cluster bootstrap 95% CI；不是把每模型 40 pairs 当独立样本。</div></div>
+<figure><h3 class="figure-title">图 6d · Answer-query full-state patch 的逐层 donor-count adoption</h3>{answer_query_layer_plot}<figcaption>每个点都来自同一冻结 confirmation protocol。Self patch 在每个 pair×layer cell 都必须重新生成 receiver gold，否则整个分析失败；曲线只画 full-donor adoption。Qwen 的描述性 onset 为 {('none' if answer_query_onsets['Qwen3-8B'] is None else f'L{int(answer_query_onsets["Qwen3-8B"])}')}，最终采样层 L35 为 {probability_ci(answer_query_final_rows['Qwen3-8B'], 'full_donor_adoption')}；Gemma onset 为 {('none' if answer_query_onsets['Gemma4-E4B'] is None else f'L{int(answer_query_onsets["Gemma4-E4B"])}')}，L41 为 {probability_ci(answer_query_final_rows['Gemma4-E4B'], 'full_donor_adoption')}。Onset 只按“mean≥0.5 且 CI 下界&gt;0”作描述，不用于选择被测层。</figcaption></figure>
+<p><strong>与旧 selected-layer assay 的关系。</strong>旧的 discovery-selected 单层实验已在 56 个 directed pairs 上得到完整 donor-state adoption：Qwen {float(historical_answer_controls['Qwen3-8B']['full_donor_adoption']['effect']):.3f}、Gemma {float(historical_answer_controls['Gemma4-E4B']['full_donor_adoption']['effect']):.3f}。但其 rank-3 projected-state adoption 只有 Qwen {float(historical_answer_controls['Qwen3-8B']['projected_donor_adoption']['effect']):.3f}、Gemma {float(historical_answer_controls['Gemma4-E4B']['projected_donor_adoption']['effect']):.3f}。旧实验与本轮 pair registry 不同，因此不把数值拼成同一条曲线；它只提供一个边界：<strong>完整 answer state 可执行，不等于已经隔离出共享的低维线性 counter direction。</strong></p>
+<div class="scope-compare"><div><h4>本实验已经确认：answer state → number execution</h4><p>在 clean-correct、surface-site matched 的 receiver/donor pairs 上，单层完整 answer residual replacement 可以直接改变实际 greedy 数字。它比 probe 强，因为 outcome 是模型真正生成的 count。</p></div><div><h4>本实验仍未隔离：纯 count component</h4><p>被移植的是完整 donor residual，可能同时携带 count、trace length、position 与其他上下文。因而本节证明 state 可执行，不证明一个低维、content-free scalar register；absolute-position matched control 仍列为进一步隔离实验。</p></div></div>
+<div class="section-conclusion"><strong>Experiment 6.3 结论。</strong>两模型都形成了可由后续层直接执行的 answer-query count state；这一结果闭合的是 answer-state→数字输出，而不是 memoryless <code>+1</code> recurrence。它不单独回答 earlier trace state 是否经该 answer state 传递；同一 trial 的有序中介由下一节检验。</div>
+
+<h3>6.4 Earlier terminal state 是否经 post-terminal suffix 与 answer query 传递</h3>
+<p class="lead">Non-thinking 报告的整链证据依赖同一 forward 中的有序中介，而不能只把两个独立 patch 实验首尾相接。这里在<strong>完全相同的 86 个 model-common confirmation pairs</strong>上做 2×3 factorial relay assay，直接检验 terminal trace state→post-terminal suffix / answer-query state→count margin 的同-trial 部分中介。</p>
+<div class="experiment-frame">
+  <div><span class="experiment-label">完全对齐的分析单位</span>Qwen 与 Gemma 都只保留同一 multiset 的 <code>(seed, gold_count, donor_offset)</code>：10 个 confirmation seeds、86 个 directed pairs/model、19 个 count×offset cells。Common-support intersection 在看 outcome 前由 trial keys 决定；两个模型不合并估计效应。</div>
+  <div><span class="experiment-label">2×3 factorial arms</span>Source condition 是 <strong>self patch</strong> 或 <strong>full donor terminal-state patch</strong>；relay condition 是 <strong>natural relay</strong>、<strong>clean post-terminal-suffix reset</strong>、或 <strong>clean answer-query-only reset</strong>。下游 reset 保留相同的 upstream donor patch，只把指定 relay state 恢复为 receiver clean state。</div>
+  <div><span class="experiment-label">三个量</span><span class="formula">Damage<sub>natural</sub> = M(self,natural) − M(donor,natural)<br>Damage<sub>reset</sub> = M(self,reset) − M(donor,reset)<br>Specific mediation = Damage<sub>natural</sub> − Damage<sub>reset</sub></span><em>M</em> 是 gold count 相对最强错误 count 的完整候选 sequence log-score margin。正的 specific mediation 表示：恢复下游 relay state 后，upstream donor patch 造成的答案损伤变小。</div>
+  <div><span class="experiment-label">简单例子</span>若 terminal donor patch 让正确答案 margin 相对 self 下降 4.0，而把 post-terminal suffix 恢复为 clean 后只下降 1.5，则 suffix-specific mediation=2.5、explained fraction=62.5%。剩余 1.5 说明还有旁路或未重置的 downstream state，不能声称完全中介。</div>
+  <div><span class="experiment-label">推断边界</span>Post-terminal suffix 是 primary relay；answer-query-only reset 是 secondary localization。二者的中介量高度嵌套，<strong>不能相加</strong>。实验固定候选答案 suffix 并计分，因此证明有序的 causal pathway；自由生成可执行性另由 6.3 的 greedy donor adoption 支持。</div>
+</div>
+<div class="figure-primer"><div><strong>Panel A</strong>横轴为正确 count sequence-margin 的损伤；natural damage 是 upstream state patch 的总效应，clean-suffix reset 后的 residual 是未被该 relay 解释的部分。</div><div><strong>Panel B</strong>横轴为 patch×reset interaction，即 specific mediation；正值表示该 downstream state 承担了 upstream patch 的一部分作用。</div><div><strong>点与线</strong>点是先 seed 内平均、再让 10 seeds 等权的 mean；线是 seed-cluster bootstrap 95% CI。每 panel 独立缩放，不能用 Qwen/Gemma 绝对长度比较机制强弱。</div></div>
+<figure><h3 class="figure-title">图 6e · Model-common terminal relay 的同一-trial 部分中介</h3>{effect_small_multiples_svg('Experiment 6.4 · terminal-state relay mediation on exact common support', terminal_relay_panels)}<figcaption>Panel A 同时画 natural patch damage 与 clean post-terminal-suffix reset 后的 residual；Panel B 画 suffix-specific 与 answer-query-only specific mediation。横轴单位都是完整候选 count 的 log-score margin 或其 interaction；竖直零线表示无效应。两模型都满足 natural damage 与 specific mediation 的 CI 下界大于 0，但 suffix reset 后仍保留正 residual，因此证据支持<strong>有序、部分、非唯一</strong>的 relay，而不是完全中介。</figcaption></figure>
+{terminal_relay_table}
+<p><strong>结果分析。</strong>Qwen 的 suffix-specific mediation 解释 natural patch effect 的 {100 * float(terminal_relay_summary['models']['Qwen3-8B']['effects']['post_terminal_suffix_explained_fraction']['estimate']):.1f}%（bootstrap ratio CI {100 * float(terminal_relay_summary['models']['Qwen3-8B']['effects']['post_terminal_suffix_explained_fraction']['ci_low']):.1f}%–{100 * float(terminal_relay_summary['models']['Qwen3-8B']['effects']['post_terminal_suffix_explained_fraction']['ci_high']):.1f}%）；Gemma 为 {100 * float(terminal_relay_summary['models']['Gemma4-E4B']['effects']['post_terminal_suffix_explained_fraction']['estimate']):.1f}%（{100 * float(terminal_relay_summary['models']['Gemma4-E4B']['effects']['post_terminal_suffix_explained_fraction']['ci_low']):.1f}%–{100 * float(terminal_relay_summary['models']['Gemma4-E4B']['effects']['post_terminal_suffix_explained_fraction']['ci_high']):.1f}%）。两者的 residual damage CI 也都在 0 以上，所以这些 relay states 承担 terminal perturbation 传向 answer margin 的一条通路，但不是唯一通路。Gemma 在这组 exact-common pairs 上的 suffix-reset 与 answer-query-only interaction 数值完全相同；它们不能当作两次独立证据，也不能在 Gemma 内区分 wider suffix 与 query-only mediation，只能把共同下游位点解释为已定位的部分 relay。Qwen 两个 estimand 不同，因此其 wider suffix 与最后 query 位置可作嵌套、但不可相加的定位。</p>
+<div class="section-conclusion"><strong>Experiment 6.4 结论。</strong>在完全样本对齐的 confirmation common support 上，terminal trace-state patch 对 correct-count margin 的影响会被 clean post-terminal suffix / answer-query reset 显著削弱；结合 6.3 的 answer-state→greedy number execution，可以把 <code>trace state → answer-query state → count output</code> 严谨地写成一条<strong>有序的部分因果通路</strong>。剩余效应明确排除“单一、完全、排他中介”的说法。</div>
+"""
+    require(answer_section.endswith("</section>"), "Malformed terminal section")
+    answer_section = (
+        answer_section[: -len("</section>")]
+        + answer_query_execution_section
+        + "</section>"
+    )
 
     original_write = sections["write"]
     old_53_marker = "<h3>5.3 Commit state 是否决定下一次 targeted query 读向哪里</h3>"
@@ -3699,7 +4406,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
         "该受控比较只检验完整 commit state 是否影响下一次 query；它不等同于自然 no-index trace 中的 arithmetic recurrence。",
     ).replace(
         "至此，targeted retrieval→carrier→commit→next targeted retrieval 的 trace 内循环已经接上。",
-        "该结果保留为历史的 indexed/controlled routing evidence；它不单独证明自然 no-index trace 中存在 memoryless +1。",
+        "该结果保留为历史的 indexed/controlled routing evidence；它不单独证明自然 no-index trace 中存在同样的 counter。",
     ).replace(
         "直接 recurrent edge 已确认",
         "受控 commit→query edge 已确认",
@@ -3712,7 +4419,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
     )
     write_prefix = write_prefix.replace(
         '<section id="write"><p class="eyebrow">05 · Write and recurrent propagation</p><h2>把 trace 内部的三条边分开检验</h2>',
-        '<section id="write"><p class="eyebrow">05 · Logical chain C</p><h2>5. 逻辑链 C — State write and progress control：从检索结果到下一项选择</h2>',
+        '<section id="write"><p class="eyebrow">05 · Logical chain C</p><h2>5. 逻辑链 C — Counter update：从检索结果到下一项选择</h2>',
         1,
     ).replace(
         '<div><span>5.3 · COMMIT → NEXT READ</span><strong>把“已完成 k”的 commit 换成“已完成 k+1”，下一次 query 会不会改读再下一条 record？</strong></div>',
@@ -3756,7 +4463,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
         .replace('<span class="experiment-label">要检验的箭头</span>', '<span class="experiment-label">实验目的</span>', 1)
         .replace('<span class="experiment-label">具体例子 A</span>', '<span class="experiment-label">简单例子 A</span>', 1)
         .replace('<span class="experiment-label">具体例子 B</span>', '<span class="experiment-label">简单例子 B</span>', 1)
-        + '<div class="section-conclusion"><strong>Experiment 5.1 结论。</strong>在两模型的固定 trace 上，关闭冻结 targeted bank 会使 query 之后的 grammar carrier 离开 clean state。Qwen 的 selected−random identity control 清楚为正；Gemma 只确认 direct damage，尚不能声称 Top-6 是排他的写入通路。NCC 与最终答案 margin 的附加诊断移至 Appendix H。</div>'
+        + '<div class="section-conclusion"><strong>Experiment 5.1 结论。</strong>在完全样本对齐的固定 trace 上，关闭冻结 targeted bank 会使两模型 query 之后的 grammar carrier 离开 clean state，且 selected−random identity control 在两模型都为正。该结果确认 bank-related carrier damage，不宣称 bank 排他或 carrier 是唯一 count code。NCC 与最终答案 margin 的附加诊断移至 Appendix H。</div>'
     )
     write_52_main = (
         write_52_marker
@@ -3780,7 +4487,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
         ),
         (
             (
-                f"{SHORT[model]} · {indexed_cohort_manifest['models'][model]['surface_template']}",
+                f"{SHORT[model]} · {indexed_cohort_manifest['surface_template']}",
                 f"k=6, two directions, {int(indexed_progress_active_discovery[model]['cell_count'])} cells",
                 (
                     f"auto L{int(indexed_progress_selected[model]['selected_layer'])} / "
@@ -3857,9 +4564,6 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
         ),
         class_name="compact-table",
     )
-    qwen_noindex_l16_k6_transfer = int(
-        item_span_l16_summary["patched_first_known_city_donor_adoption_count"]
-    )
     qwen_indexed_transfer = int(
         indexed_progress_summary["Qwen3-8B"][
             "patched_first_known_city_donor_adoption_count"
@@ -3871,61 +4575,46 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
         if int(row["donor_occurrence_k"]) == 6
     ]
     require(len(qwen_indexed_k6_rows) == 2, "Qwen indexed k=6 support changed")
-    qwen_indexed_l16_k6_transfer = sum(
+    qwen_indexed_k6_transfer = sum(
         int(row["patched_first_known_city_donor_adoption_count"])
         for row in qwen_indexed_k6_rows
     )
-    qwen_indexed_l16_k6_receiver = sum(
+    qwen_indexed_k6_receiver = sum(
         int(row["receiver_first_known_city_donor_adoption_count"])
         for row in qwen_indexed_k6_rows
     )
-    if qwen_indexed_l16_k6_transfer > qwen_noindex_l16_k6_transfer:
-        indexed_qwen_comparison = (
-            "Qwen 的同层同 k 比较中，first-city transfer 从自然 no-index L16 k=6 的 "
-            f"{qwen_noindex_l16_k6_transfer}/20 升到显式 index 的 "
-            f"{qwen_indexed_l16_k6_transfer}/20（receiver baseline "
-            f"{qwen_indexed_l16_k6_receiver}/20）；方向与 positive-control 预期一致。"
-        )
-    elif qwen_indexed_l16_k6_transfer == qwen_noindex_l16_k6_transfer:
-        indexed_qwen_comparison = (
-            "Qwen 的同层同 k first-city transfer 在自然 no-index 与显式 index 中同为 "
-            f"{qwen_indexed_l16_k6_transfer}/20（indexed receiver baseline "
-            f"{qwen_indexed_l16_k6_receiver}/20）；显式 index 没有提供额外行为增益。"
-        )
-    else:
-        indexed_qwen_comparison = (
-            "Qwen 的同层同 k 显式-index first-city transfer 为 "
-            f"{qwen_indexed_l16_k6_transfer}/20（receiver baseline "
-            f"{qwen_indexed_l16_k6_receiver}/20），低于自然 no-index L16 k=6 的 "
-            f"{qwen_noindex_l16_k6_transfer}/20；因此“有 index 应更强”的预期没有得到行为读数支持。"
-        )
+    indexed_qwen_comparison = (
+        f"Qwen 的显式-index frozen-L{indexed_confirmation_layers['Qwen3-8B']} "
+        f"k=6 first-city transfer 为 {qwen_indexed_k6_transfer}/20（receiver "
+        f"baseline {qwen_indexed_k6_receiver}/20）。自然 no-index robustness 使用 "
+        "L16 与不同 grammar/cohort，因此不把二者作同层增益比较。"
+    )
     indexed_control_section = f"""
 <h3>J.1 显式 index positive control：可见 progress label 会不会让同一 assay 更容易转移？</h3>
-<p class="lead">这是对 5.3 的 assay calibration，不是扩大 internal-counter claim。Qwen 与 Gemma 各自使用一类预先冻结、逐条格式审计通过的 N=10 trace；item 中明确出现 <code>k</code>，所以任何成功效应都可能直接利用 visible position label。</p>
+<p class="lead">这是对 5.3 的 assay calibration，不是扩大 internal-counter claim。Qwen 与 Gemma 使用<strong>完全相同的 N=10 内层枚举 surface</strong>与同一 20+10 seeds；item 中明确出现 <code>k</code>，所以任何成功效应都可能直接利用 visible position label。</p>
 <div class="experiment-frame">
   <div><span class="experiment-label">实验目的</span>确认同一 donor→receiver transplant assay 在存在清楚 progress cue 时能够产生预期的 successor routing，并观察 Qwen/Gemma 的方向差异。</div>
-  <div><span class="experiment-label">Qwen grammar</span><code>k. City - score</code>；20 discovery + 10 held-out confirmation。</div>
-  <div><span class="experiment-label">Gemma grammar</span><code>Record k: (City, score)</code>；20 discovery + 10 held-out confirmation。</div>
-  <div><span class="experiment-label">Intervention</span>与 no-index 主实验相同：把 donor item k 的 endpoint-aligned maximal common span 写到绝对位置匹配的 receiver item j；候选是 receiver successor 与 donor successor。</div>
-  <div><span class="experiment-label">计算方法</span>使用第 2 节定义的 paired Δroute、paired Δattention、10-way donor argmax 与 first-city transfer；先在 discovery 冻结层，再一次性读取 confirmation。</div>
-  <div><span class="experiment-label">Pre-confirmation amendment</span>原自动规则（两方向为正且达到 peak 95% 的最早层）在两模型都返回 L0。为避免把最大 downstream recomputation 深度当作机制定位，在读取任何 indexed confirmation 前改冻外部锚定的 L16：Qwen 与 no-index L16 同层比较，Gemma 对齐既有 running-state L16。原 L0 结果不覆盖，完整保留为 early-layer upper bound。</div>
+  <div><span class="experiment-label">共享 grammar / cohort</span>两个模型的内层 trace 都是 <code>k. City - score</code>；shared keys 为 <code>(phase, seed, gold_count=10)</code>，20 discovery + 10 held-out confirmation，模型原生 chat/channel wrapper 可不同。</div>
+  <div><span class="experiment-label">Intervention</span>与 no-index 主实验使用同一 endpoint-aligned maximal-common-span transplant 与 self-patch control。Patch 宽度和 tokenizer span 可以随模型/项目变化，但每个模型内 donor/receiver boundary、coverage 与 effective width 都逐 cell 审计。</div>
+  <div><span class="experiment-label">计算方法</span>使用第 2 节定义的 paired Δroute、paired Δattention、10-way donor argmax 与 first-city transfer。Discovery layer sweep 只作 profile；active confirmation layer 不从 indexed outcome 选择。</div>
+  <div><span class="experiment-label">Pre-confirmation amendment / freeze</span>在读取任何 indexed outcome 前，直接使用 exact cross-model common-support running representation 的 discovery-frozen层：Qwen L{indexed_confirmation_layers['Qwen3-8B']}、Gemma L{indexed_confirmation_layers['Gemma4-E4B']}。这个 amendment 只更正模型特异的外部 representation-frozen layer，并在 confirmation outcome 不可见时落盘；这样避免把 L0 最大 downstream recomputation depth 当成机制定位，也避免用 positive-control outcome 反选层。</div>
   <div><span class="experiment-label">简单例子</span>Receiver 的可见 label 是 5，donor 是 6；若 patch 后下一项从 <code>6. ...</code> 改为 <code>7. ...</code>，这说明 assay 能复制带显式位置线索的 progress state，但不能证明无 label 时也存在同一内部变量。</div>
 </div>
-<figure><h3 class="figure-title">图 J1 · 显式-index positive control 的 discovery-only layer profile</h3><div class="scope-layer-figure">{indexed_progress_layer_svg}</div><figcaption>横轴是 zero-based post-block layer；纵轴是 paired donor-successor Δroute。深色线是每个 seed 两方向 effect 的 median；绿/紫分别是 forward/backward cell median。两 panel 使用独立 y scale，不能据线高比较模型。空心圆是原自动 L0，橙色菱形是 confirmation 前外部锚定的 L16；两者都在打开 confirmation 前写入冻结清单。</figcaption></figure>
+<figure><h3 class="figure-title">图 J1 · 显式-index positive control 的 discovery-only layer profile</h3><div class="scope-layer-figure">{indexed_progress_layer_svg}</div><figcaption>横轴是 zero-based post-block layer；纵轴是 paired donor-successor Δroute。深色线是每个 seed 两方向 effect 的 median；绿/紫分别是 forward/backward cell median。两 panel 使用独立 y scale，不能据线高比较模型。空心圆是该 profile 自身的自动 peak-rule layer；橙色菱形是 outcome-blind external representation freeze（Qwen L{indexed_confirmation_layers['Qwen3-8B']}、Gemma L{indexed_confirmation_layers['Gemma4-E4B']}）。Confirmation 只运行后者。</figcaption></figure>
 {indexed_discovery_table}
 <p><strong>Held-out cross-k confirmation。</strong>冻结层后只在新 10 seeds 上测试 k={{4,6,8}}、双方向共 60 cells，并同时读取 transition likelihood、frozen targeted-head attention、10-way successor argmax 与自由 continuation 的第一个已知 city。</p>
 {indexed_confirmation_table}
 <p>{indexed_qwen_comparison} Gemma 没有同口径的自然 no-index cohort，因此这里只能报告 positive-control 结果，不能计算 Gemma 的 indexed-vs-no-index 增益。</p>
 <p><strong>行为审计。</strong>Qwen 的 {int(indexed_progress_generation_audit['models']['Qwen3-8B']['patched_donor_adoption_count'])} 次、Gemma 的 {int(indexed_progress_generation_audit['models']['Gemma4-E4B']['patched_donor_adoption_count'])} 次 patched donor-first-city 命中都在 continuation 前 80 characters 内出现；没有一次依赖 reasoning close 后的 answer/recap。扣除同 cell receiver baseline 后，至少一次出现新增 transfer 的 seeds 为 Qwen {int(indexed_progress_generation_audit['models']['Qwen3-8B']['seed_with_any_incremental_adoption_count'])}/10、Gemma {int(indexed_progress_generation_audit['models']['Gemma4-E4B']['seed_with_any_incremental_adoption_count'])}/10。</p>
-<p><strong>模型差异。</strong>Qwen 是强 positive control：60/60 likelihood 正向、59/60 attention 正向、first-city 净增 +90.0 pp。Gemma 只形成 partial calibration：likelihood 45/60、attention 47/60、first-city 净增 +18.3 pp；其中 forward 是 13/30 patched vs 2/30 receiver，backward 是 2/30 vs 2/30。也就是说，可见 index 并没有自动消除 Gemma 的 direction/grammar integration 问题。</p>
+<p><strong>模型内结果，不作效应量强弱比较。</strong>Qwen 的 positive-log-odds / positive-attention 比例为 {int(round(60*float(indexed_progress_summary['Qwen3-8B']['positive_logodds_shift_rate'])))}/60 与 {int(round(60*float(indexed_progress_summary['Qwen3-8B']['positive_attention_shift_rate'])))}/60，first-city paired gain={100*float(indexed_progress_summary['Qwen3-8B']['paired_first_known_city_donor_adoption_gain']):+.1f} pp；Gemma 对应为 {int(round(60*float(indexed_progress_summary['Gemma4-E4B']['positive_logodds_shift_rate'])))}/60、{int(round(60*float(indexed_progress_summary['Gemma4-E4B']['positive_attention_shift_rate'])))}/60、{100*float(indexed_progress_summary['Gemma4-E4B']['paired_first_known_city_donor_adoption_gain']):+.1f} pp。Bank width、层与 tokenizer span 架构特定，因此这些数值只用于判断各模型中 assay 是否工作，不用于声称谁更强。</p>
 <p class="main-note"><strong>解释边界。</strong>显式序号既可能进入被移植的 span，也会通过上下文写进其 hidden states；item span 还保留 city、score 与语法。因而成功只表明 assay 能在有强 progress cue 时转移 state-dependent routing，不能证明模型在没有 index 时维护同一种 counter，也不能把 Qwen 的自然 no-index 结论外推到 Gemma。</p>
-<div class="section-conclusion"><strong>Appendix J 结论。</strong>Qwen 给出强 explicit-index positive control；Gemma 只给出 forward-dominant partial calibration，而不是完整跨模型复现。本文的 natural no-index internal-counter/progress-controller claim 仍严格只来自 Qwen 5.3。</div>"""
+<div class="section-conclusion"><strong>Appendix J 结论。</strong>共享 surface、共享 seed/count/k/direction/condition keys 的 explicit-index control 校准了 transplant assay；其结果只证明带可见 progress cue 时的 state-dependent routing 能力。本文的 natural no-index internal-counter/progress-controller claim 仍严格只来自 Qwen 5.3。</div>"""
     write_section = f"""{write_header}{write_shared}{write_51_main}{write_52_main}
-<h3>5.3 自然 no-index event/progress state 是否改写下一项 retrieval</h3>
-<p class="lead">这里不再把单个 endpoint 当作完整 counter。Qwen N=10 的 donor occurrence 与 receiver occurrence 在可见 token、绝对位置和后续 grammar 上对齐；只替换 frozen layer 上的 event state，然后同时读取 donor-successor 的相对 likelihood、targeted attention 与自由 continuation 中第一个已知 city。</p>
+<h3>5.3 自然 no-index counter state 是否改写下一项 retrieval</h3>
+<p class="lead">这里不再把单个 endpoint 当作完整 counter。Qwen N=10 的 transplant 让 receiver patch target、绝对位置与后续 grammar 保持不变；donor alignment 通过调整非-record filler 完成，因此 donor/receiver 的字面 patch token 不必相同。只替换 frozen layer 上的 event state，然后同时读取 donor-successor 的相对 likelihood、targeted attention 与自由 continuation 中第一个已知 city。</p>
 <div class="experiment-frame">
   <div><span class="experiment-label">实验目的</span>闭合 Native counting 通路中最关键的一条边：已经写入 trace 的 contextual event/progress state，是否真的决定下一轮应该检索哪条 record。</div>
-  <div><span class="experiment-label">设定</span>Qwen 自然 no-index N=10 confirmation 的同 10 seeds；固定 L16，donor k=6，分别做 forward 5←6 与 backward 7←6，共 20 个 pair。Patch 同层、同绝对位置的完整 item span；self-patch 控制 hook。</div>
+  <div><span class="experiment-label">设定</span>Qwen 自然 no-index N=10 confirmation 的同 10 seeds；固定 L16，donor k=6，分别做 forward 5←6 与 backward 7←6，共 20 个 pair。Patch 同层、同绝对目标位置的 endpoint-aligned maximal-common span；self-patch 控制 hook。只有 donor/receiver item 等长时它才是双方的完整 item，不能把所有 cells 统称为 literal full-span patch。</div>
   <div><span class="experiment-label">计算方法</span>沿用第 2 节的 Δroute、Δattention、10-way donor argmax 与 first-city transfer。L16 没有重新扫 confirmation 层；它是对 L0 frozen scope confirmation 的预先指定中层 robustness comparator。</div>
   <div><span class="experiment-label">简单例子</span>在 forward pair 中，receiver 已完成 N5、自然将读 N6；donor state 表示已完成 N6。若 patch 后 attention 与首个生成 city 都改指 N7，说明被移植 state 携带了足以推进下一项检索的功能信息。</div>
 </div>
@@ -3938,7 +4627,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
 </div>
 <p class="main-note"><strong>证据等级。</strong> L16 是真正的中层 post-block state intervention，且所有 16 次命中都在 continuation 前 40 characters 内出现、0 次仅在 recap 中出现。但它使用与 L0 confirmation 相同的 10 seeds，并只复核 k=6，因此是 causal robustness comparator，而不是第二组独立 confirmation。</p>
 <p>冻结的四-token event tail 给出更窄的 routing carrier：系统 scope assay 在 held-out 60 cells 中 median Δ log-odds={float(patch_scope_confirmation['event_tail_w4']['median_paired_logodds_shift']):+.2f}、attention 58/60 朝 donor 移动、首个 city 15/60 跟随 donor，并覆盖 8/10 seeds。它不含 city 名，但仍含 score numeral；所以可以称为 <em>counter-like routing information</em>，不能称为 content-free counter register。</p>
-<div class="section-conclusion"><strong>Experiment 5.3 结论。</strong> 在 Qwen 的自然 no-index N=10 trace 中，中层分布式 event/progress state 对下一项 retrieval 具有行为层面的因果控制。这个结果支持 context-dependent progress controller；它不识别独立 count component，也不证明 state 按 <code>c ← c + 1</code> 更新。</div>
+<div class="section-conclusion"><strong>Experiment 5.3 结论。</strong> 在 Qwen 的自然 no-index N=10 trace 中，中层分布式 counter state 对下一项 retrieval 具有行为层面的因果控制。结合 3.2 的 L0 多步 continuation，这条边支持“counter state 决定从哪里继续”；L16 comparator 本身仍只验证首步，不负责隔离纯算术更新。</div>
 </section>"""
 
     mirror_table = table(
@@ -3946,7 +4635,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
         (
             (
                 "State formation / localization",
-                "trace item 的 endpoint、event tail 与完整 item span",
+                "trace item 的 endpoint、event tail 与 endpoint-aligned maximal-common span",
                 "held-out probe + frozen scope transplant",
                 "表征可读不等于因果使用；L0 full span 是 upper bound",
             ),
@@ -3964,9 +4653,9 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
             ),
             (
                 "Terminal readout",
-                "answer query 读取 trace；terminal grammar state 推动 gold margin",
-                "trace-source blank + fixed-suffix semantic restoration",
-                "局部 bridge 成立，free-running single-state sufficiency 未成立",
+                "trace state 向 answer 传递；完整 answer state 被读成数字",
+                "trace-source blank + terminal restore + answer-query layer sweep + 86-pair same-trial relay reset",
+                "answer state 可执行且构成有序部分通路；仍非完全、唯一中介",
             ),
         ),
         class_name="mirror-table",
@@ -3984,7 +4673,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
                 "Gemma prompt-conditioned no-visible-index",
                 "passage 不变；只改 passage 后 task tail；assistant prefix 为 FOUND: ",
                 "只接受 FOUND: <city> | score <score>；拒绝 ordinal、labeled index、running total、非 FOUND prose、重复或缺失 event；只允许一个 Total:",
-                "auxiliary surrogate；simulatively confirmed†，不是 natural confirmation",
+                "simulatively confirmed†（controlled surrogate）；不是 natural confirmation",
             ),
             (
                 "Explicit-index positive control",
@@ -4015,7 +4704,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
 <p>三套 parser 共享 gold-record 一一对应、span 不重叠和 outcome-blind selection，但它们回答的科学问题不同，不能互相替代。</p>
 {parser_grammar_table}
 <p><span class="parser-tag">PRIMARY</span>Qwen natural no-index　<span class="parser-tag">AUXILIARY</span>Gemma prompt-conditioned　<span class="parser-tag">CALIBRATION</span>explicit-index control</p>
-<div class="parser-warning"><strong>Claim firewall。</strong><code>FOUND:</code> marker 本身不携带 count，因此 Gemma auxiliary 能说明在受控 no-visible-index grammar 下可诱发 successor routing；但 task tail 已改变。Explicit-index control 又直接暴露 k。两者共同只支持 <em>simulatively confirmed†</em>，都不把 Gemma 升格为 natural no-index confirmation。</div>
+<div class="parser-warning"><strong>Claim firewall。</strong><code>FOUND:</code> marker 本身不携带 count，因此 Gemma auxiliary 能说明在受控 no-visible-index grammar 下可诱发 successor routing；但 task tail 已改变。Explicit-index control 又直接暴露 k。两者共同只支持 <em>simulatively confirmed†</em>（controlled surrogate positive），都不把 Gemma 升格为 natural no-index confirmation。</div>
 </div></details>
 <details class="parser-disclosure"><summary>C · Span compiler 与 patch geometry：从字符 event 到同绝对位置 hidden states</summary><div class="parser-disclosure-body">
 <p>Trace parser 先把每个 event 注册为 half-open token span <code>[start, end)</code>。随后只在注册 item 内选择 endpoint；不会跨入下一项之间的 lead-in、空白或 recap 文本。Donor 或 receiver prefix 会做等长位置对齐，使两个 commit sites 落在同一绝对 token index，且 prefix sequence length 相同。</p>
@@ -4042,34 +4731,52 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
   <div><strong>Discovery freeze</strong>Qwen N=10 discovery 只用 k=6 双方向扫 36 层；scope/layer 只看 registered transition likelihood，attention 与 generation 对选择不可见。</div>
   <div><strong>Held-out test</strong>Confirmation 固定到 10 个新 seeds，测试 k∈{{4,6,8}} 与双方向；L16 k=6 是同一 confirmation seeds 的 post-hoc robustness，不伪装成第二次独立 confirmation。</div>
 </div>
-<div class="parser-warning"><strong>最小成功标准与 claim 层级。</strong>连续量改变说明 routing 被因果推动；candidate argmax 与首个生成 city 跟随 donor 才说明改变越过决策边界。即使四级都成立，也只证明 contextual progress state 控制 successor retrieval；它仍不证明一个 content-free state 经固定算子实现 <code>c ← c + 1</code>。</div>
+<div class="parser-warning"><strong>最小成功标准与 claim 层级。</strong>连续量改变说明 routing 被因果推动；candidate argmax 与首个生成 city 跟随 donor 才说明改变越过决策边界；无后续 patch 的多步 donor-aligned sequence 才说明 counter 重定向会持续。即使这些层级都成立，也仍不证明一个 content-free scalar 经固定算子实现 <code>c ← c + 1</code>。</div>
 </div></details>
 </div>"""
     summary_section = f"""<section id="summary"><p class="eyebrow">Conclusion first</p>
-<h2>先说机制：Native-thinking 通过分布式 event/progress state 组织逐项检索</h2>
-<div class="core-claim"><strong>本文主张（仅限 Qwen3-8B 的自然 no-index trace）。</strong> Qwen 维护一个分布式、content-bound 的 event/progress state；该状态在中层即可因果控制下一项 retrieval。更窄的 event tail 含有 counter-like routing information，但单 endpoint 不充分，且尚无证据表明模型实现了 memoryless arithmetic <code>+1</code> recurrence。Gemma 尚无对应的自然 no-index 因果结果。</div>
-<p class="lead">最强证据来自 Qwen3-8B 的自然 first-pass、无显式 running index、N=10 trace。Discovery 只用 k=6 双向 patch 扫 36 层并冻结 scope/layer；held-out confirmation 再测试 k∈{{4,6,8}} 的 forward skip 与 backward rewind。完整 item span 在 60/60 cells 中把 donor successor 推到候选第一，实际 continuation 的首个已知 city 在 43/60 cells 跟随 donor；固定到更深的 L16、只复核 k=6，仍有 16/20 行为转移。</p>
+<h2>先说机制：Native-thinking 维护一个控制后续枚举的 internal counter</h2>
+<div class="core-claim"><strong>本文主张（仅限 Qwen3-8B 的自然 no-index trace）。</strong> Qwen 维护一个分布式、与 event content 绑定的 internal counter：它记录当前枚举进度，并决定下一项从哪里继续。一次 counter-state transplant 不仅改变下一项，还会让后续枚举沿 donor 所指向的序列继续，无需再次干预。Gemma 尚无对应的自然 no-index 因果结果。</div>
+<p class="lead">最强证据来自 Qwen3-8B 的自然 first-pass、无显式 running index、N=10 trace。Discovery 只用 k=6 双向 patch 扫 36 层并冻结 scope/layer；held-out confirmation 再测试 k∈{{4,6,8}} 的 forward skip 与 backward rewind。Item-span scope——即 endpoint-aligned maximal-common span，而非每个 cell 都是双方 literal full item——在 60/60 cells 中把 donor successor 推到候选第一，实际 continuation 的首个已知 city 在 43/60 cells 跟随 donor。对原始 completion 的多步重解析进一步显示：这 43 次首步转移全部继续到 donor 的下一 successor；在可观察四步的条件中为 27/27。固定到更深的 L16、只复核 k=6，仍有 16/20 首步行为转移。</p>
 <div class="reading-contract">
-  <div class="contract-row"><strong>Event/progress state</strong><span>本文的操作性定义不是“某个神经元等于 k”，而是：一个 contextual event state 在同位置 transplant 后，能使后续计算系统性偏向 donor successor。它同时可能包含 event content、语法与 progress。</span></div>
-  <div class="contract-row"><strong>Event tail / item span</strong><span>Event tail 是 item 结束前冻结的四-token 窄窗口；item span 是 donor/receiver 的 endpoint-aligned 最大共同完整事件范围。Tail 不含 city，但仍含 score numeral；span 含 city、score 与 syntax。</span></div>
-  <div class="contract-row"><strong>证据标签</strong><span><em>Natural confirmed</em> 表示原始 prompt 的自然 no-index cohort 在 discovery 冻结后于独立 confirmation 复现；<em>simulatively confirmed†</em> 表示原始 prompt 下无法建立对应 cohort，但在 prompt-conditioned no-visible-index 与 explicit-index 两类受控 surrogate setting 中都观察到 state-guided successor transfer。后者确认的是可诱发的机制能力，不是自然使用；<em>controlled only</em> 表示固定后续 visible suffix 时有局部因果效应，但尚未证明单 state 在自由运行中足以决定最终输出。</span></div>
+  <div class="contract-row"><strong>Internal counter</strong><span>本文把“记录当前数到哪里，并因果决定从哪里继续”的内部状态称为 counter。它不要求某个神经元等于 k，也不预设一个纯标量算术寄存器；现有 counter state 同时包含 event content、语法与 progress。</span></div>
+  <div class="contract-row"><strong>Event tail / item span</strong><span>Event tail 是 item 结束前冻结的四-token 窄窗口；item span 是 donor/receiver 的 endpoint-aligned maximal-common range：等长时覆盖双方完整 item，不等长时覆盖较短 item 的全部 tokens 与较长 item 的等宽 suffix。Tail 不含 city，但仍含 score numeral；span 通常含 city、score 与 syntax。</span></div>
+  <div class="contract-row"><strong>Cross-model sample alignment</strong><span>凡正文把 Qwen 与 Gemma 并列展示，必须同时通过 input-panel 与 realized-output 两层 fail-closed audit：两模型使用完全相同 multiset 的 phase、seed、gold count、donor/receiver 或 transition keys，以及相同 condition/repeat multiplicity；不能只证明运行前计划相同。架构特定的层、head identity、bank width 与 tokenizer span 可以不同；绝对效应量不作模型间强弱比较。</span></div>
+  <div class="contract-row"><strong>证据标签</strong><span><em>Natural confirmed</em> 表示原始 prompt 的自然 no-index cohort 在 discovery 冻结后于独立 confirmation 复现；<em>simulatively confirmed†</em> 是本文对 controlled surrogate positive 的简写：原始 prompt 下无法建立对应 cohort，但在 prompt-conditioned no-visible-index 与 explicit-index 两类受控 surrogate setting 中都观察到 state-guided successor transfer。它确认的是可诱发的机制能力，不是自然使用；<em>controlled only</em> 表示固定后续 visible suffix 时有局部因果效应，但尚未证明单 state 在自由运行中足以决定最终输出。</span></div>
 </div>
-<p class="main-note"><strong>跨模型校准已另做，但不并入 claim。</strong>显式-index clean grammar positive control 在 L16 的 patched first-city transfer 为 Qwen {qwen_indexed_transfer}/60、Gemma {int(indexed_progress_summary['Gemma4-E4B']['patched_first_known_city_donor_adoption_count'])}/60；相对各自 receiver baseline 的配对净增为 Qwen {100*float(indexed_progress_summary['Qwen3-8B']['paired_first_known_city_donor_adoption_gain']):+.1f} pp、Gemma {100*float(indexed_progress_summary['Gemma4-E4B']['paired_first_known_city_donor_adoption_gain']):+.1f} pp。Gemma 在 Appendix K 的 prompt-conditioned no-visible-index auxiliary 中另有 22/30 first-city transfer。两类受控设置共同支持图 S1 的 <em>simulatively confirmed†</em> 标记；但前者明示 k，后者修改了输出格式 prompt，因此都不能作为 Gemma 的自然 no-index internal-counter 证据。</p>
+<p class="main-note"><strong>跨模型校准已另做，但不并入 claim。</strong>显式-index clean grammar positive control 在冻结层的 patched first-city transfer 为 Qwen {qwen_indexed_transfer}/60、Gemma {int(indexed_progress_summary['Gemma4-E4B']['patched_first_known_city_donor_adoption_count'])}/60；相对各自 receiver baseline 的配对净增为 Qwen {100*float(indexed_progress_summary['Qwen3-8B']['paired_first_known_city_donor_adoption_gain']):+.1f} pp、Gemma {100*float(indexed_progress_summary['Gemma4-E4B']['paired_first_known_city_donor_adoption_gain']):+.1f} pp。Gemma 在 Appendix K 的 prompt-conditioned no-visible-index auxiliary 中另有 22/30 first-city transfer。两类受控设置共同支持图 S1 的 <em>simulatively confirmed†</em> 标记；但前者明示 k，后者修改了输出格式 prompt，因此都不能作为 Gemma 的自然 no-index internal-counter 证据。</p>
 <h3>与 Non-thinking 报告如何对仗</h3>
 <p>两份报告使用同一推理顺序，但不强迫两类模型共享同一实现。Non-thinking 的核心单位更接近 prompt-side aggregation；Native-thinking 的核心单位是 trace 内反复生成、被下一次 query 读取的 contextual event state。</p>
 {mirror_table}
 <div class="figure-primer"><div><strong>主文回答什么</strong>状态在哪里形成、能否控制 retrieval、以及最终如何被读取。</div><div><strong>模型范围</strong>自然 no-index causal result 目前只有 Qwen；Gemma 的旧结果含显式 progress grammar 或属于受控 carrier/readout，不能并入该 claim。</div><div><strong>不做什么外推</strong>不把 full-span copying、score-bearing tail、显式-index positive control 或单 endpoint 当成已隔离的算术寄存器。</div></div>
-<figure><h3 class="figure-title">机制图 S1 · Native-thinking counting 通路与当前证据等级</h3><div class="chain-scroll">{chain_svg()}</div><figcaption>这是一张阶段图，没有数值坐标轴。横向箭头表示候选计算顺序：targeted retrieval 读取下一条 record，retrieved event 被写入 grammar carrier 与 commit/event state，该 state 再控制 next-item routing，最终 answer query 从 trace 读取 count。纵向两行分别是 Qwen 与 Gemma；每格文字是该阶段目前最高证据等级。Qwen 的 <em>natural confirmed</em> 来自原始 prompt 的自然 no-index confirmation；Gemma 的 <em>simulatively confirmed†</em> 只表示 prompt-conditioned no-visible-index 与 explicit-index 两类 auxiliary setting 均出现 successor transfer，不表示已经取得原始 prompt 的自然 no-index cohort 或因果结果。箭头由后文相互衔接的实验支持，不代表已在同一 cohort 完成一次完整 serial mediation。</figcaption></figure>
+<figure><h3 class="figure-title">机制图 S1 · Native-thinking counting 通路与当前证据等级</h3><div class="chain-scroll">{chain_svg()}</div><figcaption>这是一张阶段图，没有数值坐标轴。横向箭头表示候选计算顺序：targeted retrieval 读取下一条 record，retrieved event 被写入 grammar carrier 与 commit/event state，该 state 再控制 next-item routing，最终 answer query 从 trace 读取 count。纵向两行分别是 Qwen 与 Gemma；每格文字是该阶段目前最高证据等级。Qwen 的 <em>natural confirmed</em> 来自原始 prompt 的自然 no-index confirmation；Gemma 的 <em>simulatively confirmed†</em> 是 controlled-surrogate 标签，只表示 prompt-conditioned no-visible-index 与 explicit-index 两类 auxiliary setting 均出现 successor transfer，不表示已经取得原始 prompt 的自然 no-index cohort或因果结果。Terminal 格写成 <em>partial relay + answer exec.</em>：86 个完全 model-common confirmation pairs 的同一-trial reset assay 支持 trace state 经 post-terminal suffix / answer query 的有序部分中介，逐层 answer-query full-state patch 又确认该 state 可执行成实际 greedy 数字。Reset 后仍有 residual effect，所以箭头表示一条通路，不表示唯一或完全中介。</figcaption></figure>
 <div class="claim-tier-grid">
-  <div><h3>Established</h3><p>Qwen 的分布式 event state 可因果改变下一项 likelihood、attention、candidate argmax 与生成内容；L16 comparator 表明这不只是 raw embedding copying。</p></div>
+  <div><h3>Established</h3><p>Qwen 具有分布式 internal counter：counter-state transplant 可改变下一项 likelihood、attention、candidate argmax 与生成内容，并在成功启动后持续改变后续枚举序列。</p></div>
   <div><h3>Supported, not isolated</h3><p>event tail 比 endpoint 稳定且更 norm-efficient，含有 progress-correlated routing information；但 tail 仍含 score，item span 仍含 city/score/syntax。</p></div>
-  <div><h3>Not established</h3><p>单一 counter cell、content-free count variable、memoryless <code>+1</code> transition、唯一 circuit，或 Qwen 结果对 Gemma 的直接外推。</p></div>
+  <div><h3>Not established</h3><p>单一 counter cell、content-free scalar register、context-invariant arithmetic <code>+1</code> operator、唯一 circuit，或 Qwen 结果对 Gemma 的直接外推。</p></div>
 </div>
 {parser_contract_section}
-<div class="section-conclusion"><strong>Summary 结论。</strong>在 Qwen 的自然 no-index trace 中，这是一个分布式、依赖事件内容的 progress controller；它在功能上控制“下一项读什么”，但目前不是已定位的 arithmetic counter。该句不能外推到 Gemma。计划内结果均已落盘；第 9 节列的是升级更强 claim 所需的新实验，不是当前报告的未完成运行。</div></section>"""
+<div class="section-conclusion"><strong>Summary 结论。</strong>在 Qwen 的自然 no-index trace 中，我们观察到一个分布式、与事件内容绑定的 internal counter：它记录枚举进度，控制下一项 retrieval，并在一次 state transplant 后持续改变后续枚举。这个结论不意味着已经找到独立的纯算术寄存器，也不能外推到 Gemma。计划内结果均已落盘；第 9 节列的是进一步隔离 counter component 所需的新实验。</div></section>"""
 
+    multi_hop_continuation_table = table(
+        (
+            "Donor-implied hop",
+            "Eligible cells",
+            "Exact continuation",
+            "Among runs that adopted the first successor",
+        ),
+        (
+            ("<code>k+1</code>", "60", "43/60", "43/43"),
+            ("<code>k+2</code>", "60", "43/60", "<strong>43/43</strong>"),
+            ("<code>k+3</code>", "40", "27/40", "<strong>27/27</strong>"),
+            ("<code>k+4</code>", "40", "27/40", "<strong>27/27</strong>"),
+            ("<code>k+5</code>", "20", "13/20", "13/14"),
+            ("<code>k+6</code>", "20", "12/20", "12/14"),
+        ),
+        class_name="compact-table",
+    )
     formation_section = f"""<section id="formation"><p class="eyebrow">03 · Logical chain A</p>
-<h2>3. 逻辑链 A — Trace-side state localization：单 endpoint 很弱，event tail 与 item span 逐级增强</h2>
+<h2>3. 逻辑链 A — Counter state：单 endpoint 很弱，event tail 与 item span 逐级增强</h2>
 <p class="lead">Representation 只能说明 count/progress 可读。这里用自然 donor→receiver transplant 问更强的问题：第 k 个 event 的 contextual state 是否足以把 receiver 的下一项选择改成 donor 所暗示的 successor？</p>
 <div class="experiment-frame">
   <div><span class="experiment-label">实验目的</span>定位能承载 functional progress information 的最小语义范围：它集中在 item endpoint、较窄 event tail，还是必须依赖完整 event span。</div>
@@ -4080,27 +4787,30 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
   <div><span class="experiment-label">计算方法</span>主量是第 2 节定义的 paired Δroute；同时记录每个 scope 的 patch L2 norm 与 Δroute/norm。Confirmation 的 attention、argmax 与 first-city 都不参与 discovery selection。</div>
   <div><span class="experiment-label">简单例子</span>把 donor k=6 写到 receiver j=5：endpoint 只替换 event 最后一个 token；tail 替换最后四个 tokens；item span 替换整条 event。若只有完整 span 让下一 city 从 N6 跳到 N7，说明单 endpoint 不足。</div>
 </div>
-<figure><h3 class="figure-title">图 3a · 三种 patch scope 的 36-layer discovery profile</h3><div class="scope-layer-figure">{patch_scope_layer_svg}</div><figcaption>横轴是 zero-based post-block layer；纵轴是 paired donor-successor Δroute（patch−self 的 log-score 差）。不同线/面板对应 endpoint w1、event tail w4 与完整 item span，并分别显示 forward/backward 或其稳健聚合。层只在 discovery 上选择。L0 指第一个 decoder block 的输出，不是 raw token embedding；早层 full-span patch 有最多 downstream computation，因此 L0 peak 是 causal upper bound，不能解释为“机制定位在 L0”。</figcaption></figure>
+<figure><h3 class="figure-title">图 3a · 三种 patch scope 的 36-layer discovery profile</h3><div class="scope-layer-figure">{patch_scope_layer_svg}</div><figcaption>横轴是 zero-based post-block layer；纵轴是 paired donor-successor Δroute（patch−self 的 log-score 差）。不同线/面板对应 endpoint w1、event tail w4 与 endpoint-aligned maximal-common item span，并分别显示 forward/backward 或其稳健聚合。层只在 discovery 上选择。L0 指第一个 decoder block 的输出，不是 raw token embedding；早层 span patch 有最多 downstream computation，因此 L0 peak 是 causal upper bound，不能解释为“机制定位在 L0”。</figcaption></figure>
 <h3>3.1 Discovery：scope gradient 已经排除“单 endpoint 就是 counter”</h3>
 {patch_scope_discovery_table}
-<p>Endpoint 的 median shift 只有 +4.30，且 7/40 cells 方向错误；四-token tail 达 +23.61、40/40 正向，完整 item span 达 +58.03、40/40 正向。更窄的 tail 每单位 patch norm 最有效，但完整 span 最能越过实际决策边界。</p>
+<p>Endpoint 的 median shift 只有 +4.30，且 7/40 cells 方向错误；四-token tail 达 +23.61、40/40 正向，maximal-common item span 达 +58.03、40/40 正向。更窄的 tail 每单位 patch norm 最有效，但较宽 span 最能越过实际决策边界。</p>
 <div class="subsection-conclusion"><strong>Experiment 3.1 结论。</strong>Discovery 中的 scope gradient 不支持“单 endpoint 是完整 counter”。Tail 含更高的单位范数 routing signal，完整 event state 则具有最大的总因果效应。</div>
 <h3>3.2 Frozen confirmation：ranking、attention 与实际 continuation 是否一起改变</h3>
 {patch_scope_confirmation_table}
-<p>完整 item-span L0 的实际 transfer 为 forward {l0_item_forward[0]}/{l0_item_forward[1]}、backward {l0_item_backward[0]}/{l0_item_backward[1]}；10/10 seeds 至少出现一次。人工审计显示 40 次 donor city 在前 40 characters 内出现，另 3 次在短 repair preamble 后出现，0 次仅在 recap 中出现。</p>
+<p>Maximal-common item-span L0 的实际 transfer 为 forward {l0_item_forward[0]}/{l0_item_forward[1]}、backward {l0_item_backward[0]}/{l0_item_backward[1]}；10/10 seeds 至少出现一次。人工审计显示 40 次 donor city 在前 40 characters 内出现，另 3 次在短 repair preamble 后出现，0 次仅在 recap 中出现。</p>
+<h4>一次 transplant 会不会继续影响后面的项目？</h4>
+{multi_hop_continuation_table}
+<p class="completion-note"><strong>Post-hoc multi-hop reparse。</strong>这里按 completion 中出现的已知 city ordinal 顺序重解析同一批冻结 L0 trials，没有新增干预。43 个从 donor successor 启动的 runs 全部继续到 <code>k+2</code>；所有有资格观察四步的成功 runs 都连续到 <code>k+4</code>。两个 k=4 runs 分别在 <code>k+4</code> 与 <code>k+5</code> 后触及 96-token generation cap；在截断前没有观察到已启动序列转向错误 ordinal。由于该多步 endpoint 是事后重解析，正文应报告 effect size 与完整规则，并在 fresh cohort 中预注册复现。</p>
 <div class="scope-compare"><div><h4>L0 item span 是 causal upper bound</h4><p>它保留 city、score、syntax 与 progress，且有 35 个后续 blocks 可传播。它证明完整 contextual event state 足以控制 continuation，不隔离 count component，也不能定位最小机制层。</p></div><div><h4>L16 是 mid-layer robustness</h4><p>在同一 held-out seeds 的 k=6 双向 20 cells 中，median Δ log-odds={float(item_span_l16_summary['median_paired_logodds_shift']):+.2f}，argmax 17/20，first city 16/20；说明中层 event state 仍有因果效力，但不是 fresh confirmation。</p></div></div>
-<div class="section-conclusion"><strong>Experiment 3.2 / 逻辑链 A 结论。</strong>Causal sufficiency 随 patch scope 从 endpoint→tail→span 增强，并在 held-out k={{4,6,8}}、双方向上延伸到实际 continuation。最符合数据的对象是分布式、content-bound event/progress state，而不是单 endpoint 上的 context-invariant counter cell。</div></section>"""
+<div class="section-conclusion"><strong>Experiment 3.2 / 逻辑链 A 结论。</strong>Causal sufficiency 随 patch scope 从 endpoint→tail→maximal-common span 增强。较宽 event/progress state 不仅改变下一项；一旦成功重定向，后续枚举会继续沿 donor trajectory 运行。最简洁的解释是：Qwen 在自然 trace 中维护一个分布式、content-bound internal counter，而不是把完整计数压在单 endpoint cell 上。</div></section>"""
 
     integrated_section = f"""<section id="integrated-chain"><p class="eyebrow">Key causal bridge</p>
-<h2>关键闭环：中层 state 改变后，attention、候选排序与生成是否共同跟随？</h2>
-<p class="lead">L16 item-span comparator 把机制读数与行为读数放在同一个干预里：donor state 写入 receiver 后，目标不是只让某个 probe 更像 k，而是让后续计算真的选择 donor 所暗示的 successor。</p>
+<h2>关键闭环：改变 counter state，模型是否从新的位置继续？</h2>
+<p class="lead">L16 item-span comparator 把机制读数与行为读数放在同一个干预里：donor counter state 写入 receiver 后，目标不是只让某个 probe 更像 k，而是让后续计算真的选择 donor 所暗示的 successor。L0 multi-hop reparse 再检查这次转向是否会在没有第二次 patch 的情况下延续。</p>
 <div class="evidence-ladder">
   <div><span>STATE</span><strong>L16 donor item span</strong><p>同位置、同 grammar；patch width 6–11 tokens。</p></div>
   <div><span>ROUTING</span><strong>attention +{float(item_span_l16_summary['mean_paired_attention_shift']):.2f}</strong><p>20/20 cells 朝 donor successor 增强。</p></div>
   <div><span>RANKING</span><strong>17/20 donor argmax</strong><p>median Δ log-odds {float(item_span_l16_summary['median_paired_logodds_shift']):+.2f}。</p></div>
   <div><span>CONTINUATION</span><strong>16/20 first city</strong><p>全部为 early continuation，0 recap-only。</p></div>
 </div>
-<div class="section-conclusion"><strong>闭环成立到什么程度。</strong> 对 Qwen 的自然 no-index trace，这条干预把 contextual event state 连到 next-item retrieval 和实际生成，足以支持 causal progress controller。它没有展示同一个 state 经固定 transition 变成下一 count state，因此不升级为 memoryless arithmetic recurrence；Gemma 尚未完成同口径 no-index 闭环。</div></section>"""
+<div class="section-conclusion"><strong>闭环成立到什么程度。</strong> 对 Qwen 的自然 no-index trace，一次 counter-state transplant 同时改变 attention、successor ranking、首个生成项目与后续枚举轨迹。因此可以说模型维护并使用一个 internal counter。现有 span 仍混合 city、score 与 syntax，所以这里不进一步声称它是独立、content-free 的 arithmetic register；Gemma 尚未完成同口径 no-index 闭环。</div></section>"""
 
     evidence_ledger_table = table(
         ("Evidence", "Design / held-out result", "What it establishes", "Hard boundary"),
@@ -4108,19 +4818,19 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
             (
                 "Qwen L16 item-span causal bridge",
                 "k=6 bidirectional; log-odds 20/20+, attention 20/20+, argmax 17/20, first city 16/20",
-                "mid-layer distributed event state can control next retrieval and continuation",
+                "mid-layer distributed counter state can control next retrieval",
                 "same 10 seeds as L0 confirmation; item content retained",
             ),
             (
                 "Qwen frozen scope confirmation",
-                "endpoint 10/60 vs tail 15/60 vs item span 43/60 first-city transfer",
-                "causal state is distributed; endpoint alone is insufficient",
-                "L0 tail/span are early-layer upper bounds, not mechanism localization",
+                "endpoint 10/60 vs tail 15/60 vs item span 43/60 first-city transfer; item-span adopters continue 43/43 to k+2 and 27/27 to k+4 where eligible",
+                "a single distributed counter-state transplant can redirect the subsequent enumeration trajectory",
+                "multi-hop endpoint is a post-hoc reparse; L0 span is an early-layer upper bound and retains item content",
             ),
             (
                 "Qwen four-token event tail",
                 "median Δ log-odds +21.98; attention 58/60; 8/10 seeds with transfer",
-                "narrow event tail contains counter-like routing information",
+                "narrow event tail contains counter-related routing information",
                 "tail retains score numeral; not content-free",
             ),
             (
@@ -4138,9 +4848,15 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
             ),
             (
                 "Targeted retrieval banks",
-                f"Qwen Top-128 selected−random {100*float(q_primary['selected_minus_random_failure_rate']):+.1f} pp; Gemma Top-6 {100*float(g_primary['selected_minus_random_failure_rate']):+.1f} pp",
-                "model-specific heads are necessary for next-record retrieval",
-                "does not identify a unique or exclusive circuit",
+                (
+                    "exact-aligned confirmation: final-count / joint retrieval+count failure Δ, "
+                    f"Qwen {probability_effect_ci(targeted_effects['Qwen3-8B']['targeted_bank_changes_final_count'])} / "
+                    f"{probability_effect_ci(targeted_effects['Qwen3-8B']['retrieval_failure_propagates_to_count'])}; "
+                    f"Gemma {probability_effect_ci(targeted_effects['Gemma4-E4B']['targeted_bank_changes_final_count'])} / "
+                    f"{probability_effect_ci(targeted_effects['Gemma4-E4B']['retrieval_failure_propagates_to_count'])}"
+                ),
+                "model-specific head banks are necessary and the lesion propagates to final count",
+                "joint failure is not a formal natural-effects mediation estimate; bank widths are not cross-model comparable",
             ),
             (
                 "Carrier → commit",
@@ -4154,30 +4870,48 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
                 "terminal trace state can affect correct-count margin",
                 "fixed suffix only; free-running end-to-end sufficiency not shown",
             ),
+            (
+                "Answer-query full-state execution",
+                (
+                    f"8-layer registered existing-split sweep; final sampled layer: "
+                    f"Qwen {probability_ci(answer_query_final_rows['Qwen3-8B'], 'full_donor_adoption')}; "
+                    f"Gemma {probability_ci(answer_query_final_rows['Gemma4-E4B'], 'full_donor_adoption')}"
+                ),
+                "complete answer-query state can causally control the actual greedy count",
+                "full residual carries mixed context; same-trial relay is only partial and does not isolate a low-dimensional counter",
+            ),
+            (
+                "Same-trial terminal relay",
+                "86 exact model-common directed pairs/model; terminal patch × suffix/answer reset factorial assay",
+                "trace state → post-terminal suffix / answer-query → count margin is an ordered partial causal pathway",
+                "fixed-suffix scoring; residual effect excludes complete, unique, or exclusive mediation",
+            ),
         ),
         class_name="evidence-ledger",
     )
     ledger_section = f"""<section id="ledger"><p class="eyebrow">07 · Evidence synthesis</p>
 <h2>7. Evidence synthesis：按 claim 贡献排序，而不是按实验时间排序</h2>
 {evidence_ledger_table}
-<div class="core-claim"><strong>综合结论。</strong> 主证据指向一个 distributed, content-bound event/progress state。它可在中层控制下一项 retrieval；event tail 提供更窄的 routing signal；single endpoint、continued counting 与 operator scan 都不支持把它描述为独立的 memoryless arithmetic register。</div>
+<div class="core-claim"><strong>综合结论。</strong> 主证据支持一个 distributed, content-bound internal counter：它可在中层控制下一项 retrieval，并在成功重定向后继续影响后续枚举。Event tail 提供更窄的 routing signal；single endpoint、continued counting 与 operator scan 都不支持把它描述为独立的 memoryless arithmetic register。</div>
 <div class="section-conclusion"><strong>Section 7 结论。</strong>证据强度排序是：Qwen 自然 no-index 行为级 transplant ＞ 两模型 targeted-retrieval necessity 与 carrier/terminal controlled edges ＞显式-index或改 prompt 校准 ＞ standalone decoder 与失败的算子扫描。论文 claim 应按这一顺序书写。</div></section>"""
 
     extension_section = f"""<section id="extension-audit"><p class="eyebrow">08 · Native-thinking extension audit</p>
 <h2>8. 扩展问题审计：哪些实验强化主张，哪些实验只负责限定边界？</h2>
 <p class="lead">这些实验不再与主链平铺。它们的作用是区分“可读 geometry”“局部 steering”“完整 event-state sufficiency”和“真正的 memoryless recurrence”。完整定义与失败模式按同一顺序放在 Appendix B–G。</p>
 {extension_audit_table}
-<div class="section-conclusion"><strong>Extension audit 结论。</strong> CountScope 与 steering 说明 progress information 可读、可局部操纵；separator 与 K/V 说明历史是分布式 event memory；continued、maximum 与 operator scan 没有给出稳定 +1 算子。它们共同支持正文的保守机制名，而不是另起一条更强 claim。</div></section>"""
+<div class="section-conclusion"><strong>Extension audit 结论。</strong> CountScope 与 steering 说明 counter information 可读、可局部操纵；separator 与 K/V 说明其历史载体是分布式 event memory。Cross-context continued counting、maximum 与 operator scan 没有给出 context-invariant +1 算子，但这不否定自然 item-span transplant 已观察到的持续枚举。</div></section>"""
 
     limitations_section = """<section id="limitations"><p class="eyebrow">09 · What remains</p>
-<h2>9. What remains：若要把 claim 再收窄到“counter component”，还缺哪些实验？</h2>
+<h2>9. What remains：若要把 counter 再隔离成纯算术 component，还缺哪些实验？</h2>
 <ol>
-  <li><strong>Same-progress / different-score tail control。</strong> 固定 k 与 grammar，只改变 score surface，或投影掉 score direction；检验四-token tail 的 routing 是否保留。</li>
-  <li><strong>Fixed-L16 matched item controls + fresh cohort。</strong> 加入 same-k cross-seed、shuffled item、within-item permutation 与等范数 span；预注册 L16 后在新 10 seeds 上复现，区分 progress 与可复制 event content。</li>
-  <li><strong>若要主张 memoryless +1，必须检验 donor-dependent transition。</strong> 在同一新 item 与相同 surface context 下，只改变进入 transition 前的 state/history；必要时联合 residual + exact K/V splice，并观察 offset 是否跨 hop 1、hop 2 保留。</li>
-  <li><strong>跨模型外推。</strong> 在 Gemma 上重新建立原 prompt 下的自然 no-index cohort 与同一 scope protocol；Appendix K 的 prompt-conditioned positive control 证明能力存在，但不能代替自然生成实验。</li>
+  <li><strong>Answer-state 的 absolute-position matched control。</strong>本轮 donor/receiver 固定了同一语义/字面 query site，但没有要求绝对 token index 相等。可用 length-balanced prompt filler 让不同 count 的 answer query 对齐，并加入 same-count/different-position control，区分可执行 count state 与 trace-length/position signal。</li>
+  <li><strong>Same-progress / different-score tail control。</strong>固定 k 与 grammar，只改变 score surface，或投影掉 score direction；检验四-token tail 的 routing 是否保留。</li>
+  <li><strong>Fixed-L16 matched item controls + fresh cohort。</strong>加入 same-k cross-seed、shuffled item、within-item permutation 与完整 donor−receiver delta 等范数 span；预注册 L16 后在新 10 seeds 上复现，区分 progress 与可复制 event content。</li>
+  <li><strong>Same-trial terminal relay 的 fresh replication。</strong>当前 86-pair exact-common factorial assay 已经接实一条有序部分通路；若需要把它升级成最强 headline，可在新 seeds 上原样复现冻结的 terminal geometry、suffix reset 与 answer-query reset，而不是再发明一套独立 patch。</li>
+  <li><strong>若要主张 memoryless +1，必须检验 donor-dependent transition。</strong>在同一新 item 与相同 surface context 下，只改变进入 transition 前的 state/history；必要时联合 residual + exact K/V splice，并观察 offset 是否跨 hop 1、hop 2 保留。</li>
+  <li><strong>跨模型自然使用。</strong>在 Gemma 上重新建立原 prompt 下的自然 no-index cohort 与同一 scope protocol；Appendix K 的 prompt-conditioned positive control 证明能力存在，但不能代替自然生成实验。</li>
 </ol>
-<div class="section-conclusion"><strong>当前论文并不依赖这些实验。</strong> Qwen 的现有自然 no-index 结果已经足以支持 model-scoped distributed content-bound progress controller；这些补充只在我们要进一步声称 content-free counter component、memoryless recurrence 或跨模型普适性时才是必要条件。</div></section>"""
+<div class="section-conclusion"><strong>与 Non-thinking 对照后的判断。</strong>当前 6.4 已经提供同一 trial 的 ordered partial mediation，6.3 又单独确认 answer state 可执行，因此若论文只 claim“这是一条 counting pathway”，没有缺失的必补桥接实验。下一优先级是 absolute-position 与 event-content controls，它们负责把 counter 从位置和内容中进一步隔离；fresh relay replication 负责提高证据等级。Donor-dependent transition 只在声称固定 arithmetic <code>+1</code> operator 时必要；Gemma natural cohort 只在声称跨模型自然普适性时必要。</div></section>"""
 
     legacy_appendices = section_body(sections["appendix"])
     legacy_appendices = legacy_appendices[legacy_appendices.index("<details") :]
@@ -4201,6 +4935,15 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
         "本报告证明一条 pathway",
         "本报告连接若干 causal edges",
     )
+    audit_appendix = re.sub(
+        r"Generated UTC: [^<]+<br>Schema: realistic_niah_v5_native_thinking_restructured_v\d+",
+        (
+            f"Generated UTC: {esc(generated)}<br>Schema: "
+            "realistic_niah_v5_native_thinking_restructured_v14"
+        ),
+        audit_appendix,
+        count=1,
+    )
 
     appendix_section = f"""<section id="appendix"><p class="eyebrow">Appendix · Ordered auxiliary evidence</p>
 <h2>Appendix：辅助实验、失败实验与复现材料</h2>
@@ -4212,7 +4955,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
 <p><strong>结果。</strong>N=3 的 k=1/2/3 candidate accuracy 为 0.90/0.70/1.00；N=10 只在 k=1–4 尚可，k≥5 基本失效。</p><p><strong>分析。</strong>高 NCC 只说明多个 donor states 在某个表示空间中按 k 有序；充分性还要求 donor state 与 receiver 的 prefix history、绝对位置、KV memory 与 downstream readout 兼容，两者不矛盾。</p><div class="section-conclusion"><strong>Appendix B 结论。</strong>Count information 可读，但单 hidden state 不是跨上下文通用的数字寄存器。</div></div></details>
 <details><summary>Appendix C · Continued counting：没有观察到稳定 donor-dependent +1</summary><div>
 <div class="appendix-method"><p><strong>实验目的。</strong>直接检验 source 的最新 latent count 能否在 target suffix 上继续递推，而无需重新读取全部 source history。</p><p><strong>设定与计算。</strong>Source 含 N<sub>s</sub> 个 items，target 含 N<sub>t</sub> 个；把 source 最后 m 个 item states 写到 target 开头 m 个位置。若存在 memoryless continuation，紧接的 item 应编码 N<sub>s</sub>+1，最终应趋向 N<sub>s</sub>+N<sub>t</sub>−m。分别读取 hop 1、hop 2 与 final candidate。</p><p><strong>简单例子。</strong>Source=5、target=4、m=2；理想 counter 应让 target 的下一项从 6 开始，最终输出 7，而不是仍按 target 自己的局部位置继续。</p></div>
-<p><strong>结果。</strong>N=3 的 hop 1 仅有短暂 0.3–0.7 candidate；N=10 hop 1≤0.20，hop 2 与 final 约为 0。</p><p><strong>分析。</strong>Residual-only transplant 与 target-history mismatch 可能使真机制失配，因此 null 不是“模型绝无任何递推”；但它没有提供 donor-dependent +1 的正证据。</p><div class="section-conclusion"><strong>Appendix C 结论。</strong>当前 continued-counting assay 不支持 memoryless arithmetic <code>+1</code> recurrence。</div></div></details>
+<p><strong>结果。</strong>N=3 的 hop 1 仅有短暂 0.3–0.7 candidate；N=10 hop 1≤0.20，hop 2 与 final 约为 0。</p><p><strong>分析。</strong>Residual-only transplant 与 target-history mismatch 可能使真机制失配，因此 null 不是“模型绝无任何递推”；但它没有提供 donor-dependent +1 的正证据。</p><div class="section-conclusion"><strong>Appendix C 结论。</strong>当前 cross-context assay 不支持一个脱离 event history、按固定公式运行的 content-free arithmetic <code>+1</code> operator。</div></div></details>
 <details><summary>Appendix D · Geometry steering：局部 count-like direction，不是全局算术轴</summary><div>
 <div class="appendix-method"><p><strong>实验目的。</strong>检验 count geometry 的局部 +1 方向是否能因果推动同层 state，而不只被 probe 被动读出。</p><p><strong>设定与计算。</strong>在每层用 discovery 拟合 <span class="formula">v<sub>ℓ</sub><sup>+1</sup>=mean<sub>k,seed</sub>(h<sub>ℓ,k+1</sub>−h<sub>ℓ,k</sub>)</span>，对单 endpoint 注入正向 steering，并减去 opposite / orthogonal control 的 decoded-count displacement。各层独立运行；“全层扫描”是寻找 effect 随深度的 profile，不是同时向所有层注入。</p><p><strong>简单例子。</strong>若原 state 被 decoder 读作 5，加入 L19 的 +1 direction 后期望更靠近 6；加入等范数 orthogonal direction不应产生同样移动。</p></div>
 <p><strong>结果。</strong>共同 peak 在 L19：N=3 的对照校正位移 +0.622 [0.471, 0.767]，N=10 为 +0.215 [0.107, 0.334]。</p><p><strong>分析。</strong>方向有局部因果相关性，但 effect 小于一个完整 count step，N=10 更弱，且没有行为级 successor adoption。</p><div class="section-conclusion"><strong>Appendix D 结论。</strong>存在局部 count-like geometry；尚未定位跨层稳定、可执行整数加法的全局算术轴。</div></div></details>
@@ -4227,9 +4970,29 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
 <p><strong>结果。</strong>Marker K/V=0.835、V-only=0.500、K-only=0.276，L20–23 band=0.540；operator scan 中 reset 占 97.08%，target +1 仅 0.625%，成功 first-stage local arms 仍无 next +1。</p><p><strong>分析。</strong>K/V 结果说明 event-indexed memory 是合理 substrate；operator 分布却与稳定加法更新不相容。</p><div class="section-conclusion"><strong>Appendix G 结论。</strong>证据更支持 distributed event memory / late aggregation，而不是 residual endpoint 上的 arithmetic recurrence。</div></div></details>
 <details><summary>Appendix H · Carrier readout diagnostics：NCC 与最终 count margin</summary><div><p class="main-note">正文 5.1 只使用预注册 carrier RMS deformation。以下 NCC 与 final output margin 回答更下游、更依赖 readout 选择的问题，因此保留为诊断而不阻塞主边。</p>{write_51_diagnostics}<div class="section-conclusion"><strong>Appendix H 结论。</strong>Carrier hidden state 的 direct damage 清楚；但经 centroid geometry 或最终答案边际读取时，模型/grammar 的特异性不一致，不能据此升级为统一线性 counter code。</div></div></details>
 <details><summary>Appendix I · 单 endpoint、grammar stratification 与历史四-token tail</summary><div><div class="appendix-method"><p><strong>实验目的。</strong>检查窄位点效应是否跨 grammar、layer 与 seed 稳定，并区分 endpoint register 与 event-tail routing carrier。</p><p><strong>设定与计算。</strong>系统 scope confirmation 固定 endpoint L26；历史 assay 在 discovery 定位 L16 width-4 tail。两者都比较 donor-successor likelihood/attention 与自由 continuation。</p><p><strong>简单例子。</strong>只替换 item 最后一个句号若能稳定令 N6→N7，才支持 endpoint register；替换句号前四 tokens 成功则只说明更宽 tail 含 routing information。</p></div><p><strong>结果。</strong>Endpoint L26 只有 8/60 donor argmax、10/60 first-city transfer，并集中在 2/10 seeds。旧 L31 plain-period panel 的 11/16 与其他 grammar 的低命中说明 endpoint effect 很脆弱。历史 L16 width-4 tail 在 confirmation 中 60/60 likelihood 正向、59/60 attention 正向，但生成只有 {int(round(60*float(historical_event_tail_summary['patched_greedy_donor_adoption_rate'])))}/60。</p><p><strong>分析。</strong>Tail 是窄 routing evidence；它仍不是 content-free endpoint register。</p><div class="section-conclusion"><strong>Appendix I 结论。</strong>稳定作用需要超过单 endpoint 的 event-local范围，并受 grammar 与 seed 调节。</div></div></details>
-<details><summary>Appendix J · 显式-index与历史 controlled routing 校准</summary><div>{indexed_control_section}<h3>J.2 逐 k、逐方向 confirmation cells</h3><p>所有行都来自冻结 L16 的 10 confirmation seeds；没有使用这些结果反选层。First-city transfer 是自由 continuation 中第一个匹配 gold city 的 ordinal 是否等于 donor k+1。</p>{indexed_crossk_table}<h3>J.3 历史 controlled commit→query patch</h3><p class="main-note">以下实验保留其 direct causal routing 价值，但 trace grammar/控制条件不允许它承担 natural no-index recurrent counter 的主 claim。</p>{historical_commit}<div class="section-conclusion"><strong>Appendix J 总结。</strong>这些结果校准 state-transplant assay，并证明显式/受控条件下的 state-dependent routing；可见 index 与 grammar confounds 使它们不能替代 Qwen 自然 no-index 主实验。</div></div></details>
+<details><summary>Appendix J · 显式-index与历史 controlled routing 校准</summary><div>{indexed_control_section}<h3>J.2 逐 k、逐方向 confirmation cells</h3><p>所有行都来自同一组 10 confirmation seeds，并使用 representation-frozen 的模型特异层（Qwen L{indexed_confirmation_layers['Qwen3-8B']}、Gemma L{indexed_confirmation_layers['Gemma4-E4B']}）；没有使用 indexed outcomes 反选层。First-city transfer 是自由 continuation 中第一个匹配 gold city 的 ordinal 是否等于 donor k+1。</p>{indexed_crossk_table}<h3>J.3 历史 controlled commit→query patch</h3><p class="main-note">以下实验保留其 direct causal routing 价值，但 trace grammar/控制条件不允许它承担 natural no-index recurrent counter 的主 claim。</p>{historical_commit}<div class="section-conclusion"><strong>Appendix J 总结。</strong>这些结果校准 state-transplant assay，并证明显式/受控条件下的 state-dependent routing；可见 index 与 grammar confounds 使它们不能替代 Qwen 自然 no-index 主实验。</div></div></details>
 <details><summary>Appendix K · Gemma prompt-conditioned no-visible-index forward transplant</summary><div>
 <div class="appendix-method"><p><strong>实验目的。</strong>在原 prompt 无法筛出足够 Gemma 自然 no-index traces 后，单独检验 Gemma 是否具备形成可 transplant 的 no-visible-index event state 的能力；它不是自然采用率实验。</p><p><strong>设定。</strong>只改 passage 后的任务尾：每条 event 使用同一个 <code>FOUND:</code> marker，禁止编号、ordinal、running subtotal、prose 与 recap；另加固定、无 count 信息的 assistant prefill <code>FOUND: </code>。Passage tokens 不变。</p><p><strong>冻结与计算。</strong>从 seed 1234 连续扫描 52 个 prompts，30 个通过逐行 gold city/score 与无显式 progress cue 审计；最早 20 个作 discovery、随后 10 个作 confirmation。筛选不读取 hidden states、patch outcome 或 terminal-total correctness。固定 L16 完整 event span、forward groups 3←4、5←6、7←8，并使用第 2 节四级读数。</p><p><strong>简单例子。</strong>Receiver 的第四条与 donor 的第五条都只以 <code>FOUND:</code> 开头，没有“4/5”表面 label；若把 donor event 写入 receiver 后首个 city 跟随 donor successor，说明 Gemma 能在这种受控 grammar 中形成有效 event state。</p></div>
+<p><strong>Prompt intervention 的逐字内容。</strong>完整输入仍包含每个样本各自的原 passage；下列内容只展示静态且真正被替换的 post-passage user-task tail，以及在 chat template 之后另行追加的 assistant prefill。没有增加额外 system message。</p>
+<p><strong>原始 task tail（被逐字替换的部分）</strong></p>
+<pre class="parser-code">How many city-score audit records are in the passage?
+Reason concisely without repeating or restarting.
+Stop as soon as you determine the count, then output exactly one line:
+Total: &lt;integer&gt;</pre>
+<p><strong>Gemma controlled task tail（替换后的逐字内容）</strong></p>
+<pre class="parser-code">How many city-score audit records are in the passage?
+During reasoning, write each matching record on one line using exactly:
+FOUND: &lt;city&gt; | score &lt;score&gt;
+Always use the same literal marker FOUND:. Do not number records, use ordinal
+words, item/record/excerpt indices, mention how many have been found, or write a
+running subtotal. Do not write a preamble, recap, verification, or explanation.
+Immediately after the final FOUND: line, output exactly one line:
+Total: &lt;integer&gt;
+Your assistant response has already begun with the literal text 'FOUND: ';
+continue that first line directly with the first city and score.</pre>
+<p><strong>Assistant prefill（逐字内容）</strong></p>
+<pre class="parser-code">FOUND: </pre>
+<p class="main-note"><strong>解释边界。</strong>这不是解码器层面的 grammar constraint；格式由 task-tail instruction 与 assistant prefill 诱发，再由 exact-format parser 决定 cohort eligibility。因此该条件检验的是定制 prompt 下可诱发的机制能力，而不是原始 prompt 下的自然机制采用。</p>
 {gemma_prompt_k_table}
 <p><strong>与 Qwen 最可比的 forward 子集。</strong>Qwen 自然 no-index L0 item-span 在 k∈{{4,6,8}} 的 30 个 forward cells 中为 donor argmax {qwen_l0_forward_argmax}/30、greedy donor {l0_item_forward[0]}/30、self donor {qwen_l0_forward_self_donor}/30、attention Δ&gt;0 {qwen_l0_forward_attention}/30、log-odds Δ&gt;0 {qwen_l0_forward_logodds}/30。Gemma 对应为 donor argmax {int(gemma_prompt_noindex_confirm_pooled['donor_argmax_patch']['hits'])}/30、greedy donor {int(gemma_prompt_noindex_confirm_pooled['greedy_donor_adoption_patch']['hits'])}/30、self donor {int(gemma_prompt_noindex_confirm_pooled['greedy_donor_adoption_self']['hits'])}/30、attention Δ&gt;0 {int(gemma_prompt_noindex_confirm_pooled['positive_attention_gain']['hits'])}/30、log-odds Δ&gt;0 {int(gemma_prompt_noindex_confirm_pooled['positive_logodds_gain']['hits'])}/30。</p>
 <p><strong>分析。</strong>两模型的 candidate ranking 与自由 continuation 效应同量级：Qwen forward 为 25/30，Gemma 为 22/30；Gemma 的冻结 attention bank 则明显更不一致（12/30 vs Qwen 29/30）。由于 prompt、layer、span geometry 与模型不同，这不是正式 model×condition 比较，也不证明共享同一 head circuit。</p>
@@ -4240,7 +5003,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
 {legacy_appendices}
 <details><summary>Appendix R · Reproducibility ledger</summary><div>{audit_appendix}<p><span class="audit-badge">Qwen no-index primary</span><span class="audit-badge">20 discovery / 10 confirmation</span><span class="audit-badge">Gemma prompt-conditioned auxiliary</span><span class="audit-badge">explicit-index positive control</span><span class="audit-badge">manual generation audit</span><span class="audit-badge">p-values secondary</span></p><p>Systematic scope selection never used attention or generation. L16 Qwen item-span is explicitly labeled post-hoc robustness on the same confirmation seeds. All no-index Qwen item-span generation hits were manually checked against recap-only false positives. The indexed Qwen/Gemma layers were independently frozen on discovery likelihood only; visible progress labels make those panels positive controls. Gemma prompt-conditioned cohort selection was patch-outcome blind and used a count-free marker/prefill, but the prompt intervention prevents treating it as natural-generation confirmation.</p><p>Companion seed browser and full internal-counter appendix: <a href="NiaH_Native-thinking_Internal-counter_report.html">NiaH_Native-thinking_Internal-counter_report.html</a>.</p></div></details>
 </div>
-<div class="section-conclusion"><strong>Appendix 结论。</strong> 对 Qwen 的自然 no-index 证据，辅助实验一致地把机制收敛到 distributed event/progress controller：单 endpoint、standalone CountScope 与 memoryless recurrence 都不够；event span、tail、KV history 与下游 routing 共同承担计算。Gemma 的 prompt-conditioned no-visible-index 结果复现了同量级的行为路由能力，但仍须标成受控参照，不能升级为自然 no-index claim。</div></section>"""
+<div class="section-conclusion"><strong>Appendix 结论。</strong> 对 Qwen 的自然 no-index 证据，主实验支持一个 distributed, content-bound internal counter：event span、tail、KV history 与下游 routing 共同承担计算，单 endpoint 或 standalone CountScope 都不足以概括它。Cross-context arithmetic assays 的失败限制的是“独立固定 +1 operator”这一更强解释，而不是自然 trace 中 counter 的存在。Gemma 的 prompt-conditioned no-visible-index 结果复现了同量级的行为路由能力，但仍须标成受控参照，不能升级为自然 no-index claim。</div></section>"""
 
     main_start = html_text.index("<main>") + len("<main>")
     main_end = html_text.index("</main>", main_start)
@@ -4271,6 +5034,70 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
 
     input_paths = [
         args.reference_report,
+        args.sample_alignment_audit,
+        args.output_alignment_audit,
+        args.aligned_grammar_panel_root / "shared_alignment_keys.jsonl",
+        args.aligned_routed_panel_root / "shared_alignment_keys.jsonl",
+        *(
+            args.aligned_run_root / model / "suite_complete.json"
+            for model in MODELS
+        ),
+        *(
+            args.aligned_run_root
+            / model
+            / "targeted_retrieval"
+            / f"analysis_{phase}"
+            / "claim_gates.json"
+            for model in MODELS
+            for phase in ("discovery", "confirmation")
+        ),
+        *(
+            args.aligned_run_root
+            / model
+            / "targeted_counter_write"
+            / f"analysis_{phase}"
+            / "claim_gates.json"
+            for model in MODELS
+            for phase in ("discovery", "confirmation")
+        ),
+        *(
+            args.aligned_run_root
+            / model
+            / "grammar_span"
+            / f"analysis_{phase}"
+            / "claim_gates.json"
+            for model in MODELS
+            for phase in ("discovery", "confirmation")
+        ),
+        *(
+            args.aligned_run_root
+            / model
+            / "commit_state_to_targeted_query"
+            / f"analysis_{phase}"
+            / "claim_gates.json"
+            for model in MODELS
+            for phase in ("discovery", "confirmation")
+        ),
+        *(
+            args.aligned_run_root
+            / model
+            / "stratified_ncc"
+            / timing
+            / "analysis"
+            / "claim_gates.json"
+            for model in MODELS
+            for timing in ("rank_after_city", "rank_before_city")
+        ),
+        *(
+            args.aligned_run_root
+            / model
+            / "direct_count_logit_margin"
+            / timing
+            / "analysis"
+            / "claim_gates.json"
+            for model in MODELS
+            for timing in ("rank_after_city", "rank_before_city")
+        ),
         args.patch_scope_layer_sweep,
         args.patch_scope_layer_plot,
         args.patch_scope_frozen_confirmation,
@@ -4283,20 +5110,54 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
         args.indexed_progress_generation_audit,
         args.gemma_prompt_conditioned_noindex_cohort_manifest,
         args.gemma_prompt_conditioned_noindex_analysis,
+        args.historical_causal_chain_statistics,
+        args.terminal_relay_common_support / "summary.json",
+        args.terminal_relay_common_support / "common_support_pairs.csv",
+        args.terminal_relay_common_support / "common_support_cell_counts.csv",
+        args.answer_query_plan_root / "alignment_manifest.json",
+        *(
+            args.answer_query_plan_root / f"{model}_pairs.jsonl"
+            for model in MODELS
+        ),
+        *(
+            args.answer_query_layer_root
+            / model
+            / "answer_query_layer_sweep"
+            / "trials.jsonl"
+            for model in MODELS
+        ),
+        *(
+            args.answer_query_layer_root
+            / model
+            / "answer_query_layer_sweep"
+            / "analysis"
+            / filename
+            for model in MODELS
+            for filename in (
+                "audit.json",
+                "layer_effects.csv",
+                "seed_effects.csv",
+                "pair_effects.csv",
+            )
+        ),
         *(
             args.indexed_progress_discovery_root
             / model
+            / "indexed_progress_control"
+            / "discovery_layer_sweep"
             / "layer_sweep_analysis.json"
             for model in MODELS
         ),
         *(
             args.indexed_progress_confirmation_root
             / model
-            / "frozen_scope_analysis.json"
+            / "indexed_progress_control"
+            / "confirmation_analysis.json"
             for model in MODELS
         ),
         args.qwen_targeted_analysis,
         args.gemma_targeted_analysis,
+        args.running_pca3_coordinates,
         args.representation_root / "site_selected.csv",
         args.representation_root / "site_layer_candidates.csv",
         args.dual_endpoint_root / "Qwen3-8B" / "pca16_whiten" / "final_count_selected.csv",
@@ -4406,7 +5267,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
         *(Path(path) for evidence in token_evidence.values() for path in evidence["input_files"]),
     ]
     manifest = {
-        "schema_version": "realistic_niah_v5_native_thinking_restructured_v12",
+        "schema_version": "realistic_niah_v5_native_thinking_restructured_v14",
         "status": "PASS",
         "generated_at": generated,
         "output": str(args.output),
@@ -4414,6 +5275,18 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
             "discovery_seed_count": 20,
             "confirmation_seed_count": 10,
             "outcome_blind": True,
+            "cross_model_sample_alignment_audit_status": (
+                sample_alignment_audit["status"]
+            ),
+            "cross_model_sample_alignment_evidence_families": len(
+                sample_alignment_audit["evidence"]
+            ),
+            "cross_model_output_alignment_audit_status": (
+                output_alignment_audit["status"]
+            ),
+            "cross_model_output_alignment_evidence_families": len(
+                output_alignment_audit["evidence"]
+            ),
             "parser_design_contract_in_main_text": True,
             "parser_design_disclosure_count": 4,
             "qwen_natural_noindex_eligibility_field": "strict_eligible_no_explicit_count_cue",
@@ -4421,6 +5294,11 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
             "natural_context_excludes_future_recap": True,
             "generation_primary_endpoint": "first_generated_known_city_ordinal",
             "generation_bullet_parser_is_audit_only": True,
+            "token_source_primary_retrieval_endpoint": {
+                model: token_evidence[model]["target_exact_endpoint"]
+                for model in MODELS
+            },
+            "token_source_endpoint_is_teacher_forced_not_free_generation": True,
             "selection_rank_used": False,
             "qwen_targeted_bank": 128,
             "gemma_targeted_bank": 6,
@@ -4450,6 +5328,30 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
             "gemma_prompt_conditioned_noindex_direction": "forward_only",
             "gemma_prompt_conditioned_noindex_marker_contains_count": False,
             "gemma_prompt_conditioned_noindex_selection_patch_outcome_blind": True,
+            "answer_query_layer_sweep_models": list(MODELS),
+            "answer_query_layer_sweep_seed_count": 10,
+            "answer_query_layer_sweep_seed_range": [1254, 1263],
+            "answer_query_layer_sweep_pair_counts": ANSWER_QUERY_PAIR_COUNT,
+            "answer_query_layer_sweep_layer_grids": ANSWER_QUERY_LAYER_GRID,
+            "answer_query_layer_sweep_conditions": [
+                "self_patch",
+                "full_donor_patch",
+            ],
+            "answer_query_layer_sweep_pair_selection_uses_patch_outcome": False,
+            "answer_query_layer_sweep_is_pristine_new_confirmation": False,
+            "answer_query_layer_sweep_status": (
+                "registered_existing_split_extension"
+            ),
+            "answer_query_site_absolute_position_match_required": False,
+            "terminal_relay_common_support_pairs_per_model": 86,
+            "terminal_relay_common_support_seed_count": 10,
+            "terminal_relay_matching_keys": [
+                "seed",
+                "gold_count",
+                "donor_offset",
+            ],
+            "terminal_relay_selection_uses_outcomes": False,
+            "terminal_relay_gemma_suffix_and_query_estimands_distinguishable": False,
         },
         "claim_scope": {
             "distributed_content_bound_event_progress_state_supported": True,
@@ -4465,6 +5367,8 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
             "single_seed_walkthrough_inferential": False,
             "gemma_commit_to_query_direct_effect_confirmed": True,
             "gemma_commit_to_query_local_specificity_qualified": True,
+            "gemma_commit_to_query_orthogonal_interval_positive": True,
+            "commit_query_orthogonal_control_matches_count_projection_norm_not_full_delta_norm": True,
             "gemma_narrow_pre_o_query_mediation_confirmed": False,
             "qwen_free_running_terminal_restoration_confirmed": False,
             "ncc_frozen_results_independently_reproduced": True,
@@ -4486,7 +5390,7 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
             "direct_margin_all_clean_readouts_valid": True,
             "qwen_direct_margin_directional_specific_supported": False,
             "gemma_direct_margin_both_timings_directional_specific": True,
-            "gemma_direct_margin_interval_confirmed": False,
+            "gemma_direct_margin_interval_confirmed": True,
             "direct_margin_confirmation_pristine_prospective": False,
             "direct_margin_model_by_mask_interaction_tested": False,
             "no_running_index_count_signal_confirmed": True,
@@ -4537,6 +5441,13 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
             "gemma_prompt_conditioned_supports_natural_no_index_claim": False,
             "gemma_prompt_conditioned_supports_shared_head_circuit_claim": False,
             "all_layer_pca3_is_descriptive": True,
+            "qwen_answer_query_full_state_executable": True,
+            "gemma_answer_query_full_state_executable": True,
+            "answer_query_full_state_implies_low_dimensional_counter": False,
+            "trace_to_answer_ordered_partial_path_supported": True,
+            "trace_to_answer_same_trial_mediation_common_support": True,
+            "trace_to_answer_complete_or_exclusive_mediation_supported": False,
+            "same_trial_trace_to_answer_serial_mediation_complete": False,
         },
         "derived_display_data_sha256": {
             "geometry_3d": hashlib.sha256(
@@ -4561,6 +5472,9 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
             "gemma_prompt_conditioned_noindex": hashlib.sha256(
                 json.dumps(gemma_prompt_noindex, sort_keys=True).encode("utf-8")
             ).hexdigest(),
+            "answer_query_layer_effects": hashlib.sha256(
+                json.dumps(answer_query_layer_rows, sort_keys=True).encode("utf-8")
+            ).hexdigest(),
         },
         "inputs_sha256": {str(path): sha256(path) for path in input_paths},
     }
@@ -4570,6 +5484,39 @@ document.querySelectorAll('[data-attention-selector]').forEach(function(selector
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference-report", type=Path, default=Path("reports/NiaH_Non-thinking_report.html"))
+    parser.add_argument(
+        "--sample-alignment-audit",
+        type=Path,
+        default=Path(
+            "work/v5_native_sample_aligned_20260829/alignment_audit.json"
+        ),
+    )
+    parser.add_argument(
+        "--output-alignment-audit",
+        type=Path,
+        default=Path(
+            "work/v5_native_sample_aligned_20260829/output_alignment_audit.json"
+        ),
+    )
+    parser.add_argument(
+        "--aligned-run-root",
+        type=Path,
+        default=Path("work/v5_native_sample_aligned_20260829/runs"),
+    )
+    parser.add_argument(
+        "--aligned-grammar-panel-root",
+        type=Path,
+        default=Path(
+            "work/v5_native_sample_aligned_20260829/shared_grammar_panel_v2"
+        ),
+    )
+    parser.add_argument(
+        "--aligned-routed-panel-root",
+        type=Path,
+        default=Path(
+            "work/v5_native_sample_aligned_20260829/shared_routed_transition_panel"
+        ),
+    )
     parser.add_argument(
         "--patch-scope-layer-sweep",
         type=Path,
@@ -4631,39 +5578,38 @@ def parse_args() -> argparse.Namespace:
         "--indexed-progress-cohort-manifest",
         type=Path,
         default=Path(
-            "work/indexed_progress_control_20260827/cohorts/manifest.json"
+            "work/v5_native_sample_aligned_20260829/"
+            "indexed_progress_control_panel/alignment_manifest.json"
         ),
     )
     parser.add_argument(
         "--indexed-progress-freeze-manifest",
         type=Path,
         default=Path(
-            "work/indexed_progress_control_20260827/"
-            "confirmation_freeze_manifest.json"
+            "work/v5_native_sample_aligned_20260829/"
+            "indexed_progress_control_freeze.json"
         ),
     )
     parser.add_argument(
         "--indexed-progress-discovery-root",
         type=Path,
         default=Path(
-            "work/indexed_progress_control_20260827/runs/"
-            "discovery_layer_sweep_v1"
+            "work/v5_native_sample_aligned_20260829/runs"
         ),
     )
     parser.add_argument(
         "--indexed-progress-confirmation-root",
         type=Path,
         default=Path(
-            "work/indexed_progress_control_20260827/runs/"
-            "confirmation_crossk_v1"
+            "work/v5_native_sample_aligned_20260829/runs"
         ),
     )
     parser.add_argument(
         "--indexed-progress-generation-audit",
         type=Path,
         default=Path(
-            "work/indexed_progress_control_20260827/runs/"
-            "confirmation_crossk_v1/generation_audit.json"
+            "work/v5_native_sample_aligned_20260829/"
+            "indexed_progress_generation_audit.json"
         ),
     )
     parser.add_argument(
@@ -4684,7 +5630,19 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--qwen-targeted-analysis", type=Path, default=Path("reports/v5_native_final_localizers/analysis/qwen_final_merged_dose_grid.json"))
     parser.add_argument("--gemma-targeted-analysis", type=Path, default=Path("reports/v5_native_hybrid_supplement/Gemma4-E4B/analysis_hybrid_supplement_registered_v1/hybrid_dose_grid_complete.json"))
-    parser.add_argument("--representation-root", type=Path, default=Path("reports/v5_native_causal_aligned_geometry"))
+    parser.add_argument(
+        "--representation-root",
+        type=Path,
+        default=Path("reports/v5_native_cross_model_aligned_geometry"),
+    )
+    parser.add_argument(
+        "--running-pca3-coordinates",
+        type=Path,
+        default=Path(
+            "reports/v5_native_cross_model_aligned_geometry/"
+            "pca3_confirmation_coordinates.json"
+        ),
+    )
     parser.add_argument("--dual-endpoint-root", type=Path, default=Path("reports/v5_dual_endpoint_geometry_full300"))
     parser.add_argument("--band-diagnostic-root", type=Path, default=Path("reports/native_geometry_band_diagnostic_full300"))
     parser.add_argument("--geometry-comparison-report", type=Path, default=Path("reports/NiaH_Geometry_Comparison.html"))
@@ -4705,6 +5663,35 @@ def parse_args() -> argparse.Namespace:
         "--logit-margin-root",
         type=Path,
         default=Path("work_remote_snapshots/targeted_logit_margin_20260823_v2"),
+    )
+    parser.add_argument(
+        "--answer-query-layer-root",
+        type=Path,
+        default=Path("work/v5_native_sample_aligned_20260829/runs"),
+    )
+    parser.add_argument(
+        "--answer-query-plan-root",
+        type=Path,
+        default=Path(
+            "work/v5_native_sample_aligned_20260829/"
+            "answer_query_layer_sweep_plan"
+        ),
+    )
+    parser.add_argument(
+        "--terminal-relay-common-support",
+        type=Path,
+        default=Path(
+            "work/relay_bridge_export_20260829/"
+            "common_support_confirmation_rerun"
+        ),
+    )
+    parser.add_argument(
+        "--historical-causal-chain-statistics",
+        type=Path,
+        default=Path(
+            "reports/v5_native_thinking_causal_chain_v2/"
+            "combined_statistics_cross_model_holm.csv"
+        ),
     )
     parser.add_argument("--output", type=Path, default=Path("reports/NiaH_Native-Thinking_report.html"))
     parser.add_argument("--manifest", type=Path, default=Path("reports/v5_native_final_localizers/report_manifest_restructured.json"))

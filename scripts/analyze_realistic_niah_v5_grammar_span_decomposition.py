@@ -59,15 +59,13 @@ def analyze(
 ) -> tuple[pd.DataFrame, dict[str, Any], dict[str, Any]]:
     plan = json.loads((root / "frozen_row_plan.json").read_text(encoding="utf-8"))
     files = sorted((root / "shards").glob("*.jsonl"))
-    expected = 20 if phase == "discovery" else 10
+    expected = int(plan.get("seed_count", 20 if phase == "discovery" else 10))
     if len(files) != expected:
         raise ValueError(f"Expected {expected} grammar-span shards, observed {len(files)}")
-    rows = [
-        json.loads(line)
-        for path in files
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    rows: list[dict[str, Any]] = []
+    for path in files:
+        with path.open("r", encoding="utf-8") as handle:
+            rows.extend(json.loads(line) for line in handle if line.strip())
     frame = pd.DataFrame(rows)
     expected_rows = expected * len(REGISTERED_GRAMMAR_SPAN_DECOMPOSITION_CONDITIONS)
     if len(frame) != expected_rows:
@@ -93,12 +91,11 @@ def analyze(
     if set(frame["row_plan_sha256"].astype(str)) != {str(plan["plan_sha256"])}:
         raise ValueError("Grammar-span row plan hash changed")
     seed_grammar = frame[["seed", "grammar_timing_stratum"]].drop_duplicates()
-    expected_per_stratum = 10 if phase == "discovery" else 5
     observed_balance = seed_grammar["grammar_timing_stratum"].value_counts().to_dict()
-    if observed_balance != {
-        "rank_after_city": expected_per_stratum,
-        "rank_before_city": expected_per_stratum,
-    }:
+    expected_balance = {
+        str(key): int(value) for key, value in plan["timing_counts"].items()
+    }
+    if observed_balance != expected_balance:
         raise ValueError("Grammar-span timing balance changed")
 
     index = [
@@ -243,9 +240,9 @@ def analyze(
         "interpretation": (
             "Correct-count margin is the primary effect-size readout. Confidence "
             "intervals and sign-flip p-values are retained, but the diagnostic "
-            "ranking is based on the sealed mean effect. Grammar strata have only "
-            "10/5 seeds and are explicitly diagnostic rather than separate formal "
-            "20/10 experiments."
+            "ranking is based on the sealed mean effect. Grammar strata are "
+            "diagnostic subdivisions of the frozen overall panel rather than "
+            "separate experiments."
         ),
     }
     audit = {
