@@ -46,6 +46,8 @@ reports/*_diagnostic/
 # release local/Drive rather than committing any part of the report tree.
 reports/
 report/
+/analyses/steering_run_analysis/
+/tmp/
 
 # Machine-local scratch, downloaded snapshots, resumable GPU captures, and
 # temporary audits. Durable code belongs in src/, scripts/, tests/, or infra/;

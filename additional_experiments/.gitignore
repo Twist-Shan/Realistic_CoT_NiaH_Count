@@ -2,3 +2,5 @@ runs/
 bundles/
 __pycache__/
 .pytest_cache/
+STATUS.json
+GPU_ENVIRONMENT_*.md
