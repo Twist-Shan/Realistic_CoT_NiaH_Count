@@ -42,11 +42,14 @@ MODEL_CONFIG_MAX_POSITION_EMBEDDINGS = {
 MODEL_CONTEXT_ENGINE_OVERRIDES = {
     "Gemma4-31B": {},
     "Qwen3-32B": {
-        "rope_scaling": {
-            "rope_type": "yarn",
-            "factor": 4.0,
-            "original_max_position_embeddings": 32_768,
-        }
+        "hf_overrides": {
+            "rope_parameters": {
+                "rope_type": "yarn",
+                "factor": 4.0,
+                "original_max_position_embeddings": 32_768,
+                "rope_theta": 1_000_000,
+            },
+        },
     },
 }
 PREFLIGHT_LENGTH = 100_000
@@ -119,11 +122,16 @@ def validate_spec() -> None:
         raise ValueError("The registered engine budget cannot cover preflight")
     if MODEL_CONFIG_MAX_POSITION_EMBEDDINGS["Gemma4-31B"] < MAX_MODEL_LEN:
         raise ValueError("Gemma engine context exceeds its immutable config")
-    qwen_rope = MODEL_CONTEXT_ENGINE_OVERRIDES["Qwen3-32B"].get("rope_scaling")
+    qwen_rope = (
+        MODEL_CONTEXT_ENGINE_OVERRIDES["Qwen3-32B"]
+        .get("hf_overrides", {})
+        .get("rope_parameters")
+    )
     if qwen_rope != {
         "rope_type": "yarn",
         "factor": 4.0,
         "original_max_position_embeddings": 32_768,
+        "rope_theta": 1_000_000,
     }:
         raise ValueError("Qwen3-32B requires the registered YaRN override")
     if not (

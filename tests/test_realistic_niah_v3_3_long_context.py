@@ -286,10 +286,14 @@ def test_vllm_runtime_forwards_registered_qwen_yarn(monkeypatch) -> None:
     )
     assert captured["max_model_len"] == 131_072
     assert captured["tensor_parallel_size"] == 2
-    assert captured["rope_scaling"] == {
-        "rope_type": "yarn",
-        "factor": 4.0,
-        "original_max_position_embeddings": 32_768,
+    assert "rope_scaling" not in captured
+    assert captured["hf_overrides"] == {
+        "rope_parameters": {
+            "rope_type": "yarn",
+            "factor": 4.0,
+            "original_max_position_embeddings": 32_768,
+            "rope_theta": 1_000_000,
+        },
     }
     assert runtime.engine_overrides == MODEL_CONTEXT_ENGINE_OVERRIDES["Qwen3-32B"]
 
